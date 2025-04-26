@@ -1,0 +1,95 @@
+export default {
+  // Common
+  appName: 'مذكراتي',
+  loading: 'جاري التحميل...',
+  save: 'حفظ',
+  cancel: 'إلغاء',
+  delete: 'حذف',
+  edit: 'تعديل',
+  create: 'إنشاء',
+  search: 'بحث',
+  back: 'رجوع',
+  next: 'التالي',
+  done: 'تم',
+  success: 'تم بنجاح',
+  error: 'خطأ',
+  
+  // Auth
+  login: 'تسجيل الدخول',
+  signUp: 'إنشاء حساب',
+  logout: 'تسجيل الخروج',
+  loginWithGoogle: 'المتابعة باستخدام جوجل',
+  loginWithFacebook: 'المتابعة باستخدام فيسبوك',
+  welcomeBack: 'مرحبًا بعودتك',
+  loginSubtitle: 'سجل الدخول للوصول إلى حسابك',
+  
+  // Onboarding
+  onboardingTitle1: 'أنشئ أطروحتك',
+  onboardingDesc1: 'قم بتحميل وإدارة جميع مستندات الأطروحة في مكان واحد.',
+  onboardingTitle2: 'تنسيق تلقائي',
+  onboardingDesc2: 'إنشاء جدول المحتويات والرؤوس وأرقام الصفحات تلقائيًا.',
+  onboardingTitle3: 'ركز على المحتوى',
+  onboardingDesc3: 'دعنا نتعامل مع التنسيق بينما تركز على بحثك.',
+  getStarted: 'ابدأ الآن',
+  skip: 'تخطي',
+  
+  // Dashboard
+  myTheses: 'أطروحاتي',
+  noTheses: 'لم تقم بإنشاء أي مشاريع أطروحة بعد.',
+  createThesis: 'إنشاء أطروحة جديدة',
+  thesisCreated: 'تم إنشاء مشروع الأطروحة بنجاح!',
+  
+  // Thesis Creation
+  newThesis: 'أطروحة جديدة',
+  thesisTitle: 'عنوان الأطروحة',
+  thesisDescription: 'وصف',
+  thesisSubject: 'الموضوع',
+  thesisSupervisor: 'المشرف',
+  
+  // Document Management
+  documents: 'المستندات',
+  addDocument: 'إضافة مستند',
+  uploadDocument: 'تحميل مستند',
+  mergeDocuments: 'دمج المستندات',
+  removeDocument: 'إزالة المستند',
+  documentAdded: 'تمت إضافة المستند بنجاح',
+  documentRemoved: 'تمت إزالة المستند',
+  noDocuments: 'لم تتم إضافة أي مستندات بعد.',
+  selectDocuments: 'حدد المستندات المراد دمجها',
+  
+  // Document Formatting
+  formatting: 'التنسيق',
+  tableOfContents: 'جدول المحتويات',
+  pageNumbering: 'ترقيم الصفحات',
+  headerFooter: 'الرأس والتذييل',
+  referenceStyle: 'نمط المراجع',
+  applyToDocument: 'تطبيق على المستند',
+  generating: 'جاري الإنشاء...',
+  generatingToc: 'جاري إنشاء جدول المحتويات...',
+  
+  // References
+  references: 'المراجع',
+  addReference: 'إضافة مرجع',
+  editReference: 'تعديل المرجع',
+  referenceType: 'نوع المرجع',
+  author: 'المؤلف',
+  title: 'العنوان',
+  year: 'السنة',
+  url: 'الرابط',
+  journal: 'المجلة',
+  
+  // Settings
+  settings: 'الإعدادات',
+  language: 'اللغة',
+  english: 'English',
+  arabic: 'العربية',
+  account: 'الحساب',
+  accountSettings: 'إعدادات الحساب',
+  notification: 'الإشعارات',
+  theme: 'المظهر',
+  about: 'حول التطبيق',
+  feedback: 'إرسال ملاحظات',
+  privacyPolicy: 'سياسة الخصوصية',
+  termsOfService: 'شروط الخدمة',
+  version: 'الإصدار',
+};
