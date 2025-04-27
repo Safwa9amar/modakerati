@@ -70,6 +70,45 @@ const colors = {
   transparent: 'transparent',
 };
 
+// Light and dark color palettes
+const lightColors = {
+  ...colors,
+  background: {
+    main: '#F9FAFB',
+    secondary: '#E5E7EB',
+  },
+  text: {
+    main: '#111827',
+    secondary: '#6B7280',
+  },
+};
+
+const darkColors = {
+  ...colors,
+  background: {
+    main: '#18181b', // much darker for dark mode
+    secondary: '#27272a',
+  },
+  text: {
+    main: '#F9FAFB', // light text for dark bg
+    secondary: '#A1A1AA',
+  },
+  gray: {
+    50: '#18181b',
+    100: '#27272a',
+    200: '#3f3f46',
+    300: '#52525b',
+    400: '#71717a',
+    500: '#a1a1aa',
+    600: '#d4d4d8',
+    700: '#e4e4e7',
+    800: '#f4f4f5',
+    900: '#fafafa',
+  },
+  white: '#18181b',
+  black: '#fafafa',
+};
+
 // Font sizes with 8px spacing system
 const typography = {
   fontSizes: {
@@ -123,16 +162,20 @@ const radius = {
 
 export function ThemeProvider({ children }) {
   const [isRTL, setIsRTL] = useState(false);
-  
+  const [mode, setMode] = useState('light'); // 'light' or 'dark'
+
   const theme = {
-    colors,
+    colors: mode === 'dark' ? darkColors : lightColors,
     typography,
     spacing,
     radius,
     isRTL,
     setIsRTL,
+    mode,
+    setMode,
+    toggleMode: () => setMode((prev) => (prev === 'light' ? 'dark' : 'light')),
   };
-  
+
   return (
     <ThemeContext.Provider value={theme}>
       {children}

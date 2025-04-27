@@ -12,7 +12,7 @@ export default function Login() {
   const { t } = useTranslation();
   const styles = useStyles();
   const [isSigningIn, setIsSigningIn] = useState(false);
-  
+
   const handleGoogleSignIn = async () => {
     try {
       setIsSigningIn(true);
@@ -23,7 +23,7 @@ export default function Login() {
       setIsSigningIn(false);
     }
   };
-  
+
   const handleFacebookSignIn = async () => {
     try {
       setIsSigningIn(true);
@@ -34,24 +34,19 @@ export default function Login() {
       setIsSigningIn(false);
     }
   };
-  
+
   return (
     <View style={styles.container}>
       <View style={styles.logoContainer}>
-        <LogIn size={60} color="#2563EB" style={styles.logoIcon} />
-        <Text style={styles.appName}>{t('appName')}</Text>
-      </View>
-      
-      <View style={styles.contentContainer}>
-        <Text style={styles.title}>{t('welcomeBack')}</Text>
+         <Text style={styles.title}>{t('welcomeBack')}</Text>
         <Text style={styles.subtitle}>{t('loginSubtitle')}</Text>
-        
-        <Image
-          source={{ uri: 'https://images.pexels.com/photos/4143791/pexels-photo-4143791.jpeg?auto=compress&cs=tinysrgb&w=800' }}
-          style={styles.image}
-          resizeMode="cover"
-        />
-        
+        <Image source={require('@/assets/logo.png')} style={styles.logoIcon} />
+      </View>
+
+      <View style={styles.contentContainer}>
+       
+
+      
         <View style={styles.buttonContainer}>
           <Button
             title={t('loginWithGoogle')}
@@ -59,7 +54,7 @@ export default function Login() {
             isLoading={isSigningIn}
             style={styles.button}
           />
-          
+
           <Button
             title={t('loginWithFacebook')}
             onPress={handleFacebookSignIn}
@@ -68,8 +63,8 @@ export default function Login() {
             style={styles.button}
           />
         </View>
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={styles.demoLink}
           onPress={() => router.replace('/(tabs)')}
         >
@@ -84,6 +79,8 @@ const useStyles = createThemedStyles((theme) => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   logoContainer: {
     alignItems: 'center',

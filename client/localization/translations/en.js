@@ -92,4 +92,19 @@ export default {
   privacyPolicy: 'Privacy Policy',
   termsOfService: 'Terms of Service',
   version: 'Version',
+  profile: 'Profile',
+  notifications: 'Notifications',
+  help: 'Help',
+
+  // About Page
+  aboutTitle: 'About Modakerati',
+  aboutIntro: 'Modakerati is the first app designed specifically to support university students in preparing and completing graduation theses with ease and professionalism. We believe that the thesis journey requires smart tools and reliable assistance, so we created Modakerati to be your ideal companion for organizing files, merging chapters, generating automatic tables of contents, and improving references—all with a single touch.',
+  aboutMission: 'Our mission is to simplify your academic journey by providing innovative technical solutions that combine simplicity and efficiency, while also offering freelancers the opportunity to provide support and assistance services.',
+  aboutVision: 'Our vision is to become the leading platform for supporting graduation projects and scientific research in the Arab world, leveraging technology and artificial intelligence.',
+  aboutValuesTitle: 'Our Values:',
+  aboutValueSimplicity: 'Simplicity and Clarity',
+  aboutValueQuality: 'Quality and Professionalism',
+  aboutValueCreativity: 'Support for Academic Creativity',
+  aboutValueEmpowerment: 'Empowering Students and Freelancers',
+  aboutJoin: 'Join the Modakerati community and start your journey towards an outstanding graduation thesis with ease!',
 };
