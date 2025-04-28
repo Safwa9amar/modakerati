@@ -1,4 +1,5 @@
-import { createContext, useContext, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createContext, useContext, useState,useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 
 const ThemeContext = createContext(null);
@@ -163,6 +164,21 @@ const radius = {
 export function ThemeProvider({ children }) {
   const [isRTL, setIsRTL] = useState(false);
   const [mode, setMode] = useState('light'); // 'light' or 'dark'
+
+  // Load theme mode from AsyncStorage on mount
+  useEffect(() => {
+    (async () => {
+      const savedMode = await AsyncStorage.getItem('theme_mode');
+      if (savedMode === 'light' || savedMode === 'dark') {
+        setMode(savedMode);
+      }
+    })();
+  }, []);
+
+  // Save theme mode to AsyncStorage when it changes
+  useEffect(() => {
+    AsyncStorage.setItem('theme_mode', mode);
+  }, [mode]);
 
   const theme = {
     colors: mode === 'dark' ? darkColors : lightColors,

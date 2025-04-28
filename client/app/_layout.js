@@ -6,10 +6,16 @@ import { ThesisProvider } from '@/hooks/useThesis';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { I18nProvider } from '@/localization/i18nProvider';
 import { useThesisStoreInit } from '../store/useThesisStore';
-
+import { useAuthStore } from '@/store/useAuthStore';
+import { useEffect, useRef } from 'react';
 export default function RootLayout() {
   useFrameworkReady();
   useThesisStoreInit();
+  const { init } = useAuthStore();
+
+  useEffect(() => {
+    init();
+  }, []);
 
   return (
     <ThemeProvider>
@@ -39,4 +45,3 @@ export default function RootLayout() {
     </ThemeProvider>
   );
 }
-

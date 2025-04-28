@@ -45,6 +45,7 @@ export default function DocumentsScreen() {
       if (document) {
         const savedDocument = await saveDocumentToProject(activeProjectId, document);
         // Now add this document to the project in state
+        
         await addDocumentToProject(savedDocument);
       }
     } catch (error) {

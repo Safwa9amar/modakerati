@@ -1,0 +1,16 @@
+export default {
+  firebase_email_already_in_use: 'هذا البريد الإلكتروني مستخدم بالفعل.',
+  firebase_invalid_email: 'عنوان البريد الإلكتروني غير صالح.',
+  firebase_user_disabled: 'تم تعطيل حساب المستخدم هذا.',
+  firebase_user_not_found: 'لا يوجد مستخدم بهذا البريد الإلكتروني.',
+  firebase_wrong_password: 'كلمة المرور غير صحيحة.',
+  firebase_weak_password: 'يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.',
+  firebase_too_many_requests: 'عدد كبير من المحاولات. يرجى المحاولة لاحقًا.',
+  firebase_network_request_failed: 'خطأ في الشبكة. يرجى التحقق من الاتصال.',
+  firebase_popup_closed_by_user: 'تم إغلاق نافذة تسجيل الدخول.',
+  firebase_cancelled_popup_request: 'تم إلغاء تسجيل الدخول.',
+  firebase_invalid_credential: 'بيانات الاعتماد المقدمة غير صالحة.',
+  firebase_unknown_error: 'حدث خطأ غير معروف.',
+  developerInfo: 'معلومات المطور',
+  locationLabel: 'الموقع',
+};

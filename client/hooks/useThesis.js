@@ -7,11 +7,10 @@ const ThesisContext = createContext();
 export function ThesisProvider({ children }) {
   const [projects, setProjects] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-
   useEffect(() => {
     loadProjects();
   }, []);
-
+  
   const loadProjects = async () => {
     try {
       const projectsJSON = await AsyncStorage.getItem('thesis_projects');

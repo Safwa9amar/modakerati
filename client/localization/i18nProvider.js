@@ -4,8 +4,9 @@ import * as Localization from 'expo-localization';
 import { useTheme } from '@/components/ThemeProvider';
 
 // Import translations
-import en from './translations/en';
-import ar from './translations/ar';
+import en from './translations/english/index';
+
+import ar from "./translations/arabic/index"
 
 const i18n = new I18n({
   en,

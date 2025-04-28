@@ -146,11 +146,7 @@ export default function DashboardScreen() {
           <View style={styles.emptyContainer}>
             <FileText size={80} color={theme.colors.gray[300]} />
             <Text style={styles.emptyText}>{t('noTheses')}</Text>
-            <Button
-              title={t('createThesis')}
-              onPress={navigateToNewProject}
-              style={styles.createButton}
-            />
+            
           </View>
         ) : (
           <FlatList

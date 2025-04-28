@@ -1,29 +1,39 @@
-import { View, Text, StyleSheet, Switch, ScrollView, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Switch,
+  ScrollView,
+  TouchableOpacity,
+  ToastAndroid,
+} from 'react-native';
 import { useState, useEffect } from 'react';
 import { useTranslation } from '@/localization/i18nProvider';
 import { useAuth } from '@/hooks/useAuth';
 import { createThemedStyles, useTheme } from '@/components/ThemeProvider';
 import Button from '@/components/common/Button';
 import Card from '@/components/common/Card';
-import { 
-  LogOut, 
-  Globe, 
-  Bell, 
-  User, 
-  Moon, 
-  HelpCircle, 
-  MessageSquare, 
-  Shield, 
+import {
+  LogOut,
+  Globe,
+  Bell,
+  User,
+  Moon,
+  HelpCircle,
+  MessageSquare,
+  Shield,
   FileText,
-  ChevronRight 
+  ChevronRight,
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useAuthStore } from '@/store/useAuthStore';
 
 export default function SettingsScreen() {
   const { t, locale, changeLanguage } = useTranslation();
-  const { user, signOut } = useAuth();
+  const { user, logout } = useAuthStore();
   const theme = useTheme();
+  const isRTL = theme.isRTL;
   const styles = useStyles();
   const router = useRouter();
   const [notifications, setNotifications] = useState(true);
@@ -35,96 +45,168 @@ export default function SettingsScreen() {
   }, [darkMode]);
 
   const handleSignOut = () => {
-    signOut();
+    logout();
+    router.push('/auth/login');
   };
-  
+
   const handleLanguageChange = () => {
     changeLanguage(locale === 'en' ? 'ar' : 'en');
   };
-  
-  const renderSettingItem = (icon, title, rightContent, onPress, showBorder = true) => {
+
+  const renderSettingItem = (
+    icon,
+    title,
+    rightContent,
+    onPress,
+    showBorder = true
+  ) => {
     const ItemComponent = onPress ? TouchableOpacity : View;
     return (
       <ItemComponent
         style={[
           styles.settingItem,
           showBorder && styles.settingItemBorder,
-          theme.isRTL && { flexDirection: 'row-reverse' }
+          theme.isRTL && { flexDirection: 'row-reverse' },
         ]}
         onPress={onPress}
         activeOpacity={onPress ? 0.7 : 1}
       >
-        <View style={[styles.settingIconTitle, theme.isRTL && { flexDirection: 'row-reverse' }]}> 
+        <View
+          style={[
+            styles.settingIconTitle,
+            theme.isRTL && { flexDirection: 'row-reverse' },
+          ]}
+        >
           {icon}
           <Text style={styles.settingTitle}>{title}</Text>
         </View>
         {onPress ? (
-          <View style={[styles.settingAction, theme.isRTL && { flexDirection: 'row-reverse' }]}> 
+          <View
+            style={[
+              styles.settingAction,
+              theme.isRTL && { flexDirection: 'row-reverse' },
+            ]}
+          >
             {rightContent}
-            <ChevronRight 
-              size={20} 
-              color={theme.colors.gray[400]} 
+            <ChevronRight
+              size={20}
+              color={theme.colors.gray[400]}
               style={theme.isRTL ? { transform: [{ rotate: '180deg' }] } : null}
             />
           </View>
         ) : (
-          <View style={styles.settingAction}> 
-            {rightContent}
-          </View>
+          <View style={styles.settingAction}>{rightContent}</View>
         )}
       </ItemComponent>
     );
   };
-  
+
   return (
     <>
-      <StatusBar style={theme.mode === 'dark' ? 'light' : 'dark'} backgroundColor={theme.colors.gray[50]} />
+      <StatusBar
+        style={theme.mode === 'dark' ? 'light' : 'dark'}
+        backgroundColor={theme.colors.gray[50]}
+      />
       <ScrollView style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>{t('settings')}</Text>
+          <Text style={[styles.headerTitle, isRTL ? {textAlign : "right"} : {}]}>{t('settings')}</Text>
         </View>
-        <Card style={styles.userCard}>
+        {user && <Card style={styles.userCard}>
           <View style={styles.userInfo}>
             <View style={styles.userAvatar}>
               <Text style={styles.userInitials}>
-                {user ? user.name.substring(0, 2).toUpperCase() : 'G'}
+                {user ? user.displayName?.substring(0, 2).toUpperCase() : 'G'}
               </Text>
             </View>
             <View style={styles.userDetails}>
-              <Text style={styles.userName}>{user ? user.name : 'Guest User'}</Text>
-              <Text style={styles.userEmail}>{user ? user.email : 'guest@example.com'}</Text>
+              <Text style={styles.userName}>
+                {user ? user.displayName : 'Guest User'}
+              </Text>
+              <Text style={styles.userEmail}>
+                {user ? user.email : 'guest@example.com'}
+              </Text>
             </View>
           </View>
+        </Card>}
+        <Card style={styles.settingsCard}>
+          {renderSettingItem(
+            <Globe size={20} color={theme.colors.primary[600]} />,
+            t('language'),
+            <Text style={styles.settingValue}>
+              {locale === 'en' ? 'English' : 'العربية'}
+            </Text>,
+            handleLanguageChange
+          )}
+          {renderSettingItem(
+            <Bell size={20} color={theme.colors.secondary[600]} />,
+            t('notification'),
+            null,
+            () => router.push('/(tabs)/(settings)/notification')
+          )}
+          {renderSettingItem(
+            <Moon size={20} color={theme.colors.secondary[600]} />,
+            t('theme'),
+            <Switch
+              value={darkMode}
+              onValueChange={setDarkMode}
+              trackColor={{
+                false: theme.colors.gray[300],
+                true: theme.colors.primary[500],
+              }}
+              thumbColor={theme.colors.white}
+            />,
+            null
+          )}
+          {renderSettingItem(
+            <User size={20} color={theme.colors.accent[600]} />,
+            t('account'),
+            null,
+            () => user ? router.push('/(tabs)/(settings)/account') : ToastAndroid.show(t('loginRequired'), ToastAndroid.SHORT),
+            false
+          )}
         </Card>
         <Card style={styles.settingsCard}>
           {renderSettingItem(
-            <Globe size={20} color={theme.colors.primary[600]} />, t('language'), <Text style={styles.settingValue}>{locale === 'en' ? 'English' : 'العربية'}</Text>, handleLanguageChange
+            <Shield size={20} color={theme.colors.primary[600]} />,
+            t('privacyPolicy'),
+            null,
+            () => router.push('/(tabs)/(settings)/privacyPolicy')
           )}
           {renderSettingItem(
-            <Bell size={20} color={theme.colors.secondary[600]} />, t('notification'), null, () => router.push('/(tabs)/(settings)/notification')
+            <FileText size={20} color={theme.colors.primary[600]} />,
+            t('termsOfService'),
+            null,
+            () => router.push('/(tabs)/(settings)/termsOfService')
           )}
           {renderSettingItem(
-            <Moon size={20} color={theme.colors.secondary[600]} />, t('theme'), <Switch value={darkMode} onValueChange={setDarkMode} trackColor={{ false: theme.colors.gray[300], true: theme.colors.primary[500] }} thumbColor={theme.colors.white} />, null
+            <MessageSquare size={20} color={theme.colors.secondary[600]} />,
+            t('feedback'),
+            null,
+            () => router.push('/(tabs)/(settings)/feedback')
           )}
           {renderSettingItem(
-            <User size={20} color={theme.colors.accent[600]} />, t('account'), null, () => router.push('/(tabs)/(settings)/account'), false
+            <HelpCircle size={20} color={theme.colors.accent[600]} />,
+            t('about'),
+            <Text style={styles.versionText}>{t('version')} 1.0.0</Text>,
+            () => router.push('/(tabs)/(settings)/about'),
+            false
           )}
         </Card>
-        <Card style={styles.settingsCard}>
-          {renderSettingItem(
-            <Shield size={20} color={theme.colors.primary[600]} />, t('privacyPolicy'), null, () => router.push('/(tabs)/(settings)/privacyPolicy')
-          )}
-          {renderSettingItem(
-            <FileText size={20} color={theme.colors.primary[600]} />, t('termsOfService'), null, () => router.push('/(tabs)/(settings)/termsOfService')
-          )}
-          {renderSettingItem(
-            <MessageSquare size={20} color={theme.colors.secondary[600]} />, t('feedback'), null, () => router.push('/(tabs)/(settings)/feedback')
-          )}
-          {renderSettingItem(
-            <HelpCircle size={20} color={theme.colors.accent[600]} />, t('about'), <Text style={styles.versionText}>{t('version')} 1.0.0</Text>, () => router.push('/(tabs)/(settings)/about'), false
-          )}
-        </Card>
-        <Button title={t('logout')} leftIcon={<LogOut size={20} color={theme.colors.white} />} onPress={handleSignOut} variant="primary" style={styles.logoutButton} />
+       {!user ? 
+        <Button
+          title={t('login')}
+          rightIcon={<LogOut size={20} color={theme.colors.white} />}
+          onPress={() => router.push('/auth/login')}
+          variant="secondary"
+          style={styles.logoutButton}
+        />
+        : <Button
+          title={t('logout')}
+          rightIcon={<LogOut size={20} color={theme.colors.white} />}
+          onPress={handleSignOut}
+          variant="primary"
+          style={styles.logoutButton}
+        />}
       </ScrollView>
     </>
   );
@@ -136,9 +218,6 @@ const useStyles = createThemedStyles((theme) => ({
     backgroundColor: theme.colors.gray[50],
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: theme.spacing[4],
     paddingTop: theme.spacing[12],
     paddingBottom: theme.spacing[4],

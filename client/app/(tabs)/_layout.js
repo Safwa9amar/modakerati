@@ -4,14 +4,8 @@ import {
   Home,
   FileText,
   Settings,
-  User,
-  Bell,
-  HelpCircle,
-  Info,
 } from 'lucide-react-native';
 import { useTheme } from '@/components/ThemeProvider';
-import { StyleSheet, View } from 'react-native';
-import { Image } from 'react-native';
 
 export default function TabLayout() {
   const { t } = useTranslation();
@@ -40,7 +34,6 @@ export default function TabLayout() {
           fontWeight: '500',
         },
         headerShown: false,
-      
       }}
     >
       <Tabs.Screen
@@ -59,6 +52,15 @@ export default function TabLayout() {
           ),
         }}
       />
+      {/* <Tabs.Screen
+        name="freelance"
+        options={{
+          title: t('freelance'),
+          tabBarIcon: ({ color, size }) => (
+            <FileText size={size} color={color} />
+          ),
+        }}
+      /> */}
       <Tabs.Screen
         name="(settings)"
         options={{
@@ -71,5 +73,3 @@ export default function TabLayout() {
     </Tabs>
   );
 }
-
-

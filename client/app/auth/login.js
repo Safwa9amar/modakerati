@@ -1,35 +1,35 @@
-import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  Image,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+} from 'react-native';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuthStore } from '@/store/useAuthStore';
 import { useTranslation } from '@/localization/i18nProvider';
 import Button from '@/components/common/Button';
 import { createThemedStyles, useTheme } from '@/components/ThemeProvider';
-import { LogIn } from 'lucide-react-native';
-
+import AntDesign from '@expo/vector-icons/AntDesign';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 export default function Login() {
-  const { signInWithGoogle, signInWithFacebook } = useAuth();
   const { t } = useTranslation();
   const styles = useStyles();
+  const theme = useTheme();
+  const { login, loading, error, signInWithGoogleCredential } = useAuthStore();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
 
-  const handleGoogleSignIn = async () => {
-    try {
-      setIsSigningIn(true);
-      await signInWithGoogle();
-    } catch (error) {
-      console.error('Google sign in error:', error);
-    } finally {
-      setIsSigningIn(false);
-    }
-  };
-
   const handleFacebookSignIn = async () => {
+    setIsSigningIn(true);
     try {
-      setIsSigningIn(true);
-      await signInWithFacebook();
+      // TODO: Integrate Facebook sign-in with Firebase Auth and Zustand
+      alert('Facebook sign-in is not yet implemented.');
     } catch (error) {
-      console.error('Facebook sign in error:', error);
+      alert(error.message);
     } finally {
       setIsSigningIn(false);
     }
@@ -38,32 +38,74 @@ export default function Login() {
   return (
     <View style={styles.container}>
       <View style={styles.logoContainer}>
-         <Text style={styles.title}>{t('welcomeBack')}</Text>
+        <Image
+          source={require('@/assets/fullLogo.png')}
+          style={styles.logoIcon}
+        />
+        <Text style={styles.title}>{t('welcomeBack')}</Text>
         <Text style={styles.subtitle}>{t('loginSubtitle')}</Text>
-        <Image source={require('@/assets/logo.png')} style={styles.logoIcon} />
       </View>
-
       <View style={styles.contentContainer}>
-       
-
-      
-        <View style={styles.buttonContainer}>
-          <Button
-            title={t('loginWithGoogle')}
-            onPress={handleGoogleSignIn}
-            isLoading={isSigningIn}
-            style={styles.button}
+        <View style={styles.inputCard}>
+          <TextInput
+            style={styles.input}
+            placeholder={t('email')}
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            placeholderTextColor={theme.colors.gray[400]}
           />
-
-          <Button
-            title={t('loginWithFacebook')}
-            onPress={handleFacebookSignIn}
-            isLoading={isSigningIn}
-            variant="secondary"
-            style={styles.button}
+          <TextInput
+            style={styles.input}
+            placeholder={t('newPassword')}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            placeholderTextColor={theme.colors.gray[400]}
           />
         </View>
+        {error && <Text style={styles.error}>{error}</Text>}
+        <Button
+          title={t('login')}
+          onPress={async () => {
+            await login(email, password);
+            if (!useAuthStore.getState().error) {
+              router.replace('/(tabs)');
+            }
+          }}
+          isLoading={loading}
+          style={styles.button}
+        />
+        <TouchableOpacity
+          onPress={() => router.replace('/auth/register')}
+          style={styles.linkContainer}
+        >
+          <Text style={styles.link}>{t('signUp')}</Text>
+        </TouchableOpacity>
+        <View style={styles.dividerRow}>
+          <View style={styles.divider} />
+          <Text style={styles.dividerText}>{t('or')}</Text>
+          <View style={styles.divider} />
+        </View>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity
+            disabled={isSigningIn}
+            style={styles.googleBtn}
+            onPress={signInWithGoogleCredential}
+          >
+            <AntDesign name="google" size={24} color="red" />
+          </TouchableOpacity>
 
+          <TouchableOpacity
+            disabled={isSigningIn}
+            style={styles.googleBtn}
+            onPress={handleFacebookSignIn}
+          >
+            <FontAwesome5 name="facebook" size={24} color="black" />
+          </TouchableOpacity>
+          
+        </View>
         <TouchableOpacity
           style={styles.demoLink}
           onPress={() => router.replace('/(tabs)')}
@@ -78,60 +120,147 @@ export default function Login() {
 const useStyles = createThemedStyles((theme) => ({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.white,
+    backgroundColor: theme.colors.background.main,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  title: {
+    fontSize: theme.typography.fontSizes.xl,
+    fontWeight: theme.typography.fontWeights.bold,
+    color: theme.colors.text.main,
+    marginBottom: theme.spacing[2],
+  },
+  subtitle: {
+    fontSize: theme.typography.fontSizes.md,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: theme.spacing[4],
+  },
   logoContainer: {
     alignItems: 'center',
-    marginTop: theme.spacing[12],
+    marginTop: theme.spacing[10],
+    marginBottom: theme.spacing[2],
   },
   logoIcon: {
     marginBottom: theme.spacing[2],
-  },
-  appName: {
-    fontSize: theme.typography.fontSizes['2xl'],
-    fontWeight: theme.typography.fontWeights.bold,
-    color: theme.colors.primary[600],
+    shadowColor: theme.colors.primary[100],
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
   },
   contentContainer: {
-    flex: 1,
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
     paddingHorizontal: theme.spacing[6],
-    paddingTop: theme.spacing[8],
+    paddingTop: theme.spacing[4],
     alignItems: 'center',
   },
-  title: {
-    fontSize: theme.typography.fontSizes['3xl'],
-    fontWeight: theme.typography.fontWeights.bold,
-    color: theme.colors.gray[900],
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: theme.typography.fontSizes.lg,
-    color: theme.colors.gray[600],
-    textAlign: 'center',
-    marginTop: theme.spacing[2],
-    marginBottom: theme.spacing[6],
-  },
-  image: {
+  inputCard: {
     width: '100%',
-    height: 250,
+    backgroundColor: theme.colors.white,
     borderRadius: theme.radius.lg,
-    marginBottom: theme.spacing[8],
+    padding: theme.spacing[5],
+    marginBottom: theme.spacing[4],
+    shadowColor: theme.colors.primary[100],
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  buttonContainer: {
-    width: '100%',
+  input: {
+    height: 48,
+    borderColor: theme.colors.primary[100],
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.spacing[4],
+    marginBottom: theme.spacing[3],
+    backgroundColor: theme.colors.background.secondary,
+    color: theme.colors.text.main,
+    fontSize: theme.typography.fontSizes.md,
+  },
+  error: {
+    color: theme.colors.error[600],
+    marginBottom: theme.spacing[2],
+    textAlign: 'center',
   },
   button: {
-    marginBottom: theme.spacing[4],
+    width: 200,
+    marginBottom: theme.spacing[3],
+    borderRadius: theme.radius.md,
+    shadowColor: theme.colors.primary[100],
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    marginBottom: theme.spacing[2],
+  },
+  socialIcon: {
+    width: 22,
+    height: 22,
+    marginRight: theme.spacing[2],
+    resizeMode: 'contain',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginVertical: theme.spacing[2],
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.colors.gray[200],
+  },
+  dividerText: {
+    marginHorizontal: theme.spacing[2],
+    color: theme.colors.gray[400],
+    fontSize: theme.typography.fontSizes.sm,
+    fontWeight: theme.typography.fontWeights.medium,
   },
   demoLink: {
-    marginTop: theme.spacing[4],
+    marginTop: theme.spacing[2],
     paddingVertical: theme.spacing[2],
   },
   demoText: {
     fontSize: theme.typography.fontSizes.md,
+    color: theme.colors.primary[400],
+    textDecorationLine: 'underline',
+    textAlign: 'center',
+  },
+  linkContainer: {
+    marginBottom: theme.spacing[2],
+  },
+  link: {
     color: theme.colors.primary[600],
     textDecorationLine: 'underline',
+    textAlign: 'center',
+    fontWeight: theme.typography.fontWeights.bold,
+  },
+  googleBtn: {
+    borderWidth: 1,
+    borderRadius: theme.radius.full,
+    padding: theme.spacing[3],
+    marginBottom: theme.spacing[2],
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 60,
+    height: 60,
+    borderColor: theme.colors.gray[200],
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    width: '100%',
+    marginBottom: theme.spacing[2],
+    gap : theme.spacing[4],
   },
 }));
