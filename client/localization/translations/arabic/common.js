@@ -38,4 +38,6 @@ export default {
   budget: 'الميزانية',
   category: 'التصنيف',
   not_found: 'الطلب غير موجود',
+
+
 };

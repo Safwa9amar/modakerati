@@ -40,4 +40,6 @@ export default {
   budget: 'Budget',
   category: 'Category',
   not_found: 'Request not found',
+
+
 };

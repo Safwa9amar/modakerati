@@ -2,26 +2,29 @@ import { View, Text, Image, StyleSheet, useWindowDimensions } from 'react-native
 import { useRef, useState } from 'react';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Button from '@/components/common/Button';
-import { createThemedStyles, useTheme } from '@/components/ThemeProvider';
-import { useTranslation } from '@/localization/i18nProvider';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
+import Button from '@/components/common/Button';
+import { createThemedStyles } from '@/components/ThemeProvider';
+import { useTranslation } from '@/localization/i18nProvider';
+import { useTheme } from '@react-navigation/native';
 
 const onboardingData = [
   {
     title: 'onboardingTitle1',
     description: 'onboardingDesc1',
-    image: 'https://images.pexels.com/photos/4458554/pexels-photo-4458554.jpeg?auto=compress&cs=tinysrgb&w=800',
+    image: require("@/assets/images/onboarding1.jpeg"),
   },
   {
     title: 'onboardingTitle2',
     description: 'onboardingDesc2',
-    image: 'https://images.pexels.com/photos/4240505/pexels-photo-4240505.jpeg?auto=compress&cs=tinysrgb&w=800',
+    image: require("@/assets/images/onboarding2.jpeg"),
+
   },
   {
     title: 'onboardingTitle3',
     description: 'onboardingDesc3',
-    image: 'https://images.pexels.com/photos/4050315/pexels-photo-4050315.jpeg?auto=compress&cs=tinysrgb&w=800',
+    image: require("@/assets/images/onboarding3.jpeg"),
+
   },
 ];
 
@@ -66,7 +69,7 @@ export default function Onboarding() {
   return (
     <View style={styles.container}>
       <View style={styles.skipContainer}>
-        <Button 
+        <Button
           title={t('skip')}
           variant="ghost"
           size="sm"
@@ -84,7 +87,7 @@ export default function Onboarding() {
             ]}
           >
             <Image 
-              source={{ uri: item.image }} 
+              source={item.image } 
               style={styles.image}
               resizeMode="cover"
             />

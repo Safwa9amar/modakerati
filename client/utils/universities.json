@@ -1,0 +1,693 @@
+[
+  {
+    "Province": "Other",
+    "UniversityName": "Other",
+    "Established": 1986,
+    "Type": "Public",
+    "Website": [
+      1
+    ]
+  },
+  {
+    "Province": "Adrar",
+    "UniversityName": "University of Ahmed Draia",
+    "Established": 1986,
+    "Type": "Public",
+    "Website": [
+      1
+    ]
+  },
+  {
+    "Province": "Aïn Defla",
+    "UniversityName": "Djilali Bounaama University of Khemis Miliana",
+    "Established": 1991,
+    "Type": "Public",
+    "Website": "[2] (in Arabic)"
+  },
+  {
+    "Province": "Aïn Témouchent",
+    "UniversityName": "Belhadj Bouchaib University Centre of Ain Témouchent",
+    "Established": "",
+    "Type": "Public",
+    "Website": [
+      3
+    ]
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "Benyoucef Benkhedda University of Algiers",
+    "Established": 1832,
+    "Type": "Public",
+    "Website": "[4] (in French)"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "University of Algiers Abou El Kacem Saadallah",
+    "Established": 2009,
+    "Type": "Public",
+    "Website": "[5] (in Arabic)"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "University of Algiers Brahim Soltane Chaibout",
+    "Established": 2009,
+    "Type": "Public",
+    "Website": "[6] (in Arabic)"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "University of Science and Technology Houari Boumediene",
+    "Established": 1974,
+    "Type": "Public",
+    "Website": [
+      7
+    ]
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National Higher School of Artificial Intelligence (ENSIA)",
+    "Established": 2021,
+    "Type": "Public",
+    "Website": "https://www.ensia.edu.dz/"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National Higher School of Mathematics (NHSM)",
+    "Established": 2021,
+    "Type": "Public",
+    "Website": "nhsm.edu.dz"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National Polytechnic School",
+    "Established": 1925,
+    "Type": "Public",
+    "Website": "https://www.enp.edu.dz/en/"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National Veterinary School (ENV)",
+    "Established": 1970,
+    "Type": "Public",
+    "Website": "https://www.ensv.dz/"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National Higher School of Agronomy (ENSA)",
+    "Established": 1905,
+    "Type": "Public",
+    "Website": "https://www.ensa.dz/en/"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National School of Computer Science (INI)",
+    "Established": 1969,
+    "Type": "Public",
+    "Website": "https://www.esi.dz/"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "Higher School of Kouba",
+    "Established": "",
+    "Type": "Public",
+    "Website": "https://www.ens-kouba.dz/english/"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National Higher School of Bouzaréah (ENSB)",
+    "Established": 1984,
+    "Type": "Public",
+    "Website": "https://ensb.dz/?lang=en"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National School of Marine and Coastal Sciences (ENSSMAL)",
+    "Established": 2008,
+    "Type": "Public",
+    "Website": "https://www.enssmal.edu.dz/en/home/"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National School of Journalism and Information Sciences",
+    "Established": 2015,
+    "Type": "Public",
+    "Website": "https://ensjsi.dz/en"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National School of Public Works",
+    "Established": 1966,
+    "Type": "Public",
+    "Website": "http://www.entp.edu.dz/ (in French)"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National School of Political Science",
+    "Established": 2009,
+    "Type": "Public",
+    "Website": "https://enssp.dz/en"
+  },
+  {
+    "Province": "Algiers",
+    "UniversityName": "National School of Technology",
+    "Established": 2016,
+    "Type": "Public",
+    "Website": "https://enst.dz/"
+  },
+  {
+    "Province": "Annaba",
+    "UniversityName": "Badji Mokhtar Annaba University",
+    "Established": 1975,
+    "Type": "Public",
+    "Website": "[8] (in French)"
+  },
+  {
+    "Province": "Annaba",
+    "UniversityName": "Higher School of Industrial Technologies",
+    "Established": 2017,
+    "Type": "Public",
+    "Website": ""
+  },
+  {
+    "Province": "Annaba",
+    "UniversityName": "National School of Mines and Metallurgy",
+    "Established": 2009,
+    "Type": "Public",
+    "Website": "https://ensmm-annaba.dz/en/"
+  },
+  {
+    "Province": "Batna",
+    "UniversityName": "Université Colonel Hadj Lakhdar",
+    "Established": 1977,
+    "Type": "Public",
+    "Website": "[9] (in French)"
+  },
+  {
+    "Province": "Batna",
+    "UniversityName": "Mostefa Ben Boulaid University",
+    "Established": 2015,
+    "Type": "Public",
+    "Website": [
+      10
+    ]
+  },
+  {
+    "Province": "Batna",
+    "UniversityName": "National School of Renewable Energy, Environment and Sustainable Development",
+    "Established": "",
+    "Type": "Public",
+    "Website": "http://www.hns-re2sd.dz/en-fr/ (in French)"
+  },
+  {
+    "Province": "Batna",
+    "UniversityName": "University Center of Barika",
+    "Established": 2011,
+    "Type": "Public",
+    "Website": "[11] (in Arabic)"
+  },
+  {
+    "Province": "Béchar",
+    "UniversityName": "University of Tahri Mohammed Béchar",
+    "Established": 1986,
+    "Type": "Public",
+    "Website": "[12] (in French)"
+  },
+  {
+    "Province": "Béchar",
+    "UniversityName": "Higher Normal School of Béchar",
+    "Established": 2015,
+    "Type": "Public",
+    "Website": "https://www.ens-bechar.dz/"
+  },
+  {
+    "Province": "Béjaïa",
+    "UniversityName": "University Abderrahmane Mira of Béjaïa",
+    "Established": 1983,
+    "Type": "Public",
+    "Website": [
+      13
+    ]
+  },
+  {
+    "Province": "Béjaïa",
+    "UniversityName": "Higher School of Computer Science and Technology",
+    "Established": 2016,
+    "Type": "Public",
+    "Website": "https://estin.dz/"
+  },
+  {
+    "Province": "Biskra",
+    "UniversityName": "University of Mohamed Khider Biskra",
+    "Established": 1984,
+    "Type": "Public",
+    "Website": [
+      14
+    ]
+  },
+  {
+    "Province": "Blida",
+    "UniversityName": "Saad Dahlab University of Blida",
+    "Established": 1977,
+    "Type": "Public",
+    "Website": "[15] (in French)"
+  },
+  {
+    "Province": "Blida",
+    "UniversityName": "Ali Lounici University of Blida",
+    "Established": 2011,
+    "Type": "Public",
+    "Website": "[16] (in Arabic)"
+  },
+  {
+    "Province": "Blida",
+    "UniversityName": "National Superior School of Hydraulics (ENSH)",
+    "Established": 1985,
+    "Type": "Public",
+    "Website": "https://www.ensh.dz/en/home/"
+  },
+  {
+    "Province": "Bordj Bou Arréridj",
+    "UniversityName": "University of Bordj Bou Arréridj",
+    "Established": 2000,
+    "Type": "Public",
+    "Website": "[17] (in French)"
+  },
+  {
+    "Province": "Bouïra",
+    "UniversityName": "Akli Mohand Oulhadj University of Bouïra",
+    "Established": 2001,
+    "Type": "Public",
+    "Website": "[18] (in French)"
+  },
+  {
+    "Province": "Boumerdès",
+    "UniversityName": "M'hamed Bougara University of Boumerdès",
+    "Established": 1964,
+    "Type": "Public",
+    "Website": "[19] (in French)"
+  },
+  {
+    "Province": "Chlef",
+    "UniversityName": "Hassiba Benbouali University of Chlef",
+    "Established": 1983,
+    "Type": "Public",
+    "Website": "[20] (in French)"
+  },
+  {
+    "Province": "Constantine",
+    "UniversityName": "Mentouri Université Constantine 1",
+    "Established": 1958,
+    "Type": "Public",
+    "Website": [
+      21
+    ]
+  },
+  {
+    "Province": "Constantine",
+    "UniversityName": "Abdelhamid Mehri Université Constantine 2",
+    "Established": 2011,
+    "Type": "Public",
+    "Website": "[22] (in French)"
+  },
+  {
+    "Province": "Constantine",
+    "UniversityName": "Salah Boubnider Université Constantine 3",
+    "Established": 2011,
+    "Type": "Public",
+    "Website": "[23] (in French)"
+  },
+  {
+    "Province": "Constantine",
+    "UniversityName": "Emir Abdelkader University of Islamic Science",
+    "Established": 1984,
+    "Type": "Public",
+    "Website": [
+      24
+    ]
+  },
+  {
+    "Province": "Constantine",
+    "UniversityName": "National Polytechnic School of Constantine (ENPC)",
+    "Established": 2011,
+    "Type": "Public",
+    "Website": "https://enp-constantine.dz/en/"
+  },
+  {
+    "Province": "Constantine",
+    "UniversityName": "National School of Biotechnology (ENSB)",
+    "Established": "",
+    "Type": "Public",
+    "Website": "https://www.ensbiotech.edu.dz/fr/"
+  },
+  {
+    "Province": "Djelfa",
+    "UniversityName": "Ziane Achour University of Djelfa",
+    "Established": 1990,
+    "Type": "Public",
+    "Website": [
+      25
+    ]
+  },
+  {
+    "Province": "El Bayadh",
+    "UniversityName": "University Center of Nour Bachir El Bayadh",
+    "Established": 2010,
+    "Type": "Public",
+    "Website": [
+      26
+    ]
+  },
+  {
+    "Province": "El Oued",
+    "UniversityName": "University of El Hamma Lakhdar Oued",
+    "Established": 1995,
+    "Type": "Public",
+    "Website": [
+      27
+    ]
+  },
+  {
+    "Province": "El Taref",
+    "UniversityName": "University of Chadli Bendjedid El Taref",
+    "Established": 1992,
+    "Type": "Public",
+    "Website": "[28] (in French)"
+  },
+  {
+    "Province": "Ghardaïa",
+    "UniversityName": "University of Ghardaïa",
+    "Established": 2004,
+    "Type": "Public",
+    "Website": "[29] (in Arabic)"
+  },
+  {
+    "Province": "Guelma",
+    "UniversityName": "University of Guelma",
+    "Established": 1986,
+    "Type": "Public",
+    "Website": "[30] (in French)"
+  },
+  {
+    "Province": "Illizi",
+    "UniversityName": "University Center of Illizi",
+    "Established": 2012,
+    "Type": "Public",
+    "Website": "[31] (in French)"
+  },
+  {
+    "Province": "Jijel",
+    "UniversityName": "University of Jijel",
+    "Established": 1986,
+    "Type": "Public",
+    "Website": [
+      32
+    ]
+  },
+  {
+    "Province": "Khenchela",
+    "UniversityName": "University of Khenchela",
+    "Established": 2001,
+    "Type": "Public",
+    "Website": "[33] (in French)"
+  },
+  {
+    "Province": "Laghouat",
+    "UniversityName": "University of Laghouat",
+    "Established": 1986,
+    "Type": "Public",
+    "Website": "[34] (in French)"
+  },
+  {
+    "Province": "Laghouat",
+    "UniversityName": "University Center of Aflou",
+    "Established": 2012,
+    "Type": "Public",
+    "Website": "[35] (in French)"
+  },
+  {
+    "Province": "Laghouat",
+    "UniversityName": "Higher Normal School of Laghouat",
+    "Established": 2012,
+    "Type": "Public",
+    "Website": "[36] (in Arabic)"
+  },
+  {
+    "Province": "Mascara",
+    "UniversityName": "University of Mascara",
+    "Established": 1986,
+    "Type": "Public",
+    "Website": [
+      37
+    ]
+  },
+  {
+    "Province": "Medea",
+    "UniversityName": "University of Medea",
+    "Established": 1989,
+    "Type": "Public",
+    "Website": [
+      38
+    ]
+  },
+  {
+    "Province": "Mila",
+    "UniversityName": "Abdelhafid Boussouf University of Mila",
+    "Established": 2008,
+    "Type": "Public",
+    "Website": "[39] (in French)"
+  },
+  {
+    "Province": "Mostaganem",
+    "UniversityName": "University of Mostaganem",
+    "Established": 1969,
+    "Type": "Public",
+    "Website": [
+      40
+    ]
+  },
+  {
+    "Province": "M'Sila",
+    "UniversityName": "University of M'Sila",
+    "Established": 1985,
+    "Type": "Public",
+    "Website": [
+      41
+    ]
+  },
+  {
+    "Province": "Naama",
+    "UniversityName": "University Center of Naama",
+    "Established": 2010,
+    "Type": "Public",
+    "Website": "[42] (in French)"
+  },
+  {
+    "Province": "Oran",
+    "UniversityName": "University of Oran 1 Ahmed Ben Bella",
+    "Established": 1961,
+    "Type": "Public",
+    "Website": [
+      43
+    ]
+  },
+  {
+    "Province": "Oran",
+    "UniversityName": "University of Oran 2 Mohamed Ben Ahmed",
+    "Established": 2014,
+    "Type": "Public",
+    "Website": "[44] (in French)"
+  },
+  {
+    "Province": "Oran",
+    "UniversityName": "University of Science and Technology Mohamed Boudiaf",
+    "Established": 1971,
+    "Type": "Public",
+    "Website": "[45] (in French)"
+  },
+  {
+    "Province": "Oran",
+    "UniversityName": "Higher National School of Telecommunications and ICT Abdelhafid Boussouf",
+    "Established": 1971,
+    "Type": "Public",
+    "Website": "[46] (in French)"
+  },
+  {
+    "Province": "Oran",
+    "UniversityName": "National Polytechnic School of Oran",
+    "Established": 2012,
+    "Type": "Public",
+    "Website": [
+      47
+    ]
+  },
+  {
+    "Province": "Ouargla",
+    "UniversityName": "University of Ouargla",
+    "Established": 1987,
+    "Type": "Public",
+    "Website": "[48] (in French)"
+  },
+  {
+    "Province": "Ouargla",
+    "UniversityName": "Higher Normal School of Ouargla",
+    "Established": 2015,
+    "Type": "Public",
+    "Website": "https://ens-ouargla.dz/"
+  },
+  {
+    "Province": "Oum El Bouaghi",
+    "UniversityName": "Larbi Ben M'hidi University of Oum El Bouaghi",
+    "Established": 1983,
+    "Type": "Public",
+    "Website": "[49] (in French)"
+  },
+  {
+    "Province": "Relizane",
+    "UniversityName": "University Center of Relizane",
+    "Established": 2008,
+    "Type": "Public",
+    "Website": "[50] (in French)"
+  },
+  {
+    "Province": "Saïda",
+    "UniversityName": "University of Saïda",
+    "Established": 1986,
+    "Type": "Public",
+    "Website": [
+      51
+    ]
+  },
+  {
+    "Province": "Sétif",
+    "UniversityName": "Ferhat Abbas Sétif 1 University",
+    "Established": 1978,
+    "Type": "Public",
+    "Website": [
+      52
+    ]
+  },
+  {
+    "Province": "Sétif",
+    "UniversityName": "Mohamed Lamine Debaghine Sétif 2 University",
+    "Established": 2011,
+    "Type": "Public",
+    "Website": [
+      53
+    ]
+  },
+  {
+    "Province": "Sidi Bel Abbès",
+    "UniversityName": "Djillali Liabes University",
+    "Established": 1978,
+    "Type": "Public",
+    "Website": "[54] (in French)"
+  },
+  {
+    "Province": "Sidi Bel Abbès",
+    "UniversityName": "Higher School of Computer Science of Sidi Bel Abbès",
+    "Established": 2014,
+    "Type": "Public",
+    "Website": "https://www.esi-sba.dz/fr/"
+  },
+  {
+    "Province": "Skikda",
+    "UniversityName": "University of Skikda",
+    "Established": 1988,
+    "Type": "Public",
+    "Website": "[55] (in French)"
+  },
+  {
+    "Province": "Souk Ahras",
+    "UniversityName": "University of Souk Ahras Mohamed Cherif Messaadia",
+    "Established": 1998,
+    "Type": "Public",
+    "Website": [
+      56
+    ]
+  },
+  {
+    "Province": "Tamanrasset",
+    "UniversityName": "University of Tamanrasset",
+    "Established": 2005,
+    "Type": "Public",
+    "Website": [
+      57
+    ]
+  },
+  {
+    "Province": "Tébessa",
+    "UniversityName": "Echahid Cheikh Larbi Tebessi University",
+    "Established": 1985,
+    "Type": "Public",
+    "Website": "[58] (in French)"
+  },
+  {
+    "Province": "Tiaret",
+    "UniversityName": "University of Tiaret",
+    "Established": 1980,
+    "Type": "Public",
+    "Website": "[59] (in French)"
+  },
+  {
+    "Province": "Tindouf",
+    "UniversityName": "University Center of Tindouf",
+    "Established": "",
+    "Type": "Public",
+    "Website": [
+      60
+    ]
+  },
+  {
+    "Province": "Tipaza",
+    "UniversityName": "Abdallah Morsli University Center",
+    "Established": 2011,
+    "Type": "Public",
+    "Website": "[61] (in French)"
+  },
+  {
+    "Province": "Tipaza",
+    "UniversityName": "Higher School of Management and Digital Economy",
+    "Established": "",
+    "Type": "Public",
+    "Website": "http://www.esgen.edu.dz/"
+  },
+  {
+    "Province": "Tissemsilt",
+    "UniversityName": "Ahmed Ben Yahia Al Wancharissi University Center",
+    "Established": 2005,
+    "Type": "Public",
+    "Website": "[62] (in French)"
+  },
+  {
+    "Province": "Tizi Ouzou",
+    "UniversityName": "Mouloud Mammeri University of Tizi Ouzou",
+    "Established": 1977,
+    "Type": "Public",
+    "Website": "[63] (in French)"
+  },
+  {
+    "Province": "Tlemcen",
+    "UniversityName": "University of Tlemcen",
+    "Established": 1974,
+    "Type": "Public",
+    "Website": [
+      64
+    ]
+  },
+  {
+    "Province": "Tlemcen",
+    "UniversityName": "University Center of Maghnia",
+    "Established": 2006,
+    "Type": "Public",
+    "Website": [
+      65
+    ]
+  },
+  {
+    "Province": "Tlemcen",
+    "UniversityName": "National School of Applied Sciences of Tlemcen (ENSAT)",
+    "Established": 2009,
+    "Type": "Public",
+    "Website": "https://www.essa-tlemcen.dz/en/"
+  }
+]
