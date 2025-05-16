@@ -40,6 +40,16 @@ export default {
   budget: 'Budget',
   category: 'Category',
   not_found: 'Request not found',
-
-
+  chapter_details: 'Please provide chapter details:',
+  
+  // API Error Messages
+  networkError: 'Network error. Please check your connection.',
+  badRequest: 'Invalid request. Please check your input.',
+  unauthorized: 'Please login to continue.',
+  forbidden: 'You do not have permission to perform this action.',
+  notFound: 'Resource not found.',
+  serverError: 'Server error. Please try again later.',
+  unknownError: 'An unknown error occurred.',
+  unsupportedFileType: 'Unsupported file type. Please try again.',
+  fileTooLarge: 'File too large. Please try again.',
 };

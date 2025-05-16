@@ -7,7 +7,7 @@ export default function ProjectLayout() {
         headerShown: false,
       }}
     >
-      <Tabs.Screen name="updateFileMeta" options={{
+      <Tabs.Screen name="ChapterMetadataEditor" options={{
         tabBarStyle : {
           display: 'none',
         }

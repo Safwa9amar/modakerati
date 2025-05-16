@@ -34,5 +34,20 @@ export default {
   chapters_number: 'عدد الفصول',
   select_university: 'اختر الجامعة',
   search: 'بحث',
-  upload_file_desc : "محلاحظة : اذا كانت المذكرة مقسمة الى ملفات متعددة وفصول، يرجى الضعط على اسم الملف الذي اخترته حتى تتمكن من اضافة التفاصيل والملاحظات المتعلقة بكل ملف"
+  'Please provide file details:': 'يرجى تقديم تفاصيل الملف:',
+  upload_file_desc:
+    'محلاحظة : اذا كانت المذكرة مقسمة الى ملفات متعددة وفصول، يرجى الضعط على اسم الملف الذي اخترته حتى تتمكن من اضافة التفاصيل والملاحظات المتعلقة بكل ملف',
+    
+  // Thesis Details Section
+  thesis_details: 'تفاصيل الأطروحة',
+  thesis_details_desc: 'يرجى تقديم المعلومات الأساسية عن أطروحتك',
+  thesisTitle: 'عنوان الأطروحة',
+  thesisDescription: 'وصف الأطروحة',
+  thesisSubject: 'موضوع الأطروحة',
+  thesisSupervisor: 'مشرف الأطروحة',
+  uploading: 'جاري الرفع...',
+  fileTooLarge: 'حجم الملف كبير جداً للرفع',
+  unsupportedFileType: 'نوع الملف غير مدعوم',
+  done: 'تم',
+  cancel: 'إلغاء',
 };

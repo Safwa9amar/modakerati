@@ -1,5 +1,4 @@
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
-import { ThesisProvider } from '@/hooks/useThesis';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { I18nProvider } from '@/localization/i18nProvider';
 import { useThesisStoreInit } from '../store/useThesisStore';
@@ -19,7 +18,7 @@ export default function ContextProvider({ children }) {
     <PaperProvider>
       <ThemeProvider>
         <I18nProvider>
-          <ThesisProvider>{children}</ThesisProvider>
+          {children}
         </I18nProvider>
       </ThemeProvider>
     </PaperProvider>

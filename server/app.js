@@ -1,11 +1,15 @@
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
-import fs from 'fs';
-import path from 'path';
 import dotenv from 'dotenv';
-import projectsRouter from './modules/projects.js';
-import documentsRouter from './modules/documents.js';
+import createRouter, {router} from 'express-file-routing';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import prisma from './config/prisma.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 
 dotenv.config();
 
@@ -14,18 +18,30 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-let projects = [];
+app.use("/api", await router()) // as router middleware or
 
-const dataFile = path.join(process.cwd(), 'server', 'projects.json');
-if (fs.existsSync(dataFile)) {
-  projects = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
-}
+await createRouter(app) // as wrapper function
+// app.use('/api', router);
 
-function saveProjects() {
-  fs.writeFileSync(dataFile, JSON.stringify(projects, null, 2));
-}
-
-app.use('/api/projects', projectsRouter);
-app.use('/api/projects', documentsRouter);
+// Example endpoint to test Prisma connection
+app.get('/api/db-test', async (req, res) => {
+  try {
+   let user =  await prisma.user.create({
+      data : {
+        email : "hassanih98@gmail.com",
+        phone : "0674020244",
+        name : "hamzza hassani"
+      }
+    })
+    let users = await prisma.user.findMany()
+    console.log(users);
+    
+    await prisma.$connect();
+    await prisma.$disconnect();
+    res.json({ db: 'connected' });
+  } catch (error) {
+    res.status(500).json({ db: 'error', error: error.message });
+  }
+});
 
 export default app;

@@ -13,9 +13,12 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   deleteUser,
+  setPersistence,
+  indexedDBLocalPersistence,
 } from 'firebase/auth';
 
 import { initializeApp } from 'firebase/app';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { getFirebaseErrorMessage } from '@/handlers/firebaseErrorHandler';
 
@@ -28,15 +31,34 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+export const fireBaseAuth = getAuth(app);
+
+// Set persistence to use ReactNativeAsyncStorage
+setPersistence(auth, indexedDBLocalPersistence)
+  .catch((error) => {
+    console.error("Error setting auth persistence:", error);
+  });
 
 export const useAuthStore = create((set, get) => ({
   user: null,
   loading: false,
   error: null,
+  idToken: null,
 
   init: () => {
-    onAuthStateChanged(auth, (firebaseUser) => {
-      set({ user: firebaseUser, loading: false });
+    set({ loading: true });
+    onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const idToken = await firebaseUser.getIdToken();
+          set({ user: firebaseUser, idToken, loading: false });
+        } catch (error) {
+          console.error("Error getting ID token:", error);
+          set({ user: firebaseUser, loading: false });
+        }
+      } else {
+        set({ user: null, idToken: null, loading: false });
+      }
     });
   },
 
@@ -44,6 +66,7 @@ export const useAuthStore = create((set, get) => ({
     set({ loading: true, error: null });
     try {
       await signInWithEmailAndPassword(auth, email, password);
+      set({ idToken: await auth.currentUser.getIdToken() });
       set({ error: null });
     } catch (error) {
       set({ error: getFirebaseErrorMessage(error) });
@@ -56,6 +79,7 @@ export const useAuthStore = create((set, get) => ({
     set({ loading: true, error: null });
     try {
       await createUserWithEmailAndPassword(auth, email, password);
+      set({ idToken: await auth.currentUser.getIdToken() });
       set({ error: null });
     } catch (error) {
       set({ error: error.message });
@@ -68,7 +92,7 @@ export const useAuthStore = create((set, get) => ({
     set({ loading: true, error: null });
     try {
       await signOut(auth);
-      set({ user: null, error: null });
+      set({ user: null, error: null, idToken: null });
     } catch (error) {
       set({ error: error.message });
     } finally {
@@ -80,6 +104,7 @@ export const useAuthStore = create((set, get) => ({
     set({ loading: true, error: null });
     try {
       await updateProfile(auth.currentUser, profile);
+      set({ idToken: await auth.currentUser.getIdToken() });
       set({ error: null });
     } catch (error) {
       set({ error: error.message });
@@ -104,7 +129,7 @@ export const useAuthStore = create((set, get) => ({
         }   
         // If the email is updated successfully, you can also update the user's profile
         await updateProfile(user, { email: newEmail });
-
+        set({ idToken: await auth.currentUser.getIdToken() });
       set({ error: null });
     } catch (error) {
       set({ error: error.message });
@@ -122,8 +147,8 @@ export const useAuthStore = create((set, get) => ({
       const credential = EmailAuthProvider.credential(user.email, oldPassword);
       await reauthenticateWithCredential(user, credential);
       await updatePassword(user, newPassword);
+      set({ idToken: await auth.currentUser.getIdToken() });
       set({ error: null });
-
     } catch (error) {
       console.log('Error updating password:', error);
       set({ error: error.message });
@@ -138,8 +163,10 @@ export const useAuthStore = create((set, get) => ({
     try {
       const credential = GoogleAuthProvider.credential(idToken);
       await signInWithCredential(auth, credential);
+      set({ idToken: await auth.currentUser.getIdToken() });
       set({ error: null });
     } catch (error) {
+      console.log('Error signing in with Google:', error);
       set({ error: error.message });
     } finally {
       set({ loading: false });
@@ -152,7 +179,7 @@ export const useAuthStore = create((set, get) => ({
       const user = auth.currentUser;
       if (!user) throw new Error('No user is currently signed in.');
       await deleteUser(user);
-      set({ user: null, error: null });
+      set({ user: null, error: null, idToken: null   });
     } catch (error) {
       set({ error: error.message });
       throw error;

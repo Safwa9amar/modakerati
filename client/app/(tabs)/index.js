@@ -23,6 +23,8 @@ import SelectServices from '@/components/home/SelectServices';
 import DownloadPreview from '@/components/home/DownloadPreview';
 import ProcessingProgress from '@/components/home/PoccessProgress';
 import { useHomeStore } from '@/store/useHomeStore';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import ThesisTitle from '@/components/home/ThesisTitle';
 
 export default function DashboardScreen() {
   const navigation = useNavigation();
@@ -41,21 +43,22 @@ export default function DashboardScreen() {
   }, [navigation]);
 
   return (
-    <>
+    <GestureHandlerRootView>
       <ScrollView
         contentContainerStyle={[
           styles.container,
           { backgroundColor: theme.colors.background.main },
         ]}
       >
-        <View style={[styles.timeline, isRTL && { alignItems: 'flex-end' }]}>
+        <View style={[styles.timeline, isRTL && { alignItems: 'flex-end' }]}>\
+          <ThesisTitle />
           <UploadThesis />
           <SelectServices services={{}} />
           <DownloadPreview />
           <ProcessingProgress />
         </View>
       </ScrollView>
-    </>
+    </GestureHandlerRootView>
   );
 }
 

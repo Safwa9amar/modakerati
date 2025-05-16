@@ -1,0 +1,38 @@
+model Thesis {
+    id String @id @default(uuid())
+    title String
+    description String?
+    subject String
+    supervisor String
+    chaptersNumber Int
+    university String
+    chapters Chapter[]
+    mainFile File? @relation("ThesisMainFile", fields: [mainFileId], references: [id])
+    mainFileId String?
+    supplementaryFiles File[] @relation("ThesisSupplementaryFiles")
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+   
+}
+
+model Chapter {
+    id String @id @default(uuid())
+    title String
+    chapterNumber Int
+    content String? // Chapter content or summary
+    file File @relation("ChapterFile", fields: [fileId], references: [id])
+    fileId String
+    order Int // For maintaining chapter order
+    status String @default("draft") // draft, submitted, approved
+    
+    // Timestamps
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    
+    // Relations
+    thesis Thesis @relation(fields: [thesisId], references: [id])
+    thesisId String
+    
+    @@index([thesisId])
+    @@index([chapterNumber])
+}

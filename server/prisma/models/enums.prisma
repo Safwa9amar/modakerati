@@ -1,0 +1,12 @@
+enum Role {
+  STUDENT
+  PROFESSOR
+  ADMIN
+}
+
+enum ThesisStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  PUBLISHED
+}

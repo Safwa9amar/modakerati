@@ -7,13 +7,18 @@ import {
   TextInput,
 } from 'react-native';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useTranslation } from '@/localization/i18nProvider';
 import Button from '@/components/common/Button';
 import { createThemedStyles, useTheme } from '@/components/ThemeProvider';
 import AntDesign from '@expo/vector-icons/AntDesign';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
+
+WebBrowser.maybeCompleteAuthSession();
+
 export default function Login() {
   const { t } = useTranslation();
   const styles = useStyles();
@@ -22,6 +27,50 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
+
+  // Google Auth setup
+  const [, googleResponse, googlePromptAsync] = Google.useAuthRequest({
+    clientId: '861687614333-i858dehm0gem69tc5c0598o9eha5lf1c.apps.googleusercontent.com',
+    scopes: ['profile', 'email'],
+    redirectUri: 'https://auth.expo.io/@astro0666/modakerati', // Replace with your actual redirect URI
+    responseType: 'id_token',
+  });
+  console.log('googleResponse', googleResponse);
+  // Handle Google sign-in response
+  useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      const { id_token } = googleResponse.params;
+      if (!id_token) {
+        console.error('No ID token received from Google');
+        return;
+      }
+      signInWithGoogleCredential(id_token);
+    } else if (googleResponse?.type === 'error') {
+      console.error('Google sign-in error:', googleResponse.error);
+      // Handle specific error cases
+      if (googleResponse.error?.message?.includes('access blocked')) {
+        alert('Access blocked. Please check your Google Cloud Console configuration.');
+      } else {
+        alert('Error signing in with Google. Please try again.');
+      }
+    }
+  }, [googleResponse]);
+
+  const handleGoogleSignIn = async () => {
+    setIsSigningIn(true);
+    try {
+      const result = await googlePromptAsync();
+      if (result.type === 'error') {
+        console.error('Google sign-in error:', result.error);
+        alert('Error signing in with Google. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error signing in with Google:', error);
+      alert('Error signing in with Google. Please try again.');
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
 
   const handleFacebookSignIn = async () => {
     setIsSigningIn(true);
@@ -92,7 +141,7 @@ export default function Login() {
           <TouchableOpacity
             disabled={isSigningIn}
             style={styles.googleBtn}
-            onPress={signInWithGoogleCredential}
+            onPress={handleGoogleSignIn}
           >
             <AntDesign name="google" size={24} color="red" />
           </TouchableOpacity>

@@ -27,7 +27,7 @@ import {
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useAuthStore } from '@/store/useAuthStore';
+import { fireBaseAuth, useAuthStore } from '@/store/useAuthStore';
 import { useRoute } from '@react-navigation/native';
 
 export default function SettingsScreen() {
@@ -39,8 +39,6 @@ export default function SettingsScreen() {
   const router = useRouter();
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(theme.mode === 'dark');
-const cc = useRoute()
-  console.log(cc);
 
   // Sync darkMode state with theme
   useEffect(() => {

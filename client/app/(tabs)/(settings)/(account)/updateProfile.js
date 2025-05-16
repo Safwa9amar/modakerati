@@ -16,8 +16,8 @@ export default function UpdateProfile() {
   const {
     displayName,
     setDisplayName,
-    phone,
-    setPhone,
+    phoneNumber,
+    setphoneNumber,
     photoURL,
     setPhotoURL,
     email,
@@ -29,7 +29,7 @@ export default function UpdateProfile() {
 
   React.useEffect(() => {
     setDisplayName(authUser?.displayName || '');
-    setPhone(authUser?.phoneNumber || '');
+    setphoneNumber(authUser?.phoneNumberNumber || '');
     setPhotoURL(authUser?.photoURL || '');
     setEmail(authUser?.email || '');
     return () => reset();
@@ -64,13 +64,13 @@ export default function UpdateProfile() {
     setLoading(true);
     try {
       // Only update fields that are supported by Firebase Auth
-      await updateUserProfile({ displayName, photoURL });
+      await updateUserProfile({ displayName, photoURL, phoneNumber });
       // If email changed, call updateUserEmail
       if (email !== authUser?.email) {
         // You may want to require password re-auth for email change in production
         await updateUserProfile({ email });
       }
-      // Phone number is not directly updatable via Firebase Auth client SDK
+      // phoneNumber number is not directly updatable via Firebase Auth client SDK
       Alert.alert(t('success'), t('profileUpdated'));
       navigation.goBack();
     } catch (error) {
@@ -106,11 +106,11 @@ export default function UpdateProfile() {
       <Text style={styles.label}>{t('phone')}</Text>
       <TextInput
         style={styles.input}
-        value={phone}
-        onChangeText={setPhone}
-        placeholder={t('phonePlaceholder') || 'Enter your phone number'}
+        value={phoneNumber}
+        onChangeText={setphoneNumber}
+        placeholder={t('phonePlaceholder') || 'Enter your phoneNumber number'}
         placeholderTextColor={theme.colors.text.secondary}
-        keyboardType="phone-pad"
+        keyboardType="phoneNumber-pad"
       />
       <Text style={styles.label}>{t('photoURL') || 'Photo URL'}</Text>
       <TextInput

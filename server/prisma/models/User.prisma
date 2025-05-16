@@ -1,0 +1,30 @@
+model User {
+    id String @id @default(uuid())
+    name String
+    phone String
+    email String @unique
+    password String? // Hashed password
+    avatar String? // URL to profile picture
+    role String @default("user") // user, admin, etc.
+    isVerified Boolean @default(false)
+    isActive Boolean @default(true)
+    lastLoginAt DateTime?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    
+    // Profile information
+    bio String?
+    location String?
+    website String?
+    
+    // Account settings
+    preferences Json? // User preferences stored as JSON
+    
+    // Relations
+    files File[]
+
+    @@index([email])
+    @@index([role])
+    @@index([isActive])
+}

@@ -1,0 +1,33 @@
+model File {
+    id String @id @default(uuid())
+    name String
+    path String
+    size Int // Size in bytes
+    mimeType String
+    isPublic Boolean @default(false) // Access control flag
+    downloadCount Int @default(0) // Track number of downloads
+    lastDownloadedAt DateTime? // Track last download timestamp
+    status String @default("active") // File status (active, archived, deleted)
+    metadata Json? // Additional metadata as JSON
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    
+    // File type and version
+    fileType String? // "thesis_main", "thesis_chapter", "supplementary", etc.
+    version Int @default(1)
+    originalName String // Original filename before processing
+    
+    // Relationship to track which user uploaded the file
+    uploadedBy User? @relation(fields: [userId], references: [id])
+    userId String?
+
+    // Thesis relations
+    thesisMainFile Thesis[] @relation("ThesisMainFile")
+    thesisChapters Chapter[] @relation("ChapterFile")
+    thesisSupplementaryFiles Thesis[] @relation("ThesisSupplementaryFiles")
+
+    @@index([userId])
+    @@index([status])
+    @@index([isPublic])
+    @@index([fileType])
+}

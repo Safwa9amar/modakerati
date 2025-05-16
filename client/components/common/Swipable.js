@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import SwipeableItem, { UnderlayParams } from 'react-native-swipeable-item';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 const styles = StyleSheet.create({
@@ -25,10 +25,14 @@ export default function Swipable({
 }) {
   // Underlay renderers
   const renderUnderlayLeft = () => (
-    <View style={[styles.underlay, { backgroundColor: '#10B981' }]}> {leftActionContent} </View>
+    <View style={[styles.underlay, { backgroundColor: '#10B981' }]}>
+      <Text>{leftActionContent}</Text>
+    </View>
   );
   const renderUnderlayRight = () => (
-    <View style={[styles.underlay, { backgroundColor: '#EF4444' }]}> {rightActionContent} </View>
+    <View style={[styles.underlay, { backgroundColor: '#EF4444' }]}>
+      <Text>{rightActionContent}</Text>
+    </View>
   );
 
   return (
