@@ -18,14 +18,12 @@ import {
 } from 'firebase/auth';
 
 import { initializeApp } from 'firebase/app';
-import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { getFirebaseErrorMessage } from '@/handlers/firebaseErrorHandler';
 
 const firebaseConfig = {
   apiKey:
-    Constants.expoConfig?.extra?.firebaseApiKey ||
-    'AIzaSyC0Vjz6uBw97CCsXeZ9eB-RXReE2xk43lo',
+    Constants.expoConfig?.extra?.firebaseApiKey || process.env.GOOGLE_API_KEY,
   projectId: Constants.expoConfig?.extra?.firebaseProjectId || 'modakerati',
 };
 
@@ -34,10 +32,9 @@ const auth = getAuth(app);
 export const fireBaseAuth = getAuth(app);
 
 // Set persistence to use ReactNativeAsyncStorage
-setPersistence(auth, indexedDBLocalPersistence)
-  .catch((error) => {
-    console.error("Error setting auth persistence:", error);
-  });
+setPersistence(auth, indexedDBLocalPersistence).catch((error) => {
+  console.error('Error setting auth persistence:', error);
+});
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -53,7 +50,7 @@ export const useAuthStore = create((set, get) => ({
           const idToken = await firebaseUser.getIdToken();
           set({ user: firebaseUser, idToken, loading: false });
         } catch (error) {
-          console.error("Error getting ID token:", error);
+          console.error('Error getting ID token:', error);
           set({ user: firebaseUser, loading: false });
         }
       } else {
@@ -116,20 +113,20 @@ export const useAuthStore = create((set, get) => ({
   updateUserEmail: async (password, newEmail) => {
     set({ loading: true, error: null });
     try {
-        //updateEmail
-        const user = auth.currentUser;
-        const credential = EmailAuthProvider.credential(user.email, password);
-        await reauthenticateWithCredential(user, credential);
-        // Check if the new email is different from the current email
-        if (user.email !== newEmail) {
-          // Update the email address
-          await updateEmail(user, newEmail);
-        } else {
-          throw new Error('New email cannot be the same as the current email.');
-        }   
-        // If the email is updated successfully, you can also update the user's profile
-        await updateProfile(user, { email: newEmail });
-        set({ idToken: await auth.currentUser.getIdToken() });
+      //updateEmail
+      const user = auth.currentUser;
+      const credential = EmailAuthProvider.credential(user.email, password);
+      await reauthenticateWithCredential(user, credential);
+      // Check if the new email is different from the current email
+      if (user.email !== newEmail) {
+        // Update the email address
+        await updateEmail(user, newEmail);
+      } else {
+        throw new Error('New email cannot be the same as the current email.');
+      }
+      // If the email is updated successfully, you can also update the user's profile
+      await updateProfile(user, { email: newEmail });
+      set({ idToken: await auth.currentUser.getIdToken() });
       set({ error: null });
     } catch (error) {
       set({ error: error.message });
@@ -179,7 +176,7 @@ export const useAuthStore = create((set, get) => ({
       const user = auth.currentUser;
       if (!user) throw new Error('No user is currently signed in.');
       await deleteUser(user);
-      set({ user: null, error: null, idToken: null   });
+      set({ user: null, error: null, idToken: null });
     } catch (error) {
       set({ error: error.message });
       throw error;
