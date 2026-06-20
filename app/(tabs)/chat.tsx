@@ -5,7 +5,9 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, loadInitialMessages } from "@/lib/ai-service";
-import { Send } from "lucide-react-native";
+import { Send, Home, List } from "lucide-react-native";
+import { useRouter } from "expo-router";
+import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import type { ChatMessage } from "@/types/chat";
 
 const Bubble = memo(({ item, colors }: { item: ChatMessage; colors: any }) => {
@@ -23,7 +25,9 @@ const Bubble = memo(({ item, colors }: { item: ChatMessage; colors: any }) => {
 function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle: string }) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [inputText, setInputText] = useState("");
+  const [sheetVisible, setSheetVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const messages = useChatStore((s) => s.getMessages(thesisId));
   const isGenerating = useChatStore((s) => s.isGenerating);
@@ -57,7 +61,9 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
       {/* Top bar */}
       <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.bgCard }}>
         <View style={styles.topBar}>
-          <View style={{ width: 30 }} />
+          <Pressable onPress={() => router.push("/(tabs)/" as any)} style={{ padding: 4 }}>
+            <Home size={22} color={colors.textPrimary} strokeWidth={1.8} />
+          </Pressable>
           <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>{thesisTitle}</Text>
           <View style={{ width: 30 }} />
         </View>
@@ -106,6 +112,16 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      {/* FAB */}
+      <Pressable
+        onPress={() => setSheetVisible(true)}
+        style={[styles.fab, { backgroundColor: colors.brandAccent }]}
+      >
+        <List size={22} color="#121220" strokeWidth={2} />
+      </Pressable>
+
+      <ThesisStructureSheet visible={sheetVisible} onClose={() => setSheetVisible(false)} />
     </View>
   );
 }
@@ -150,6 +166,12 @@ const styles = StyleSheet.create({
   inputField: { flex: 1, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, maxHeight: 120 },
   input: { fontSize: 14, fontFamily: "Inter_400Regular" },
   sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", marginBottom: 2 },
+  fab: {
+    position: "absolute", bottom: 100, right: 20,
+    width: 52, height: 52, borderRadius: 26,
+    alignItems: "center", justifyContent: "center",
+    elevation: 6, shadowColor: "#33D6A6", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
+  },
   noThesis: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
   noThesisText: { fontSize: 16, fontFamily: "Inter_400Regular", textAlign: "center" },
 });
