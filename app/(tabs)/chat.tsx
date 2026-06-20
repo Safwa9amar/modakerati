@@ -10,6 +10,7 @@ import { sendMessageToAI, loadInitialMessages } from "@/lib/ai-service";
 import { ArrowLeft, MoreHorizontal, Send, List } from "lucide-react-native";
 import { useRTL } from "@/hooks/useRTL";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
+import { ProviderSelector } from "@/components/ProviderSelector";
 import type { ChatMessage } from "@/types/chat";
 
 export default function ChatScreen() {
@@ -116,26 +117,31 @@ export default function ChatScreen() {
           </View>
         )}
 
-        {/* Input bar */}
+        {/* Input bar with provider selector */}
         <View style={[styles.inputBar, { backgroundColor: colors.bgCard }]}>
-          <View style={[styles.inputField, { backgroundColor: colors.bgSurface }]}>
-            <RNTextInput
-              style={[styles.input, { color: colors.textPrimary, textAlign: isRTL ? "right" : "left" }]}
-              placeholder={t("chat.askPlaceholder")}
-              placeholderTextColor={colors.textPlaceholder}
-              value={inputText}
-              onChangeText={setInputText}
-              onSubmitEditing={handleSend}
-              returnKeyType="send"
-              editable={!isGenerating}
-            />
+          <View style={styles.inputTopRow}>
+            <ProviderSelector />
           </View>
-          <Pressable
-            onPress={handleSend}
-            style={[styles.sendBtn, { backgroundColor: colors.brandPrimary, opacity: inputText.trim() && !isGenerating ? 1 : 0.5 }]}
-          >
-            <Send size={18} color="#FFFFFF" strokeWidth={2} />
-          </Pressable>
+          <View style={styles.inputBottomRow}>
+            <View style={[styles.inputField, { backgroundColor: colors.bgSurface }]}>
+              <RNTextInput
+                style={[styles.input, { color: colors.textPrimary, textAlign: isRTL ? "right" : "left" }]}
+                placeholder={t("chat.askPlaceholder")}
+                placeholderTextColor={colors.textPlaceholder}
+                value={inputText}
+                onChangeText={setInputText}
+                onSubmitEditing={handleSend}
+                returnKeyType="send"
+                editable={!isGenerating}
+              />
+            </View>
+            <Pressable
+              onPress={handleSend}
+              style={[styles.sendBtn, { backgroundColor: colors.brandPrimary, opacity: inputText.trim() && !isGenerating ? 1 : 0.5 }]}
+            >
+              <Send size={18} color="#FFFFFF" strokeWidth={2} />
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
 
@@ -176,8 +182,13 @@ const styles = StyleSheet.create({
   },
   generatingText: { fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic" },
   inputBar: {
+    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 28, gap: 8,
+  },
+  inputTopRow: {
+    flexDirection: "row", alignItems: "center",
+  },
+  inputBottomRow: {
     flexDirection: "row", alignItems: "center", gap: 10,
-    paddingHorizontal: 16, paddingTop: 12, paddingBottom: 28,
   },
   inputField: { flex: 1, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 12 },
   input: { fontSize: 14, fontFamily: "Inter_400Regular" },
