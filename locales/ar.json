@@ -127,6 +127,42 @@
     "shareFile": "مشاركة الملف",
     "openInFiles": "فتح في الملفات"
   },
+  "format": {
+    "pageLayout": "تنسيق الصفحة",
+    "autoFix": "إصلاح تلقائي",
+    "margins": "الهوامش",
+    "typography": "الطباعة",
+    "pageSetup": "إعدادات الصفحة",
+    "applyLayout": "تطبيق التنسيق",
+    "autoNumbering": "الترقيم التلقائي",
+    "pageNumbers": "أرقام الصفحات",
+    "chaptersAndSections": "الفصول والأقسام",
+    "figuresAndTables": "الأشكال والجداول",
+    "applyNumbering": "تطبيق الترقيم",
+    "tableOfContents": "جدول المحتويات",
+    "generateToc": "توليد جدول المحتويات",
+    "listOfFigures": "قائمة الأشكال",
+    "generateFigures": "توليد قائمة الأشكال",
+    "listOfTables": "قائمة الجداول",
+    "generateTables": "توليد قائمة الجداول",
+    "includeFigures": "تضمين قائمة الأشكال",
+    "includeTables": "تضمين قائمة الجداول"
+  },
+  "citations": {
+    "references": "المراجع",
+    "add": "إضافة",
+    "citedIn": "مذكور في",
+    "findMore": "ذكاء: البحث عن مراجع إضافية"
+  },
+  "enhance": {
+    "aiEnhance": "تحسين بالذكاء",
+    "applyAll": "تطبيق الكل",
+    "grammar": "قواعد",
+    "clarity": "وضوح",
+    "academicTone": "أسلوب أكاديمي",
+    "accept": "قبول",
+    "dismiss": "تجاهل"
+  },
   "template": {
     "startNew": "مذكرة جديدة",
     "searchTemplates": "البحث عن القوالب...",

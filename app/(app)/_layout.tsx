@@ -11,5 +11,12 @@ export default function AppLayout() {
     <Stack.Screen name="document-preview" />
     <Stack.Screen name="export" />
     <Stack.Screen name="export-success" />
+    <Stack.Screen name="auto-layout" />
+    <Stack.Screen name="auto-numbering" />
+    <Stack.Screen name="auto-toc" />
+    <Stack.Screen name="list-figures" />
+    <Stack.Screen name="list-tables" />
+    <Stack.Screen name="citations" />
+    <Stack.Screen name="ai-enhance" />
   </Stack>;
 }

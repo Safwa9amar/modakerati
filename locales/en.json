@@ -127,6 +127,42 @@
     "shareFile": "Share File",
     "openInFiles": "Open in Files"
   },
+  "format": {
+    "pageLayout": "Page Layout",
+    "autoFix": "Auto-Fix",
+    "margins": "MARGINS",
+    "typography": "TYPOGRAPHY",
+    "pageSetup": "PAGE SETUP",
+    "applyLayout": "Apply Layout to Thesis",
+    "autoNumbering": "Auto Numbering",
+    "pageNumbers": "PAGE NUMBERS",
+    "chaptersAndSections": "CHAPTERS & SECTIONS",
+    "figuresAndTables": "FIGURES & TABLES",
+    "applyNumbering": "Apply Numbering",
+    "tableOfContents": "Table of Contents",
+    "generateToc": "Generate TOC in Document",
+    "listOfFigures": "List of Figures",
+    "generateFigures": "Generate Figures List",
+    "listOfTables": "List of Tables",
+    "generateTables": "Generate Tables List",
+    "includeFigures": "Include Figures List",
+    "includeTables": "Include Tables List"
+  },
+  "citations": {
+    "references": "References",
+    "add": "Add",
+    "citedIn": "Cited in",
+    "findMore": "AI: Find more references for my topic"
+  },
+  "enhance": {
+    "aiEnhance": "AI Enhance",
+    "applyAll": "Apply All",
+    "grammar": "Grammar",
+    "clarity": "Clarity",
+    "academicTone": "Academic Tone",
+    "accept": "Accept",
+    "dismiss": "Dismiss"
+  },
   "template": {
     "startNew": "Start a New Thesis",
     "searchTemplates": "Search templates...",

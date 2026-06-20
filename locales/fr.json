@@ -127,6 +127,42 @@
     "shareFile": "Partager le fichier",
     "openInFiles": "Ouvrir dans Fichiers"
   },
+  "format": {
+    "pageLayout": "Mise en page",
+    "autoFix": "Auto-corriger",
+    "margins": "MARGES",
+    "typography": "TYPOGRAPHIE",
+    "pageSetup": "CONFIGURATION",
+    "applyLayout": "Appliquer la mise en page",
+    "autoNumbering": "Numerotation auto",
+    "pageNumbers": "NUMEROS DE PAGE",
+    "chaptersAndSections": "CHAPITRES ET SECTIONS",
+    "figuresAndTables": "FIGURES ET TABLEAUX",
+    "applyNumbering": "Appliquer la numerotation",
+    "tableOfContents": "Table des matieres",
+    "generateToc": "Generer la table des matieres",
+    "listOfFigures": "Liste des figures",
+    "generateFigures": "Generer la liste des figures",
+    "listOfTables": "Liste des tableaux",
+    "generateTables": "Generer la liste des tableaux",
+    "includeFigures": "Inclure la liste des figures",
+    "includeTables": "Inclure la liste des tableaux"
+  },
+  "citations": {
+    "references": "References",
+    "add": "Ajouter",
+    "citedIn": "Cite dans",
+    "findMore": "IA: Trouver plus de references"
+  },
+  "enhance": {
+    "aiEnhance": "Amelioration IA",
+    "applyAll": "Tout appliquer",
+    "grammar": "Grammaire",
+    "clarity": "Clarte",
+    "academicTone": "Ton academique",
+    "accept": "Accepter",
+    "dismiss": "Ignorer"
+  },
   "template": {
     "startNew": "Nouveau mémoire",
     "searchTemplates": "Rechercher des modèles...",
