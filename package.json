@@ -4,8 +4,10 @@
   "main": "index.ts",
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
+    "@gorhom/bottom-sheet": "^5.2.14",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.108.2",
+    "babel-preset-expo": "^56.0.15",
     "expo": "~56.0.12",
     "expo-constants": "~56.0.18",
     "expo-font": "~56.0.7",
