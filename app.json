@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Modakerati",
+    "slug": "modakerati",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "modakerati",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#121220"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.modakerati.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#121220"
+      },
+      "package": "com.modakerati.app"
+    },
+    "plugins": ["expo-router", "expo-localization", "expo-secure-store"]
+  }
+}
