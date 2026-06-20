@@ -1,25 +1,63 @@
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
-import { useSettingsStore } from "@/stores/settings-store";
 import { PenLine, FolderUp, LayoutGrid, Zap, FileText } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { loadSampleData } from "@/lib/sample-data";
-import { useEffect } from "react";
+import { listTheses } from "@/lib/api";
+import { useEffect, useState, useCallback } from "react";
+
+interface ApiThesis {
+  id: string;
+  title: string;
+  status: string;
+  progress: number;
+  updatedAt: string;
+}
 
 export default function HomeScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
-  const { theses, loadTemplates } = useThesisStore();
+  const [apiTheses, setApiTheses] = useState<ApiThesis[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadTemplates();
-    loadSampleData();
+    fetchTheses();
+  }, []);
+
+  async function fetchTheses() {
+    try {
+      const data = await listTheses();
+      setApiTheses(data);
+    } catch {
+      setApiTheses([]);
+    }
+    setLoading(false);
+  }
+
+  const selectThesis = useCallback((thesis: ApiThesis) => {
+    const store = useThesisStore.getState();
+    // Ensure thesis exists in local store for chat screen
+    if (!store.theses.find((t) => t.id === thesis.id)) {
+      store.theses.push({
+        id: thesis.id,
+        title: thesis.title,
+        status: thesis.status as any,
+        progress: thesis.progress || 0,
+        wordCount: 0,
+        pageCount: 0,
+        language: "fr",
+        chapters: [],
+        createdAt: thesis.updatedAt,
+        updatedAt: thesis.updatedAt,
+      });
+    }
+    store.setCurrentThesis(thesis.id);
+    router.push("/(tabs)/chat" as any);
   }, []);
 
   const quickActions = [
@@ -29,7 +67,17 @@ export default function HomeScreen() {
     { icon: Zap, label: t("home.aiAssist"), color: colors.semanticWarning, onPress: () => {} },
   ];
 
-  if (theses.length === 0) {
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
+        <View style={styles.emptyContainer}>
+          <ActivityIndicator size="large" color={colors.brandPrimary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (apiTheses.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
         <View style={styles.emptyContainer}>
@@ -50,7 +98,6 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Top bar */}
         <View style={styles.topBar}>
           <View>
             <Text style={[styles.greeting, { color: colors.textSecondary }]}>{t("home.goodMorning")}</Text>
@@ -59,7 +106,6 @@ export default function HomeScreen() {
           <View style={[styles.avatar, { backgroundColor: colors.brandPrimary }]} />
         </View>
 
-        {/* Quick actions */}
         <View style={styles.quickRow}>
           {quickActions.map((action, i) => (
             <Pressable key={i} onPress={action.onPress} style={[styles.quickCard, { backgroundColor: colors.bgCard }]}>
@@ -71,39 +117,17 @@ export default function HomeScreen() {
           ))}
         </View>
 
-        {/* Recent Theses */}
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t("home.recentTheses")}</Text>
-          <Pressable onPress={() => router.push("/(tabs)/thesis" as any)}>
-            <Text style={[styles.seeAll, { color: colors.brandPrimaryLight }]}>{t("common.seeAll")}</Text>
-          </Pressable>
         </View>
 
-        {/* Thesis cards */}
-        {theses.map((thesis, i) => {
-          const totalChapters = thesis.chapters.length;
-          const doneChapters = thesis.chapters.filter((ch) => ch.status === "done").length;
+        {apiTheses.map((thesis, i) => {
           const progressColors = [colors.brandPrimary, colors.brandAccent, colors.semanticWarning];
           const progressColor = progressColors[i % progressColors.length];
-
           return (
-            <Pressable
-              key={thesis.id}
-              onPress={() => {
-                useThesisStore.getState().setCurrentThesis(thesis.id);
-                router.push("/(tabs)/chat" as any);
-              }}
-            >
+            <Pressable key={thesis.id} onPress={() => selectThesis(thesis)}>
               <Card style={styles.thesisCard}>
                 <Text style={[styles.thesisTitle, { color: colors.textPrimary }]}>{thesis.title}</Text>
-                <View style={styles.thesisMeta}>
-                  <Text style={[styles.thesisMetaText, { color: colors.textSecondary }]}>
-                    {doneChapters}/{totalChapters} {t("home.chapters")}
-                  </Text>
-                  <Text style={[styles.thesisMetaText, { color: colors.textSecondary }]}>
-                    2 {t("home.hoursAgo")}
-                  </Text>
-                </View>
                 <View style={[styles.progressBg, { backgroundColor: colors.bgSurface }]}>
                   <View style={[styles.progressFill, { backgroundColor: progressColor, width: `${thesis.progress || 10}%` }]} />
                 </View>
@@ -129,11 +153,8 @@ const styles = StyleSheet.create({
   quickLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textAlign: "center" },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_600SemiBold" },
-  seeAll: { fontSize: 13, fontFamily: "Inter_500Medium" },
   thesisCard: { marginBottom: 0 },
   thesisTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", marginBottom: 8 },
-  thesisMeta: { flexDirection: "row", gap: 16, marginBottom: 10 },
-  thesisMetaText: { fontSize: 12, fontFamily: "Inter_400Regular" },
   progressBg: { height: 5, borderRadius: 3, overflow: "hidden" },
   progressFill: { height: 5, borderRadius: 3 },
   emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32, gap: 16 },
