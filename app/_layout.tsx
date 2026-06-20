@@ -48,6 +48,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     async function prepare() {
+      // Clear stale thesis cache (one-time migration)
+      const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+      await AsyncStorage.removeItem("modakerati-thesis");
+
       const lang = await getStoredLanguage();
       await i18n.changeLanguage(lang);
       await initialize();

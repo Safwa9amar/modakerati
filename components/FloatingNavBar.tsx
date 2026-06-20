@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef } from "react";
-import { I18nManager, Pressable, StyleSheet, View } from "react-native";
+import { useCallback, useMemo, useRef } from "react";
+import { Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
+  Easing,
+  FadeIn,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
+  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname, useRouter } from "expo-router";
@@ -14,12 +17,14 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSettingsStore } from "@/stores/settings-store";
 
 // -----------------------------------------------------------------------------
-// Floating tab bar — fixed equal-width icon slots so the icons NEVER move, plus
-// a single rounded pill that springs (react-native-reanimated) to the selected
-// slot. Only the selected tab animates; the others stay perfectly still.
+// Floating tab bar: active tab = an expanding pill (icon + text); inactive tabs
+// = icon only. Built with react-native-reanimated.
 //
-// Slots are a constant width, so the pill position is pure `activeIndex` math —
-// no per-tab measurement, no reflow, no "dancing".
+// To make the expansion read as a smooth glide (not the bouncy "dancing"), the
+// row reflow and the pill are animated with the SAME timing + easing, so they
+// move in lockstep: each tab uses a timing-based LinearTransition, and the
+// single sliding pill withTiming's its x + width to the active tab's measured
+// frame over the same duration. No springs = no overshoot.
 // -----------------------------------------------------------------------------
 
 type TabName = "index" | "chat" | "thesis" | "notifications" | "profile";
@@ -39,11 +44,13 @@ const TABS: readonly TabDef[] = [
   { name: "profile", href: "/(tabs)/profile", icon: User, labelKey: "nav.profile" },
 ] as const;
 
-const SLOT_WIDTH = 62;
 const TAB_HEIGHT = 44;
-const PILL_INSET = 6;
-const PILL_HEIGHT = 40;
-const SPRING = { damping: 18, stiffness: 200, mass: 0.9 } as const;
+const DURATION = 280;
+const EASING = Easing.inOut(Easing.cubic);
+const TIMING = { duration: DURATION, easing: EASING } as const;
+const SMOOTH = LinearTransition.duration(DURATION).easing(EASING);
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 function activeIndexFromPathname(pathname: string): number {
   const isIndex =
@@ -62,27 +69,49 @@ export function FloatingNavBar() {
   const theme = useSettingsStore((s) => s.theme);
 
   const activeIndex = useMemo(() => activeIndexFromPathname(pathname), [pathname]);
+  const activeIndexRef = useRef(activeIndex);
+  activeIndexRef.current = activeIndex;
+
   const pillTint = colors.brandPrimary + (theme === "dark" ? "33" : "1F");
 
-  // Mirror the slot for RTL so the pill lands under the correct icon.
-  const slotIndex = I18nManager.isRTL ? TABS.length - 1 - activeIndex : activeIndex;
-  const targetX = slotIndex * SLOT_WIDTH + PILL_INSET;
+  // Measured frame (x + width) of every tab, relative to the inner row.
+  const layouts = useRef<({ x: number; width: number } | null)[]>(TABS.map(() => null));
+  const pillX = useSharedValue(0);
+  const pillW = useSharedValue(0);
+  const ready = useSharedValue(0);
 
-  // Initialised at the correct spot so it never flashes from 0 on mount; only
-  // subsequent active-tab changes spring.
-  const pillX = useSharedValue(targetX);
-  const didInit = useRef(false);
+  const moveTo = useCallback(
+    (index: number) => {
+      const frame = layouts.current[index];
+      if (!frame) return;
+      if (ready.value === 1) {
+        pillX.value = withTiming(frame.x, TIMING);
+        pillW.value = withTiming(frame.width, TIMING);
+      } else {
+        // First measurement: snap into place (no animation from 0,0).
+        pillX.value = frame.x;
+        pillW.value = frame.width;
+        ready.value = 1;
+      }
+    },
+    [pillX, pillW, ready],
+  );
 
-  useEffect(() => {
-    if (!didInit.current) {
-      didInit.current = true;
-      return;
-    }
-    pillX.value = withSpring(targetX, SPRING);
-  }, [targetX, pillX]);
+  const onTabLayout = useCallback(
+    (index: number, e: LayoutChangeEvent) => {
+      const { x, width } = e.nativeEvent.layout;
+      layouts.current[index] = { x, width };
+      // Re-aim the pill when the active tab (re)measures — fires after navigation
+      // once the newly-active tab has grown to include its label.
+      if (index === activeIndexRef.current) moveTo(index);
+    },
+    [moveTo],
+  );
 
   const pillStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: pillX.value }],
+    width: pillW.value,
+    opacity: ready.value,
   }));
 
   return (
@@ -91,33 +120,38 @@ export function FloatingNavBar() {
       pointerEvents="box-none">
       <View style={[styles.card, { backgroundColor: colors.navBar }]}>
         <View style={styles.row}>
-          {/* Single sliding pill, behind the icons. */}
+          {/* Single sliding + resizing pill, behind the tabs. */}
           <Animated.View
             pointerEvents="none"
-            style={[
-              styles.pill,
-              pillStyle,
-              { width: SLOT_WIDTH - PILL_INSET * 2, backgroundColor: pillTint },
-            ]}
+            style={[styles.pill, pillStyle, { backgroundColor: pillTint }]}
           />
 
           {TABS.map((tab, index) => {
             const isActive = index === activeIndex;
             const Icon = tab.icon;
             return (
-              <Pressable
+              <AnimatedPressable
                 key={tab.name}
+                layout={SMOOTH}
+                onLayout={(e) => onTabLayout(index, e)}
                 onPress={() => router.push(tab.href as never)}
                 style={styles.tab}
                 accessibilityRole="button"
-                accessibilityLabel={t(tab.labelKey)}
                 accessibilityState={{ selected: isActive }}>
                 <Icon
-                  size={23}
+                  size={22}
                   color={isActive ? colors.brandPrimary : colors.navInactive}
                   strokeWidth={2}
                 />
-              </Pressable>
+                {isActive ? (
+                  <Animated.Text
+                    entering={FadeIn.duration(200)}
+                    numberOfLines={1}
+                    style={[styles.label, { color: colors.brandPrimary }]}>
+                    {t(tab.labelKey)}
+                  </Animated.Text>
+                ) : null}
+              </AnimatedPressable>
             );
           })}
         </View>
@@ -142,19 +176,28 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row",
+    alignItems: "center",
     position: "relative",
+    gap: 2,
   },
   pill: {
     position: "absolute",
     left: 0,
-    top: (TAB_HEIGHT - PILL_HEIGHT) / 2,
-    height: PILL_HEIGHT,
-    borderRadius: 20,
+    top: 0,
+    height: TAB_HEIGHT,
+    borderRadius: 22,
   },
   tab: {
-    width: SLOT_WIDTH,
     height: TAB_HEIGHT,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: "600",
   },
 });
