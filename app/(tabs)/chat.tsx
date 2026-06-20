@@ -1,14 +1,17 @@
-import { useState, useRef, useEffect, memo, useCallback } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard, Animated as RNAnimated, LayoutAnimation } from "react-native";
+import { useState, useRef, useEffect, memo } from "react";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, loadInitialMessages } from "@/lib/ai-service";
-import { Send, Plus, Home, List, Paperclip, Image, BookOpen, Sparkles, X } from "lucide-react-native";
+import { Send, Plus, Home, List, Paperclip, Image, Sparkles, X } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import type { ChatMessage } from "@/types/chat";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const Bubble = memo(({ item, colors }: { item: ChatMessage; colors: any }) => {
   const isUser = item.role === "user";
@@ -31,10 +34,10 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
-  const inputRef = useRef<RNTextInput>(null);
   const messages = useChatStore((s) => s.getMessages(thesisId));
   const isGenerating = useChatStore((s) => s.isGenerating);
   const loadedRef = useRef(false);
+  const rotation = useSharedValue(0);
 
   useEffect(() => {
     if (!loadedRef.current) {
@@ -60,48 +63,38 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
     await sendMessageToAI(thesisId, text);
   }
 
-  function handlePlusPress() {
-    if (inputFocused || inputText.trim()) {
-      // If focused with text, this shouldn't happen (send button shows instead)
-      return;
-    }
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setToolsExpanded(!toolsExpanded);
+  const showSend = inputFocused || inputText.trim().length > 0;
+
+  function toggleTools() {
+    const next = !toolsExpanded;
+    setToolsExpanded(next);
+    rotation.value = withSpring(next ? 45 : 0, { damping: 12, stiffness: 200 });
   }
 
   function handleToolPress(tool: string) {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setToolsExpanded(false);
-
+    rotation.value = withTiming(0, { duration: 200 });
     switch (tool) {
-      case "structure":
-        setSheetVisible(true);
-        break;
-      case "enhance":
-        router.push("/(app)/ai-enhance" as any);
-        break;
-      case "file":
-        // TODO: document picker
-        break;
-      case "image":
-        // TODO: image picker
-        break;
+      case "structure": setSheetVisible(true); break;
+      case "enhance": router.push("/(app)/ai-enhance" as any); break;
+      case "file": break;
+      case "image": break;
     }
   }
 
-  // Show send icon when focused or has text, otherwise show plus
-  const showSend = inputFocused || inputText.trim().length > 0;
+  const plusStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
 
   const tools = [
     { key: "structure", icon: List, label: "Structure", color: colors.brandAccent },
     { key: "enhance", icon: Sparkles, label: "AI Enhance", color: colors.brandPrimary },
-    { key: "file", icon: Paperclip, label: "Attach File", color: colors.semanticWarning },
-    { key: "image", icon: Image, label: "Add Image", color: "#9959FF" },
+    { key: "file", icon: Paperclip, label: "Attach", color: colors.semanticWarning },
+    { key: "image", icon: Image, label: "Image", color: "#9959FF" },
   ];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-      {/* Top bar */}
       <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.bgCard }}>
         <View style={styles.topBar}>
           <Pressable onPress={() => router.push("/(tabs)/" as any)} style={{ padding: 4 }}>
@@ -112,11 +105,7 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
         </View>
       </SafeAreaView>
 
-      {/* Messages */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -127,8 +116,8 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
           keyboardShouldPersistTaps="handled"
           onTouchStart={() => {
             if (toolsExpanded) {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
               setToolsExpanded(false);
+              rotation.value = withTiming(0, { duration: 200 });
             }
           }}
         />
@@ -142,45 +131,29 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
 
         {/* Input area */}
         <View style={[styles.inputContainer, { backgroundColor: colors.bgCard, paddingBottom: Math.max(insets.bottom, 8) }]}>
-          {/* Tools row */}
+          {/* Expandable tools */}
           {toolsExpanded && (
-            <View style={styles.toolsRow}>
-              {tools.map((tool) => (
-                <Pressable
+            <Animated.View entering={SlideInDown.duration(250).springify()} exiting={SlideOutDown.duration(200)} style={styles.toolsRow}>
+              {tools.map((tool, i) => (
+                <AnimatedPressable
                   key={tool.key}
+                  entering={FadeIn.delay(i * 60).duration(200)}
                   onPress={() => handleToolPress(tool.key)}
-                  style={[styles.toolBtn, { backgroundColor: tool.color + "18" }]}
+                  style={[styles.toolBtn, { backgroundColor: tool.color + "15" }]}
                 >
-                  <tool.icon size={20} color={tool.color} strokeWidth={1.8} />
+                  <View style={[styles.toolIconBg, { backgroundColor: tool.color + "25" }]}>
+                    <tool.icon size={20} color={tool.color} strokeWidth={1.8} />
+                  </View>
                   <Text style={[styles.toolLabel, { color: tool.color }]}>{tool.label}</Text>
-                </Pressable>
+                </AnimatedPressable>
               ))}
-            </View>
+            </Animated.View>
           )}
 
-          {/* Input row */}
+          {/* Input row: input + single action button (plus OR send) */}
           <View style={styles.inputRow}>
-            {/* Plus / Close button */}
-            <Pressable
-              onPress={showSend ? undefined : handlePlusPress}
-              style={[
-                styles.actionBtn,
-                {
-                  backgroundColor: toolsExpanded ? colors.semanticError + "20" : (showSend ? "transparent" : colors.brandPrimary),
-                },
-              ]}
-            >
-              {toolsExpanded ? (
-                <X size={20} color={colors.semanticError} strokeWidth={2} />
-              ) : showSend ? null : (
-                <Plus size={20} color="#FFFFFF" strokeWidth={2.5} />
-              )}
-            </Pressable>
-
-            {/* Text input */}
             <View style={[styles.inputField, { backgroundColor: colors.bgSurface }]}>
               <RNTextInput
-                ref={inputRef}
                 style={[styles.input, { color: colors.textPrimary }]}
                 placeholder="Ask about your thesis..."
                 placeholderTextColor={colors.textPlaceholder}
@@ -190,8 +163,8 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
                 onFocus={() => {
                   setInputFocused(true);
                   if (toolsExpanded) {
-                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                     setToolsExpanded(false);
+                    rotation.value = withTiming(0, { duration: 200 });
                   }
                 }}
                 onBlur={() => setInputFocused(false)}
@@ -202,14 +175,27 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
               />
             </View>
 
-            {/* Send button — only shows when focused or has text */}
-            {showSend && (
-              <Pressable
+            {/* Single button: swaps between + and Send */}
+            {showSend ? (
+              <AnimatedPressable
+                entering={FadeIn.duration(150)}
+                exiting={FadeOut.duration(100)}
                 onPress={handleSend}
                 style={[styles.actionBtn, { backgroundColor: colors.brandPrimary, opacity: inputText.trim() && !isGenerating ? 1 : 0.4 }]}
               >
                 <Send size={18} color="#FFFFFF" strokeWidth={2} />
-              </Pressable>
+              </AnimatedPressable>
+            ) : (
+              <AnimatedPressable
+                entering={FadeIn.duration(150)}
+                exiting={FadeOut.duration(100)}
+                onPress={toggleTools}
+                style={[styles.actionBtn, { backgroundColor: toolsExpanded ? colors.bgSurface : colors.brandPrimary }]}
+              >
+                <Animated.View style={plusStyle}>
+                  <Plus size={20} color={toolsExpanded ? colors.textSecondary : "#FFFFFF"} strokeWidth={2.5} />
+                </Animated.View>
+              </AnimatedPressable>
             )}
           </View>
         </View>
@@ -257,11 +243,12 @@ const styles = StyleSheet.create({
   generatingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 4, padding: 12, borderRadius: 16 },
   generatingText: { fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic" },
   inputContainer: { paddingHorizontal: 12, paddingTop: 8 },
-  toolsRow: { flexDirection: "row", gap: 8, marginBottom: 10, paddingHorizontal: 4 },
-  toolBtn: { flex: 1, flexDirection: "column", alignItems: "center", gap: 4, paddingVertical: 10, borderRadius: 12 },
-  toolLabel: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  toolsRow: { flexDirection: "row", gap: 8, marginBottom: 10, paddingHorizontal: 2 },
+  toolBtn: { flex: 1, alignItems: "center", gap: 6, paddingVertical: 12, borderRadius: 14 },
+  toolIconBg: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  toolLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
   inputRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  actionBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  actionBtn: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   inputField: { flex: 1, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, maxHeight: 120 },
   input: { fontSize: 14, fontFamily: "Inter_400Regular" },
   noThesis: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
