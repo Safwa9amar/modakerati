@@ -7,7 +7,7 @@ export default function TabsLayout() {
   const colors = useThemeColors();
   return (
     <View style={{ flex: 1, backgroundColor: colors.bgPrimary }}>
-      <Tabs screenOptions={{ headerShown: false }} tabBar={() => <FloatingNavBar />}>
+      <Tabs screenOptions={{ headerShown: false, animation : "shift" }} tabBar={() => <FloatingNavBar />}>
         <Tabs.Screen name="index" />
         <Tabs.Screen name="chat" />
         <Tabs.Screen name="thesis" />
