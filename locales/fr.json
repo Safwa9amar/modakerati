@@ -97,6 +97,36 @@
     "generating": "Generation",
     "selectThesis": "Selectionnez un memoire pour commencer"
   },
+  "editor": {
+    "sectionEditor": "Editeur de section",
+    "wordCount": "mots",
+    "characters": "caracteres",
+    "aiEnhance": "Ameliorer par IA",
+    "aiSuggestion": "IA: Ajouter un paragraphe de transition ?"
+  },
+  "preview": {
+    "preview": "Apercu",
+    "pageOf": "Page {{current}} sur {{total}}"
+  },
+  "export": {
+    "exportThesis": "Exporter le memoire",
+    "chooseFormat": "Choisir le format",
+    "wordDoc": "Document Word",
+    "wordDocDesc": "Ideal pour l'edition et le partage",
+    "pdfDoc": "Document PDF",
+    "pdfDocDesc": "Ideal pour l'impression",
+    "latexSource": "Source LaTeX",
+    "latexDesc": "Pour les universites exigeant LaTeX",
+    "options": "Options",
+    "includeCover": "Inclure la page de garde",
+    "includeToc": "Inclure la table des matieres",
+    "includeRefs": "Inclure les references",
+    "exportAs": "Exporter en",
+    "exportComplete": "Exportation terminee !",
+    "exportedAs": "Votre memoire a ete exporte\navec succes en",
+    "shareFile": "Partager le fichier",
+    "openInFiles": "Ouvrir dans Fichiers"
+  },
   "template": {
     "startNew": "Nouveau mémoire",
     "searchTemplates": "Rechercher des modèles...",

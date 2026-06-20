@@ -7,5 +7,9 @@ export default function AppLayout() {
     <Stack.Screen name="template-picker" />
     <Stack.Screen name="template-preview" />
     <Stack.Screen name="edit-chapter" />
+    <Stack.Screen name="section-editor" />
+    <Stack.Screen name="document-preview" />
+    <Stack.Screen name="export" />
+    <Stack.Screen name="export-success" />
   </Stack>;
 }

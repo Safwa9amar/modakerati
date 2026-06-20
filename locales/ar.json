@@ -97,6 +97,36 @@
     "generating": "جاري التوليد",
     "selectThesis": "اختر مذكرة من الرئيسية لبدء المحادثة"
   },
+  "editor": {
+    "sectionEditor": "محرر القسم",
+    "wordCount": "كلمة",
+    "characters": "حرف",
+    "aiEnhance": "تحسين بالذكاء",
+    "aiSuggestion": "ذكاء: إضافة فقرة انتقالية؟"
+  },
+  "preview": {
+    "preview": "معاينة",
+    "pageOf": "صفحة {{current}} من {{total}}"
+  },
+  "export": {
+    "exportThesis": "تصدير المذكرة",
+    "chooseFormat": "اختر الصيغة",
+    "wordDoc": "مستند Word",
+    "wordDocDesc": "مثالي للتحرير والمشاركة",
+    "pdfDoc": "مستند PDF",
+    "pdfDocDesc": "مثالي للطباعة والتقديم",
+    "latexSource": "مصدر LaTeX",
+    "latexDesc": "للجامعات التي تطلب LaTeX",
+    "options": "الخيارات",
+    "includeCover": "تضمين صفحة الغلاف",
+    "includeToc": "تضمين جدول المحتويات",
+    "includeRefs": "تضمين المراجع",
+    "exportAs": "تصدير كـ",
+    "exportComplete": "اكتمل التصدير!",
+    "exportedAs": "تم تصدير مذكرتك\nبنجاح كـ",
+    "shareFile": "مشاركة الملف",
+    "openInFiles": "فتح في الملفات"
+  },
   "template": {
     "startNew": "مذكرة جديدة",
     "searchTemplates": "البحث عن القوالب...",

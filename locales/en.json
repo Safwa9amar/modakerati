@@ -97,6 +97,36 @@
     "generating": "Generating",
     "selectThesis": "Select a thesis from Home to start chatting"
   },
+  "editor": {
+    "sectionEditor": "Section Editor",
+    "wordCount": "words",
+    "characters": "chars",
+    "aiEnhance": "AI Enhance",
+    "aiSuggestion": "AI: Add a transition paragraph?"
+  },
+  "preview": {
+    "preview": "Preview",
+    "pageOf": "Page {{current}} of {{total}}"
+  },
+  "export": {
+    "exportThesis": "Export Thesis",
+    "chooseFormat": "Choose Format",
+    "wordDoc": "Word Document",
+    "wordDocDesc": "Best for editing & sharing",
+    "pdfDoc": "PDF Document",
+    "pdfDocDesc": "Best for printing & submission",
+    "latexSource": "LaTeX Source",
+    "latexDesc": "For LaTeX-required universities",
+    "options": "Options",
+    "includeCover": "Include cover page",
+    "includeToc": "Include table of contents",
+    "includeRefs": "Include references",
+    "exportAs": "Export as",
+    "exportComplete": "Export Complete!",
+    "exportedAs": "Your thesis has been exported\nsuccessfully as",
+    "shareFile": "Share File",
+    "openInFiles": "Open in Files"
+  },
   "template": {
     "startNew": "Start a New Thesis",
     "searchTemplates": "Search templates...",
