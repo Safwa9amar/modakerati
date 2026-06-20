@@ -1,6 +1,4 @@
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
   Thesis,
   Chapter,
@@ -67,7 +65,6 @@ const generateId = (): string =>
   Math.random().toString(36).substring(2, 10);
 
 export const useThesisStore = create<ThesisState>()(
-  persist(
     (set, get) => ({
       theses: [],
       currentThesisId: null,
@@ -429,10 +426,4 @@ export const useThesisStore = create<ThesisState>()(
             },
           ],
         }),
-    }),
-    {
-      name: "modakerati-thesis",
-      storage: createJSONStorage(() => AsyncStorage),
-    }
-  )
-);
+    }));
