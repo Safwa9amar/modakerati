@@ -9,6 +9,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, loadInitialMessages } from "@/lib/ai-service";
 import { ArrowLeft, MoreHorizontal, Send, List } from "lucide-react-native";
 import { useRTL } from "@/hooks/useRTL";
+import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import type { ChatMessage } from "@/types/chat";
 
 export default function ChatScreen() {
@@ -17,6 +18,7 @@ export default function ChatScreen() {
   const router = useRouter();
   const { isRTL } = useRTL();
   const [inputText, setInputText] = useState("");
+  const [sheetVisible, setSheetVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const thesis = useThesisStore((s) => s.getCurrentThesis());
@@ -140,12 +142,11 @@ export default function ChatScreen() {
       {/* FAB */}
       <Pressable
         style={[styles.fab, { backgroundColor: colors.brandAccent }]}
-        onPress={() => {
-          // Will open bottom sheet in next task
-        }}
+        onPress={() => setSheetVisible(true)}
       >
         <List size={22} color={colors.bgPrimary} strokeWidth={2} />
       </Pressable>
+      <ThesisStructureSheet visible={sheetVisible} onClose={() => setSheetVisible(false)} />
     </SafeAreaView>
   );
 }
