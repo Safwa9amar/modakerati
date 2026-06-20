@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -21,13 +21,17 @@ export default function ChatScreen() {
   const [sheetVisible, setSheetVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
-  const thesis = useThesisStore((s) => s.getCurrentThesis());
-  const thesisId = thesis?.id ?? "default";
-  const messages = useChatStore((s) => s.getMessages(thesisId));
+  const thesisId = useThesisStore((s) => s.currentThesisId);
+  const thesis = useThesisStore((s) => s.currentThesisId ? s.theses.find((t) => t.id === s.currentThesisId) ?? null : null);
+  const messages = useChatStore((s) => thesisId ? (s.messages[thesisId] ?? []) : []);
   const isGenerating = useChatStore((s) => s.isGenerating);
+  const loadedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    loadInitialMessages(thesisId);
+    if (thesisId && loadedRef.current !== thesisId) {
+      loadedRef.current = thesisId;
+      loadInitialMessages(thesisId);
+    }
   }, [thesisId]);
 
   useEffect(() => {
@@ -37,7 +41,7 @@ export default function ChatScreen() {
   }, [messages.length]);
 
   async function handleSend() {
-    if (!inputText.trim() || isGenerating) return;
+    if (!inputText.trim() || isGenerating || !thesisId) return;
     const text = inputText.trim();
     setInputText("");
     await sendMessageToAI(thesisId, text);
@@ -65,7 +69,7 @@ export default function ChatScreen() {
   }
 
   // No thesis selected — show prompt
-  if (!thesis) {
+  if (!thesis || !thesisId) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
         <View style={styles.noThesis}>

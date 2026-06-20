@@ -5,6 +5,11 @@ function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
 }
 
+// Stable reference for the "no messages yet" case. Returning a fresh `[]` from
+// the selector makes zustand's useSyncExternalStore see a new snapshot every
+// render, causing an infinite render loop ("Maximum update depth exceeded").
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
 interface ChatState {
   messages: Record<string, ChatMessage[]>; // keyed by thesisId
   isGenerating: boolean;
@@ -22,7 +27,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isGenerating: false,
   generatingStep: 0,
 
-  getMessages: (thesisId) => get().messages[thesisId] ?? [],
+  getMessages: (thesisId) => get().messages[thesisId] ?? EMPTY_MESSAGES,
 
   addMessage: (thesisId, role, content, chapterId) =>
     set((s) => ({

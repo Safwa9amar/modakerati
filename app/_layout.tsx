@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Platform } from "react-native";
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -12,12 +13,36 @@ import "../global.css";
 
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
-  const [appReady, setAppReady] = useState(false);
-  const { isAuthenticated, isLoading, initialize } = useAuthStore();
-  const { hasCompletedOnboarding } = useSettingsStore();
+function useProtectedRoute() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const hasCompletedOnboarding = useSettingsStore((s) => s.hasCompletedOnboarding);
   const segments = useSegments();
   const router = useRouter();
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    const inAuthGroup = segments[0] === "(auth)";
+
+    // Small delay for Android — router needs a tick to be ready
+    const timer = setTimeout(() => {
+      if (!hasCompletedOnboarding) {
+        router.replace("/(auth)/onboarding" as any);
+      } else if (!isAuthenticated && !inAuthGroup) {
+        router.replace("/(auth)/login" as any);
+      } else if (isAuthenticated && inAuthGroup) {
+        router.replace("/(tabs)" as any);
+      }
+    }, Platform.OS === "android" ? 100 : 0);
+
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, isLoading, hasCompletedOnboarding, segments]);
+}
+
+export default function RootLayout() {
+  const [appReady, setAppReady] = useState(false);
+  const initialize = useAuthStore((s) => s.initialize);
 
   const [fontsLoaded] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold });
 
@@ -32,17 +57,12 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (!appReady || !fontsLoaded) return;
-    SplashScreen.hideAsync();
-    const inAuthGroup = segments[0] === "(auth)";
-    if (!hasCompletedOnboarding) {
-      router.replace("/(auth)/onboarding" as any);
-    } else if (!isAuthenticated && !inAuthGroup) {
-      router.replace("/(auth)/login" as any);
-    } else if (isAuthenticated && inAuthGroup) {
-      router.replace("/(tabs)" as any);
+    if (appReady && fontsLoaded) {
+      SplashScreen.hideAsync();
     }
-  }, [appReady, fontsLoaded, isAuthenticated, hasCompletedOnboarding]);
+  }, [appReady, fontsLoaded]);
+
+  useProtectedRoute();
 
   if (!appReady || !fontsLoaded) return null;
 
