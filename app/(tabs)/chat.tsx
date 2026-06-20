@@ -244,6 +244,7 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
 
 export default function ChatScreen() {
   const colors = useThemeColors();
+  const router = useRouter();
   const thesisId = useThesisStore((s) => s.currentThesisId);
   const thesisTitle = useThesisStore((s) => {
     if (!s.currentThesisId) return "";
@@ -257,6 +258,14 @@ export default function ChatScreen() {
           <Text style={[styles.noThesisText, { color: colors.textSecondary }]}>
             Select a thesis from Home to start chatting
           </Text>
+          <Pressable
+            onPress={() => router.push("/(tabs)" as never)}
+            style={[styles.homeBtn, { backgroundColor: colors.brandPrimary }]}
+            accessibilityRole="button"
+            accessibilityLabel="Go to Home">
+            <Home size={18} color="#FFFFFF" strokeWidth={2.4} />
+            <Text style={styles.homeBtnText}>Home</Text>
+          </Pressable>
         </View>
       </SafeAreaView>
     );
@@ -290,4 +299,14 @@ const styles = StyleSheet.create({
   sendBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", marginLeft: 6 },
   noThesis: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
   noThesisText: { fontSize: 16, fontFamily: "Inter_400Regular", textAlign: "center" },
+  homeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 14,
+  },
+  homeBtnText: { color: "#FFFFFF", fontSize: 15, fontFamily: "Inter_600SemiBold" },
 });
