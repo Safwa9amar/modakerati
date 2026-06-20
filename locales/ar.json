@@ -227,6 +227,16 @@
     "accept": "قبول",
     "dismiss": "تجاهل"
   },
+  "network": {
+    "noConnection": "لا يوجد اتصال",
+    "offlineDesc": "أنت غير متصل حالياً.\nعملك محفوظ محلياً.",
+    "availableOffline": "متاح بدون اتصال:",
+    "readEdit": "قراءة وتعديل الأقسام",
+    "viewStructure": "عرض هيكل المذكرة",
+    "cachedTemplates": "الوصول للقوالب المخزنة",
+    "retryConnection": "إعادة محاولة الاتصال",
+    "continueOffline": "المتابعة بدون اتصال"
+  },
   "template": {
     "startNew": "مذكرة جديدة",
     "searchTemplates": "البحث عن القوالب...",

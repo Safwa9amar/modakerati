@@ -227,6 +227,16 @@
     "accept": "Accepter",
     "dismiss": "Ignorer"
   },
+  "network": {
+    "noConnection": "Pas de connexion",
+    "offlineDesc": "Vous etes actuellement hors ligne.\nVotre travail est sauvegarde localement.",
+    "availableOffline": "Disponible hors ligne :",
+    "readEdit": "Lire et modifier les sections",
+    "viewStructure": "Voir la structure du memoire",
+    "cachedTemplates": "Acceder aux modeles en cache",
+    "retryConnection": "Reessayer la connexion",
+    "continueOffline": "Continuer hors ligne"
+  },
   "template": {
     "startNew": "Nouveau mémoire",
     "searchTemplates": "Rechercher des modèles...",

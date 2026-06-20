@@ -227,6 +227,16 @@
     "accept": "Accept",
     "dismiss": "Dismiss"
   },
+  "network": {
+    "noConnection": "No Connection",
+    "offlineDesc": "You're currently offline.\nYour work is saved locally and will\nsync when you're back online.",
+    "availableOffline": "Available offline:",
+    "readEdit": "Read & edit saved sections",
+    "viewStructure": "View thesis structure",
+    "cachedTemplates": "Access cached templates",
+    "retryConnection": "Retry Connection",
+    "continueOffline": "Continue in Offline Mode"
+  },
   "template": {
     "startNew": "Start a New Thesis",
     "searchTemplates": "Search templates...",

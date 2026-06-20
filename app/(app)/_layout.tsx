@@ -21,5 +21,6 @@ export default function AppLayout() {
     <Stack.Screen name="list-tables" />
     <Stack.Screen name="citations" />
     <Stack.Screen name="ai-enhance" />
+    <Stack.Screen name="network-error" />
   </Stack>;
 }
