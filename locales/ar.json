@@ -43,9 +43,19 @@
   },
   "home": {
     "goodMorning": "صباح الخير",
+    "newThesis": "مذكرة\nجديدة",
+    "importDocx": "استيراد\n.docx",
+    "templates": "القوالب",
+    "aiAssist": "مساعد\nالذكاء",
     "recentTheses": "المذكرات الأخيرة",
+    "chapters": "فصول",
     "noThesesYet": "لا توجد مذكرات بعد",
-    "createFirst": "أنشئ مذكرتك الأولى"
+    "noThesesDesc": "ابدأ مسيرتك الأكاديمية.\nأنشئ مذكرتك الأولى بمساعدة الذكاء الاصطناعي.",
+    "createFirst": "أنشئ مذكرتك الأولى",
+    "importExisting": "استيراد ملف .docx موجود",
+    "hoursAgo": "ساعات",
+    "yesterday": "أمس",
+    "daysAgo": "أيام"
   },
   "onboarding": {
     "slide1Title": "تحدث مع الذكاء الاصطناعي\nلبناء مذكرتك",
@@ -56,5 +66,42 @@
     "settings": "الإعدادات",
     "language": "اللغة",
     "theme": "المظهر"
+  },
+  "thesis": {
+    "myTheses": "مذكراتي",
+    "all": "الكل",
+    "active": "نشطة",
+    "completed": "مكتملة",
+    "archived": "مؤرشفة",
+    "thesisStructure": "هيكل المذكرة",
+    "addChapter": "إضافة",
+    "done": "مكتمل",
+    "inProgress": "قيد التنفيذ",
+    "notStarted": "لم يبدأ",
+    "pending": "معلق",
+    "editChapter": "تعديل الفصل",
+    "deleteChapter": "حذف الفصل",
+    "deleteConfirm": "هل أنت متأكد من حذف هذا الفصل؟",
+    "chapterTitle": "عنوان الفصل",
+    "status": "الحالة",
+    "sections": "الأقسام",
+    "addSection": "قسم",
+    "aiActions": "إجراءات الذكاء",
+    "generateAll": "توليد جميع الأقسام",
+    "suggestMissing": "اقتراح الأقسام المفقودة",
+    "reorderFlow": "إعادة الترتيب لتدفق أفضل"
+  },
+  "template": {
+    "startNew": "مذكرة جديدة",
+    "searchTemplates": "البحث عن القوالب...",
+    "blank": "فارغ",
+    "startFresh": "ابدأ من جديد",
+    "aiWizard": "معالج الذكاء",
+    "guidedSetup": "إعداد موجه",
+    "import": "استيراد",
+    "docxFile": "ملف .docx",
+    "universityTemplates": "قوالب الجامعات",
+    "templatePreview": "معاينة القالب",
+    "useTemplate": "استخدام هذا القالب"
   }
 }

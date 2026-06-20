@@ -43,9 +43,19 @@
   },
   "home": {
     "goodMorning": "Bonjour",
+    "newThesis": "Nouveau\nMémoire",
+    "importDocx": "Importer\n.docx",
+    "templates": "Modèles",
+    "aiAssist": "IA\nAssistant",
     "recentTheses": "Mémoires récents",
+    "chapters": "chapitres",
     "noThesesYet": "Aucun mémoire",
-    "createFirst": "Créer votre premier mémoire"
+    "noThesesDesc": "Commencez votre parcours académique.\nCréez votre premier mémoire avec l'aide de l'IA.",
+    "createFirst": "Créer votre premier mémoire",
+    "importExisting": "Importer un .docx existant",
+    "hoursAgo": "heures",
+    "yesterday": "Hier",
+    "daysAgo": "jours"
   },
   "onboarding": {
     "slide1Title": "Discutez avec l'IA pour\nconstruire votre mémoire",
@@ -56,5 +66,42 @@
     "settings": "Paramètres",
     "language": "Langue",
     "theme": "Thème"
+  },
+  "thesis": {
+    "myTheses": "Mes mémoires",
+    "all": "Tous",
+    "active": "Actifs",
+    "completed": "Terminés",
+    "archived": "Archivés",
+    "thesisStructure": "Structure du mémoire",
+    "addChapter": "Ajouter",
+    "done": "Terminé",
+    "inProgress": "En cours",
+    "notStarted": "Non commencé",
+    "pending": "En attente",
+    "editChapter": "Modifier le chapitre",
+    "deleteChapter": "Supprimer le chapitre",
+    "deleteConfirm": "Voulez-vous vraiment supprimer ce chapitre ?",
+    "chapterTitle": "Titre du chapitre",
+    "status": "Statut",
+    "sections": "Sections",
+    "addSection": "Section",
+    "aiActions": "Actions IA",
+    "generateAll": "Générer toutes les sections",
+    "suggestMissing": "Suggérer les sections manquantes",
+    "reorderFlow": "Réorganiser pour un meilleur flux"
+  },
+  "template": {
+    "startNew": "Nouveau mémoire",
+    "searchTemplates": "Rechercher des modèles...",
+    "blank": "Vierge",
+    "startFresh": "Commencer",
+    "aiWizard": "Assistant IA",
+    "guidedSetup": "Configuration guidée",
+    "import": "Importer",
+    "docxFile": "Fichier .docx",
+    "universityTemplates": "Modèles universitaires",
+    "templatePreview": "Aperçu du modèle",
+    "useTemplate": "Utiliser ce modèle"
   }
 }

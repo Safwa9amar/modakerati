@@ -43,9 +43,19 @@
   },
   "home": {
     "goodMorning": "Good morning",
+    "newThesis": "New\nThesis",
+    "importDocx": "Import\n.docx",
+    "templates": "Templates",
+    "aiAssist": "AI\nAssist",
     "recentTheses": "Recent Theses",
+    "chapters": "chapters",
     "noThesesYet": "No Theses Yet",
-    "createFirst": "Create Your First Thesis"
+    "noThesesDesc": "Start your academic journey.\nCreate your first thesis with AI assistance.",
+    "createFirst": "Create Your First Thesis",
+    "importExisting": "Import Existing .docx",
+    "hoursAgo": "hours ago",
+    "yesterday": "Yesterday",
+    "daysAgo": "days ago"
   },
   "onboarding": {
     "slide1Title": "Chat with AI to\nBuild Your Thesis",
@@ -56,5 +66,42 @@
     "settings": "Settings",
     "language": "Language",
     "theme": "Theme"
+  },
+  "thesis": {
+    "myTheses": "My Theses",
+    "all": "All",
+    "active": "Active",
+    "completed": "Completed",
+    "archived": "Archived",
+    "thesisStructure": "Thesis Structure",
+    "addChapter": "Add",
+    "done": "Done",
+    "inProgress": "In Progress",
+    "notStarted": "Not Started",
+    "pending": "Pending",
+    "editChapter": "Edit Chapter",
+    "deleteChapter": "Delete Chapter",
+    "deleteConfirm": "Are you sure you want to delete this chapter?",
+    "chapterTitle": "Chapter Title",
+    "status": "Status",
+    "sections": "Sections",
+    "addSection": "Section",
+    "aiActions": "AI Actions",
+    "generateAll": "Generate all sections",
+    "suggestMissing": "Suggest missing sections",
+    "reorderFlow": "Reorder for better flow"
+  },
+  "template": {
+    "startNew": "Start a New Thesis",
+    "searchTemplates": "Search templates...",
+    "blank": "Blank",
+    "startFresh": "Start fresh",
+    "aiWizard": "AI Wizard",
+    "guidedSetup": "Guided setup",
+    "import": "Import",
+    "docxFile": ".docx file",
+    "universityTemplates": "University Templates",
+    "templatePreview": "Template Preview",
+    "useTemplate": "Use This Template"
   }
 }
