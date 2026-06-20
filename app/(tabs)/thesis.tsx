@@ -14,6 +14,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { Plus } from "lucide-react-native";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
+import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
 import type { ThesisStatus } from "@/types/thesis";
 
 type FilterKey = "all" | ThesisStatus;
@@ -25,11 +26,14 @@ export default function AllThesesScreen() {
   const { theses } = useThesisStore();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
 
-  const filters: { key: FilterKey; label: string }[] = [
-    { key: "all", label: t("thesis.all") },
-    { key: "active", label: t("thesis.active") },
-    { key: "completed", label: t("thesis.completed") },
-    { key: "archived", label: t("thesis.archived") },
+  const countFor = (key: FilterKey) =>
+    key === "all" ? theses.length : theses.filter((th) => th.status === key).length;
+
+  const filters: { key: FilterKey; label: string; count: number }[] = [
+    { key: "all", label: t("thesis.all"), count: countFor("all") },
+    { key: "active", label: t("thesis.active"), count: countFor("active") },
+    { key: "completed", label: t("thesis.completed"), count: countFor("completed") },
+    { key: "archived", label: t("thesis.archived"), count: countFor("archived") },
   ];
 
   const filteredTheses =
@@ -57,42 +61,18 @@ export default function AllThesesScreen() {
         </Pressable>
       </View>
 
-      {/* Filter chips */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filtersRow}
-      >
-        {filters.map((filter) => {
-          const isActive = activeFilter === filter.key;
-          return (
-            <Pressable
-              key={filter.key}
-              onPress={() => setActiveFilter(filter.key)}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: isActive
-                    ? colors.brandPrimary
-                    : colors.bgSurface,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.chipText,
-                  { color: isActive ? "#FFFFFF" : colors.textSecondary },
-                ]}
-              >
-                {filter.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {/* Filter tabs */}
+      <View style={styles.filtersWrap}>
+        <SegmentedTabs
+          segments={filters}
+          value={activeFilter}
+          onChange={(key) => setActiveFilter(key as FilterKey)}
+        />
+      </View>
 
       {/* Thesis list */}
       <ScrollView
+        style={styles.list}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       >
@@ -207,19 +187,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
   },
-  filtersRow: {
+  filtersWrap: {
     paddingHorizontal: 20,
-    gap: 10,
     paddingBottom: 12,
   },
-  chip: {
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  chipText: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
+  list: {
+    flex: 1,
   },
   listContent: {
     padding: 20,

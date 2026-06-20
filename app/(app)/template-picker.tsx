@@ -22,7 +22,7 @@ export default function TemplatePickerScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
-  const { templates, createThesis, setCurrentThesis } = useThesisStore();
+  const { templates, setCurrentThesis } = useThesisStore();
   const [search, setSearch] = useState("");
 
   const filteredTemplates = templates.filter(
@@ -32,10 +32,18 @@ export default function TemplatePickerScreen() {
       tpl.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleBlank = () => {
-    const thesis = createThesis("Untitled Thesis");
-    setCurrentThesis(thesis.id);
-    router.push("/(tabs)/chat" as any);
+  const handleBlank = async () => {
+    try {
+      const { createThesis } = await import("@/lib/api");
+      const thesis = await createThesis("My Thesis", ["Introduction", "Literature Review", "Methodology", "Results", "Conclusion"]);
+      // Add to local store so chat screen can find it
+      const store = useThesisStore.getState();
+      store.theses.push({ id: thesis.id, title: thesis.title, status: "active", progress: 0, wordCount: 0, pageCount: 0, language: "fr", chapters: [], createdAt: thesis.createdAt, updatedAt: thesis.updatedAt });
+      setCurrentThesis(thesis.id);
+      router.push("/(tabs)/chat" as any);
+    } catch (e: any) {
+      console.error("Failed to create thesis:", e.message);
+    }
   };
 
   const handleTemplateTap = (templateId: string) => {

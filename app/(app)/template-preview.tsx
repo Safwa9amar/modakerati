@@ -13,7 +13,7 @@ export default function TemplatePreviewScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
-  const { templates, createThesis, setCurrentThesis } = useThesisStore();
+  const { templates, setCurrentThesis } = useThesisStore();
 
   const template = templates.find((tpl) => tpl.id === templateId);
 
@@ -44,14 +44,21 @@ export default function TemplatePreviewScreen() {
     `${template.config.margins.left} binding`,
   ];
 
-  const handleUseTemplate = () => {
-    const thesis = createThesis(
-      `${template.type} - ${template.university}`,
-      template.id,
-      template.chapterStructure
-    );
-    setCurrentThesis(thesis.id);
-    router.push("/(tabs)/chat" as any);
+  const handleUseTemplate = async () => {
+    try {
+      const { createThesis } = await import("@/lib/api");
+      const thesis = await createThesis(
+        `${template.type} - ${template.university}`,
+        template.chapterStructure,
+        template.id
+      );
+      const store = useThesisStore.getState();
+      store.theses.push({ id: thesis.id, title: thesis.title, status: "active", progress: 0, wordCount: 0, pageCount: 0, language: "fr", chapters: [], createdAt: thesis.createdAt, updatedAt: thesis.updatedAt });
+      setCurrentThesis(thesis.id);
+      router.push("/(tabs)/chat" as any);
+    } catch (e: any) {
+      console.error("Failed to create thesis:", e.message);
+    }
   };
 
   return (
