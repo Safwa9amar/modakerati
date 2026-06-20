@@ -72,45 +72,17 @@ export interface ChatSendResponse {
 export async function chatSend(
   thesisId: string,
   message: string,
-  options?: { provider?: string; model?: string; chapterId?: string }
+  options?: { chapterId?: string }
 ): Promise<ChatSendResponse> {
   return apiPost("/api/chat/send", {
     thesisId,
     message,
-    provider: options?.provider,
-    model: options?.model,
     chapterId: options?.chapterId,
   });
 }
 
 export async function getChatHistory(thesisId: string) {
   return apiGet<any[]>(`/api/chat/${thesisId}`);
-}
-
-// ============================================================
-// Provider API
-// ============================================================
-
-export interface ProviderHealth {
-  name: string;
-  available: boolean;
-  models: string[];
-}
-
-export async function getProviderHealth(): Promise<{ providers: ProviderHealth[] }> {
-  return apiGet("/api/providers/health");
-}
-
-export async function testProvider(
-  provider: string,
-  message?: string,
-  model?: string
-): Promise<{ provider: string; model: string; response: string; latencyMs: number }> {
-  return apiPost(`/api/providers/${provider}/test`, { message, model });
-}
-
-export async function getProviderModels(provider: string): Promise<{ models: string[] }> {
-  return apiGet(`/api/providers/${provider}/models`);
 }
 
 // ============================================================

@@ -10,7 +10,6 @@ import { sendMessageToAI, loadInitialMessages } from "@/lib/ai-service";
 import { ArrowLeft, MoreHorizontal, Send, List } from "lucide-react-native";
 import { useRTL } from "@/hooks/useRTL";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
-import { ProviderSelector } from "@/components/ProviderSelector";
 import type { ChatMessage } from "@/types/chat";
 
 export default function ChatScreen() {
@@ -117,11 +116,8 @@ export default function ChatScreen() {
           </View>
         )}
 
-        {/* Input bar with provider selector */}
+        {/* Input bar */}
         <View style={[styles.inputBar, { backgroundColor: colors.bgCard }]}>
-          <View style={styles.inputTopRow}>
-            <ProviderSelector />
-          </View>
           <View style={styles.inputBottomRow}>
             <View style={[styles.inputField, { backgroundColor: colors.bgSurface }]}>
               <RNTextInput
@@ -182,10 +178,7 @@ const styles = StyleSheet.create({
   },
   generatingText: { fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic" },
   inputBar: {
-    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 28, gap: 8,
-  },
-  inputTopRow: {
-    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 16, paddingTop: 12, paddingBottom: 28,
   },
   inputBottomRow: {
     flexDirection: "row", alignItems: "center", gap: 10,

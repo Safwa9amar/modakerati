@@ -1,44 +1,21 @@
 import { useChatStore } from "@/stores/chat-store";
 import { chatSend, getChatHistory } from "./api";
 
-export type AIProvider = "openrouter" | "ollama" | "lmstudio";
-
-// Default provider and model — user can change in settings
-let currentProvider: AIProvider = "openrouter";
-let currentModel: string | undefined;
-
-export function setAIProvider(provider: AIProvider, model?: string) {
-  currentProvider = provider;
-  currentModel = model;
-}
-
-export function getAIProvider() {
-  return { provider: currentProvider, model: currentModel };
-}
-
 export async function sendMessageToAI(
   thesisId: string,
   userMessage: string,
-  options?: { provider?: AIProvider; model?: string; chapterId?: string }
+  chapterId?: string
 ): Promise<void> {
   const store = useChatStore.getState();
 
-  // Add user message to local store immediately (optimistic)
+  // Add user message immediately (optimistic)
   store.addMessage(thesisId, "user", userMessage);
   store.setGenerating(true);
 
   try {
-    // Send to backend API
-    const result = await chatSend(thesisId, userMessage, {
-      provider: options?.provider || currentProvider,
-      model: options?.model || currentModel,
-      chapterId: options?.chapterId,
-    });
-
-    // Add AI response to local store
+    const result = await chatSend(thesisId, userMessage, { chapterId });
     store.addMessage(thesisId, "assistant", result.response);
   } catch (error: any) {
-    // On error, add error message as AI response
     store.addMessage(
       thesisId,
       "assistant",
@@ -56,7 +33,6 @@ export async function loadInitialMessages(thesisId: string) {
   if (existing.length > 0) return;
 
   try {
-    // Try to load history from backend
     const history = await getChatHistory(thesisId);
     if (history && history.length > 0) {
       for (const msg of history) {
@@ -65,10 +41,9 @@ export async function loadInitialMessages(thesisId: string) {
       return;
     }
   } catch {
-    // Backend not available — use default welcome
+    // Backend not available
   }
 
-  // Default welcome message
   store.addMessage(
     thesisId,
     "assistant",
