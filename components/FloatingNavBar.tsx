@@ -69,6 +69,9 @@ export function FloatingNavBar() {
   const theme = useSettingsStore((s) => s.theme);
 
   const activeIndex = useMemo(() => activeIndexFromPathname(pathname), [pathname]);
+
+  // Hide tab bar on chat screen
+  if (pathname.includes("chat")) return null;
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
 
