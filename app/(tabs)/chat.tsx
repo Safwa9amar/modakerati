@@ -1,11 +1,11 @@
-import { useState, useRef, useEffect, memo } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard } from "react-native";
+import { useState, useRef, useEffect, memo, useCallback } from "react";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard, Animated as RNAnimated, LayoutAnimation } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, loadInitialMessages } from "@/lib/ai-service";
-import { Send, Home, List } from "lucide-react-native";
+import { Send, Plus, Home, List, Paperclip, Image, BookOpen, Sparkles, X } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import type { ChatMessage } from "@/types/chat";
@@ -27,8 +27,11 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [inputText, setInputText] = useState("");
+  const [inputFocused, setInputFocused] = useState(false);
+  const [toolsExpanded, setToolsExpanded] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const inputRef = useRef<RNTextInput>(null);
   const messages = useChatStore((s) => s.getMessages(thesisId));
   const isGenerating = useChatStore((s) => s.isGenerating);
   const loadedRef = useRef(false);
@@ -52,9 +55,49 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
     if (!inputText.trim() || isGenerating) return;
     const text = inputText.trim();
     setInputText("");
+    setInputFocused(false);
     Keyboard.dismiss();
     await sendMessageToAI(thesisId, text);
   }
+
+  function handlePlusPress() {
+    if (inputFocused || inputText.trim()) {
+      // If focused with text, this shouldn't happen (send button shows instead)
+      return;
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setToolsExpanded(!toolsExpanded);
+  }
+
+  function handleToolPress(tool: string) {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setToolsExpanded(false);
+
+    switch (tool) {
+      case "structure":
+        setSheetVisible(true);
+        break;
+      case "enhance":
+        router.push("/(app)/ai-enhance" as any);
+        break;
+      case "file":
+        // TODO: document picker
+        break;
+      case "image":
+        // TODO: image picker
+        break;
+    }
+  }
+
+  // Show send icon when focused or has text, otherwise show plus
+  const showSend = inputFocused || inputText.trim().length > 0;
+
+  const tools = [
+    { key: "structure", icon: List, label: "Structure", color: colors.brandAccent },
+    { key: "enhance", icon: Sparkles, label: "AI Enhance", color: colors.brandPrimary },
+    { key: "file", icon: Paperclip, label: "Attach File", color: colors.semanticWarning },
+    { key: "image", icon: Image, label: "Add Image", color: "#9959FF" },
+  ];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
@@ -69,11 +112,10 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
         </View>
       </SafeAreaView>
 
-      {/* Messages + Input */}
+      {/* Messages */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
       >
         <FlatList
           ref={flatListRef}
@@ -83,6 +125,12 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
           contentContainerStyle={styles.messageList}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          onTouchStart={() => {
+            if (toolsExpanded) {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setToolsExpanded(false);
+            }
+          }}
         />
 
         {isGenerating && (
@@ -92,34 +140,80 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
           </View>
         )}
 
-        <View style={[styles.inputBar, { backgroundColor: colors.bgCard, paddingBottom: Math.max(insets.bottom, 12) }]}>
-          <View style={[styles.inputField, { backgroundColor: colors.bgSurface }]}>
-            <RNTextInput
-              style={[styles.input, { color: colors.textPrimary }]}
-              placeholder="Ask about your thesis..."
-              placeholderTextColor={colors.textPlaceholder}
-              value={inputText}
-              onChangeText={setInputText}
-              onSubmitEditing={handleSend}
-              returnKeyType="send"
-              editable={!isGenerating}
-              multiline
-              maxLength={2000}
-            />
+        {/* Input area */}
+        <View style={[styles.inputContainer, { backgroundColor: colors.bgCard, paddingBottom: Math.max(insets.bottom, 8) }]}>
+          {/* Tools row */}
+          {toolsExpanded && (
+            <View style={styles.toolsRow}>
+              {tools.map((tool) => (
+                <Pressable
+                  key={tool.key}
+                  onPress={() => handleToolPress(tool.key)}
+                  style={[styles.toolBtn, { backgroundColor: tool.color + "18" }]}
+                >
+                  <tool.icon size={20} color={tool.color} strokeWidth={1.8} />
+                  <Text style={[styles.toolLabel, { color: tool.color }]}>{tool.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {/* Input row */}
+          <View style={styles.inputRow}>
+            {/* Plus / Close button */}
+            <Pressable
+              onPress={showSend ? undefined : handlePlusPress}
+              style={[
+                styles.actionBtn,
+                {
+                  backgroundColor: toolsExpanded ? colors.semanticError + "20" : (showSend ? "transparent" : colors.brandPrimary),
+                },
+              ]}
+            >
+              {toolsExpanded ? (
+                <X size={20} color={colors.semanticError} strokeWidth={2} />
+              ) : showSend ? null : (
+                <Plus size={20} color="#FFFFFF" strokeWidth={2.5} />
+              )}
+            </Pressable>
+
+            {/* Text input */}
+            <View style={[styles.inputField, { backgroundColor: colors.bgSurface }]}>
+              <RNTextInput
+                ref={inputRef}
+                style={[styles.input, { color: colors.textPrimary }]}
+                placeholder="Ask about your thesis..."
+                placeholderTextColor={colors.textPlaceholder}
+                value={inputText}
+                onChangeText={setInputText}
+                onSubmitEditing={handleSend}
+                onFocus={() => {
+                  setInputFocused(true);
+                  if (toolsExpanded) {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setToolsExpanded(false);
+                  }
+                }}
+                onBlur={() => setInputFocused(false)}
+                returnKeyType="send"
+                editable={!isGenerating}
+                multiline
+                maxLength={2000}
+              />
+            </View>
+
+            {/* Send button — only shows when focused or has text */}
+            {showSend && (
+              <Pressable
+                onPress={handleSend}
+                style={[styles.actionBtn, { backgroundColor: colors.brandPrimary, opacity: inputText.trim() && !isGenerating ? 1 : 0.4 }]}
+              >
+                <Send size={18} color="#FFFFFF" strokeWidth={2} />
+              </Pressable>
+            )}
           </View>
-          <Pressable onPress={handleSend} style={[styles.sendBtn, { backgroundColor: colors.brandPrimary, opacity: inputText.trim() && !isGenerating ? 1 : 0.5 }]}>
-            <Send size={18} color="#FFFFFF" strokeWidth={2} />
-          </Pressable>
         </View>
       </KeyboardAvoidingView>
-
-      {/* FAB */}
-      <Pressable
-        onPress={() => setSheetVisible(true)}
-        style={[styles.fab, { backgroundColor: colors.brandAccent }]}
-      >
-        <List size={22} color="#121220" strokeWidth={2} />
-      </Pressable>
 
       <ThesisStructureSheet visible={sheetVisible} onClose={() => setSheetVisible(false)} />
     </View>
@@ -162,16 +256,14 @@ const styles = StyleSheet.create({
   messageText: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
   generatingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 4, padding: 12, borderRadius: 16 },
   generatingText: { fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic" },
-  inputBar: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingHorizontal: 16, paddingTop: 10 },
+  inputContainer: { paddingHorizontal: 12, paddingTop: 8 },
+  toolsRow: { flexDirection: "row", gap: 8, marginBottom: 10, paddingHorizontal: 4 },
+  toolBtn: { flex: 1, flexDirection: "column", alignItems: "center", gap: 4, paddingVertical: 10, borderRadius: 12 },
+  toolLabel: { fontSize: 10, fontFamily: "Inter_500Medium" },
+  inputRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  actionBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   inputField: { flex: 1, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, maxHeight: 120 },
   input: { fontSize: 14, fontFamily: "Inter_400Regular" },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", marginBottom: 2 },
-  fab: {
-    position: "absolute", bottom: 100, right: 20,
-    width: 52, height: 52, borderRadius: 26,
-    alignItems: "center", justifyContent: "center",
-    elevation: 6, shadowColor: "#33D6A6", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
-  },
   noThesis: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
   noThesisText: { fontSize: 16, fontFamily: "Inter_400Regular", textAlign: "center" },
 });
