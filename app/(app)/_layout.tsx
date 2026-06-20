@@ -4,5 +4,8 @@ export default function AppLayout() {
     <Stack.Screen name="settings" />
     <Stack.Screen name="edit-profile" />
     <Stack.Screen name="subscription" />
+    <Stack.Screen name="template-picker" />
+    <Stack.Screen name="template-preview" />
+    <Stack.Screen name="edit-chapter" />
   </Stack>;
 }
