@@ -6,9 +6,12 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, loadInitialMessages } from "@/lib/ai-service";
-import { Send, Plus, Home, List, Paperclip, Image, Sparkles } from "lucide-react-native";
+import { Send, Plus, Home, List, Paperclip, Image as ImageIcon, Sparkles } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
+import { Alert } from "react-native";
 import type { ChatMessage } from "@/types/chat";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -67,12 +70,52 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
     rotation.value = withSpring(next ? 45 : 0, { damping: 12, stiffness: 200 });
   }
 
-  function handleToolPress(tool: string) {
+  async function handleToolPress(tool: string) {
     setToolsExpanded(false);
     rotation.value = withTiming(0, { duration: 200 });
     switch (tool) {
-      case "structure": setSheetVisible(true); break;
-      case "enhance": router.push("/(app)/ai-enhance" as any); break;
+      case "structure":
+        setSheetVisible(true);
+        break;
+      case "enhance":
+        router.push("/(app)/ai-enhance" as any);
+        break;
+      case "file":
+        try {
+          const result = await DocumentPicker.getDocumentAsync({
+            type: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"],
+            copyToCacheDirectory: true,
+          });
+          if (!result.canceled && result.assets?.[0]) {
+            const file = result.assets[0];
+            Alert.alert("File Selected", `${file.name}\n${(file.size! / 1024).toFixed(1)} KB`, [
+              { text: "Send to AI", onPress: () => sendMessageToAI(thesisId, `[Attached file: ${file.name}] Please analyze this document.`) },
+              { text: "Cancel", style: "cancel" },
+            ]);
+          }
+        } catch {}
+        break;
+      case "image":
+        try {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== "granted") {
+            Alert.alert("Permission needed", "Please allow access to your photo library.");
+            return;
+          }
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ["images"],
+            quality: 0.8,
+            allowsEditing: true,
+          });
+          if (!result.canceled && result.assets?.[0]) {
+            const image = result.assets[0];
+            Alert.alert("Image Selected", `${image.width}x${image.height}`, [
+              { text: "Send to AI", onPress: () => sendMessageToAI(thesisId, `[Attached image] Please describe what you see and how it relates to my thesis.`) },
+              { text: "Cancel", style: "cancel" },
+            ]);
+          }
+        } catch {}
+        break;
     }
   }
 
@@ -86,7 +129,7 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
     { key: "structure", icon: List, label: "Structure", color: colors.brandAccent },
     { key: "enhance", icon: Sparkles, label: "AI Enhance", color: colors.brandPrimary },
     { key: "file", icon: Paperclip, label: "Attach", color: colors.semanticWarning },
-    { key: "image", icon: Image, label: "Image", color: "#9959FF" },
+    { key: "image", icon: ImageIcon, label: "Image", color: "#9959FF" },
   ];
 
   return (
