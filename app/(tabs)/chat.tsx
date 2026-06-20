@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, memo } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
@@ -22,6 +22,7 @@ const Bubble = memo(({ item, colors }: { item: ChatMessage; colors: any }) => {
 
 function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle: string }) {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const [inputText, setInputText] = useState("");
   const flatListRef = useRef<FlatList>(null);
   const messages = useChatStore((s) => s.getMessages(thesisId));
@@ -47,18 +48,27 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
     if (!inputText.trim() || isGenerating) return;
     const text = inputText.trim();
     setInputText("");
+    Keyboard.dismiss();
     await sendMessageToAI(thesisId, text);
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
-      <View style={[styles.topBar, { backgroundColor: colors.bgCard }]}>
-        <View style={{ width: 30 }} />
-        <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>{thesisTitle}</Text>
-        <View style={{ width: 30 }} />
-      </View>
+    <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
+      {/* Top bar */}
+      <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.bgCard }}>
+        <View style={styles.topBar}>
+          <View style={{ width: 30 }} />
+          <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>{thesisTitle}</Text>
+          <View style={{ width: 30 }} />
+        </View>
+      </SafeAreaView>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      {/* Messages + Input */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+      >
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -66,6 +76,7 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messageList}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         />
 
         {isGenerating && (
@@ -75,7 +86,7 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
           </View>
         )}
 
-        <View style={[styles.inputBar, { backgroundColor: colors.bgCard }]}>
+        <View style={[styles.inputBar, { backgroundColor: colors.bgCard, paddingBottom: Math.max(insets.bottom, 12) }]}>
           <View style={[styles.inputField, { backgroundColor: colors.bgSurface }]}>
             <RNTextInput
               style={[styles.input, { color: colors.textPrimary }]}
@@ -86,6 +97,8 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
               onSubmitEditing={handleSend}
               returnKeyType="send"
               editable={!isGenerating}
+              multiline
+              maxLength={2000}
             />
           </View>
           <Pressable onPress={handleSend} style={[styles.sendBtn, { backgroundColor: colors.brandPrimary, opacity: inputText.trim() && !isGenerating ? 1 : 0.5 }]}>
@@ -93,7 +106,7 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
           </Pressable>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -124,19 +137,19 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
   topTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", flex: 1, textAlign: "center" },
-  messageList: { padding: 16, paddingBottom: 20, gap: 14 },
+  messageList: { padding: 16, paddingBottom: 10, gap: 14, flexGrow: 1 },
   messageRow: { flexDirection: "row", gap: 8 },
   userRow: { justifyContent: "flex-end" },
   aiRow: { justifyContent: "flex-start", alignItems: "flex-start" },
   aiAvatar: { width: 28, height: 28, borderRadius: 14, marginTop: 2 },
   bubble: { maxWidth: "75%", borderRadius: 16, padding: 12 },
   messageText: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
-  generatingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 16 },
+  generatingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 4, padding: 12, borderRadius: 16 },
   generatingText: { fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic" },
-  inputBar: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 28 },
-  inputField: { flex: 1, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 12 },
+  inputBar: { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingHorizontal: 16, paddingTop: 10 },
+  inputField: { flex: 1, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, maxHeight: 120 },
   input: { fontSize: 14, fontFamily: "Inter_400Regular" },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", marginBottom: 2 },
   noThesis: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
   noThesisText: { fontSize: 16, fontFamily: "Inter_400Regular", textAlign: "center" },
 });
