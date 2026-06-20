@@ -132,8 +132,8 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
               {tools.map((tool, i) => (
                 <AnimatedPressable
                   key={tool.key}
-                  entering={ZoomIn.delay(i * 80).duration(250).springify().damping(14).stiffness(150)}
-                  exiting={ZoomOut.delay((tools.length - 1 - i) * 40).duration(150)}
+                  entering={ZoomIn.delay(i * 70).duration(200)}
+                  exiting={ZoomOut.delay((tools.length - 1 - i) * 30).duration(120)}
                   onPress={() => handleToolPress(tool.key)}
                   style={[styles.toolBtn, { backgroundColor: tool.color + "15" }]}
                 >
