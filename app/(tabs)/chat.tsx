@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, memo } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
@@ -128,11 +128,12 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
         <View style={[styles.inputContainer, { backgroundColor: colors.bgCard, paddingBottom: Math.max(insets.bottom, 8) }]}>
           {/* Tools tray */}
           {toolsExpanded && (
-            <Animated.View entering={SlideInDown.duration(250).springify()} exiting={SlideOutDown.duration(200)} style={styles.toolsRow}>
+            <View style={styles.toolsRow}>
               {tools.map((tool, i) => (
                 <AnimatedPressable
                   key={tool.key}
-                  entering={FadeIn.delay(i * 60).duration(200)}
+                  entering={ZoomIn.delay(i * 80).duration(250).springify().damping(14).stiffness(150)}
+                  exiting={ZoomOut.delay((tools.length - 1 - i) * 40).duration(150)}
                   onPress={() => handleToolPress(tool.key)}
                   style={[styles.toolBtn, { backgroundColor: tool.color + "15" }]}
                 >
@@ -142,7 +143,7 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
                   <Text style={[styles.toolLabel, { color: tool.color }]}>{tool.label}</Text>
                 </AnimatedPressable>
               ))}
-            </Animated.View>
+            </View>
           )}
 
           {/* Input row: + button on left, input with embedded send on right */}
