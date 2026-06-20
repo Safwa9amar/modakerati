@@ -91,6 +91,12 @@
     "suggestMissing": "Suggest missing sections",
     "reorderFlow": "Reorder for better flow"
   },
+  "chat": {
+    "askPlaceholder": "Ask about your thesis...",
+    "aiWriting": "AI is writing...",
+    "generating": "Generating",
+    "selectThesis": "Select a thesis from Home to start chatting"
+  },
   "template": {
     "startNew": "Start a New Thesis",
     "searchTemplates": "Search templates...",

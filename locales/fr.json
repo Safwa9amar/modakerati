@@ -91,6 +91,12 @@
     "suggestMissing": "Suggérer les sections manquantes",
     "reorderFlow": "Réorganiser pour un meilleur flux"
   },
+  "chat": {
+    "askPlaceholder": "Posez une question sur votre memoire...",
+    "aiWriting": "L'IA ecrit...",
+    "generating": "Generation",
+    "selectThesis": "Selectionnez un memoire pour commencer"
+  },
   "template": {
     "startNew": "Nouveau mémoire",
     "searchTemplates": "Rechercher des modèles...",

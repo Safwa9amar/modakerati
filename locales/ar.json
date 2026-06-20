@@ -91,6 +91,12 @@
     "suggestMissing": "اقتراح الأقسام المفقودة",
     "reorderFlow": "إعادة الترتيب لتدفق أفضل"
   },
+  "chat": {
+    "askPlaceholder": "اسأل عن مذكرتك...",
+    "aiWriting": "الذكاء الاصطناعي يكتب...",
+    "generating": "جاري التوليد",
+    "selectThesis": "اختر مذكرة من الرئيسية لبدء المحادثة"
+  },
   "template": {
     "startNew": "مذكرة جديدة",
     "searchTemplates": "البحث عن القوالب...",
