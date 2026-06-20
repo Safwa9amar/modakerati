@@ -24,7 +24,7 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
   const colors = useThemeColors();
   const [inputText, setInputText] = useState("");
   const flatListRef = useRef<FlatList>(null);
-  const messages = useChatStore((s) => s.messages[thesisId] ?? []);
+  const messages = useChatStore((s) => s.getMessages(thesisId));
   const isGenerating = useChatStore((s) => s.isGenerating);
   const loadedRef = useRef(false);
 
