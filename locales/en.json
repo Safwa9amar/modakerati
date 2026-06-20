@@ -1,0 +1,60 @@
+{
+  "common": {
+    "continue": "Continue",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "back": "Back",
+    "next": "Next",
+    "skip": "Skip",
+    "retry": "Retry",
+    "apply": "Apply",
+    "search": "Search",
+    "seeAll": "See all"
+  },
+  "nav": {
+    "home": "Home",
+    "chat": "Chat",
+    "thesis": "Thesis",
+    "notifications": "Notifications",
+    "profile": "Profile"
+  },
+  "auth": {
+    "welcomeTo": "Welcome to",
+    "appName": "Modakerati",
+    "signInSubtitle": "Sign in to continue building your thesis",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "fullName": "Full Name",
+    "university": "University",
+    "forgotPassword": "Forgot password?",
+    "signIn": "Sign In",
+    "signUp": "Sign Up",
+    "createAccount": "Create Account",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "continueGoogle": "Continue with Google",
+    "continueApple": "Continue with Apple",
+    "or": "or",
+    "sendResetCode": "Send Reset Code",
+    "verifyCode": "Verify Code",
+    "resetPassword": "Reset Password"
+  },
+  "home": {
+    "goodMorning": "Good morning",
+    "recentTheses": "Recent Theses",
+    "noThesesYet": "No Theses Yet",
+    "createFirst": "Create Your First Thesis"
+  },
+  "onboarding": {
+    "slide1Title": "Chat with AI to\nBuild Your Thesis",
+    "slide1Desc": "Tell AI about each chapter and section.\nIt generates structured, academic content\ntailored to your university's format.",
+    "chooseLanguage": "Choose your language"
+  },
+  "settings": {
+    "settings": "Settings",
+    "language": "Language",
+    "theme": "Theme"
+  }
+}

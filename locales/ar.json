@@ -1,0 +1,60 @@
+{
+  "common": {
+    "continue": "متابعة",
+    "cancel": "إلغاء",
+    "save": "حفظ",
+    "delete": "حذف",
+    "back": "رجوع",
+    "next": "التالي",
+    "skip": "تخطي",
+    "retry": "إعادة المحاولة",
+    "apply": "تطبيق",
+    "search": "بحث",
+    "seeAll": "عرض الكل"
+  },
+  "nav": {
+    "home": "الرئيسية",
+    "chat": "المحادثة",
+    "thesis": "المذكرة",
+    "notifications": "الإشعارات",
+    "profile": "الملف الشخصي"
+  },
+  "auth": {
+    "welcomeTo": "مرحباً بك في",
+    "appName": "مذكرتي",
+    "signInSubtitle": "سجل دخولك لمتابعة بناء مذكرتك",
+    "email": "البريد الإلكتروني",
+    "password": "كلمة المرور",
+    "confirmPassword": "تأكيد كلمة المرور",
+    "fullName": "الاسم الكامل",
+    "university": "الجامعة",
+    "forgotPassword": "نسيت كلمة المرور؟",
+    "signIn": "تسجيل الدخول",
+    "signUp": "إنشاء حساب",
+    "createAccount": "إنشاء حساب جديد",
+    "noAccount": "ليس لديك حساب؟",
+    "hasAccount": "لديك حساب بالفعل؟",
+    "continueGoogle": "المتابعة مع Google",
+    "continueApple": "المتابعة مع Apple",
+    "or": "أو",
+    "sendResetCode": "إرسال رمز التحقق",
+    "verifyCode": "تحقق من الرمز",
+    "resetPassword": "إعادة التعيين"
+  },
+  "home": {
+    "goodMorning": "صباح الخير",
+    "recentTheses": "المذكرات الأخيرة",
+    "noThesesYet": "لا توجد مذكرات بعد",
+    "createFirst": "أنشئ مذكرتك الأولى"
+  },
+  "onboarding": {
+    "slide1Title": "تحدث مع الذكاء الاصطناعي\nلبناء مذكرتك",
+    "slide1Desc": "اشرح كل فصل وقسم للذكاء الاصطناعي.\nيقوم بتوليد محتوى أكاديمي منظم\nمتوافق مع معايير جامعتك.",
+    "chooseLanguage": "اختر لغتك"
+  },
+  "settings": {
+    "settings": "الإعدادات",
+    "language": "اللغة",
+    "theme": "المظهر"
+  }
+}

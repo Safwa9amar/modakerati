@@ -1,0 +1,60 @@
+{
+  "common": {
+    "continue": "Continuer",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "back": "Retour",
+    "next": "Suivant",
+    "skip": "Passer",
+    "retry": "Réessayer",
+    "apply": "Appliquer",
+    "search": "Rechercher",
+    "seeAll": "Voir tout"
+  },
+  "nav": {
+    "home": "Accueil",
+    "chat": "Chat",
+    "thesis": "Mémoire",
+    "notifications": "Notifications",
+    "profile": "Profil"
+  },
+  "auth": {
+    "welcomeTo": "Bienvenue sur",
+    "appName": "Modakerati",
+    "signInSubtitle": "Connectez-vous pour continuer votre mémoire",
+    "email": "E-mail",
+    "password": "Mot de passe",
+    "confirmPassword": "Confirmer le mot de passe",
+    "fullName": "Nom complet",
+    "university": "Université",
+    "forgotPassword": "Mot de passe oublié ?",
+    "signIn": "Se connecter",
+    "signUp": "S'inscrire",
+    "createAccount": "Créer un compte",
+    "noAccount": "Pas encore de compte ?",
+    "hasAccount": "Vous avez déjà un compte ?",
+    "continueGoogle": "Continuer avec Google",
+    "continueApple": "Continuer avec Apple",
+    "or": "ou",
+    "sendResetCode": "Envoyer le code",
+    "verifyCode": "Vérifier le code",
+    "resetPassword": "Réinitialiser"
+  },
+  "home": {
+    "goodMorning": "Bonjour",
+    "recentTheses": "Mémoires récents",
+    "noThesesYet": "Aucun mémoire",
+    "createFirst": "Créer votre premier mémoire"
+  },
+  "onboarding": {
+    "slide1Title": "Discutez avec l'IA pour\nconstruire votre mémoire",
+    "slide1Desc": "Expliquez chaque chapitre et section à l'IA.\nElle génère un contenu académique structuré\nadapté au format de votre université.",
+    "chooseLanguage": "Choisissez votre langue"
+  },
+  "settings": {
+    "settings": "Paramètres",
+    "language": "Langue",
+    "theme": "Thème"
+  }
+}
