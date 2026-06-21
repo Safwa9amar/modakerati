@@ -109,7 +109,16 @@
     "help": "المساعدة والدعم",
     "logOut": "تسجيل الخروج",
     "changePhoto": "تغيير الصورة",
-    "academicYear": "السنة الجامعية"
+    "academicYear": "السنة الجامعية",
+    "academicYearPlaceholder": "مثال: 2025/2026",
+    "saving": "جارٍ الحفظ…",
+    "saveError": "تعذر حفظ ملفك الشخصي. يرجى المحاولة مرة أخرى.",
+    "notSet": "غير محدد",
+    "levels": {
+      "license": "ليسانس",
+      "master": "ماستر",
+      "doctorat": "دكتوراه"
+    }
   },
   "settings": {
     "settings": "الإعدادات",
@@ -129,7 +138,9 @@
     "about": "حول",
     "version": "الإصدار",
     "terms": "شروط الاستخدام",
-    "privacy": "سياسة الخصوصية"
+    "privacy": "سياسة الخصوصية",
+    "notificationsPermissionNeeded": "الإذن مطلوب",
+    "manageNotifications": "إدارة الإشعارات"
   },
   "thesis": {
     "myTheses": "مذكراتي",
@@ -158,7 +169,10 @@
   "chat": {
     "askPlaceholder": "اسأل عن مذكرتك...",
     "aiWriting": "الذكاء الاصطناعي يكتب...",
+    "thinking": "يفكر",
+    "writing": "يكتب",
     "generating": "جاري التوليد",
+    "stop": "إيقاف التوليد",
     "selectThesis": "اختر مذكرة من الرئيسية لبدء المحادثة"
   },
   "editor": {
@@ -249,5 +263,33 @@
     "universityTemplates": "قوالب الجامعات",
     "templatePreview": "معاينة القالب",
     "useTemplate": "استخدام هذا القالب"
+  },
+  "notifications": {
+    "title": "الإشعارات",
+    "markAllRead": "تحديد الكل كمقروء",
+    "clearAll": "مسح الكل",
+    "empty": "لا توجد إشعارات بعد",
+    "emptyDesc": "أنت على اطلاع بكل جديد. ستظهر التحديثات الجديدة هنا.",
+    "today": "اليوم",
+    "yesterday": "أمس",
+    "earlier": "سابقًا",
+    "unread": "غير مقروء",
+    "justNow": "الآن",
+    "minutesAgo": "قبل {{count}} دقيقة",
+    "hoursAgo": "قبل {{count}} ساعة",
+    "daysAgo": "قبل {{count}} يوم",
+    "permissionTitle": "تفعيل الإشعارات",
+    "permissionDesc": "اسمح بالإشعارات لتصلك تنبيهات عند جاهزية محتوى الذكاء الاصطناعي وملفات التصدير.",
+    "permissionDenied": "الإشعارات معطّلة. فعّلها من إعدادات جهازك.",
+    "type": {
+      "ai_complete": "توليد بالذكاء الاصطناعي",
+      "export": "تصدير",
+      "payment": "دفع",
+      "system": "النظام",
+      "grammar": "القواعد",
+      "template": "قالب",
+      "subscription": "اشتراك",
+      "welcome": "ترحيب"
+    }
   }
 }

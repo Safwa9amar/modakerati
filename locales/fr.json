@@ -109,7 +109,16 @@
     "help": "Aide et support",
     "logOut": "Se deconnecter",
     "changePhoto": "Changer la photo",
-    "academicYear": "Annee universitaire"
+    "academicYear": "Annee universitaire",
+    "academicYearPlaceholder": "ex. 2025/2026",
+    "saving": "Enregistrement…",
+    "saveError": "Impossible d'enregistrer votre profil. Veuillez reessayer.",
+    "notSet": "Non defini",
+    "levels": {
+      "license": "Licence",
+      "master": "Master",
+      "doctorat": "Doctorat"
+    }
   },
   "settings": {
     "settings": "Parametres",
@@ -129,7 +138,9 @@
     "about": "A propos",
     "version": "Version",
     "terms": "Conditions d'utilisation",
-    "privacy": "Politique de confidentialite"
+    "privacy": "Politique de confidentialite",
+    "notificationsPermissionNeeded": "Autorisation requise",
+    "manageNotifications": "Gerer les notifications"
   },
   "thesis": {
     "myTheses": "Mes mémoires",
@@ -158,7 +169,10 @@
   "chat": {
     "askPlaceholder": "Posez une question sur votre memoire...",
     "aiWriting": "L'IA ecrit...",
+    "thinking": "Reflexion",
+    "writing": "Redaction",
     "generating": "Generation",
+    "stop": "Arreter la generation",
     "selectThesis": "Selectionnez un memoire pour commencer"
   },
   "editor": {
@@ -249,5 +263,33 @@
     "universityTemplates": "Modèles universitaires",
     "templatePreview": "Aperçu du modèle",
     "useTemplate": "Utiliser ce modèle"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "markAllRead": "Tout marquer comme lu",
+    "clearAll": "Tout effacer",
+    "empty": "Aucune notification",
+    "emptyDesc": "Vous êtes à jour. Les nouvelles mises à jour apparaîtront ici.",
+    "today": "Aujourd'hui",
+    "yesterday": "Hier",
+    "earlier": "Plus tôt",
+    "unread": "non lues",
+    "justNow": "À l'instant",
+    "minutesAgo": "Il y a {{count}} min",
+    "hoursAgo": "Il y a {{count}} h",
+    "daysAgo": "Il y a {{count}} j",
+    "permissionTitle": "Activer les notifications",
+    "permissionDesc": "Autorisez les notifications pour être alerté lorsque votre contenu IA et vos exports sont prêts.",
+    "permissionDenied": "Les notifications sont désactivées. Activez-les dans les réglages de votre appareil.",
+    "type": {
+      "ai_complete": "Génération IA",
+      "export": "Export",
+      "payment": "Paiement",
+      "system": "Système",
+      "grammar": "Grammaire",
+      "template": "Modèle",
+      "subscription": "Abonnement",
+      "welcome": "Bienvenue"
+    }
   }
 }

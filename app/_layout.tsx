@@ -7,6 +7,9 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { NetworkBanner } from "@/components/NetworkBanner";
 import { useAuthStore } from "@/stores/auth-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useNotificationStore } from "@/stores/notification-store";
+import { useProfileStore } from "@/stores/profile-store";
+import { registerForPushNotificationsAsync, addNotificationListeners } from "@/lib/push-notifications";
 import { getStoredLanguage } from "@/lib/i18n";
 import i18n from "@/lib/i18n";
 import "../global.css";
@@ -43,6 +46,8 @@ function useProtectedRoute() {
 export default function RootLayout() {
   const [appReady, setAppReady] = useState(false);
   const initialize = useAuthStore((s) => s.initialize);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const router = useRouter();
 
   const [fontsLoaded] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold });
 
@@ -65,6 +70,19 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [appReady, fontsLoaded]);
+
+  // Push notifications bootstrap — runs only while authenticated.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    registerForPushNotificationsAsync().catch(() => {});
+    useProfileStore.getState().fetchProfile().catch(() => {});
+    useNotificationStore.getState().loadPreferences().catch(() => {});
+    useNotificationStore.getState().fetchNotifications().catch(() => {});
+
+    const cleanup = addNotificationListeners((route) => router.push(route as never));
+    return cleanup;
+  }, [isAuthenticated]);
 
   useProtectedRoute();
 

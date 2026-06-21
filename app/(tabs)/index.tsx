@@ -7,6 +7,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { PenLine, FolderUp, LayoutGrid, Zap, FileText } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { useNavBarClearance } from "@/components/FloatingNavBar";
 import { listTheses } from "@/lib/api";
 import { useEffect, useState, useCallback } from "react";
 
@@ -22,6 +23,7 @@ export default function HomeScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
+  const bottomPad = useNavBarClearance();
   const [apiTheses, setApiTheses] = useState<ApiThesis[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -97,7 +99,9 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
+        showsVerticalScrollIndicator={false}>
         <View style={styles.topBar}>
           <View>
             <Text style={[styles.greeting, { color: colors.textSecondary }]}>{t("home.goodMorning")}</Text>

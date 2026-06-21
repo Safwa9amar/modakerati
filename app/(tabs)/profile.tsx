@@ -4,14 +4,30 @@ import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthStore } from "@/stores/auth-store";
+import { useProfileStore } from "@/stores/profile-store";
 import { Card } from "@/components/ui/Card";
+import { useNavBarClearance } from "@/components/FloatingNavBar";
 import { Shield, ChevronRight, User, BookOpen, FileText, HelpCircle, LogOut } from "lucide-react-native";
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 export default function ProfileScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const signOut = useAuthStore((s) => s.signOut);
+  const profile = useProfileStore((s) => s.profile);
+  const bottomPad = useNavBarClearance();
+
+  const notSet = t("profile.notSet");
+  const displayName = profile?.fullName?.trim() || profile?.email?.split("@")[0] || notSet;
+  const displayEmail = profile?.email || "";
+  const levelLabel = profile?.level ? t(`profile.levels.${profile.level}`) : notSet;
 
   const stats = [
     { value: "3", label: t("profile.theses"), color: colors.brandPrimary },
@@ -20,10 +36,10 @@ export default function ProfileScreen() {
   ];
 
   const universityInfo = [
-    { label: t("profile.university"), value: "Universite de Djelfa" },
-    { label: t("profile.department"), value: "Computer Science" },
-    { label: t("profile.level"), value: "Master 2" },
-    { label: t("profile.year"), value: "2025/2026" },
+    { label: t("profile.university"), value: profile?.university || notSet },
+    { label: t("profile.department"), value: profile?.department || notSet },
+    { label: t("profile.level"), value: levelLabel },
+    { label: t("profile.year"), value: profile?.academicYear || notSet },
   ];
 
   const actions = [
@@ -34,16 +50,18 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
+        showsVerticalScrollIndicator={false}>
         <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>{t("profile.profile")}</Text>
 
         {/* Avatar */}
         <View style={styles.avatarSection}>
           <View style={[styles.avatar, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimaryLight }]}>
-            <Text style={styles.avatarText}>HS</Text>
+            <Text style={styles.avatarText}>{getInitials(displayName)}</Text>
           </View>
-          <Text style={[styles.userName, { color: colors.textPrimary }]}>Hamza Safwan</Text>
-          <Text style={[styles.userEmail, { color: colors.textSecondary }]}>hamza@example.com</Text>
+          <Text style={[styles.userName, { color: colors.textPrimary }]}>{displayName}</Text>
+          {!!displayEmail && <Text style={[styles.userEmail, { color: colors.textSecondary }]}>{displayEmail}</Text>}
           <View style={[styles.proBadge, { backgroundColor: colors.brandAccent + "26" }]}>
             <Shield size={14} color={colors.brandAccent} />
             <Text style={[styles.proBadgeText, { color: colors.brandAccent }]}>{t("profile.proPlan")}</Text>

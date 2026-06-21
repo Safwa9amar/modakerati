@@ -15,6 +15,7 @@ import { Plus } from "lucide-react-native";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
+import { useNavBarClearance } from "@/components/FloatingNavBar";
 import type { ThesisStatus } from "@/types/thesis";
 
 type FilterKey = "all" | ThesisStatus;
@@ -25,6 +26,7 @@ export default function AllThesesScreen() {
   const router = useRouter();
   const { theses } = useThesisStore();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
+  const bottomPad = useNavBarClearance();
 
   const countFor = (key: FilterKey) =>
     key === "all" ? theses.length : theses.filter((th) => th.status === key).length;
@@ -73,7 +75,7 @@ export default function AllThesesScreen() {
       {/* Thesis list */}
       <ScrollView
         style={styles.list}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
       >
         {filteredTheses.length === 0 ? (

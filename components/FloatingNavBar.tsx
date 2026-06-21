@@ -9,12 +9,14 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BlurView } from "expo-blur";
 import { usePathname, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Home, MessageSquare, FileText, Bell, User, type LucideIcon } from "lucide-react-native";
 
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useNotificationStore } from "@/stores/notification-store";
 
 // -----------------------------------------------------------------------------
 // Floating tab bar: active tab = an expanding pill (icon + text); inactive tabs
@@ -45,6 +47,10 @@ const TABS: readonly TabDef[] = [
 ] as const;
 
 const TAB_HEIGHT = 44;
+// Intrinsic height of the floating bar: tab height + card vertical padding (8*2).
+const NAV_BAR_HEIGHT = TAB_HEIGHT + 16;
+// Extra lift so the bar hovers off the bottom edge instead of sitting on it.
+const FLOATING_GAP = 8;
 const DURATION = 280;
 const EASING = Easing.inOut(Easing.cubic);
 const TIMING = { duration: DURATION, easing: EASING } as const;
@@ -67,6 +73,7 @@ export function FloatingNavBar() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const theme = useSettingsStore((s) => s.theme);
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   const activeIndex = useMemo(() => activeIndexFromPathname(pathname), [pathname]);
 
@@ -121,9 +128,12 @@ export function FloatingNavBar() {
 
   return (
     <View
-      style={[styles.container, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}
+      style={[
+        styles.container,
+        { paddingBottom: (insets.bottom > 0 ? insets.bottom : 12) + FLOATING_GAP },
+      ]}
       pointerEvents="box-none">
-      <View style={[styles.card, { backgroundColor: colors.navBar }]}>
+      <View style={styles.card}>
         <View style={styles.row}>
           {/* Single sliding + resizing pill, behind the tabs. */}
           <Animated.View
@@ -143,11 +153,22 @@ export function FloatingNavBar() {
                 style={styles.tab}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isActive }}>
-                <Icon
-                  size={22}
-                  color={isActive ? colors.brandPrimary : colors.navInactive}
-                  strokeWidth={2}
-                />
+                <View style={styles.iconWrap}>
+                  <Icon
+                    size={22}
+                    color={isActive ? colors.brandPrimary : colors.navInactive}
+                    strokeWidth={2}
+                  />
+                  {tab.name === "notifications" && unreadCount > 0 ? (
+                    <View
+                      pointerEvents="none"
+                      style={[styles.badge, { backgroundColor: colors.semanticError }]}>
+                      <Animated.Text style={styles.badgeText} numberOfLines={1}>
+                        {unreadCount > 9 ? "9+" : String(unreadCount)}
+                      </Animated.Text>
+                    </View>
+                  ) : null}
+                </View>
                 {isActive ? (
                   <Animated.Text
                     entering={FadeIn.duration(200)}
@@ -165,19 +186,27 @@ export function FloatingNavBar() {
   );
 }
 
+// Bottom padding scroll content should reserve so it clears the floating
+// (transparent) nav bar instead of sliding underneath it.
+export function useNavBarClearance() {
+  const insets = useSafeAreaInsets();
+  return NAV_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12) + FLOATING_GAP + 16;
+}
+
 const styles = StyleSheet.create({
   container: {
+    // Float over the screen content instead of taking a reserved strip in the
+    // layout (which would expose the navigator's default white background).
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: 16,
     alignItems: "center",
   },
   card: {
     borderRadius: 30,
     padding: 8,
-    shadowColor: "#000000",
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
   },
   row: {
     flexDirection: "row",
@@ -204,5 +233,27 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "600",
+  },
+  iconWrap: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badge: {
+    position: "absolute",
+    top: -6,
+    right: -8,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
+    lineHeight: 13,
   },
 });

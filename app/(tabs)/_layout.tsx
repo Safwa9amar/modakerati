@@ -9,14 +9,12 @@ export default function TabsLayout() {
   const colors = useThemeColors();
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bgPrimary }}>
       <Tabs screenOptions={{ headerShown: false }} tabBar={TabBar}>
         <Tabs.Screen name="index" />
-        <Tabs.Screen name="chat" options={{ tabBarStyle: { display: "none" } }} />
+        <Tabs.Screen name="chat" />
         <Tabs.Screen name="thesis" />
         <Tabs.Screen name="notifications" />
         <Tabs.Screen name="profile" />
       </Tabs>
-    </View>
   );
 }

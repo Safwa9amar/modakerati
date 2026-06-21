@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { supabase } from "@/lib/supabase";
+import { useProfileStore } from "@/stores/profile-store";
 import type { Session, User } from "@supabase/supabase-js";
 
 interface AuthState {
@@ -30,6 +31,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   signOut: async () => {
     await supabase.auth.signOut();
+    useProfileStore.getState().reset();
     set({ session: null, user: null, isAuthenticated: false });
   },
   initialize: async () => {

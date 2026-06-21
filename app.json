@@ -27,7 +27,8 @@
       "expo-router",
       "expo-localization",
       "expo-secure-store",
-      "expo-sqlite"
+      "expo-sqlite",
+      ["expo-notifications", { "color": "#5C6BFF" }]
     ]
   }
 }

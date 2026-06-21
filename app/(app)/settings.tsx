@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useNotificationStore } from "@/stores/notification-store";
+import { registerForPushNotificationsAsync } from "@/lib/push-notifications";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import {
@@ -30,10 +32,13 @@ export default function SettingsScreen() {
   const theme = useSettingsStore((s) => s.theme);
   const language = useSettingsStore((s) => s.language);
 
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [aiSuggestions, setAiSuggestions] = useState(true);
-  const [exportReminders, setExportReminders] = useState(false);
+  const preferences = useNotificationStore((s) => s.preferences);
+  const updatePreferences = useNotificationStore((s) => s.updatePreferences);
   const [cloudSync, setCloudSync] = useState(true);
+
+  useEffect(() => {
+    useNotificationStore.getState().loadPreferences();
+  }, []);
 
   const languageLabel = language === "en" ? "English" : language === "fr" ? "Francais" : "العربية";
   const themeLabel = theme === "dark" ? "Dark" : "Light";
@@ -50,9 +55,9 @@ export default function SettingsScreen() {
     {
       title: t("settings.notificationsSection"),
       rows: [
-        { icon: Bell, iconColor: colors.brandPrimary, label: t("settings.pushNotifications"), type: "toggle", toggleValue: pushNotifications, onToggle: setPushNotifications },
-        { icon: Sparkles, iconColor: colors.brandAccent, label: t("settings.aiSuggestionsSetting"), type: "toggle", toggleValue: aiSuggestions, onToggle: setAiSuggestions },
-        { icon: Clock, iconColor: colors.semanticWarning, label: t("settings.exportReminders"), type: "toggle", toggleValue: exportReminders, onToggle: setExportReminders },
+        { icon: Bell, iconColor: colors.brandPrimary, label: t("settings.pushNotifications"), type: "toggle", toggleValue: preferences.pushEnabled, onToggle: (v) => { updatePreferences({ pushEnabled: v }); if (v) registerForPushNotificationsAsync().catch(() => {}); } },
+        { icon: Sparkles, iconColor: colors.brandAccent, label: t("settings.aiSuggestionsSetting"), type: "toggle", toggleValue: preferences.aiSuggestions, onToggle: (v) => updatePreferences({ aiSuggestions: v }) },
+        { icon: Clock, iconColor: colors.semanticWarning, label: t("settings.exportReminders"), type: "toggle", toggleValue: preferences.exportReminders, onToggle: (v) => updatePreferences({ exportReminders: v }) },
       ],
     },
     {

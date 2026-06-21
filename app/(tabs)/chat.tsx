@@ -2,13 +2,16 @@ import { useState, useRef, useEffect, memo } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
+import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, loadInitialMessages } from "@/lib/ai-service";
-import { Send, Plus, Home, List, Paperclip, Image as ImageIcon, Sparkles } from "lucide-react-native";
+import { Send, Plus, Home, List, Paperclip, Image as ImageIcon, Sparkles, ChevronDown, Square } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
+import { Markdown } from "@/components/Markdown";
+import { TypingIndicator } from "@/components/TypingIndicator";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { Alert } from "react-native";
@@ -16,13 +19,21 @@ import type { ChatMessage } from "@/types/chat";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-const Bubble = memo(({ item, colors }: { item: ChatMessage; colors: any }) => {
+const Bubble = memo(({ item, colors, isStreaming }: { item: ChatMessage; colors: any; isStreaming?: boolean }) => {
   const isUser = item.role === "user";
   return (
     <View style={[styles.messageRow, isUser ? styles.userRow : styles.aiRow]}>
       {!isUser && <View style={[styles.aiAvatar, { backgroundColor: colors.brandAccent }]} />}
       <View style={[styles.bubble, isUser ? { backgroundColor: colors.chatUserBubble, borderTopRightRadius: 4 } : { backgroundColor: colors.chatAiBubble, borderTopLeftRadius: 4 }]}>
-        <Text style={[styles.messageText, { color: colors.textPrimary }]}>{item.content}</Text>
+        {isUser ? (
+          <Text selectable style={[styles.messageText, { color: colors.textPrimary }]}>{item.content}</Text>
+        ) : isStreaming ? (
+          // While streaming, render plain text — re-parsing markdown on every
+          // token is O(n²) and janky. Markdown is applied once the message ends.
+          <Text selectable style={[styles.messageText, { color: colors.textPrimary }]}>{item.content}</Text>
+        ) : (
+          <Markdown content={item.content} color={colors.textPrimary} />
+        )}
       </View>
     </View>
   );
@@ -32,12 +43,19 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t } = useTranslation();
   const [inputText, setInputText] = useState("");
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
+  const [showScrollDown, setShowScrollDown] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  // True while the list is within NEAR_BOTTOM of the end. Gates auto-scroll so
+  // reading older messages isn't interrupted by streaming/new-message scrolls.
+  const isNearBottomRef = useRef(true);
   const messages = useChatStore((s) => s.getMessages(thesisId));
   const isGenerating = useChatStore((s) => s.isGenerating);
+  const generatingPhase = useChatStore((s) => s.generatingPhase);
+  const streamingId = useChatStore((s) => s.streamingId);
   const loadedRef = useRef(false);
   const rotation = useSharedValue(0);
 
@@ -50,17 +68,44 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
 
   const msgLen = messages.length;
   useEffect(() => {
-    if (msgLen > 0) {
+    if (msgLen > 0 && isNearBottomRef.current) {
       const t = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 150);
       return () => clearTimeout(t);
     }
   }, [msgLen]);
+
+  // Keep the streaming message pinned to the bottom as it grows, and follow the
+  // typing indicator when it appears. Non-animated so rapid tokens don't jitter.
+  // Skipped when the user has scrolled up to read previous messages.
+  const lastMsg = messages[messages.length - 1];
+  const streamingLen = lastMsg?.id === streamingId ? lastMsg.content.length : 0;
+  useEffect(() => {
+    if (isGenerating && isNearBottomRef.current) flatListRef.current?.scrollToEnd({ animated: false });
+  }, [streamingLen, generatingPhase, isGenerating]);
+
+  const NEAR_BOTTOM = 160;
+  function handleScroll(e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    const nearBottom = distanceFromBottom < NEAR_BOTTOM;
+    isNearBottomRef.current = nearBottom;
+    setShowScrollDown(!nearBottom); // no-op re-render bailout when unchanged
+  }
+
+  function scrollToBottom() {
+    isNearBottomRef.current = true;
+    setShowScrollDown(false);
+    flatListRef.current?.scrollToEnd({ animated: true });
+  }
 
   async function handleSend() {
     if (!inputText.trim() || isGenerating) return;
     const text = inputText.trim();
     setInputText("");
     Keyboard.dismiss();
+    // Sending your own message always jumps to the latest, even if scrolled up.
+    isNearBottomRef.current = true;
+    setShowScrollDown(false);
     await sendMessageToAI(thesisId, text);
   }
 
@@ -145,28 +190,45 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
       </SafeAreaView>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={({ item }) => <Bubble item={item} colors={colors} />}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.messageList}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          onTouchStart={() => {
-            if (toolsExpanded) {
-              setToolsExpanded(false);
-              rotation.value = withTiming(0, { duration: 200 });
+        <View style={{ flex: 1 }}>
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={({ item }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} />}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.messageList}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            onScroll={handleScroll}
+            scrollEventThrottle={32}
+            ListFooterComponent={
+              isGenerating && generatingPhase === "thinking" ? (
+                <TypingIndicator label={t("chat.thinking")} />
+              ) : null
             }
-          }}
-        />
+            onTouchStart={() => {
+              if (toolsExpanded) {
+                setToolsExpanded(false);
+                rotation.value = withTiming(0, { duration: 200 });
+              }
+            }}
+          />
 
-        {isGenerating && (
-          <View style={[styles.generatingRow, { backgroundColor: colors.chatAiBubble }]}>
-            <View style={[styles.aiAvatar, { backgroundColor: colors.brandAccent }]} />
-            <Text style={[styles.generatingText, { color: colors.textSecondary }]}>AI is writing...</Text>
-          </View>
-        )}
+          {/* Scroll-to-latest FAB — appears when scrolled away from the bottom */}
+          {showScrollDown && (
+            <AnimatedPressable
+              entering={FadeIn.duration(150)}
+              exiting={FadeOut.duration(120)}
+              onPress={scrollToBottom}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Scroll to latest message"
+              style={[styles.scrollDownFab, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
+            >
+              <ChevronDown size={22} color={colors.textPrimary} strokeWidth={2.2} />
+            </AnimatedPressable>
+          )}
+        </View>
 
         <View style={[styles.inputContainer, { backgroundColor: colors.bgCard, paddingBottom: Math.max(insets.bottom, 8) }]}>
           {/* Tools tray */}
@@ -205,7 +267,7 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
             <View style={[styles.inputWrapper, { backgroundColor: colors.bgSurface }]}>
               <RNTextInput
                 style={[styles.input, { color: colors.textPrimary }]}
-                placeholder="Ask about your thesis..."
+                placeholder={t("chat.askPlaceholder")}
                 placeholderTextColor={colors.textPlaceholder}
                 value={inputText}
                 onChangeText={setInputText}
@@ -221,17 +283,30 @@ function ChatContent({ thesisId, thesisTitle }: { thesisId: string; thesisTitle:
                 multiline
                 maxLength={2000}
               />
-              {/* Send button inside input — appears when there's text */}
-              {hasText && (
+              {/* While generating, the send button becomes a Stop button that
+                  cancels the in-flight AI turn; otherwise it appears on text. */}
+              {isGenerating ? (
+                <AnimatedPressable
+                  entering={FadeIn.duration(150)}
+                  exiting={FadeOut.duration(100)}
+                  onPress={() => useChatStore.getState().stopGenerating()}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("chat.stop")}
+                  style={[styles.sendBtn, { backgroundColor: colors.semanticError }]}
+                >
+                  <Square size={12} color="#FFFFFF" fill="#FFFFFF" />
+                </AnimatedPressable>
+              ) : hasText ? (
                 <AnimatedPressable
                   entering={FadeIn.duration(150)}
                   exiting={FadeOut.duration(100)}
                   onPress={handleSend}
-                  style={[styles.sendBtn, { backgroundColor: colors.brandPrimary, opacity: isGenerating ? 0.4 : 1 }]}
+                  style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}
                 >
                   <Send size={16} color="#FFFFFF" strokeWidth={2} />
                 </AnimatedPressable>
-              )}
+              ) : null}
             </View>
           </View>
         </View>
@@ -285,8 +360,22 @@ const styles = StyleSheet.create({
   aiAvatar: { width: 28, height: 28, borderRadius: 14, marginTop: 2 },
   bubble: { maxWidth: "75%", borderRadius: 16, padding: 12 },
   messageText: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
-  generatingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 4, padding: 12, borderRadius: 16 },
-  generatingText: { fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic" },
+  scrollDownFab: {
+    position: "absolute",
+    right: 16,
+    bottom: 12,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
   inputContainer: { paddingHorizontal: 12, paddingTop: 8 },
   toolsRow: { flexDirection: "row", gap: 8, marginBottom: 10, paddingHorizontal: 2 },
   toolBtn: { flex: 1, alignItems: "center", gap: 6, paddingVertical: 12, borderRadius: 14 },
