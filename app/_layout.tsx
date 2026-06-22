@@ -3,8 +3,10 @@ import { Platform } from "react-native";
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { NetworkBanner } from "@/components/NetworkBanner";
+import { ChatHead } from "@/components/ChatHead";
 import { useAuthStore } from "@/stores/auth-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useNotificationStore } from "@/stores/notification-store";
@@ -30,11 +32,23 @@ function useProtectedRoute() {
 
     // Small delay for Android — router needs a tick to be ready
     const timer = setTimeout(() => {
+      // PRIORITY-ORDERED, not three independent checks — otherwise the branches
+      // fight and the router ping-pongs. Onboarding gates everything, then auth,
+      // then the app. Each level only acts while the user is on the WRONG side,
+      // and a lower level never runs until the higher condition is satisfied.
+      //
+      // The bug this fixes: an authenticated user who hasn't finished onboarding
+      // used to bounce forever between (auth)/onboarding (sent there because
+      // onboarding is incomplete) and (tabs) (sent there because "authenticated +
+      // in (auth) → tabs"). Gating the tabs redirect behind hasCompletedOnboarding
+      // breaks the loop — onboarding now wins until it's actually complete.
       if (!hasCompletedOnboarding) {
-        router.replace("/(auth)/onboarding" as any);
-      } else if (!isAuthenticated && !inAuthGroup) {
-        router.replace("/(auth)/login" as any);
-      } else if (isAuthenticated && inAuthGroup) {
+        // Must finish onboarding first; it lives in (auth). Don't redirect while
+        // already inside (auth), or every step within the flow snaps back to it.
+        if (!inAuthGroup) router.replace("/(auth)/onboarding" as any);
+      } else if (!isAuthenticated) {
+        if (!inAuthGroup) router.replace("/(auth)/login" as any);
+      } else if (inAuthGroup) {
         router.replace("/(tabs)" as any);
       }
     }, Platform.OS === "android" ? 100 : 0);
@@ -91,12 +105,17 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <NetworkBanner />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="(app)" />
-        </Stack>
+        <BottomSheetModalProvider>
+          <NetworkBanner />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="(app)" />
+          </Stack>
+          {/* Floating chat-head: draggable bubble that expands into the thesis
+              chat, overlaying every screen. Mounted last so it sits on top. */}
+          <ChatHead />
+        </BottomSheetModalProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

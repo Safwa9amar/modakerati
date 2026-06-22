@@ -1,29 +1,44 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Switch } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useNotificationStore } from "@/stores/notification-store";
 import { registerForPushNotificationsAsync } from "@/lib/push-notifications";
+import { setLanguageWithRTL } from "@/lib/i18n";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import {
-  Globe, Moon, Cpu, Bell, Sparkles, Clock,
+  Globe, Moon, Sun, Cpu, Bell, Sparkles, Clock,
   Cloud, HardDrive, Trash2, AlertTriangle,
-  Info, FileText, Shield, ChevronRight,
+  Info, FileText, Shield, ChevronRight, ChevronDown, Check,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
+
+type Language = "ar" | "en" | "fr";
+
+const LANGUAGES: { value: Language; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "fr", label: "Français" },
+  { value: "ar", label: "العربية" },
+];
 
 interface SettingRow {
   icon: LucideIcon;
   iconColor: string;
   label: string;
   value?: string;
-  type: "chevron" | "toggle" | "plain";
+  type: "chevron" | "toggle" | "plain" | "select";
   toggleValue?: boolean;
   onToggle?: (v: boolean) => void;
+  onPress?: () => void;
   destructive?: boolean;
+  // select-only
+  options?: { value: string; label: string }[];
+  selectedValue?: string;
+  onSelect?: (value: string) => void;
+  expanded?: boolean;
 }
 
 export default function SettingsScreen() {
@@ -31,24 +46,47 @@ export default function SettingsScreen() {
   const colors = useThemeColors();
   const theme = useSettingsStore((s) => s.theme);
   const language = useSettingsStore((s) => s.language);
+  const setTheme = useSettingsStore((s) => s.setTheme);
+  const setLanguage = useSettingsStore((s) => s.setLanguage);
 
   const preferences = useNotificationStore((s) => s.preferences);
   const updatePreferences = useNotificationStore((s) => s.updatePreferences);
   const [cloudSync, setCloudSync] = useState(true);
+  const [langExpanded, setLangExpanded] = useState(false);
 
   useEffect(() => {
     useNotificationStore.getState().loadPreferences();
   }, []);
 
-  const languageLabel = language === "en" ? "English" : language === "fr" ? "Francais" : "العربية";
-  const themeLabel = theme === "dark" ? "Dark" : "Light";
+  const handleSelectLanguage = async (code: Language) => {
+    setLangExpanded(false);
+    if (code === language) return;
+    setLanguage(code);
+    const needsRestart = await setLanguageWithRTL(code);
+    if (needsRestart) {
+      Alert.alert(t("settings.rtlRestartTitle"), t("settings.rtlRestartMessage"), [
+        { text: t("common.ok") },
+      ]);
+    }
+  };
+
+  const languageLabel = LANGUAGES.find((l) => l.value === language)?.label ?? language;
 
   const sections: { title: string; rows: SettingRow[] }[] = [
     {
       title: t("settings.general"),
       rows: [
-        { icon: Globe, iconColor: colors.brandPrimary, label: t("settings.language"), value: languageLabel, type: "chevron" },
-        { icon: Moon, iconColor: colors.brandAccent, label: t("settings.theme"), value: themeLabel, type: "chevron" },
+        {
+          icon: Globe, iconColor: colors.brandPrimary, label: t("settings.language"),
+          type: "select", value: languageLabel, options: LANGUAGES, selectedValue: language,
+          expanded: langExpanded, onPress: () => setLangExpanded((e) => !e),
+          onSelect: (v) => handleSelectLanguage(v as Language),
+        },
+        {
+          icon: theme === "dark" ? Moon : Sun, iconColor: colors.brandAccent, label: t("settings.theme"),
+          type: "toggle", toggleValue: theme === "dark",
+          onToggle: (v) => setTheme(v ? "dark" : "light"),
+        },
         { icon: Cpu, iconColor: colors.semanticWarning, label: t("settings.aiModel"), value: "Claude", type: "chevron" },
       ],
     },
@@ -94,7 +132,10 @@ export default function SettingsScreen() {
             <Card style={styles.sectionCard}>
               {section.rows.map((row, ri) => (
                 <View key={ri}>
-                  <Pressable style={styles.settingRow}>
+                  <Pressable
+                    style={styles.settingRow}
+                    onPress={row.type === "toggle" ? undefined : row.onPress}
+                  >
                     <View style={[styles.iconBox, { backgroundColor: row.iconColor + "26" }]}>
                       <row.icon size={18} color={row.iconColor} />
                     </View>
@@ -112,6 +153,14 @@ export default function SettingsScreen() {
                         <ChevronRight size={16} color={colors.textSecondary} />
                       </View>
                     )}
+                    {row.type === "select" && (
+                      <View style={styles.rowRight}>
+                        {row.value && <Text style={[styles.rowValue, { color: colors.textSecondary }]}>{row.value}</Text>}
+                        {row.expanded
+                          ? <ChevronDown size={16} color={colors.textSecondary} />
+                          : <ChevronRight size={16} color={colors.textSecondary} />}
+                      </View>
+                    )}
                     {row.type === "toggle" && (
                       <Switch
                         value={row.toggleValue}
@@ -124,6 +173,32 @@ export default function SettingsScreen() {
                       <Text style={[styles.rowValue, { color: colors.textSecondary }]}>{row.value}</Text>
                     )}
                   </Pressable>
+
+                  {row.type === "select" && row.expanded && row.options && (
+                    <View style={[styles.optionsWrap, { borderTopColor: colors.borderSubtle }]}>
+                      {row.options.map((opt) => {
+                        const active = opt.value === row.selectedValue;
+                        return (
+                          <Pressable
+                            key={opt.value}
+                            style={styles.optionRow}
+                            onPress={() => row.onSelect?.(opt.value)}
+                          >
+                            <Text
+                              style={[
+                                styles.optionLabel,
+                                { color: active ? colors.brandPrimary : colors.textPrimary },
+                              ]}
+                            >
+                              {opt.label}
+                            </Text>
+                            {active && <Check size={18} color={colors.brandPrimary} />}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  )}
+
                   {ri < section.rows.length - 1 && (
                     <View style={[styles.divider, { backgroundColor: colors.borderSubtle }]} />
                   )}
@@ -151,4 +226,7 @@ const styles = StyleSheet.create({
   rowRight: { flexDirection: "row", alignItems: "center", gap: 6 },
   rowValue: { fontSize: 13, fontFamily: "Inter_400Regular" },
   divider: { height: 1, marginLeft: 60 },
+  optionsWrap: { borderTopWidth: 1, marginLeft: 60, paddingRight: 16 },
+  optionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, paddingRight: 4 },
+  optionLabel: { fontSize: 15, fontFamily: "Inter_500Medium" },
 });

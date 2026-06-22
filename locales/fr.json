@@ -10,7 +10,15 @@
     "retry": "Réessayer",
     "apply": "Appliquer",
     "search": "Rechercher",
-    "seeAll": "Voir tout"
+    "seeAll": "Voir tout",
+    "ok": "OK",
+    "close": "Fermer"
+  },
+  "chatHead": {
+    "permTitle": "Afficher par-dessus les autres applis",
+    "permBody": "Autorisez Modakerati à s'afficher par-dessus les autres applications pour que la bulle de chat vous suive comme Messenger.",
+    "enabledTitle": "Bulle de chat activée",
+    "enabledBody": "La bulle flottera par-dessus les autres applications quand vous quittez Modakerati."
   },
   "nav": {
     "home": "Accueil",
@@ -49,13 +57,23 @@
     "aiAssist": "IA\nAssistant",
     "recentTheses": "Mémoires récents",
     "chapters": "chapitres",
+    "sections": "sections",
+    "words": "mots",
     "noThesesYet": "Aucun mémoire",
     "noThesesDesc": "Commencez votre parcours académique.\nCréez votre premier mémoire avec l'aide de l'IA.",
     "createFirst": "Créer votre premier mémoire",
     "importExisting": "Importer un .docx existant",
     "hoursAgo": "heures",
     "yesterday": "Hier",
-    "daysAgo": "jours"
+    "daysAgo": "jours",
+    "modakeratiNews": "Actualités Modakerati"
+  },
+  "news": {
+    "title": "Actualités Modakerati",
+    "searchPlaceholder": "Rechercher des actualités...",
+    "allCategories": "Tout",
+    "empty": "Aucune actualité pour l'instant",
+    "notFound": "Article introuvable"
   },
   "onboarding": {
     "slide1Title": "Discutez avec l'IA pour\nconstruire votre mémoire",
@@ -107,8 +125,12 @@
     "editProfile": "Modifier le profil",
     "manageSub": "Gerer l'abonnement",
     "help": "Aide et support",
+    "settings": "Parametres",
     "logOut": "Se deconnecter",
     "changePhoto": "Changer la photo",
+    "photoPermissionTitle": "Autorisation requise",
+    "photoPermissionMessage": "Veuillez autoriser l’acces a vos photos pour definir une photo de profil.",
+    "uploadError": "Impossible de televerser votre photo. Veuillez reessayer.",
     "academicYear": "Annee universitaire",
     "academicYearPlaceholder": "ex. 2025/2026",
     "saving": "Enregistrement…",
@@ -140,10 +162,22 @@
     "terms": "Conditions d'utilisation",
     "privacy": "Politique de confidentialite",
     "notificationsPermissionNeeded": "Autorisation requise",
-    "manageNotifications": "Gerer les notifications"
+    "manageNotifications": "Gerer les notifications",
+    "rtlRestartTitle": "Redemarrage requis",
+    "rtlRestartMessage": "Veuillez fermer et rouvrir l'application pour appliquer la nouvelle orientation du texte."
   },
   "thesis": {
+    "nameThesis": "Nommez votre mémoire",
+    "nameThesisHint": "Vous pourrez le renommer à tout moment.",
+    "titlePlaceholder": "ex. L'impact de l'IA sur l'éducation",
+    "createThesis": "Créer le mémoire",
+    "aiSuggestions": "Suggestions IA",
+    "suggestTitles": "Proposer des titres",
     "myTheses": "Mes mémoires",
+    "thesisDetails": "Détails du mémoire",
+    "continueInChat": "Continuer dans le chat",
+    "noChapters": "Aucun chapitre pour l'instant",
+    "noThesesFound": "Aucun mémoire trouvé",
     "all": "Tous",
     "active": "Actifs",
     "completed": "Terminés",
@@ -173,7 +207,20 @@
     "writing": "Redaction",
     "generating": "Generation",
     "stop": "Arreter la generation",
-    "selectThesis": "Selectionnez un memoire pour commencer"
+    "selectThesis": "Selectionnez un memoire pour commencer",
+    "viewFull": "Afficher en entier",
+    "viewMore": "Voir plus",
+    "showLess": "Voir moins",
+    "response": "Reponse",
+    "image": "Image",
+    "removeAttachment": "Retirer la piece jointe",
+    "attachedImage": "Image jointe",
+    "attachedFile": "Fichier joint",
+    "describeImage": "Veuillez decrire ce que vous voyez et son lien avec mon memoire.",
+    "analyzeFile": "Veuillez analyser ce document.",
+    "pages": "{{n}} pages",
+    "previewFile": "Aperçu du fichier",
+    "regenerate": "Régénérer"
   },
   "editor": {
     "sectionEditor": "Editeur de section",
@@ -291,5 +338,36 @@
       "subscription": "Abonnement",
       "welcome": "Bienvenue"
     }
+  },
+  "documents": {
+    "title": "Documents",
+    "import": "Importer",
+    "importEntryTitle": "Importer un document Word",
+    "importEntrySubtitle": "Modifier et prévisualiser un fichier .docx",
+    "importFailed": "Échec de l'import",
+    "parsing": "Lecture du document…",
+    "empty": "Aucun document",
+    "emptyHint": "Importez un fichier .docx pour le modifier ici.",
+    "emptyBody": "Ce document n'a pas encore de paragraphes.",
+    "words": "mots",
+    "pages": "pages",
+    "preview": "Aperçu",
+    "previewFailed": "Échec de l'aperçu",
+    "loadFailed": "Impossible d'ouvrir le document",
+    "saveFailed": "Impossible d'enregistrer les modifications",
+    "addParagraph": "Ajouter un paragraphe",
+    "deleteTitle": "Supprimer le document",
+    "deleteConfirm": "Voulez-vous vraiment supprimer ce document ?",
+    "deleteParaTitle": "Supprimer le paragraphe",
+    "deleteParaConfirm": "Voulez-vous vraiment supprimer ce paragraphe ?",
+    "style_body": "Corps",
+    "style_title": "Titre",
+    "style_h1": "T1",
+    "style_h2": "T2",
+    "style_h3": "T3",
+    "err_picker": "Impossible d'ouvrir le sélecteur de fichiers",
+    "err_notDocx": "Veuillez choisir un fichier .docx",
+    "err_sharing": "Le partage n'est pas disponible sur cet appareil",
+    "readOnlyBanner": "Ce document contient des tableaux ou des contrôles de contenu ; l'édition est désactivée pour l'instant. Touchez Aperçu pour voir le document complet."
   }
 }

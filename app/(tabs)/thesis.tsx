@@ -1,32 +1,64 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { useThesisStore } from "@/stores/thesis-store";
-import { Plus } from "lucide-react-native";
+import { Plus, FileText, ChevronRight } from "lucide-react-native";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
 import { useNavBarClearance } from "@/components/FloatingNavBar";
+import { listTheses } from "@/lib/api";
 import type { ThesisStatus } from "@/types/thesis";
 
 type FilterKey = "all" | ThesisStatus;
+
+interface ApiThesis {
+  id: string;
+  title: string;
+  status: ThesisStatus;
+  progress: number;
+  updatedAt: string;
+  chapterCount?: number;
+  sectionCount?: number;
+}
 
 export default function AllThesesScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
-  const { theses } = useThesisStore();
+  const [theses, setTheses] = useState<ApiThesis[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const bottomPad = useNavBarClearance();
+
+  // Re-fetch every time the tab regains focus so newly created theses appear
+  // without a manual reload.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      (async () => {
+        try {
+          const data = await listTheses();
+          if (active) setTheses(data);
+        } catch {
+          if (active) setTheses([]);
+        }
+        if (active) setLoading(false);
+      })();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
   const countFor = (key: FilterKey) =>
     key === "all" ? theses.length : theses.filter((th) => th.status === key).length;
@@ -78,27 +110,49 @@ export default function AllThesesScreen() {
         contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
       >
-        {filteredTheses.length === 0 ? (
+        {/* Entry point: import a Word document as an editable file */}
+        <Pressable onPress={() => router.push("/(app)/documents" as any)}>
+          <Card style={styles.importCard}>
+            <View style={[styles.importIcon, { backgroundColor: colors.bgSurface }]}>
+              <FileText size={20} color={colors.brandPrimary} strokeWidth={2} />
+            </View>
+            <View style={styles.importBody}>
+              <Text style={[styles.importTitle, { color: colors.textPrimary }]}>
+                {t("documents.importEntryTitle")}
+              </Text>
+              <Text style={[styles.importSubtitle, { color: colors.textSecondary }]}>
+                {t("documents.importEntrySubtitle")}
+              </Text>
+            </View>
+            <ChevronRight size={18} color={colors.textSecondary} />
+          </Card>
+        </Pressable>
+
+        {loading ? (
+          <View style={styles.emptyState}>
+            <ActivityIndicator size="large" color={colors.brandPrimary} />
+          </View>
+        ) : filteredTheses.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-              No theses found
+              {t("thesis.noThesesFound")}
             </Text>
           </View>
         ) : (
           filteredTheses.map((thesis) => {
-            const totalChapters = thesis.chapters.length;
-            const doneChapters = thesis.chapters.filter(
-              (ch) => ch.status === "done"
-            ).length;
-            const progress = thesis.progress || 0;
+            const chapterCount = thesis.chapterCount ?? 0;
+            const sectionCount = thesis.sectionCount ?? 0;
+            const progress = Math.max(0, Math.min(100, Math.round(thesis.progress || 0)));
 
             return (
               <Pressable
                 key={thesis.id}
-                onPress={() => {
-                  useThesisStore.getState().setCurrentThesis(thesis.id);
-                  router.push("/(tabs)/chat" as any);
-                }}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(app)/thesis-detail",
+                    params: { thesisId: thesis.id },
+                  } as any)
+                }
               >
                 <Card style={styles.thesisCard}>
                   <Text
@@ -117,7 +171,7 @@ export default function AllThesesScreen() {
                         { color: colors.textSecondary },
                       ]}
                     >
-                      {totalChapters} chapters
+                      {chapterCount} {t("home.chapters")}
                     </Text>
                     <Text
                       style={[
@@ -125,7 +179,7 @@ export default function AllThesesScreen() {
                         { color: colors.textSecondary },
                       ]}
                     >
-                      {doneChapters}/{totalChapters} done
+                      {sectionCount} {t("home.sections")}
                     </Text>
                     <Text
                       style={[
@@ -147,7 +201,7 @@ export default function AllThesesScreen() {
                         styles.progressFill,
                         {
                           backgroundColor: colors.brandPrimary,
-                          width: `${progress}%`,
+                          width: `${progress || 4}%`,
                         },
                       ]}
                     />
@@ -201,6 +255,22 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingBottom: 100,
   },
+  importCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 0,
+  },
+  importIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  importBody: { flex: 1, gap: 2 },
+  importTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  importSubtitle: { fontSize: 12, fontFamily: "Inter_400Regular" },
   thesisCard: {
     marginBottom: 0,
   },

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef } from "react";
-import { Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import { Platform, Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
   Easing,
   FadeIn,
@@ -50,7 +50,7 @@ const TAB_HEIGHT = 44;
 // Intrinsic height of the floating bar: tab height + card vertical padding (8*2).
 const NAV_BAR_HEIGHT = TAB_HEIGHT + 16;
 // Extra lift so the bar hovers off the bottom edge instead of sitting on it.
-const FLOATING_GAP = 8;
+const FLOATING_GAP = 5;
 const DURATION = 280;
 const EASING = Easing.inOut(Easing.cubic);
 const TIMING = { duration: DURATION, easing: EASING } as const;
@@ -133,7 +133,24 @@ export function FloatingNavBar() {
         { paddingBottom: (insets.bottom > 0 ? insets.bottom : 12) + FLOATING_GAP },
       ]}
       pointerEvents="box-none">
-      <View style={styles.card}>
+      <View
+        style={[
+          styles.card,
+          { borderColor: colors.borderSubtle },
+          // Native blur only renders on iOS here. On Android the experimental
+          // dimezisBlurView method requires a `blurTarget` ref to the content
+          // being blurred — impractical for a bar floating over every screen —
+          // so it silently falls back to no blur. Use a solid themed background
+          // there instead of shipping a non-functional (and noisy) blur.
+          Platform.OS !== "ios" && { backgroundColor: colors.navBar },
+        ]}>
+        {Platform.OS === "ios" && (
+          <BlurView
+            intensity={theme === "dark" ? 60 : 80}
+            tint={theme === "dark" ? "dark" : "light"}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
         <View style={styles.row}>
           {/* Single sliding + resizing pill, behind the tabs. */}
           <Animated.View
@@ -207,6 +224,9 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 30,
     padding: 8,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 8,
   },
   row: {
     flexDirection: "row",

@@ -3,5 +3,8 @@ export { useSettingsStore } from "./settings-store";
 export { useThesisStore } from "./thesis-store";
 export { useChatStore } from "./chat-store";
 export { useProfileStore } from "./profile-store";
+export { useAvatarStore } from "./avatar-store";
 export { useOfflineStore } from "./offline-store";
 export { useNotificationStore } from "./notification-store";
+export { useBottomSheet } from "./bottom-sheet-store";
+export { useDocumentStore } from "./document-store";

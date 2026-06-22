@@ -8,14 +8,7 @@ import { useRTL } from "@/hooks/useRTL";
 import { TextInput } from "@/components/ui/TextInput";
 import { useProfileStore } from "@/stores/profile-store";
 import { LEVELS, type Level } from "@/types/profile";
-import { Camera } from "lucide-react-native";
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+import { AvatarPicker } from "@/components/AvatarPicker";
 
 export default function EditProfileScreen() {
   const { t } = useTranslation();
@@ -93,15 +86,12 @@ export default function EditProfileScreen() {
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {/* Avatar */}
           <View style={styles.avatarSection}>
-            <View style={[styles.avatar, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimaryLight }]}>
-              <Text style={styles.avatarText}>{getInitials(fullName)}</Text>
-              <View style={[styles.cameraCircle, { backgroundColor: colors.brandAccent }]}>
-                <Camera size={12} color="#fff" />
-              </View>
-            </View>
-            <Pressable>
-              <Text style={[styles.changePhoto, { color: colors.brandPrimary }]}>{t("profile.changePhoto")}</Text>
-            </Pressable>
+            <AvatarPicker
+              size={100}
+              name={fullName}
+              avatarUrl={profile?.avatarUrl}
+              caption={t("profile.changePhoto")}
+            />
           </View>
 
           {/* Form */}
@@ -170,10 +160,6 @@ const styles = StyleSheet.create({
   loader: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { paddingHorizontal: 20, paddingBottom: 40 },
   avatarSection: { alignItems: "center", marginBottom: 32 },
-  avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, alignItems: "center", justifyContent: "center", marginBottom: 10, position: "relative" },
-  avatarText: { fontSize: 32, fontFamily: "Inter_700Bold", color: "#fff" },
-  cameraCircle: { position: "absolute", bottom: 0, right: 0, width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  changePhoto: { fontSize: 14, fontFamily: "Inter_500Medium" },
   form: { gap: 18 },
   fieldGroup: { gap: 6 },
   fieldLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },

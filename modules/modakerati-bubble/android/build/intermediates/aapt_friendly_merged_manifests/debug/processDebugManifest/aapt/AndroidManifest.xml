@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="expo.modules.modakeratibubble" >
+
+    <uses-sdk android:minSdkVersion="24" />
+    <!--
+       Required to draw the floating chat head over other apps (Messenger-style).
+       Merged into the app manifest by the Android manifest merger.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+</manifest>

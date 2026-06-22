@@ -10,7 +10,15 @@
     "retry": "إعادة المحاولة",
     "apply": "تطبيق",
     "search": "بحث",
-    "seeAll": "عرض الكل"
+    "seeAll": "عرض الكل",
+    "ok": "حسناً",
+    "close": "إغلاق"
+  },
+  "chatHead": {
+    "permTitle": "العرض فوق التطبيقات الأخرى",
+    "permBody": "اسمح لمذكرتي بالعرض فوق التطبيقات الأخرى حتى تتبعك فقاعة المحادثة مثل ماسنجر.",
+    "enabledTitle": "تم تفعيل فقاعة المحادثة",
+    "enabledBody": "ستطفو الفقاعة فوق التطبيقات الأخرى عند مغادرتك لمذكرتي."
   },
   "nav": {
     "home": "الرئيسية",
@@ -49,13 +57,23 @@
     "aiAssist": "مساعد\nالذكاء",
     "recentTheses": "المذكرات الأخيرة",
     "chapters": "فصول",
+    "sections": "أقسام",
+    "words": "كلمات",
     "noThesesYet": "لا توجد مذكرات بعد",
     "noThesesDesc": "ابدأ مسيرتك الأكاديمية.\nأنشئ مذكرتك الأولى بمساعدة الذكاء الاصطناعي.",
     "createFirst": "أنشئ مذكرتك الأولى",
     "importExisting": "استيراد ملف .docx موجود",
     "hoursAgo": "ساعات",
     "yesterday": "أمس",
-    "daysAgo": "أيام"
+    "daysAgo": "أيام",
+    "modakeratiNews": "أخبار مذكرتي"
+  },
+  "news": {
+    "title": "أخبار مذكرتي",
+    "searchPlaceholder": "ابحث في الأخبار...",
+    "allCategories": "الكل",
+    "empty": "لا توجد أخبار بعد",
+    "notFound": "المقال غير موجود"
   },
   "onboarding": {
     "slide1Title": "تحدث مع الذكاء الاصطناعي\nلبناء مذكرتك",
@@ -107,8 +125,12 @@
     "editProfile": "تعديل الملف الشخصي",
     "manageSub": "إدارة الاشتراك",
     "help": "المساعدة والدعم",
+    "settings": "الإعدادات",
     "logOut": "تسجيل الخروج",
     "changePhoto": "تغيير الصورة",
+    "photoPermissionTitle": "الإذن مطلوب",
+    "photoPermissionMessage": "يرجى السماح بالوصول إلى صورك لتعيين صورة الملف الشخصي.",
+    "uploadError": "تعذر رفع صورتك. يرجى المحاولة مرة أخرى.",
     "academicYear": "السنة الجامعية",
     "academicYearPlaceholder": "مثال: 2025/2026",
     "saving": "جارٍ الحفظ…",
@@ -140,10 +162,22 @@
     "terms": "شروط الاستخدام",
     "privacy": "سياسة الخصوصية",
     "notificationsPermissionNeeded": "الإذن مطلوب",
-    "manageNotifications": "إدارة الإشعارات"
+    "manageNotifications": "إدارة الإشعارات",
+    "rtlRestartTitle": "إعادة التشغيل مطلوبة",
+    "rtlRestartMessage": "يرجى إغلاق التطبيق وإعادة فتحه لتطبيق اتجاه النص الجديد."
   },
   "thesis": {
+    "nameThesis": "سمِّ مذكرتك",
+    "nameThesisHint": "يمكنك إعادة تسميتها في أي وقت.",
+    "titlePlaceholder": "مثال: أثر الذكاء الاصطناعي على التعليم",
+    "createThesis": "إنشاء المذكرة",
+    "aiSuggestions": "اقتراحات الذكاء الاصطناعي",
+    "suggestTitles": "اقتراح عناوين",
     "myTheses": "مذكراتي",
+    "thesisDetails": "تفاصيل المذكرة",
+    "continueInChat": "متابعة في المحادثة",
+    "noChapters": "لا توجد فصول بعد",
+    "noThesesFound": "لم يتم العثور على مذكرات",
     "all": "الكل",
     "active": "نشطة",
     "completed": "مكتملة",
@@ -173,7 +207,20 @@
     "writing": "يكتب",
     "generating": "جاري التوليد",
     "stop": "إيقاف التوليد",
-    "selectThesis": "اختر مذكرة من الرئيسية لبدء المحادثة"
+    "selectThesis": "اختر مذكرة من الرئيسية لبدء المحادثة",
+    "viewFull": "عرض كامل",
+    "viewMore": "عرض المزيد",
+    "showLess": "عرض أقل",
+    "response": "الرد",
+    "image": "صورة",
+    "removeAttachment": "إزالة المرفق",
+    "attachedImage": "صورة مرفقة",
+    "attachedFile": "ملف مرفق",
+    "describeImage": "يرجى وصف ما تراه وكيف يرتبط بمذكرتي.",
+    "analyzeFile": "يرجى تحليل هذا المستند.",
+    "pages": "{{n}} صفحات",
+    "previewFile": "معاينة الملف",
+    "regenerate": "إعادة التوليد"
   },
   "editor": {
     "sectionEditor": "محرر القسم",
@@ -291,5 +338,36 @@
       "subscription": "اشتراك",
       "welcome": "ترحيب"
     }
+  },
+  "documents": {
+    "title": "المستندات",
+    "import": "استيراد",
+    "importEntryTitle": "استيراد مستند Word",
+    "importEntrySubtitle": "تحرير ومعاينة ملف ‎.docx",
+    "importFailed": "فشل الاستيراد",
+    "parsing": "جارٍ قراءة المستند…",
+    "empty": "لا توجد مستندات بعد",
+    "emptyHint": "استورد ملف ‎.docx لتحريره هنا.",
+    "emptyBody": "لا يحتوي هذا المستند على فقرات بعد.",
+    "words": "كلمات",
+    "pages": "صفحات",
+    "preview": "معاينة",
+    "previewFailed": "فشلت المعاينة",
+    "loadFailed": "تعذّر فتح المستند",
+    "saveFailed": "تعذّر حفظ التغييرات",
+    "addParagraph": "إضافة فقرة",
+    "deleteTitle": "حذف المستند",
+    "deleteConfirm": "هل أنت متأكد من حذف هذا المستند؟",
+    "deleteParaTitle": "حذف الفقرة",
+    "deleteParaConfirm": "هل أنت متأكد من حذف هذه الفقرة؟",
+    "style_body": "نص",
+    "style_title": "العنوان",
+    "style_h1": "عنوان 1",
+    "style_h2": "عنوان 2",
+    "style_h3": "عنوان 3",
+    "err_picker": "تعذّر فتح منتقي الملفات",
+    "err_notDocx": "يرجى اختيار ملف ‎.docx",
+    "err_sharing": "المشاركة غير متاحة على هذا الجهاز",
+    "readOnlyBanner": "يحتوي هذا المستند على جداول أو عناصر تحكم بالمحتوى، لذا التحرير معطّل حالياً. اضغط على معاينة لعرض المستند كاملاً."
   }
 }

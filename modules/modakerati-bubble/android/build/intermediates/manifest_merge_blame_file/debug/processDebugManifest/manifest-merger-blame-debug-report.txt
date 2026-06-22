@@ -1,0 +1,14 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="expo.modules.modakeratibubble" >
+4
+5    <uses-sdk android:minSdkVersion="24" />
+6    <!--
+7       Required to draw the floating chat head over other apps (Messenger-style).
+8       Merged into the app manifest by the Android manifest merger.
+9    -->
+10    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+10-->/Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml:4:3-76
+10-->/Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml:4:20-73
+11
+12</manifest>

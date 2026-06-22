@@ -11,14 +11,49 @@ export async function sendMessageToAI(
   userMessage: string,
   chapterId?: string
 ): Promise<void> {
+  // Add user message immediately (optimistic). Marked pending until reconciled.
+  useChatStore.getState().addMessage(thesisId, "user", userMessage, { chapterId, pending: true });
+  await runAssistantTurn(thesisId, userMessage, chapterId);
+}
+
+/**
+ * Re-run the assistant's answer to the most recent user message — the
+ * "regenerate" / "try again" affordance. Drops the previous assistant reply
+ * (everything after the last user turn) and streams a fresh one for the same
+ * prompt; the user's own message is left in place. No-op while a turn is already
+ * generating, or when there's no user message to answer.
+ */
+export async function regenerateLastResponse(thesisId: string): Promise<void> {
+  const store = useChatStore.getState();
+  if (store.isGenerating) return;
+
+  const msgs = store.getMessages(thesisId);
+  let i = msgs.length - 1;
+  while (i >= 0 && msgs[i].role !== "user") i--;
+  if (i < 0) return; // nothing the user asked — nothing to regenerate
+
+  const userMsg = msgs[i];
+  // Keep up to and including the user message; discard the stale reply so the
+  // new one streams into a fresh bubble.
+  store.setMessages(thesisId, msgs.slice(0, i + 1));
+  await runAssistantTurn(thesisId, userMsg.content, userMsg.chapterId);
+}
+
+// Streams one assistant turn for an already-present user message: opens the
+// request, routes tokens/thinking/files/asks into the store, and handles
+// abort + the buffered-endpoint fallback. Shared by the initial send and
+// regenerate so both behave identically once the user turn exists.
+async function runAssistantTurn(
+  thesisId: string,
+  userMessage: string,
+  chapterId?: string
+): Promise<void> {
   const store = useChatStore.getState();
 
   // Lets the user cancel this turn from the UI (chat-store.stopGenerating).
   const controller = new AbortController();
   store.setAbortController(controller);
 
-  // Add user message immediately (optimistic). Marked pending until reconciled.
-  store.addMessage(thesisId, "user", userMessage, { chapterId, pending: true });
   store.setGenerating(true);
   store.setGeneratingPhase("thinking");
 
@@ -39,6 +74,29 @@ export async function sendMessageToAI(
             s.setGeneratingPhase("writing");
           }
           s.appendToMessage(thesisId, assistantId, chunk);
+        },
+        onAsk: (ask) => {
+          useChatStore.getState().setPendingAsk(ask);
+        },
+        onThinking: (chunk) => {
+          const s = useChatStore.getState();
+          // Reasoning can arrive before any answer token — make the bubble now.
+          if (!assistantId) {
+            assistantId = s.addMessage(thesisId, "assistant", "", { pending: true });
+            s.setStreamingId(assistantId);
+          }
+          s.setGeneratingPhase("thinking");
+          s.appendToThinking(thesisId, assistantId, chunk);
+        },
+        onFile: (file) => {
+          const s = useChatStore.getState();
+          // A file (e.g. an export) can arrive before any answer text — ensure the
+          // assistant bubble exists, then attach the card to it.
+          if (!assistantId) {
+            assistantId = s.addMessage(thesisId, "assistant", "", { pending: true });
+            s.setStreamingId(assistantId);
+          }
+          s.addFileToMessage(thesisId, assistantId, file);
         },
       },
       { chapterId, signal: controller.signal }
@@ -61,7 +119,10 @@ export async function sendMessageToAI(
       try {
         store.setGeneratingPhase("thinking");
         const result = await chatSend(thesisId, userMessage, { chapterId });
-        store.addMessage(thesisId, "assistant", result.response, { pending: true });
+        const id = store.addMessage(thesisId, "assistant", result.response, { pending: true });
+        // Mirror the streaming path: surface any file cards and open the ask sheet.
+        result.files?.forEach((f) => store.addFileToMessage(thesisId, id, f));
+        if (result.ask) store.setPendingAsk(result.ask);
         return;
       } catch (fallbackError: any) {
         error = fallbackError;

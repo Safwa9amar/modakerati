@@ -11,10 +11,12 @@ import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
+import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { FileText, Wand2, Upload, Search } from "lucide-react-native";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import { TextInput } from "@/components/ui/TextInput";
+import { NewThesisSheet } from "@/components/NewThesisSheet";
 
 const ACCENT_COLORS = ["#5C6BFF", "#33D6A6", "#9959FF", "#FF9933", "#FF5959"];
 
@@ -22,7 +24,7 @@ export default function TemplatePickerScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
-  const { templates, setCurrentThesis } = useThesisStore();
+  const { templates } = useThesisStore();
   const [search, setSearch] = useState("");
 
   const filteredTemplates = templates.filter(
@@ -32,18 +34,10 @@ export default function TemplatePickerScreen() {
       tpl.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleBlank = async () => {
-    try {
-      const { createThesis } = await import("@/lib/api");
-      const thesis = await createThesis("My Thesis", ["Introduction", "Literature Review", "Methodology", "Results", "Conclusion"]);
-      // Add to local store so chat screen can find it
-      const store = useThesisStore.getState();
-      store.theses.push({ id: thesis.id, title: thesis.title, status: "active", progress: 0, wordCount: 0, pageCount: 0, language: "fr", chapters: [], createdAt: thesis.createdAt, updatedAt: thesis.updatedAt });
-      setCurrentThesis(thesis.id);
-      router.push("/(tabs)/chat" as any);
-    } catch (e: any) {
-      console.error("Failed to create thesis:", e.message);
-    }
+  // Ask for the title first; NewThesisSheet creates the thesis (saving the title
+  // to the DB), selects it, and opens the chat.
+  const handleBlank = () => {
+    useBottomSheet.getState().openSheet("new-thesis");
   };
 
   const handleTemplateTap = (templateId: string) => {
@@ -203,6 +197,8 @@ export default function TemplatePickerScreen() {
           </Pressable>
         ))}
       </ScrollView>
+
+      <NewThesisSheet />
     </SafeAreaView>
   );
 }

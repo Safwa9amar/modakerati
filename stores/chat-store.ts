@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ChatMessage } from "@/types/chat";
+import type { ChatMessage, AskPayload, FilePayload } from "@/types/chat";
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
@@ -23,16 +23,20 @@ interface ChatState {
   generatingPhase: GeneratingPhase;
   streamingId: string | null; // id of the assistant message currently streaming
   abortController: AbortController | null; // aborts the in-flight AI turn when the user taps Stop
+  pendingAsk: AskPayload | null; // active model question → drives the AskBottomSheet
 
   getMessages: (thesisId: string) => ChatMessage[];
   setMessages: (thesisId: string, messages: ChatMessage[]) => void;
   addMessage: (thesisId: string, role: "user" | "assistant", content: string, opts?: { chapterId?: string; pending?: boolean }) => string;
   appendToMessage: (thesisId: string, id: string, chunk: string) => void;
+  appendToThinking: (thesisId: string, id: string, chunk: string) => void;
+  addFileToMessage: (thesisId: string, id: string, file: FilePayload) => void;
   setGenerating: (generating: boolean) => void;
   setGeneratingStep: (step: number) => void;
   setGeneratingPhase: (phase: GeneratingPhase) => void;
   setStreamingId: (id: string | null) => void;
   setAbortController: (controller: AbortController | null) => void;
+  setPendingAsk: (ask: AskPayload | null) => void;
   stopGenerating: () => void;
   clearMessages: (thesisId: string) => void;
 }
@@ -44,6 +48,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   generatingPhase: "idle",
   streamingId: null,
   abortController: null,
+  pendingAsk: null,
 
   getMessages: (thesisId) => get().messages[thesisId] ?? EMPTY_MESSAGES,
 
@@ -77,11 +82,41 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
+  appendToThinking: (thesisId, id, chunk) =>
+    set((s) => {
+      const list = s.messages[thesisId];
+      if (!list) return s;
+      return {
+        messages: {
+          ...s.messages,
+          [thesisId]: list.map((m) => (m.id === id ? { ...m, thinking: (m.thinking ?? "") + chunk } : m)),
+        },
+      };
+    }),
+
+  addFileToMessage: (thesisId, id, file) =>
+    set((s) => {
+      const list = s.messages[thesisId];
+      if (!list) return s;
+      return {
+        messages: {
+          ...s.messages,
+          [thesisId]: list.map((m) => {
+            if (m.id !== id) return m;
+            // Dedupe by url so a re-export / replayed frame doesn't double the card.
+            if (m.files?.some((f) => f.url === file.url)) return m;
+            return { ...m, files: [...(m.files ?? []), file] };
+          }),
+        },
+      };
+    }),
+
   setGenerating: (generating) => set({ isGenerating: generating }),
   setGeneratingStep: (step) => set({ generatingStep: step }),
   setGeneratingPhase: (phase) => set({ generatingPhase: phase }),
   setStreamingId: (id) => set({ streamingId: id }),
   setAbortController: (controller) => set({ abortController: controller }),
+  setPendingAsk: (ask) => set({ pendingAsk: ask }),
   // Cancel the in-flight AI turn. The request's reader rejects with an
   // AbortError, which sendMessageToAI swallows — the partial response stays.
   stopGenerating: () => {

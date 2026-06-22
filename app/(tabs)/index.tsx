@@ -1,14 +1,15 @@
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Image, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { useThesisStore } from "@/stores/thesis-store";
-import { PenLine, FolderUp, LayoutGrid, Zap, FileText } from "lucide-react-native";
+import { PenLine, FolderUp, LayoutGrid, Zap, FileText, Layers, List, ChevronRight, Newspaper } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useNavBarClearance } from "@/components/FloatingNavBar";
-import { listTheses } from "@/lib/api";
+import { useProfileStore } from "@/stores/profile-store";
+import { listTheses, listNews } from "@/lib/api";
+import type { NewsArticle } from "@/types/news";
 import { useEffect, useState, useCallback } from "react";
 
 interface ApiThesis {
@@ -17,6 +18,9 @@ interface ApiThesis {
   status: string;
   progress: number;
   updatedAt: string;
+  chapterCount?: number;
+  sectionCount?: number;
+  wordCount?: number;
 }
 
 export default function HomeScreen() {
@@ -24,11 +28,20 @@ export default function HomeScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const bottomPad = useNavBarClearance();
+  const avatarUrl = useProfileStore((s) => s.profile?.avatarUrl);
+  const { width } = useWindowDimensions();
+  // 2-column grid: subtract the 20px screen padding on each side and the 12px
+  // gutter between the two cards, then split what's left.
+  const cardWidth = (width - 20 * 2 - 12) / 2;
   const [apiTheses, setApiTheses] = useState<ApiThesis[]>([]);
   const [loading, setLoading] = useState(true);
+  const [news, setNews] = useState<NewsArticle[]>([]);
 
   useEffect(() => {
     fetchTheses();
+    listNews({ limit: 6 })
+      .then((res) => setNews(res.news))
+      .catch(() => setNews([]));
   }, []);
 
   async function fetchTheses() {
@@ -41,26 +54,18 @@ export default function HomeScreen() {
     setLoading(false);
   }
 
+  const openNews = useCallback(
+    (article: NewsArticle) =>
+      router.push({ pathname: "/(app)/news-detail", params: { id: article.id } } as any),
+    [router]
+  );
+
   const selectThesis = useCallback((thesis: ApiThesis) => {
-    const store = useThesisStore.getState();
-    // Ensure thesis exists in local store for chat screen
-    if (!store.theses.find((t) => t.id === thesis.id)) {
-      store.theses.push({
-        id: thesis.id,
-        title: thesis.title,
-        status: thesis.status as any,
-        progress: thesis.progress || 0,
-        wordCount: 0,
-        pageCount: 0,
-        language: "fr",
-        chapters: [],
-        createdAt: thesis.updatedAt,
-        updatedAt: thesis.updatedAt,
-      });
-    }
-    store.setCurrentThesis(thesis.id);
-    router.push("/(tabs)/chat" as any);
-  }, []);
+    router.push({
+      pathname: "/(app)/thesis-detail",
+      params: { thesisId: thesis.id },
+    } as any);
+  }, [router]);
 
   const quickActions = [
     { icon: PenLine, label: t("home.newThesis"), color: colors.brandPrimary, onPress: () => router.push("/(app)/template-picker" as any) },
@@ -107,7 +112,13 @@ export default function HomeScreen() {
             <Text style={[styles.greeting, { color: colors.textSecondary }]}>{t("home.goodMorning")}</Text>
             <Text style={[styles.name, { color: colors.textPrimary }]}>Hamza</Text>
           </View>
-          <View style={[styles.avatar, { backgroundColor: colors.brandPrimary }]} />
+          <Pressable onPress={() => router.push("/(tabs)/profile" as any)} hitSlop={6}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={[styles.avatar, { borderColor: colors.brandPrimaryLight, borderWidth: 2 }]} />
+            ) : (
+              <View style={[styles.avatar, { backgroundColor: colors.brandPrimary }]} />
+            )}
+          </Pressable>
         </View>
 
         <View style={styles.quickRow}>
@@ -125,20 +136,93 @@ export default function HomeScreen() {
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t("home.recentTheses")}</Text>
         </View>
 
-        {apiTheses.map((thesis, i) => {
-          const progressColors = [colors.brandPrimary, colors.brandAccent, colors.semanticWarning];
-          const progressColor = progressColors[i % progressColors.length];
-          return (
-            <Pressable key={thesis.id} onPress={() => selectThesis(thesis)}>
-              <Card style={styles.thesisCard}>
-                <Text style={[styles.thesisTitle, { color: colors.textPrimary }]}>{thesis.title}</Text>
-                <View style={[styles.progressBg, { backgroundColor: colors.bgSurface }]}>
-                  <View style={[styles.progressFill, { backgroundColor: progressColor, width: `${thesis.progress || 10}%` }]} />
-                </View>
-              </Card>
-            </Pressable>
-          );
-        })}
+        <View style={styles.grid}>
+          {apiTheses.map((thesis, i) => {
+            const progressColors = [colors.brandPrimary, colors.brandAccent, colors.semanticWarning];
+            const progressColor = progressColors[i % progressColors.length];
+            const progress = Math.max(0, Math.min(100, Math.round(thesis.progress || 0)));
+            const chapterCount = thesis.chapterCount ?? 0;
+            const sectionCount = thesis.sectionCount ?? 0;
+            const wordCount = thesis.wordCount ?? 0;
+            return (
+              <Pressable key={thesis.id} onPress={() => selectThesis(thesis)} style={{ width: cardWidth }}>
+                <Card style={styles.thesisCard}>
+                  <View style={styles.cardTop}>
+                    <View style={[styles.cardIcon, { backgroundColor: progressColor + "22" }]}>
+                      <FileText size={18} color={progressColor} strokeWidth={1.8} />
+                    </View>
+                    <Text style={[styles.cardProgressPct, { color: progressColor }]}>{progress}%</Text>
+                  </View>
+
+                  <Text numberOfLines={3} style={[styles.thesisTitle, { color: colors.textPrimary }]}>
+                    {thesis.title}
+                  </Text>
+
+                  <View style={styles.statsRow}>
+                    <View style={styles.statItem}>
+                      <Layers size={13} color={colors.textSecondary} strokeWidth={1.8} />
+                      <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                        {chapterCount} {t("home.chapters")}
+                      </Text>
+                    </View>
+                    <View style={styles.statItem}>
+                      <List size={13} color={colors.textSecondary} strokeWidth={1.8} />
+                      <Text style={[styles.statText, { color: colors.textSecondary }]}>
+                        {sectionCount} {t("home.sections")}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {wordCount > 0 && (
+                    <Text style={[styles.cardWords, { color: colors.textSecondary }]}>
+                      {wordCount.toLocaleString()} {t("home.words")}
+                    </Text>
+                  )}
+
+                  <View style={[styles.progressBg, { backgroundColor: colors.bgSurface }]}>
+                    <View style={[styles.progressFill, { backgroundColor: progressColor, width: `${progress || 4}%` }]} />
+                  </View>
+                </Card>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {news.length > 0 && (
+          <View style={styles.newsSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t("home.modakeratiNews")}</Text>
+              <Pressable onPress={() => router.push("/(app)/news" as any)} style={styles.seeAll} hitSlop={8}>
+                <Text style={[styles.seeAllText, { color: colors.brandPrimary }]}>{t("common.seeAll")}</Text>
+                <ChevronRight size={16} color={colors.brandPrimary} strokeWidth={2.2} />
+              </Pressable>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.newsRow}>
+              {news.map((a) => (
+                <Pressable key={a.id} onPress={() => openNews(a)} style={[styles.newsCard, { backgroundColor: colors.bgCard }]}>
+                  {a.imageUrl ? (
+                    <Image source={{ uri: a.imageUrl }} style={styles.newsCardImage} resizeMode="cover" />
+                  ) : (
+                    <View style={[styles.newsCardImage, styles.newsCardPlaceholder, { backgroundColor: colors.bgSurface }]}>
+                      <Newspaper size={22} color={colors.textPlaceholder} strokeWidth={1.5} />
+                    </View>
+                  )}
+                  <View style={styles.newsCardBody}>
+                    <Text style={[styles.newsCardCategory, { color: colors.brandPrimary }]} numberOfLines={1}>
+                      {a.category.toUpperCase()}
+                    </Text>
+                    <Text style={[styles.newsCardTitle, { color: colors.textPrimary }]} numberOfLines={2}>
+                      {a.title}
+                    </Text>
+                    <Text style={[styles.newsCardSummary, { color: colors.textSecondary }]} numberOfLines={2}>
+                      {a.summary}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -157,8 +241,27 @@ const styles = StyleSheet.create({
   quickLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textAlign: "center" },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sectionTitle: { fontSize: 18, fontFamily: "Inter_600SemiBold" },
-  thesisCard: { marginBottom: 0 },
-  thesisTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", marginBottom: 8 },
+  seeAll: { flexDirection: "row", alignItems: "center", gap: 2 },
+  seeAllText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  newsSection: { gap: 12 },
+  newsRow: { gap: 12, paddingRight: 4 },
+  newsCard: { width: 230, borderRadius: 16, overflow: "hidden" },
+  newsCardImage: { width: "100%", height: 120 },
+  newsCardPlaceholder: { alignItems: "center", justifyContent: "center" },
+  newsCardBody: { padding: 12, gap: 4 },
+  newsCardCategory: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.5 },
+  newsCardTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", lineHeight: 19 },
+  newsCardSummary: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  thesisCard: { padding: 14, gap: 10, minHeight: 168 },
+  cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  cardIcon: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  cardProgressPct: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  thesisTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", lineHeight: 19, flex: 1 },
+  statsRow: { gap: 5 },
+  statItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  statText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  cardWords: { fontSize: 11, fontFamily: "Inter_400Regular" },
   progressBg: { height: 5, borderRadius: 3, overflow: "hidden" },
   progressFill: { height: 5, borderRadius: 3 },
   emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32, gap: 16 },

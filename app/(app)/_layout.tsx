@@ -9,9 +9,14 @@ export default function AppLayout() {
     <Stack.Screen name="payment-failed" />
     <Stack.Screen name="template-picker" />
     <Stack.Screen name="template-preview" />
+    <Stack.Screen name="thesis-detail" />
+    <Stack.Screen name="news" />
+    <Stack.Screen name="news-detail" />
     <Stack.Screen name="edit-chapter" />
     <Stack.Screen name="section-editor" />
     <Stack.Screen name="document-preview" />
+    <Stack.Screen name="documents" />
+    <Stack.Screen name="document-editor" />
     <Stack.Screen name="export" />
     <Stack.Screen name="export-success" />
     <Stack.Screen name="auto-layout" />

@@ -1,23 +1,42 @@
 import { Platform } from "react-native";
 import { isRunningInExpoGo } from "expo";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
+// Type-only — fully erased at runtime, so it never loads the native module.
+import type * as NotificationsModule from "expo-notifications";
 
 import type { NotificationData } from "@/types/notification";
 import { registerPushToken, unregisterPushToken } from "@/lib/api";
 import { useNotificationStore } from "@/stores/notification-store";
 
-// SDK 56: NotificationBehavior uses shouldShowBanner / shouldShowList
-// (replacing the deprecated shouldShowAlert), plus shouldPlaySound / shouldSetBadge.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+// expo-notifications removed remote push from Expo Go in SDK 53 and THROWS on
+// import there (Android). So we never load it statically — instead require it
+// lazily, and only outside Expo Go. In Expo Go this returns null and every push
+// path becomes a graceful no-op. The module's top-level code never executes.
+let notificationsModule: typeof NotificationsModule | null = null;
+let notificationsLoaded = false;
+function getNotifications(): typeof NotificationsModule | null {
+  if (notificationsLoaded) return notificationsModule;
+  notificationsLoaded = true;
+  if (isRunningInExpoGo()) return null;
+  try {
+    notificationsModule = require("expo-notifications");
+    // SDK 56: NotificationBehavior uses shouldShowBanner / shouldShowList
+    // (replacing the deprecated shouldShowAlert), plus shouldPlaySound / shouldSetBadge.
+    notificationsModule!.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    });
+  } catch (err) {
+    console.warn("[push] expo-notifications unavailable", err);
+    notificationsModule = null;
+  }
+  return notificationsModule;
+}
 
 function resolveProjectId(): string | undefined {
   try {
@@ -39,9 +58,9 @@ function resolveProjectId(): string | undefined {
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   try {
-    // Expo Go (SDK 53+) removed remote push support — getExpoPushTokenAsync
-    // throws on Android there. Remote push requires a development build.
-    if (isRunningInExpoGo()) {
+    // null in Expo Go (SDK 53+ removed remote push) — remote push needs a dev build.
+    const Notifications = getNotifications();
+    if (!Notifications) {
       console.log("[push] skipping — remote push requires a development build, not Expo Go");
       return null;
     }
@@ -104,7 +123,8 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
  */
 export async function unregisterCurrentPushToken(): Promise<void> {
   try {
-    if (isRunningInExpoGo()) return;
+    const Notifications = getNotifications();
+    if (!Notifications) return;
     const projectId = resolveProjectId();
     let token: string | undefined;
     try {
@@ -133,8 +153,12 @@ export async function unregisterCurrentPushToken(): Promise<void> {
 export function addNotificationListeners(
   onTapRoute: (route: string, data: NotificationData) => void
 ): () => void {
-  let receivedSub: Notifications.EventSubscription | undefined;
-  let responseSub: Notifications.EventSubscription | undefined;
+  // No-op in Expo Go (or if the module failed to load).
+  const Notifications = getNotifications();
+  if (!Notifications) return () => {};
+
+  let receivedSub: NotificationsModule.EventSubscription | undefined;
+  let responseSub: NotificationsModule.EventSubscription | undefined;
 
   try {
     receivedSub = Notifications.addNotificationReceivedListener(() => {

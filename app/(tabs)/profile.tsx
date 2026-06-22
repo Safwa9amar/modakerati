@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -5,15 +6,21 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthStore } from "@/stores/auth-store";
 import { useProfileStore } from "@/stores/profile-store";
+import { useThesisStore } from "@/stores/thesis-store";
 import { Card } from "@/components/ui/Card";
+import { AvatarPicker } from "@/components/AvatarPicker";
 import { useNavBarClearance } from "@/components/FloatingNavBar";
-import { Shield, ChevronRight, User, BookOpen, FileText, HelpCircle, LogOut } from "lucide-react-native";
+import { Shield, ChevronRight, User, BookOpen, Settings, HelpCircle, LogOut } from "lucide-react-native";
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+// 0–999 shown as-is, 1000+ compacted to "8.4K" / "1.2M".
+function formatCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) {
+    const k = n / 1000;
+    return `${k % 1 === 0 ? k : k.toFixed(1)}K`;
+  }
+  const m = n / 1_000_000;
+  return `${m % 1 === 0 ? m : m.toFixed(1)}M`;
 }
 
 export default function ProfileScreen() {
@@ -22,6 +29,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const signOut = useAuthStore((s) => s.signOut);
   const profile = useProfileStore((s) => s.profile);
+  const theses = useThesisStore((s) => s.theses);
   const bottomPad = useNavBarClearance();
 
   const notSet = t("profile.notSet");
@@ -29,11 +37,25 @@ export default function ProfileScreen() {
   const displayEmail = profile?.email || "";
   const levelLabel = profile?.level ? t(`profile.levels.${profile.level}`) : notSet;
 
-  const stats = [
-    { value: "3", label: t("profile.theses"), color: colors.brandPrimary },
-    { value: "14", label: t("profile.chapters"), color: colors.brandAccent },
-    { value: "8.4K", label: t("profile.words"), color: colors.semanticWarning },
-  ];
+  const stats = useMemo(() => {
+    const thesesCount = theses.length;
+    const chaptersCount = theses.reduce((sum, th) => sum + th.chapters.length, 0);
+    const wordsCount = theses.reduce(
+      (sum, th) =>
+        sum +
+        (th.wordCount ||
+          th.chapters.reduce(
+            (cSum, c) => cSum + c.sections.reduce((sSum, s) => sSum + (s.wordCount || 0), 0),
+            0
+          )),
+      0
+    );
+    return [
+      { value: formatCount(thesesCount), label: t("profile.theses"), color: colors.brandPrimary },
+      { value: formatCount(chaptersCount), label: t("profile.chapters"), color: colors.brandAccent },
+      { value: formatCount(wordsCount), label: t("profile.words"), color: colors.semanticWarning },
+    ];
+  }, [theses, t, colors]);
 
   const universityInfo = [
     { label: t("profile.university"), value: profile?.university || notSet },
@@ -45,6 +67,7 @@ export default function ProfileScreen() {
   const actions = [
     { label: t("profile.editProfile"), color: colors.brandPrimary, icon: User, route: "/(app)/edit-profile" },
     { label: t("profile.manageSub"), color: colors.brandAccent, icon: BookOpen, route: "/(app)/subscription" },
+    { label: t("profile.settings"), color: colors.brandPrimaryLight, icon: Settings, route: "/(app)/settings" },
     { label: t("profile.help"), color: colors.textSecondary, icon: HelpCircle, route: null },
   ];
 
@@ -57,10 +80,8 @@ export default function ProfileScreen() {
 
         {/* Avatar */}
         <View style={styles.avatarSection}>
-          <View style={[styles.avatar, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimaryLight }]}>
-            <Text style={styles.avatarText}>{getInitials(displayName)}</Text>
-          </View>
-          <Text style={[styles.userName, { color: colors.textPrimary }]}>{displayName}</Text>
+          <AvatarPicker size={88} name={displayName} avatarUrl={profile?.avatarUrl} />
+          <Text style={[styles.userName, { color: colors.textPrimary, marginTop: 12 }]}>{displayName}</Text>
           {!!displayEmail && <Text style={[styles.userEmail, { color: colors.textSecondary }]}>{displayEmail}</Text>}
           <View style={[styles.proBadge, { backgroundColor: colors.brandAccent + "26" }]}>
             <Shield size={14} color={colors.brandAccent} />
@@ -127,8 +148,6 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingBottom: 40 },
   screenTitle: { fontSize: 20, fontFamily: "Inter_600SemiBold", textAlign: "center", marginVertical: 16 },
   avatarSection: { alignItems: "center", marginBottom: 24 },
-  avatar: { width: 88, height: 88, borderRadius: 44, borderWidth: 3, alignItems: "center", justifyContent: "center", marginBottom: 12 },
-  avatarText: { fontSize: 28, fontFamily: "Inter_700Bold", color: "#fff" },
   userName: { fontSize: 20, fontFamily: "Inter_700Bold", marginBottom: 4 },
   userEmail: { fontSize: 14, fontFamily: "Inter_400Regular", marginBottom: 10 },
   proBadge: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },

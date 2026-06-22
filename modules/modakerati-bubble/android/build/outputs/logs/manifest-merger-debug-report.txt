@@ -1,0 +1,20 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml:1:1-5:12
+INJECTED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml:1:1-5:12
+	package
+		INJECTED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml:1:11-69
+uses-permission#android.permission.SYSTEM_ALERT_WINDOW
+ADDED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml:4:3-76
+	android:name
+		ADDED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml:4:20-73
+uses-sdk
+INJECTED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml
+INJECTED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /Users/hamzasafwan/modakerati/modules/modakerati-bubble/android/src/main/AndroidManifest.xml

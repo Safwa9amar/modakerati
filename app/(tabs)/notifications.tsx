@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  SectionList,
   Pressable,
   ActivityIndicator,
   RefreshControl,
@@ -109,7 +109,9 @@ export default function NotificationsScreen() {
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const isLoading = useNotificationStore((s) => s.isLoading);
   const isRefreshing = useNotificationStore((s) => s.isRefreshing);
+  const isLoadingMore = useNotificationStore((s) => s.isLoadingMore);
   const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
+  const loadMore = useNotificationStore((s) => s.loadMore);
   const markAsRead = useNotificationStore((s) => s.markAsRead);
   const markAllAsRead = useNotificationStore((s) => s.markAllAsRead);
   const remove = useNotificationStore((s) => s.remove);
@@ -157,7 +159,70 @@ export default function NotificationsScreen() {
     [remove, colors.semanticError]
   );
 
-  const groups = groupByTime(notifications);
+  const renderItem = useCallback(
+    ({ item }: { item: AppNotification }) => {
+      const { Icon, color } = iconFor(item.type, colors);
+      const unread = !item.isRead;
+      return (
+        <ReanimatedSwipeable
+          friction={2}
+          rightThreshold={40}
+          renderRightActions={() => renderRightActions(item.id)}
+          containerStyle={styles.swipeContainer}>
+          <Pressable onPress={() => handlePress(item)}>
+            <Card
+              borderColor={unread ? color : undefined}
+              style={[
+                styles.notifCard,
+                {
+                  backgroundColor: unread ? colors.bgCard : "transparent",
+                  borderWidth: unread ? 1 : 0,
+                },
+              ]}>
+              <View style={styles.notifRow}>
+                <View style={[styles.iconBox, { backgroundColor: color + "26" }]}>
+                  <Icon size={18} color={color} />
+                </View>
+                <View style={styles.notifContent}>
+                  <View style={styles.notifTitleRow}>
+                    <Text
+                      style={[
+                        styles.notifTitle,
+                        { color: colors.textPrimary },
+                        unread && { fontFamily: "Inter_600SemiBold" },
+                      ]}
+                      numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    {unread && (
+                      <View style={[styles.dot, { backgroundColor: color }]} />
+                    )}
+                  </View>
+                  {item.description ? (
+                    <Text
+                      style={[styles.notifDesc, { color: colors.textSecondary }]}
+                      numberOfLines={2}>
+                      {item.description}
+                    </Text>
+                  ) : null}
+                  <Text
+                    style={[styles.notifTime, { color: colors.textPlaceholder }]}>
+                    {relativeTime(item.createdAt)}
+                  </Text>
+                </View>
+              </View>
+            </Card>
+          </Pressable>
+        </ReanimatedSwipeable>
+      );
+    },
+    [colors, handlePress, relativeTime, renderRightActions]
+  );
+
+  const sections = groupByTime(notifications).map((g) => ({
+    bucket: g.bucket,
+    data: g.items,
+  }));
   const showLoading = isLoading && notifications.length === 0;
   const showEmpty = !isLoading && notifications.length === 0;
 
@@ -206,9 +271,27 @@ export default function NotificationsScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          renderSectionHeader={({ section }) => (
+            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
+              {t(`notifications.${section.bucket}`)}
+            </Text>
+          )}
+          stickySectionHeadersEnabled={false}
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
           showsVerticalScrollIndicator={false}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            isLoadingMore ? (
+              <View style={styles.footer}>
+                <ActivityIndicator color={colors.brandPrimary} />
+              </View>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -216,81 +299,8 @@ export default function NotificationsScreen() {
               tintColor={colors.brandPrimary}
               colors={[colors.brandPrimary]}
             />
-          }>
-          {groups.map((group) => (
-            <View key={group.bucket} style={styles.section}>
-              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
-                {t(`notifications.${group.bucket}`)}
-              </Text>
-              {group.items.map((item) => {
-                const { Icon, color } = iconFor(item.type, colors);
-                const unread = !item.isRead;
-                return (
-                  <ReanimatedSwipeable
-                    key={item.id}
-                    friction={2}
-                    rightThreshold={40}
-                    renderRightActions={() => renderRightActions(item.id)}
-                    containerStyle={styles.swipeContainer}>
-                    <Pressable onPress={() => handlePress(item)}>
-                      <Card
-                        borderColor={unread ? color : undefined}
-                        style={[
-                          styles.notifCard,
-                          {
-                            backgroundColor: unread ? colors.bgCard : "transparent",
-                            borderWidth: unread ? 1 : 0,
-                          },
-                        ]}>
-                        <View style={styles.notifRow}>
-                          <View
-                            style={[styles.iconBox, { backgroundColor: color + "26" }]}>
-                            <Icon size={18} color={color} />
-                          </View>
-                          <View style={styles.notifContent}>
-                            <View style={styles.notifTitleRow}>
-                              <Text
-                                style={[
-                                  styles.notifTitle,
-                                  { color: colors.textPrimary },
-                                  unread && { fontFamily: "Inter_600SemiBold" },
-                                ]}
-                                numberOfLines={1}>
-                                {item.title}
-                              </Text>
-                              {unread && (
-                                <View
-                                  style={[styles.dot, { backgroundColor: color }]}
-                                />
-                              )}
-                            </View>
-                            {item.description ? (
-                              <Text
-                                style={[
-                                  styles.notifDesc,
-                                  { color: colors.textSecondary },
-                                ]}
-                                numberOfLines={2}>
-                                {item.description}
-                              </Text>
-                            ) : null}
-                            <Text
-                              style={[
-                                styles.notifTime,
-                                { color: colors.textPlaceholder },
-                              ]}>
-                              {relativeTime(item.createdAt)}
-                            </Text>
-                          </View>
-                        </View>
-                      </Card>
-                    </Pressable>
-                  </ReanimatedSwipeable>
-                );
-              })}
-            </View>
-          ))}
-        </ScrollView>
+          }
+        />
       )}
     </SafeAreaView>
   );
@@ -323,13 +333,14 @@ const styles = StyleSheet.create({
   emptyDesc: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19 },
 
   content: { paddingHorizontal: 20, paddingBottom: 40 },
-  section: { marginBottom: 20 },
   sectionLabel: {
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
     textTransform: "uppercase",
+    marginTop: 10,
     marginBottom: 10,
   },
+  footer: { paddingVertical: 16, alignItems: "center" },
 
   swipeContainer: { borderRadius: 14, marginBottom: 10 },
   notifCard: { padding: 14 },

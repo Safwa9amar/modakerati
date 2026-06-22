@@ -9,7 +9,7 @@ export default function TabsLayout() {
   const colors = useThemeColors();
 
   return (
-      <Tabs screenOptions={{ headerShown: false }} tabBar={TabBar}>
+      <Tabs screenOptions={{ headerShown: false , animation : "shift"}} tabBar={TabBar}>
         <Tabs.Screen name="index" />
         <Tabs.Screen name="chat" />
         <Tabs.Screen name="thesis" />

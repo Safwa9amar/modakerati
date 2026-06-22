@@ -16,6 +16,7 @@ export const colors = {
     semanticError: "#FF5959",
     chatAiBubble: "#1E2138",
     chatUserBubble: "#5C6BFF",
+    chatUserText: "#FFFFFF",
     navBar: "#212133",
     navInactive: "#8D8D9E",
     navInactiveLabel: "#737385",
@@ -39,6 +40,7 @@ export const colors = {
     semanticError: "#E64040",
     chatAiBubble: "#EDEEF8",
     chatUserBubble: "#4D5CEB",
+    chatUserText: "#FFFFFF",
     navBar: "#FFFFFF",
     navInactive: "#8D8D9E",
     navInactiveLabel: "#737385",
@@ -47,5 +49,5 @@ export const colors = {
   },
 } as const;
 
-export type ThemeColors = typeof colors.dark;
-export type ThemeName = "dark" | "light";
+export type ThemeColors = { readonly [K in keyof typeof colors.dark]: string };
+export type ThemeName = keyof typeof colors;
