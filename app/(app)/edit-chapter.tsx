@@ -13,54 +13,37 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { BackButton } from "@/components/BackButton";
-import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 import { Card } from "@/components/ui/Card";
-import {
-  GripVertical,
-  Edit3,
-  CheckCircle,
-  Circle,
-  Clock,
-  Plus,
-  Sparkles,
-  ListTree,
-  Shuffle,
-  Trash2,
-} from "lucide-react-native";
-import type { ChapterStatus } from "@/types/thesis";
+import { Plus, Trash2 } from "lucide-react-native";
 
-const STATUS_OPTIONS: { key: ChapterStatus; labelKey: string }[] = [
-  { key: "not_started", labelKey: "thesis.notStarted" },
-  { key: "in_progress", labelKey: "thesis.inProgress" },
-  { key: "done", labelKey: "thesis.done" },
-];
-
+// NOTE: P0 placeholder. With the new model the top container is a Section
+// (Partie) whose children are Chapters (Chapitres). This screen was the old
+// "edit chapter" view; it has been minimally remapped to edit a Section and its
+// chapters so it compiles and renders. The rich editor / status / AI actions are
+// slated for the P2/P3 workspace rebuild.
 export default function EditChapterScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
-  const { thesisId, chapterId } = useLocalSearchParams<{
+  const { thesisId, sectionId } = useLocalSearchParams<{
     thesisId: string;
-    chapterId: string;
+    sectionId: string;
   }>();
   const {
     theses,
-    updateChapter,
-    deleteChapter,
-    addSection,
+    updateSection,
     deleteSection,
+    addChapter,
+    deleteChapter,
   } = useThesisStore();
 
   const thesis = theses.find((th) => th.id === thesisId);
-  const chapter = thesis?.chapters.find((ch) => ch.id === chapterId);
+  const section = thesis?.sections.find((sec) => sec.id === sectionId);
 
-  const [chapterTitle, setChapterTitle] = useState(chapter?.title ?? "");
-  const [status, setStatus] = useState<ChapterStatus>(
-    chapter?.status ?? "not_started"
-  );
+  const [sectionTitle, setSectionTitle] = useState(section?.title ?? "");
 
-  if (!thesis || !chapter) {
+  if (!thesis || !section) {
     return (
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.bgPrimary }]}
@@ -74,43 +57,28 @@ export default function EditChapterScreen() {
           <View style={{ width: 60 }} />
         </View>
         <View style={styles.centered}>
-          <Text style={{ color: colors.textSecondary }}>Chapter not found</Text>
+          <Text style={{ color: colors.textSecondary }}>Section not found</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  const statusColorMap: Record<ChapterStatus, string> = {
-    not_started: colors.textSecondary,
-    in_progress: colors.semanticWarning,
-    done: colors.semanticSuccess,
-  };
-
-  const statusIconMap: Record<ChapterStatus, typeof Circle> = {
-    not_started: Circle,
-    in_progress: Clock,
-    done: CheckCircle,
-  };
-
   const handleSave = () => {
-    updateChapter(thesisId!, chapterId!, {
-      title: chapterTitle,
-      status,
-    });
+    updateSection(thesisId!, sectionId!, { title: sectionTitle });
     router.back();
   };
 
   const handleDelete = () => {
     Alert.alert(
       t("thesis.deleteChapter"),
-      `${t("common.delete")} "${chapter.title}"?`,
+      `${t("common.delete")} "${section.title}"?`,
       [
         { text: t("common.cancel"), style: "cancel" },
         {
           text: t("common.delete"),
           style: "destructive",
           onPress: () => {
-            deleteChapter(thesisId!, chapterId!);
+            deleteSection(thesisId!, sectionId!);
             router.back();
           },
         },
@@ -118,27 +86,9 @@ export default function EditChapterScreen() {
     );
   };
 
-  const handleAddSection = () => {
-    addSection(thesisId!, chapterId!, `Section ${chapter.sections.length + 1}`);
+  const handleAddChapter = () => {
+    addChapter(thesisId!, sectionId!, `Chapter ${section.chapters.length + 1}`);
   };
-
-  const aiActions = [
-    {
-      icon: Sparkles,
-      label: t("thesis.generateAll"),
-      color: "#9959FF",
-    },
-    {
-      icon: ListTree,
-      label: t("thesis.suggestMissing"),
-      color: colors.brandPrimary,
-    },
-    {
-      icon: Shuffle,
-      label: t("thesis.reorderFlow"),
-      color: colors.brandAccent,
-    },
-  ];
 
   return (
     <SafeAreaView
@@ -160,91 +110,20 @@ export default function EditChapterScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Status badge */}
-        <View style={styles.statusBadgeRow}>
-          {(() => {
-            const StatusIcon = statusIconMap[status];
-            return (
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: statusColorMap[status] + "18" },
-                ]}
-              >
-                <StatusIcon
-                  size={14}
-                  color={statusColorMap[status]}
-                  strokeWidth={2}
-                />
-                <Text
-                  style={[
-                    styles.statusBadgeText,
-                    { color: statusColorMap[status] },
-                  ]}
-                >
-                  {t(STATUS_OPTIONS.find((s) => s.key === status)!.labelKey)}
-                </Text>
-              </View>
-            );
-          })()}
-        </View>
-
-        {/* Chapter title input */}
+        {/* Section title input */}
         <TextInput
           label={t("thesis.chapterTitle")}
-          value={chapterTitle}
-          onChangeText={setChapterTitle}
+          value={sectionTitle}
+          onChangeText={setSectionTitle}
         />
 
-        {/* Status selector */}
-        <View>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>
-            {t("thesis.status")}
-          </Text>
-          <View style={styles.statusRow}>
-            {STATUS_OPTIONS.map((opt) => {
-              const isActive = status === opt.key;
-              return (
-                <Pressable
-                  key={opt.key}
-                  onPress={() => setStatus(opt.key)}
-                  style={[
-                    styles.statusChip,
-                    {
-                      backgroundColor: isActive
-                        ? statusColorMap[opt.key] + "22"
-                        : colors.bgSurface,
-                      borderColor: isActive
-                        ? statusColorMap[opt.key]
-                        : "transparent",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.statusChipText,
-                      {
-                        color: isActive
-                          ? statusColorMap[opt.key]
-                          : colors.textSecondary,
-                      },
-                    ]}
-                  >
-                    {t(opt.labelKey)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* Sections */}
+        {/* Chapters (Chapitres) */}
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-            {t("thesis.sections")} ({chapter.sections.length})
+            {t("home.chapters")} ({section.chapters.length})
           </Text>
           <Pressable
-            onPress={handleAddSection}
+            onPress={handleAddChapter}
             style={[
               styles.addSectionBtn,
               { backgroundColor: colors.brandPrimary + "18" },
@@ -254,103 +133,47 @@ export default function EditChapterScreen() {
             <Text
               style={[styles.addSectionText, { color: colors.brandPrimary }]}
             >
-              {t("thesis.addSection")}
+              {t("thesis.addChapter")}
             </Text>
           </Pressable>
         </View>
 
-        {chapter.sections.length === 0 ? (
+        {section.chapters.length === 0 ? (
           <View
             style={[styles.emptySection, { backgroundColor: colors.bgSurface }]}
           >
             <Text style={[styles.emptySectionText, { color: colors.textSecondary }]}>
-              No sections yet
+              {t("thesis.noChapters")}
             </Text>
           </View>
         ) : (
-          chapter.sections.map((section) => {
-            const SectionStatusIcon = statusIconMap[section.status];
-            return (
-              <Card key={section.id} style={styles.sectionCard}>
-                <View style={styles.sectionRow}>
-                  <GripVertical
-                    size={16}
-                    color={colors.textPlaceholder}
-                    strokeWidth={2}
-                  />
-                  <View style={styles.sectionInfo}>
-                    <Text
-                      style={[
-                        styles.sectionName,
-                        { color: colors.textPrimary },
-                      ]}
-                    >
-                      {section.title}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.sectionWords,
-                        { color: colors.textSecondary },
-                      ]}
-                    >
-                      {section.wordCount} words
-                    </Text>
-                  </View>
-                  <SectionStatusIcon
-                    size={16}
-                    color={statusColorMap[section.status]}
-                    strokeWidth={2}
-                  />
-                  <Pressable
-                    onPress={() => {}}
-                    hitSlop={8}
+          section.chapters.map((chapter) => (
+            <Card key={chapter.id} style={styles.sectionCard}>
+              <View style={styles.sectionRow}>
+                <View style={styles.sectionInfo}>
+                  <Text
+                    style={[styles.sectionName, { color: colors.textPrimary }]}
                   >
-                    <Edit3
-                      size={16}
-                      color={colors.textSecondary}
-                      strokeWidth={2}
-                    />
-                  </Pressable>
+                    {chapter.title}
+                  </Text>
+                  <Text
+                    style={[styles.sectionWords, { color: colors.textSecondary }]}
+                  >
+                    {chapter.wordCount} words
+                  </Text>
                 </View>
-              </Card>
-            );
-          })
+                <Pressable
+                  onPress={() => deleteChapter(thesisId!, sectionId!, chapter.id)}
+                  hitSlop={8}
+                >
+                  <Trash2 size={16} color={colors.semanticError} strokeWidth={2} />
+                </Pressable>
+              </View>
+            </Card>
+          ))
         )}
 
-        {/* AI Actions */}
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-          {t("thesis.aiActions")}
-        </Text>
-        <View style={styles.aiRow}>
-          {aiActions.map((action, i) => (
-            <Pressable
-              key={i}
-              style={[styles.aiCard, { backgroundColor: colors.bgCard }]}
-              onPress={() => {}}
-            >
-              <View
-                style={[
-                  styles.aiIconBg,
-                  { backgroundColor: action.color + "18" },
-                ]}
-              >
-                <action.icon
-                  size={18}
-                  color={action.color}
-                  strokeWidth={2}
-                />
-              </View>
-              <Text
-                style={[styles.aiLabel, { color: colors.textPrimary }]}
-                numberOfLines={2}
-              >
-                {action.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Delete chapter */}
+        {/* Delete section */}
         <Pressable
           onPress={handleDelete}
           style={[
@@ -358,14 +181,8 @@ export default function EditChapterScreen() {
             { backgroundColor: colors.semanticError + "14" },
           ]}
         >
-          <Trash2
-            size={16}
-            color={colors.semanticError}
-            strokeWidth={2}
-          />
-          <Text
-            style={[styles.deleteText, { color: colors.semanticError }]}
-          >
+          <Trash2 size={16} color={colors.semanticError} strokeWidth={2} />
+          <Text style={[styles.deleteText, { color: colors.semanticError }]}>
             {t("thesis.deleteChapter")}
           </Text>
         </Pressable>
@@ -409,41 +226,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-  },
-  statusBadgeRow: {
-    flexDirection: "row",
-  },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  statusBadgeText: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-  },
-  label: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-    marginBottom: 8,
-  },
-  statusRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  statusChip: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  statusChipText: {
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
   },
   sectionHeader: {
     flexDirection: "row",
@@ -494,29 +276,6 @@ const styles = StyleSheet.create({
   sectionWords: {
     fontSize: 11,
     fontFamily: "Inter_400Regular",
-  },
-  aiRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  aiCard: {
-    flex: 1,
-    borderRadius: 14,
-    padding: 14,
-    alignItems: "center",
-    gap: 8,
-  },
-  aiIconBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  aiLabel: {
-    fontSize: 11,
-    fontFamily: "Inter_500Medium",
-    textAlign: "center",
   },
   deleteBtn: {
     flexDirection: "row",

@@ -21,31 +21,29 @@ import {
   Type,
   MessageSquare,
   ChevronRight,
-  CheckCircle,
-  Clock,
-  Circle,
   FileText,
 } from "lucide-react-native";
-import type { Chapter, ChapterStatus, Thesis, ThesisStatus } from "@/types/thesis";
+import type { ChapterStatus, Thesis, ThesisStatus } from "@/types/thesis";
 
-// The list endpoint hands us a partial thesis; getThesis() returns the full
-// record with chapters + nested sections. We normalise both into the store's
-// Thesis shape so the chat and edit-chapter screens work after opening here.
+// getThesis() returns the full record with sections (Parties) + nested chapters
+// (Chapitres). Normalise defensively so the chat / editor screens work after
+// opening here. The server already serializes the new shape.
 function normalize(raw: any): Thesis {
-  const chapters: Chapter[] = (raw.chapters ?? []).map((ch: any, ci: number) => ({
-    id: ch.id,
+  const sections = (raw.sections ?? []).map((sec: any, si: number) => ({
+    id: sec.id,
     thesisId: raw.id,
-    title: ch.title,
-    orderIndex: ch.orderIndex ?? ci,
-    status: (ch.status ?? "not_started") as ChapterStatus,
-    sections: (ch.sections ?? []).map((s: any, si: number) => ({
-      id: s.id,
-      chapterId: ch.id,
-      title: s.title,
-      content: s.content ?? "",
-      orderIndex: s.orderIndex ?? si,
-      wordCount: s.wordCount ?? 0,
-      status: (s.status ?? "not_started") as ChapterStatus,
+    title: sec.title,
+    kind: sec.kind ?? "section",
+    content: sec.content ?? null,
+    orderIndex: sec.orderIndex ?? si,
+    chapters: (sec.chapters ?? []).map((ch: any, ci: number) => ({
+      id: ch.id,
+      sectionId: sec.id,
+      title: ch.title,
+      content: ch.content ?? "",
+      orderIndex: ch.orderIndex ?? ci,
+      wordCount: ch.wordCount ?? 0,
+      status: (ch.status ?? "not_started") as ChapterStatus,
     })),
   }));
   return {
@@ -57,7 +55,9 @@ function normalize(raw: any): Thesis {
     progress: raw.progress ?? 0,
     wordCount: raw.wordCount ?? 0,
     pageCount: raw.pageCount ?? 0,
-    chapters,
+    frontMatter: raw.frontMatter ?? undefined,
+    resume: raw.resume ?? undefined,
+    sections,
     createdAt: raw.createdAt ?? new Date().toISOString(),
     updatedAt: raw.updatedAt ?? new Date().toISOString(),
   };
@@ -103,28 +103,17 @@ export default function ThesisDetailScreen() {
     }, [thesisId])
   );
 
-  const statusColorMap: Record<ChapterStatus, string> = {
-    not_started: colors.textSecondary,
-    in_progress: colors.semanticWarning,
-    done: colors.semanticSuccess,
-  };
-  const statusIconMap: Record<ChapterStatus, typeof Circle> = {
-    not_started: Circle,
-    in_progress: Clock,
-    done: CheckCircle,
-  };
-
   const openChat = () => {
     if (!thesis) return;
     useThesisStore.getState().setCurrentThesis(thesis.id);
     router.push("/(tabs)/chat" as any);
   };
 
-  const openChapter = (chapterId: string) => {
+  const openSection = (sectionId: string) => {
     if (!thesis) return;
     router.push({
       pathname: "/(app)/edit-chapter",
-      params: { thesisId: thesis.id, chapterId },
+      params: { thesisId: thesis.id, sectionId },
     } as any);
   };
 
@@ -158,10 +147,10 @@ export default function ThesisDetailScreen() {
     );
   }
 
-  const chapterCount = thesis.chapters.length;
-  const sectionCount = thesis.chapters.reduce((sum, ch) => sum + ch.sections.length, 0);
-  const wordCount = thesis.chapters.reduce(
-    (sum, ch) => sum + ch.sections.reduce((s, sec) => s + (sec.wordCount || 0), 0),
+  const sectionCount = thesis.sections.length;
+  const chapterCount = thesis.sections.reduce((sum, sec) => sum + sec.chapters.length, 0);
+  const wordCount = thesis.sections.reduce(
+    (sum, sec) => sum + sec.chapters.reduce((s, ch) => s + (ch.wordCount || 0), 0),
     thesis.wordCount || 0
   );
   const progress = Math.max(0, Math.min(100, Math.round(thesis.progress || 0)));
@@ -179,8 +168,8 @@ export default function ThesisDetailScreen() {
       : colors.brandPrimary;
 
   const stats = [
-    { icon: Layers, value: chapterCount, label: t("home.chapters") },
-    { icon: List, value: sectionCount, label: t("home.sections") },
+    { icon: Layers, value: sectionCount, label: t("home.sections") },
+    { icon: List, value: chapterCount, label: t("home.chapters") },
     { icon: Type, value: wordCount.toLocaleString(), label: t("home.words") },
   ];
 
@@ -231,42 +220,38 @@ export default function ThesisDetailScreen() {
           <Text style={styles.ctaText}>{t("thesis.continueInChat")}</Text>
         </Pressable>
 
-        {/* Chapters */}
+        {/* Sections (Parties) */}
         <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-          {t("home.chapters")} ({chapterCount})
+          {t("home.sections")} ({sectionCount})
         </Text>
 
-        {chapterCount === 0 ? (
+        {sectionCount === 0 ? (
           <View style={[styles.emptyChapters, { backgroundColor: colors.bgSurface }]}>
             <Text style={[styles.emptyChaptersText, { color: colors.textSecondary }]}>
               {t("thesis.noChapters")}
             </Text>
           </View>
         ) : (
-          thesis.chapters.map((ch, i) => {
-            const StatusIcon = statusIconMap[ch.status];
-            return (
-              <Pressable key={ch.id} onPress={() => openChapter(ch.id)}>
-                <Card style={styles.chapterCard}>
-                  <View style={[styles.chapterNum, { backgroundColor: colors.bgSurface }]}>
-                    <Text style={[styles.chapterNumText, { color: colors.textSecondary }]}>{i + 1}</Text>
-                  </View>
-                  <View style={styles.chapterInfo}>
-                    <Text style={[styles.chapterTitle, { color: colors.textPrimary }]} numberOfLines={2}>
-                      {ch.title}
+          thesis.sections.map((sec, i) => (
+            <Pressable key={sec.id} onPress={() => openSection(sec.id)}>
+              <Card style={styles.chapterCard}>
+                <View style={[styles.chapterNum, { backgroundColor: colors.bgSurface }]}>
+                  <Text style={[styles.chapterNumText, { color: colors.textSecondary }]}>{i + 1}</Text>
+                </View>
+                <View style={styles.chapterInfo}>
+                  <Text style={[styles.chapterTitle, { color: colors.textPrimary }]} numberOfLines={2}>
+                    {sec.title}
+                  </Text>
+                  <View style={styles.chapterMeta}>
+                    <Text style={[styles.chapterMetaText, { color: colors.textSecondary }]}>
+                      {sec.chapters.length} {t("home.chapters")}
                     </Text>
-                    <View style={styles.chapterMeta}>
-                      <StatusIcon size={12} color={statusColorMap[ch.status]} strokeWidth={2} />
-                      <Text style={[styles.chapterMetaText, { color: colors.textSecondary }]}>
-                        {ch.sections.length} {t("home.sections")}
-                      </Text>
-                    </View>
                   </View>
-                  <ChevronRight size={18} color={colors.textPlaceholder} strokeWidth={2} />
-                </Card>
-              </Pressable>
-            );
-          })
+                </View>
+                <ChevronRight size={18} color={colors.textPlaceholder} strokeWidth={2} />
+              </Card>
+            </Pressable>
+          ))
         )}
       </ScrollView>
     </SafeAreaView>

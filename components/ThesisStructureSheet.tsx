@@ -12,8 +12,8 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
-import { Plus, Check, Circle } from "lucide-react-native";
-import type { Chapter } from "@/types/thesis";
+import { Plus } from "lucide-react-native";
+import type { Section } from "@/types/thesis";
 
 export function ThesisStructureSheet() {
   const { t } = useTranslation();
@@ -54,32 +54,21 @@ export function ThesisStructureSheet() {
   // isOpen (not `thesis`): opening with no thesis still shows an empty list.
   if (!isOpen) return null;
 
-  const chapters = thesis?.chapters ?? [];
-  const doneCount = chapters.filter((c) => c.status === "done").length;
-  const progressCount = chapters.filter((c) => c.status === "in_progress").length;
-  const pendingCount = chapters.filter((c) => c.status === "not_started").length;
+  const sections = thesis?.sections ?? [];
+  const allChapters = sections.flatMap((sec) => sec.chapters);
+  const doneCount = allChapters.filter((c) => c.status === "done").length;
+  const progressCount = allChapters.filter((c) => c.status === "in_progress").length;
+  const pendingCount = allChapters.filter((c) => c.status === "not_started").length;
 
-  const statusColor = (status: string) => {
-    if (status === "done") return colors.brandAccent;
-    if (status === "in_progress") return colors.semanticWarning;
-    return colors.navInactive;
-  };
-
-  const statusIcon = (status: string) => {
-    if (status === "done") return <Check size={16} color={colors.brandAccent} strokeWidth={2.5} />;
-    if (status === "in_progress") return <Circle size={16} color={colors.semanticWarning} strokeWidth={2} fill={colors.semanticWarning} />;
-    return <Circle size={16} color={colors.navInactive} strokeWidth={1.5} />;
-  };
-
-  function handleChapterPress(chapter: Chapter) {
+  function handleSectionPress(section: Section) {
     if (!thesis) return;
     useBottomSheet.getState().closeSheet("structure");
-    router.push({ pathname: "/(app)/edit-chapter", params: { thesisId: thesis.id, chapterId: chapter.id } } as any);
+    router.push({ pathname: "/(app)/edit-chapter", params: { thesisId: thesis.id, sectionId: section.id } } as any);
   }
 
   function handleAdd() {
     if (!thesis) return;
-    useThesisStore.getState().addChapter(thesis.id, `Chapter ${chapters.length + 1}`);
+    useThesisStore.getState().addSection(thesis.id, `Section ${sections.length + 1}`);
   }
 
   return (
@@ -124,25 +113,24 @@ export function ThesisStructureSheet() {
           contentContainerStyle={styles.chapterListContent}
           showsVerticalScrollIndicator={false}
         >
-          {chapters.map((chapter) => (
+          {sections.map((section) => (
             <Pressable
-              key={chapter.id}
-              onPress={() => handleChapterPress(chapter)}
-              style={[styles.chapterCard, { backgroundColor: colors.bgCard, borderColor: statusColor(chapter.status) + "40" }]}
+              key={section.id}
+              onPress={() => handleSectionPress(section)}
+              style={[styles.chapterCard, { backgroundColor: colors.bgCard, borderColor: colors.navInactive + "40" }]}
             >
               <View style={styles.chapterRow}>
                 <View style={styles.chapterLeft}>
                   <Text style={[styles.dragHandle, { color: colors.textSecondary + "80" }]}>{"⋮⋮"}</Text>
-                  <Text style={[styles.chapterTitle, { color: colors.textPrimary }]}>{chapter.title}</Text>
+                  <Text style={[styles.chapterTitle, { color: colors.textPrimary }]}>{section.title}</Text>
                 </View>
-                {statusIcon(chapter.status)}
               </View>
-              {chapter.sections.length > 0 && (
+              {section.chapters.length > 0 && (
                 <View style={styles.sectionsList}>
-                  {chapter.sections.map((sec) => (
-                    <View key={sec.id} style={styles.sectionRow}>
+                  {section.chapters.map((ch) => (
+                    <View key={ch.id} style={styles.sectionRow}>
                       <View style={[styles.sectionDot, { backgroundColor: colors.textSecondary }]} />
-                      <Text style={[styles.sectionName, { color: colors.textSecondary }]}>{sec.title}</Text>
+                      <Text style={[styles.sectionName, { color: colors.textSecondary }]}>{ch.title}</Text>
                     </View>
                   ))}
                 </View>

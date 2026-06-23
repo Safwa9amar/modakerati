@@ -13,6 +13,7 @@ import type {
   DocumentRecord,
   ParagraphMutationResult,
 } from "@/types/document";
+import type { Thesis, SectionKind } from "@/types/thesis";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://modakerati-api.fly.dev";
 
@@ -276,15 +277,20 @@ export async function chatSendStream(
 // ============================================================
 
 export async function listTheses() {
-  return apiGet<any[]>("/api/thesis");
+  return apiGet<Array<Thesis & { sectionCount: number; chapterCount: number }>>("/api/thesis");
 }
 
 export async function getThesis(id: string) {
-  return apiGet<any>(`/api/thesis/${id}`);
+  return apiGet<Thesis>(`/api/thesis/${id}`);
 }
 
-export async function createThesis(title: string, chapters?: string[], templateId?: string) {
-  return apiPost<any>("/api/thesis", { title, chapters, templateId });
+export async function createThesis(input: {
+  title: string;
+  templateId?: string;
+  language?: string;
+  sections?: Array<{ title: string; kind?: SectionKind; chapters?: Array<{ title: string; content?: string }> }>;
+}) {
+  return apiPost<Thesis>("/api/thesis", input);
 }
 
 // AI autocomplete for the thesis title — returns a few suggested titles for the

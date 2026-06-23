@@ -20,13 +20,10 @@ import { Minus, Plus, FileText } from "lucide-react-native";
 import { getThesis } from "@/lib/api";
 import { getTextDirection } from "@/lib/text-direction";
 import { useThesisStore } from "@/stores/thesis-store";
+import type { Thesis, Section } from "@/types/thesis";
 
-interface Section { id: string; title: string; content: string }
-interface Chapter { id: string; title: string; sections: Section[] }
-interface ThesisDoc { id: string; title: string; language?: string; chapters: Chapter[] }
-
-// A rendered page is either the cover or one chapter.
-type Page = { kind: "cover" } | { kind: "chapter"; chapter: Chapter; index: number };
+// A rendered page is either the cover or one section (Partie).
+type Page = { kind: "cover" } | { kind: "section"; section: Section; index: number };
 
 // Paper look stays white regardless of app theme — it's a document, not a UI surface.
 const PAPER_BG = "#FFFFFF";
@@ -45,7 +42,7 @@ export default function DocumentPreviewScreen() {
   // Instant header title from the store while the full doc loads.
   const fallbackTitle = useThesisStore((s) => s.theses.find((th) => th.id === thesisId)?.title ?? "");
 
-  const [doc, setDoc] = useState<ThesisDoc | null>(null);
+  const [doc, setDoc] = useState<Thesis | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState(100);
@@ -70,7 +67,7 @@ export default function DocumentPreviewScreen() {
 
   const pages = useMemo<Page[]>(() => {
     if (!doc) return [];
-    return [{ kind: "cover" }, ...doc.chapters.map((c, i) => ({ kind: "chapter" as const, chapter: c, index: i }))];
+    return [{ kind: "cover" }, ...doc.sections.map((s, i) => ({ kind: "section" as const, section: s, index: i }))];
   }, [doc]);
 
   const totalPages = pages.length || 1;
@@ -165,11 +162,11 @@ export default function DocumentPreviewScreen() {
                     </Text>
                     <View style={styles.coverRule} />
                     <Text style={[styles.coverMeta, { fontSize: fs(12) }]}>
-                      {t("preview.chaptersCount", { count: doc?.chapters.length ?? 0, defaultValue: `${doc?.chapters.length ?? 0} chapters` })}
+                      {t("preview.chaptersCount", { count: doc?.sections.length ?? 0, defaultValue: `${doc?.sections.length ?? 0} sections` })}
                     </Text>
                   </View>
                 ) : (
-                  <ChapterPage chapter={p.chapter} index={p.index} fs={fs} dirStyle={dirStyle} t={t} />
+                  <SectionPage section={p.section} index={p.index} fs={fs} dirStyle={dirStyle} t={t} />
                 )}
               </View>
             </View>
@@ -199,27 +196,29 @@ export default function DocumentPreviewScreen() {
   );
 }
 
-function ChapterPage({
-  chapter,
+function SectionPage({
+  section,
   index,
   fs,
   dirStyle,
   t,
 }: {
-  chapter: Chapter;
+  section: Section;
   index: number;
   fs: (n: number) => number;
   dirStyle: (text: string) => { textAlign: "left" | "right"; writingDirection: "ltr" | "rtl" };
   t: (k: string, o?: any) => string;
 }) {
-  const sections = chapter.sections ?? [];
-  const hasAny = sections.some((s) => (s.content ?? "").trim() || (s.title ?? "").trim());
+  const chapters = section.chapters ?? [];
+  const sectionContent = (section.content ?? "").trim();
+  const hasAny =
+    !!sectionContent || chapters.some((c) => (c.content ?? "").trim() || (c.title ?? "").trim());
   return (
     <View>
       <Text style={[styles.paperChapterLabel, { fontSize: fs(11) }]}>
-        {t("preview.chapter", { defaultValue: "Chapter" })} {index + 1}
+        {t("preview.chapter", { defaultValue: "Section" })} {index + 1}
       </Text>
-      <Text style={[styles.paperTitle, { fontSize: fs(22) }, dirStyle(chapter.title)]}>{chapter.title}</Text>
+      <Text style={[styles.paperTitle, { fontSize: fs(22) }, dirStyle(section.title)]}>{section.title}</Text>
       <View style={styles.paperDivider} />
 
       {!hasAny ? (
@@ -227,12 +226,12 @@ function ChapterPage({
           {t("preview.emptyChapter", { defaultValue: "No content yet." })}
         </Text>
       ) : (
-        sections.map((sec) => {
-          const paras = (sec.content ?? "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+        chapters.map((ch) => {
+          const paras = (ch.content ?? "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
           return (
-            <View key={sec.id} style={styles.section}>
-              {!!sec.title?.trim() && (
-                <Text style={[styles.paperSubheading, { fontSize: fs(15) }, dirStyle(sec.title)]}>{sec.title}</Text>
+            <View key={ch.id} style={styles.section}>
+              {!!ch.title?.trim() && (
+                <Text style={[styles.paperSubheading, { fontSize: fs(15) }, dirStyle(ch.title)]}>{ch.title}</Text>
               )}
               {paras.length > 0 ? (
                 paras.map((para, k) => (

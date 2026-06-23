@@ -46,15 +46,20 @@ export default function TemplatePreviewScreen() {
 
   const handleUseTemplate = async () => {
     try {
-      const { createThesis } = await import("@/lib/api");
-      const thesis = await createThesis(
-        `${template.type} - ${template.university}`,
-        template.chapterStructure,
-        template.id
-      );
+      const { createThesis, getThesis } = await import("@/lib/api");
+      // Legacy chapterStructure seeds the top-level sections (Parties).
+      const created = await createThesis({
+        title: `${template.type} - ${template.university}`,
+        templateId: template.id,
+        sections: template.chapterStructure.map((title) => ({ title })),
+      });
       const store = useThesisStore.getState();
-      store.theses.push({ id: thesis.id, title: thesis.title, status: "active", progress: 0, wordCount: 0, pageCount: 0, language: "fr", chapters: [], createdAt: thesis.createdAt, updatedAt: thesis.updatedAt });
-      setCurrentThesis(thesis.id);
+      try {
+        store.upsertThesis(await getThesis(created.id));
+      } catch {
+        store.upsertThesis(created);
+      }
+      setCurrentThesis(created.id);
       router.push("/(tabs)/chat" as any);
     } catch (e: any) {
       console.error("Failed to create thesis:", e.message);

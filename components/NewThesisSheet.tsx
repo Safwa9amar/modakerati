@@ -8,10 +8,10 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { BottomSheet } from "@/components/BottomSheet";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useThesisStore } from "@/stores/thesis-store";
-import { createThesis, suggestThesisTitles } from "@/lib/api";
+import { createThesis, getThesis, suggestThesisTitles } from "@/lib/api";
 
-// A blank thesis still seeds the standard chapter skeleton; only the title is
-// collected up front.
+// A blank thesis still seeds a standard chapter skeleton under a single body
+// section (Partie); only the title is collected up front.
 const DEFAULT_CHAPTERS = ["Introduction", "Literature Review", "Methodology", "Results", "Conclusion"];
 
 /**
@@ -58,21 +58,19 @@ export function NewThesisSheet() {
     if (!name || creating) return;
     setCreating(true);
     try {
-      const thesis = await createThesis(name, DEFAULT_CHAPTERS);
-      const store = useThesisStore.getState();
-      store.theses.push({
-        id: thesis.id,
-        title: thesis.title,
-        status: "active",
-        progress: 0,
-        wordCount: 0,
-        pageCount: 0,
-        language: "fr",
-        chapters: [],
-        createdAt: thesis.createdAt,
-        updatedAt: thesis.updatedAt,
+      const created = await createThesis({
+        title: name,
+        sections: [{ title: "Corps", chapters: DEFAULT_CHAPTERS.map((t) => ({ title: t })) }],
       });
-      store.setCurrentThesis(thesis.id);
+      // Fetch the full record (with nested sections/chapters) and mirror it
+      // into the store so chat / editor screens have the complete thesis.
+      const store = useThesisStore.getState();
+      try {
+        store.upsertThesis(await getThesis(created.id));
+      } catch {
+        store.upsertThesis(created);
+      }
+      store.setCurrentThesis(created.id);
       setTitle("");
       useBottomSheet.getState().closeSheet("new-thesis");
       router.push("/(tabs)/chat" as any);

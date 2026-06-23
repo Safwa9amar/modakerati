@@ -39,13 +39,16 @@ export default function ProfileScreen() {
 
   const stats = useMemo(() => {
     const thesesCount = theses.length;
-    const chaptersCount = theses.reduce((sum, th) => sum + th.chapters.length, 0);
+    const chaptersCount = theses.reduce(
+      (sum, th) => sum + th.sections.reduce((sSum, sec) => sSum + sec.chapters.length, 0),
+      0
+    );
     const wordsCount = theses.reduce(
       (sum, th) =>
         sum +
         (th.wordCount ||
-          th.chapters.reduce(
-            (cSum, c) => cSum + c.sections.reduce((sSum, s) => sSum + (s.wordCount || 0), 0),
+          th.sections.reduce(
+            (sSum, sec) => sSum + sec.chapters.reduce((cSum, c) => cSum + (c.wordCount || 0), 0),
             0
           )),
       0
