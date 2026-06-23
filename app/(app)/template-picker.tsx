@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -27,6 +28,11 @@ export default function TemplatePickerScreen() {
   const { templates } = useThesisStore();
   const [search, setSearch] = useState("");
 
+  // Pull the latest university templates from the server on mount.
+  useEffect(() => {
+    useThesisStore.getState().loadTemplates();
+  }, []);
+
   const filteredTemplates = templates.filter(
     (tpl) =>
       tpl.university.toLowerCase().includes(search.toLowerCase()) ||
@@ -34,10 +40,15 @@ export default function TemplatePickerScreen() {
       tpl.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Ask for the title first; NewThesisSheet creates the thesis (saving the title
-  // to the DB), selects it, and opens the chat.
-  const handleBlank = () => {
+  // Both Blank and AI Wizard enter the same title -> template -> plan wizard;
+  // the title sheet (NewThesisSheet) captures the title and advances the flow.
+  const handleStartWizard = () => {
     useBottomSheet.getState().openSheet("new-thesis");
+  };
+
+  // Importing an existing .docx is a deferred scenario.
+  const handleImport = () => {
+    Alert.alert(t("template.import"), t("common.comingSoon", { defaultValue: "Bientôt disponible" }));
   };
 
   const handleTemplateTap = (templateId: string) => {
@@ -50,21 +61,21 @@ export default function TemplatePickerScreen() {
       label: t("template.blank"),
       subtitle: t("template.startFresh"),
       color: colors.brandPrimary,
-      onPress: handleBlank,
+      onPress: handleStartWizard,
     },
     {
       icon: Wand2,
       label: t("template.aiWizard"),
       subtitle: t("template.guidedSetup"),
       color: "#9959FF",
-      onPress: () => {},
+      onPress: handleStartWizard,
     },
     {
       icon: Upload,
       label: t("template.import"),
       subtitle: t("template.docxFile"),
       color: colors.brandAccent,
-      onPress: () => {},
+      onPress: handleImport,
     },
   ];
 

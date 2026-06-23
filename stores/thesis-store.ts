@@ -24,7 +24,7 @@ interface ThesisState {
   updateChapter: (thesisId: string, sectionId: string, chapterId: string, updates: Partial<Chapter>) => void;
   deleteChapter: (thesisId: string, sectionId: string, chapterId: string) => void;
 
-  loadTemplates: () => void;
+  loadTemplates: () => Promise<void>;
 }
 
 export const useThesisStore = create<ThesisState>()((set, get) => ({
@@ -103,5 +103,12 @@ export const useThesisStore = create<ThesisState>()((set, get) => ({
     }),
   })),
 
-  loadTemplates: () => set({ templates: [] }),
+  loadTemplates: async () => {
+    try {
+      const { listTemplates } = await import("@/lib/api");
+      set({ templates: await listTemplates() });
+    } catch {
+      set({ templates: [] });
+    }
+  },
 }));
