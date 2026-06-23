@@ -390,5 +390,12 @@
     "err_notDocx": "Please choose a .docx file",
     "err_sharing": "Sharing isn't available on this device",
     "readOnlyBanner": "This document contains tables or content controls, so editing is disabled for now. Tap Preview to view the full document."
+  },
+  "workspace": {
+    "open": "Open workspace",
+    "emptyChapter": "Tap the chat to ask the AI to draft this.",
+    "resume": "Abstract",
+    "empty": "No content yet.",
+    "titlePage": "Title page"
   }
 }

@@ -109,6 +109,15 @@ export default function ThesisDetailScreen() {
     router.push("/(tabs)/chat" as any);
   };
 
+  const openWorkspace = () => {
+    if (!thesis) return;
+    useThesisStore.getState().setCurrentThesis(thesis.id);
+    router.push({
+      pathname: "/(app)/thesis-workspace",
+      params: { thesisId: thesis.id },
+    });
+  };
+
   const openSection = (sectionId: string) => {
     if (!thesis) return;
     router.push({
@@ -214,10 +223,21 @@ export default function ThesisDetailScreen() {
           ))}
         </View>
 
-        {/* Continue CTA */}
-        <Pressable onPress={openChat} style={[styles.cta, { backgroundColor: colors.brandPrimary }]}>
-          <MessageSquare size={18} color="#FFFFFF" strokeWidth={2} />
-          <Text style={styles.ctaText}>{t("thesis.continueInChat")}</Text>
+        {/* Open workspace (primary) */}
+        <Pressable onPress={openWorkspace} style={[styles.cta, { backgroundColor: colors.brandPrimary }]}>
+          <FileText size={18} color="#FFFFFF" strokeWidth={2} />
+          <Text style={styles.ctaText}>{t("workspace.open", { defaultValue: "Open workspace" })}</Text>
+        </Pressable>
+
+        {/* Continue in Chat (secondary) */}
+        <Pressable
+          onPress={openChat}
+          style={[styles.ctaSecondary, { borderColor: colors.borderDefault }]}
+        >
+          <MessageSquare size={18} color={colors.brandPrimary} strokeWidth={2} />
+          <Text style={[styles.ctaSecondaryText, { color: colors.brandPrimary }]}>
+            {t("thesis.continueInChat")}
+          </Text>
         </Pressable>
 
         {/* Sections (Parties) */}
@@ -298,6 +318,16 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   ctaText: { color: "#FFFFFF", fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  ctaSecondary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 15,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  ctaSecondaryText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
   sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   emptyChapters: { borderRadius: 12, padding: 24, alignItems: "center" },
   emptyChaptersText: { fontSize: 13, fontFamily: "Inter_400Regular" },

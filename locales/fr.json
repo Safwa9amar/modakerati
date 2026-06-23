@@ -390,5 +390,12 @@
     "err_notDocx": "Veuillez choisir un fichier .docx",
     "err_sharing": "Le partage n'est pas disponible sur cet appareil",
     "readOnlyBanner": "Ce document contient des tableaux ou des contrôles de contenu ; l'édition est désactivée pour l'instant. Touchez Aperçu pour voir le document complet."
+  },
+  "workspace": {
+    "open": "Ouvrir l'espace de travail",
+    "emptyChapter": "Touchez le chat pour demander à l'IA de rédiger ceci.",
+    "resume": "Résumé",
+    "empty": "Aucun contenu pour l'instant.",
+    "titlePage": "Page de garde"
   }
 }

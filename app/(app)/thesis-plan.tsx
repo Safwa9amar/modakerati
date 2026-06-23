@@ -181,7 +181,7 @@ export default function ThesisPlanScreen() {
       useThesisStore.getState().setCurrentThesis(full.id);
       useThesisWizard.getState().reset();
       router.replace({
-        pathname: "/(app)/thesis-detail",
+        pathname: "/(app)/thesis-workspace",
         params: { thesisId: full.id },
       });
     } catch (e) {
