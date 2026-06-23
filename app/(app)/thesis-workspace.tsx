@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -66,6 +66,9 @@ export default function ThesisWorkspaceScreen() {
   const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
   const selected = useThesisStore((s) => s.selected);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
+  // Drives the live block refresh below: while a turn is generating the AI
+  // commits .docx edits mid-turn, so we re-fetch the document to show them.
+  const isGenerating = useChatStore((s) => s.isGenerating);
 
   // Live-.docx document model. `undefined` while loading; `null` once we know
   // the thesis is legacy (available:false) → fall back to the section render.
@@ -79,24 +82,48 @@ export default function ThesisWorkspaceScreen() {
   }, [thesisId]);
 
   // Fetch the live-.docx block model. Best-effort: on any failure we leave the
-  // legacy section/chapter render in place.
-  useEffect(() => {
+  // legacy section/chapter render in place. `getThesisDocument` now reflects
+  // fresh bytes, so re-calling it surfaces the AI's in-flight block edits.
+  const refreshDoc = useCallback(async () => {
     if (!thesisId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const result = await getThesisDocument(thesisId);
-        if (!cancelled) setDoc(result);
-      } catch {
-        if (!cancelled) setDoc({ docMode: "legacy-db", available: false });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const result = await getThesisDocument(thesisId);
+      setDoc(result);
+    } catch {
+      // Keep whatever we last had; only fall to legacy if we never loaded a doc.
+      setDoc((prev) => prev ?? { docMode: "legacy-db", available: false });
+    }
   }, [thesisId]);
 
+  // Initial load of the document model.
+  useEffect(() => {
+    void refreshDoc();
+  }, [refreshDoc]);
+
   const liveDoc = doc?.available ? doc : null;
+  const isLiveDoc = !!liveDoc;
+
+  // Live block refresh during generation (live-.docx only). While the AI is
+  // generating it commits each block edit to the .docx mid-turn (via its tools),
+  // so poll the document so those edits appear on the rendered pages instead of
+  // only at the end. Mirrors the legacy `refreshThesis` cadence (~1800ms).
+  useEffect(() => {
+    if (!isGenerating || !isLiveDoc) return;
+    const id = setInterval(() => {
+      void refreshDoc();
+    }, 1800);
+    return () => clearInterval(id);
+  }, [isGenerating, isLiveDoc, refreshDoc]);
+
+  // Final pull when a turn finishes (generating true → false) so the last edit
+  // lands even if it committed between poll ticks. Live-.docx only.
+  const prevGenerating = useRef(isGenerating);
+  useEffect(() => {
+    if (prevGenerating.current && !isGenerating && isLiveDoc) {
+      void refreshDoc();
+    }
+    prevGenerating.current = isGenerating;
+  }, [isGenerating, isLiveDoc, refreshDoc]);
 
   // Bridge the model's pending question (chat store) to the global sheet store,
   // which is what actually drives the AskBottomSheet's open state.
@@ -372,7 +399,7 @@ export default function ThesisWorkspaceScreen() {
         {/* AI composer pinned at the bottom, outside the ScrollView so the pages
             scroll above it and it stays fixed. */}
         <View style={{ paddingBottom: Math.max(insets.bottom, 8), backgroundColor: colors.bgPrimary }}>
-          <WorkspaceComposer thesisId={thesisId} />
+          <WorkspaceComposer thesisId={thesisId} isLiveDoc={isLiveDoc} />
         </View>
       </KeyboardAvoidingView>
 
@@ -389,6 +416,7 @@ export default function ThesisWorkspaceScreen() {
               sectionId: selected.sectionId ?? undefined,
               chapterId: selected.chapterId ?? undefined,
               selection: selected.blockText ?? undefined,
+              docBlockIndex: selected.docBlockIndex ?? null,
             });
           }}
           onClose={() => useChatStore.getState().setPendingAsk(null)}

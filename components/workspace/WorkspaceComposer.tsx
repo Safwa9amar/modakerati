@@ -32,7 +32,16 @@ const STREAM_PREVIEW = 120;
  * nothing is selected), shows a live streaming strip while the AI writes, and
  * refreshes the thesis pages once a turn completes.
  */
-export function WorkspaceComposer({ thesisId }: { thesisId: string }) {
+export function WorkspaceComposer({
+  thesisId,
+  // Live-.docx theses refresh their rendered pages by polling the document model
+  // in thesis-workspace.tsx (refreshDoc). To avoid double-fetching, skip the
+  // legacy `refreshThesis` polling here when the thesis is live-.docx.
+  isLiveDoc = false,
+}: {
+  thesisId: string;
+  isLiveDoc?: boolean;
+}) {
   const { t } = useTranslation();
   const colors = useThemeColors();
 
@@ -64,26 +73,28 @@ export function WorkspaceComposer({ thesisId }: { thesisId: string }) {
     if (section) chipLabel = `✎ ${section.title}`;
   }
 
-  // Live refresh: when a turn finishes (isGenerating true → false), pull the
-  // freshest thesis so the AI's edits appear on the pages above.
+  // Legacy live refresh: when a turn finishes (isGenerating true → false), pull
+  // the freshest thesis so the AI's chapter/section edits appear on the pages
+  // above. Live-.docx theses refresh via refreshDoc in the workspace instead.
   const prevGenerating = useRef(isGenerating);
   useEffect(() => {
-    if (prevGenerating.current && !isGenerating) {
+    if (prevGenerating.current && !isGenerating && !isLiveDoc) {
       useThesisStore.getState().refreshThesis(thesisId);
     }
     prevGenerating.current = isGenerating;
-  }, [isGenerating, thesisId]);
+  }, [isGenerating, thesisId, isLiveDoc]);
 
-  // Stream the edits onto the pages: while the AI is generating it commits each
-  // chapter edit to the server mid-turn (via its tools), so poll the thesis so
-  // those changes appear live on the pages above instead of only at the end.
+  // Legacy: stream the edits onto the pages — while the AI is generating it
+  // commits each chapter edit to the server mid-turn (via its tools), so poll
+  // the thesis so those changes appear live instead of only at the end.
+  // Live-.docx theses are polled by refreshDoc in the workspace (no double-fetch).
   useEffect(() => {
-    if (!isGenerating) return;
+    if (!isGenerating || isLiveDoc) return;
     const id = setInterval(() => {
       useThesisStore.getState().refreshThesis(thesisId);
     }, 1800);
     return () => clearInterval(id);
-  }, [isGenerating, thesisId]);
+  }, [isGenerating, thesisId, isLiveDoc]);
 
   async function handleSend() {
     const text = inputText.trim();
@@ -94,6 +105,9 @@ export function WorkspaceComposer({ thesisId }: { thesisId: string }) {
       sectionId: selected.sectionId ?? undefined,
       chapterId: selected.chapterId ?? undefined,
       selection: selected.blockText ?? undefined,
+      // Live-.docx (L2): the engine block index the student selected, so the AI
+      // edits that exact paragraph. `null` when nothing block-specific is focused.
+      docBlockIndex: selected.docBlockIndex ?? null,
     });
   }
 

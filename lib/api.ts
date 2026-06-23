@@ -106,7 +106,7 @@ export interface ChatSendResponse {
 export async function chatSend(
   thesisId: string,
   message: string,
-  options?: { chapterId?: string; sectionId?: string; selection?: string }
+  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null }
 ): Promise<ChatSendResponse> {
   return apiPost("/api/chat/send", {
     thesisId,
@@ -114,6 +114,9 @@ export async function chatSend(
     chapterId: options?.chapterId,
     sectionId: options?.sectionId,
     selection: options?.selection,
+    // Live-.docx (L2): the engine block index the student selected, so the AI
+    // edits that exact paragraph. `null` when nothing block-specific is focused.
+    docBlockIndex: options?.docBlockIndex ?? null,
   });
 }
 
@@ -157,13 +160,23 @@ export async function chatSendStream(
   thesisId: string,
   message: string,
   handlers: ChatStreamHandlers,
-  options?: { chapterId?: string; sectionId?: string; selection?: string; signal?: AbortSignal }
+  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; signal?: AbortSignal }
 ): Promise<void> {
   const headers = await getAuthHeaders();
   const response = await expoFetch(`${API_URL}/api/chat/stream`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ thesisId, message, chapterId: options?.chapterId, sectionId: options?.sectionId, selection: options?.selection }),
+    // `docBlockIndex` (live-.docx, L2): the selected engine block index → the AI
+    // edits that paragraph. Legacy fields (chapterId/sectionId/selection) stay so
+    // the server's legacy chapter/section path keeps working unchanged.
+    body: JSON.stringify({
+      thesisId,
+      message,
+      chapterId: options?.chapterId,
+      sectionId: options?.sectionId,
+      selection: options?.selection,
+      docBlockIndex: options?.docBlockIndex ?? null,
+    }),
     signal: options?.signal,
   });
 

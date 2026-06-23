@@ -9,7 +9,7 @@ const WELCOME =
 export async function sendMessageToAI(
   thesisId: string,
   userMessage: string,
-  opts?: { chapterId?: string; sectionId?: string; selection?: string }
+  opts?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null }
 ): Promise<void> {
   // Add user message immediately (optimistic). Marked pending until reconciled.
   useChatStore.getState().addMessage(thesisId, "user", userMessage, { chapterId: opts?.chapterId, pending: true });
@@ -46,7 +46,7 @@ export async function regenerateLastResponse(thesisId: string): Promise<void> {
 async function runAssistantTurn(
   thesisId: string,
   userMessage: string,
-  opts?: { chapterId?: string; sectionId?: string; selection?: string }
+  opts?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null }
 ): Promise<void> {
   const store = useChatStore.getState();
 
@@ -99,7 +99,7 @@ async function runAssistantTurn(
           s.addFileToMessage(thesisId, assistantId, file);
         },
       },
-      { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, signal: controller.signal }
+      { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, signal: controller.signal }
     );
 
     // Stream completed but produced nothing.
@@ -118,7 +118,7 @@ async function runAssistantTurn(
     if (!assistantId && (error?.status === 404 || error?.status === 405)) {
       try {
         store.setGeneratingPhase("thinking");
-        const result = await chatSend(thesisId, userMessage, { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection });
+        const result = await chatSend(thesisId, userMessage, { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null });
         const id = store.addMessage(thesisId, "assistant", result.response, { pending: true });
         // Mirror the streaming path: surface any file cards and open the ask sheet.
         result.files?.forEach((f) => store.addFileToMessage(thesisId, id, f));
