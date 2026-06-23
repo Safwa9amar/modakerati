@@ -15,8 +15,13 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI } from "@/lib/ai-service";
+import type { ChatMessage } from "@/types/chat";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+// Stable reference so the zustand selector below doesn't return a fresh array
+// every render (which would loop "Maximum update depth exceeded").
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
 // Max characters of the live streaming text shown in the strip above the input.
 const STREAM_PREVIEW = 120;
@@ -35,7 +40,7 @@ export function WorkspaceComposer({ thesisId }: { thesisId: string }) {
   const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
   const isGenerating = useChatStore((s) => s.isGenerating);
   const streamingId = useChatStore((s) => s.streamingId);
-  const messages = useChatStore((s) => s.messages[thesisId] ?? []);
+  const messages = useChatStore((s) => s.messages[thesisId] ?? EMPTY_MESSAGES);
 
   const [inputText, setInputText] = useState("");
 
