@@ -3,7 +3,7 @@ import { create } from "zustand";
 export interface WizardPlanSection {
   title: string;
   kind: "introduction" | "section" | "conclusion";
-  chapters: { title: string; hint?: string }[];
+  chapters: { title: string; hint?: string; content?: string }[];
 }
 interface WizardState {
   title: string;

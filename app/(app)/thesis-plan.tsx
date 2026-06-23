@@ -173,7 +173,7 @@ export default function ThesisPlanScreen() {
         sections: localPlan.map((s) => ({
           title: s.title || "Partie",
           kind: s.kind,
-          chapters: s.chapters.map((c) => ({ title: c.title || "Chapitre" })),
+          chapters: s.chapters.map((c) => ({ title: c.title || "Chapitre", content: c.content })),
         })),
       });
       const full = await getThesis(created.id);

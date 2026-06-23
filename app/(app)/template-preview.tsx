@@ -61,6 +61,7 @@ export default function TemplatePreviewScreen() {
         title: useThesisWizard.getState().title || template.name,
         language: template.language,
         bodyPreset: template.bodyPreset,
+        templateId: template.id,
       });
       useThesisWizard.getState().set({ plan: sections });
       router.push("/(app)/thesis-plan");

@@ -324,8 +324,8 @@ export async function listTemplates() {
   return apiGet<Template[]>("/api/templates");
 }
 
-export async function generateThesisPlan(input: { title: string; language?: string; bodyPreset?: string }) {
-  return apiPost<{ sections: Array<{ title: string; kind: "introduction" | "section" | "conclusion"; chapters: Array<{ title: string; hint?: string }> }> }>("/api/thesis/generate-plan", input);
+export async function generateThesisPlan(input: { title: string; language?: string; bodyPreset?: string; templateId?: string }) {
+  return apiPost<{ sections: Array<{ title: string; kind: "introduction" | "section" | "conclusion"; chapters: Array<{ title: string; hint?: string; content?: string }> }> }>("/api/thesis/generate-plan", input);
 }
 
 // Server-rendered A4 HTML preview of the whole thesis (shown in a WebView).

@@ -78,6 +78,12 @@ export interface Template {
     resumeLanguages: Array<"ar" | "fr" | "en">; resumePlacement: "front" | "back";
     sommaire: boolean; listeTableaux: boolean; listeFigures: boolean; listeAbreviations: boolean;
   };
+  coverTemplate?: string;
+  bodyStructure?: Array<{
+    title: string;
+    kind: "introduction" | "section" | "conclusion";
+    chapters: Array<{ title: string; content?: string }>;
+  }>;
   structure: { sectionLabel: string; chapterLabel: string };
   styleMap: {
     section: "dividerPage" | "Heading1";
