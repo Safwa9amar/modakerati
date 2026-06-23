@@ -13,7 +13,7 @@ import type {
   DocumentRecord,
   ParagraphMutationResult,
 } from "@/types/document";
-import type { Thesis, SectionKind } from "@/types/thesis";
+import type { Thesis, SectionKind, Template } from "@/types/thesis";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://modakerati-api.fly.dev";
 
@@ -315,6 +315,14 @@ export async function updateThesis(id: string, updates: any) {
 
 export async function deleteThesis(id: string) {
   return apiDelete(`/api/thesis/${id}`);
+}
+
+export async function listTemplates() {
+  return apiGet<Template[]>("/api/templates");
+}
+
+export async function generateThesisPlan(input: { title: string; language?: string; bodyPreset?: string }) {
+  return apiPost<{ sections: Array<{ title: string; kind: "introduction" | "section" | "conclusion"; chapters: Array<{ title: string; hint?: string }> }> }>("/api/thesis/generate-plan", input);
 }
 
 // ============================================================
