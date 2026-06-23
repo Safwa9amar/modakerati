@@ -10,8 +10,9 @@ import {
   Platform,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
+import { Maximize2 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
@@ -34,6 +35,7 @@ export default function ThesisWorkspaceScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { thesisId } = useLocalSearchParams<{ thesisId: string }>();
 
   const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
@@ -110,11 +112,20 @@ export default function ThesisWorkspaceScreen() {
         >
           {title}
         </Text>
-        {/* P5 placeholder: full-screen / expand. Disabled for now. */}
-        <Pressable disabled style={[styles.expandBtn, { opacity: 0.3 }]}>
-          <Text style={[styles.expandIcon, { color: colors.textSecondary }]}>
-            {"⤢"}
-          </Text>
+        {/* Expand → full A4 preview of the rendered thesis. */}
+        <Pressable
+          onPress={() =>
+            router.push({
+              pathname: "/(app)/thesis-preview-a4",
+              params: { thesisId },
+            })
+          }
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("preview.a4Title", { defaultValue: "A4 preview" })}
+          style={styles.expandBtn}
+        >
+          <Maximize2 size={20} color={colors.textPrimary} />
         </Pressable>
       </View>
 
