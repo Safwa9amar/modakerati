@@ -14,6 +14,7 @@ import type {
   ParagraphMutationResult,
 } from "@/types/document";
 import type { Thesis, SectionKind, Template } from "@/types/thesis";
+import type { ThesisSource } from "@/types/source";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://modakerati-api.fly.dev";
 
@@ -334,6 +335,27 @@ export async function getThesisPreviewHtml(id: string) {
 // Export the thesis to a downloadable file (default .docx) → signed URL.
 export async function exportThesis(thesisId: string, format: "docx" | "latex" = "docx") {
   return apiPost<{ success: boolean; url: string; filename: string; format: string; bytes: number; pageCount?: number }>(`/api/export/${thesisId}`, { format });
+}
+
+// ============================================================
+// Source materials API (helper files mounted at /api/thesis/:id/sources)
+// ============================================================
+
+export async function listSources(thesisId: string) {
+  return apiGet<ThesisSource[]>(`/api/thesis/${thesisId}/sources`);
+}
+
+// Add a reference file. The file is sent as base64 (binary/multipart bodies are
+// unreliable from RN); the server stores it and extracts its text for the AI.
+export async function addSource(
+  thesisId: string,
+  input: { base64: string; filename: string; title?: string; description?: string }
+) {
+  return apiPost<ThesisSource>(`/api/thesis/${thesisId}/sources`, input);
+}
+
+export async function deleteSource(thesisId: string, sourceId: string) {
+  return apiDelete(`/api/thesis/${thesisId}/sources/${sourceId}`);
 }
 
 // ============================================================
