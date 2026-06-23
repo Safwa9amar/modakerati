@@ -69,8 +69,10 @@ Flow (5 steps):
 4. **Document workspace (NEW)** — native "paper" cards: front matter → Section dividers → Chapter pages (markdown w/ numbered headings + tables/figures) → back matter.
 5. **AI chat editing (NEW)** — composer pinned in the workspace; tap a Section/Chapter to target it; AI edits via MCP tools; workspace re-fetches and updates live. ⤢ **Expand** = exact A4 read-only preview + download.
 
+**Plus — Source materials (NEW):** a per-thesis library where the user uploads **helper files** to feed the AI enough information to prepare the memoir. Each source = file + a **title** + a **short description of what to extract/use** from it. The AI draws on these when generating/editing (e.g. uploaded papers inform the revue de littérature; an uploaded data file informs the partie pratique). Accessible anytime from the workspace; can also be added during the plan step. Detailed in §14.
+
 ### Non-goals (separate future specs)
-- **Scenario 2** — importing a ready `.docx`, scanning it, and auto-explaining its sections/chapters. Parked.
+- **Scenario 2** — importing a ready `.docx`, scanning it, and auto-explaining its sections/chapters. Parked. *(Distinct from Source materials in §14: Scenario 2 imports a file to **become** the thesis; §14 uploads files as **reference input**.)*
 
 ### Decided during brainstorming
 - Preview surface = **native paper cards** (Option A); ⤢ Expand = on-demand exact A4 WebView preview.
@@ -244,3 +246,45 @@ P0–P1 make the output correct; P2–P5 deliver the guided authoring UX. (If pr
 ## 13. Testing
 - **Engine/server:** golden-file export tests comparing generated `.docx` outline (sections/chapters/heading levels/tables/front matter) against fixtures derived from the user's real theses; `generate-plan` JSON parse+fallback; extended `POST /api/thesis`; `preview-html` snapshot.
 - **App:** `ThesisPlanEditor` (reorder sections/chapters), `ChapterCard` (markdown incl. table + figure, empty placeholder, selection), `WorkspaceComposer` (chip set/clear, sends ids). Manual: full flow EN/FR/AR incl. RTL, offline fallback, ⤢ expand + download, and **open the exported `.docx` in Word to confirm norms**.
+
+---
+
+## 14. Source materials (helper files) — NEW
+
+The user attaches reference files to a thesis so the AI has enough domain material to draft accurate content (literature, data, instructor guidelines, prior work). **Distinct from Scenario 2:** that imports a `.docx` to *become* the thesis; here files are **reference input**, not the document itself.
+
+### 14.1 Per-source data (each upload)
+- **File** — the document/image.
+- **Title** — user-given name.
+- **Description** — a short note of *what to take from it* (e.g. "use the methodology section", "extract the statistics table", "follow these formatting rules"). Guides extraction and tells the AI when the source is relevant.
+
+### 14.2 Data model
+New table **`thesis_sources`**: `{ id, thesisId, userId, title, description, filename, storagePath, fileType, extractedText (or chunk pointer), status, createdAt }`. Files in Supabase Storage, scoped by `userId`/`thesisId` (same pattern as `documents` + exports).
+
+### 14.3 Supported file types
+- **`.docx`** — reuse existing `mdocxengine` extraction (`document-service`). *(v1)*
+- **PDF** — text extraction (NEW server dep). *(v1, flagged)*
+- **Images** (charts/scans) — vision-model description / OCR (NEW). *(defer to v1.1)*
+- **Plain text / markdown** — direct. *(v1)*
+
+### 14.4 Server work (`~/modakerati-server`)
+- `POST /api/thesis/:id/sources` — `{ base64, filename, title, description }` → extract text → store row + file → return source.
+- `GET /api/thesis/:id/sources`, `DELETE /api/thesis/:id/sources/:sid`.
+- **MCP tools** (fits the agentic-tool pattern): `list_sources(thesisId)` → titles + descriptions + ids; `get_source_content(sourceId)` → extracted text (chunked/summarized if large). AI calls these on demand → tool-based RAG, no always-on context bloat.
+
+### 14.5 App
+- **Sources panel** ("Sources" / "المصادر") reachable from the workspace (sheet or tab): list of files with title + description + type; add/remove.
+- **Add-source bottom sheet** (gorhom pattern): file picker (`expo-document-picker`/`expo-image-picker`, already used) + title input + description input.
+- Optional prompt at the plan step: "Add materials to help the AI draft your memoir."
+- In chat the user can reference a source by title; the AI resolves it via `get_source_content`.
+
+### 14.6 AI usage
+On generate/edit: (1) `list_sources` to see what's available + each description; (2) pull relevant ones via `get_source_content`; (3) draft grounded in them, optionally citing them. The per-source **description** is the relevance routing signal.
+
+### 14.7 Phasing
+**P6 — Source materials:** table + upload/extract (`.docx` first, PDF next) + `list_sources`/`get_source_content` MCP tools + Sources panel/add-sheet + source-aware drafting. Depends on workspace/chat (P3–P4); independently shippable. Image/OCR → P6.1.
+
+### 14.8 Risks
+- **PDF/image extraction** — new deps; quality varies (scanned Arabic PDFs especially). Start `.docx` + text PDFs; OCR later.
+- **Context size** — chunk/summarize large sources server-side before the AI reads them (reuse chat-memory summarization).
+- **Storage/cleanup** — delete sources with the thesis.
