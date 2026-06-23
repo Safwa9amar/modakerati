@@ -24,9 +24,10 @@ interface ThesisState {
   updateChapter: (thesisId: string, sectionId: string, chapterId: string, updates: Partial<Chapter>) => void;
   deleteChapter: (thesisId: string, sectionId: string, chapterId: string) => void;
 
-  selected: { sectionId: string | null; chapterId: string | null };
+  selected: { sectionId: string | null; chapterId: string | null; blockIndex: number | null; blockText: string | null };
   selectChapter: (sectionId: string, chapterId: string) => void;
   selectSection: (sectionId: string) => void;
+  selectBlock: (chapterId: string, blockIndex: number, blockText: string) => void;
   clearSelection: () => void;
   refreshThesis: (id: string) => Promise<void>;
 
@@ -109,10 +110,11 @@ export const useThesisStore = create<ThesisState>()((set, get) => ({
     }),
   })),
 
-  selected: { sectionId: null, chapterId: null },
-  selectChapter: (sectionId, chapterId) => set({ selected: { sectionId, chapterId } }),
-  selectSection: (sectionId) => set({ selected: { sectionId, chapterId: null } }),
-  clearSelection: () => set({ selected: { sectionId: null, chapterId: null } }),
+  selected: { sectionId: null, chapterId: null, blockIndex: null, blockText: null },
+  selectChapter: (sectionId, chapterId) => set({ selected: { sectionId: null, chapterId, blockIndex: null, blockText: null } }),
+  selectSection: (sectionId) => set({ selected: { sectionId, chapterId: null, blockIndex: null, blockText: null } }),
+  selectBlock: (chapterId, blockIndex, blockText) => set({ selected: { sectionId: null, chapterId, blockIndex, blockText } }),
+  clearSelection: () => set({ selected: { sectionId: null, chapterId: null, blockIndex: null, blockText: null } }),
   refreshThesis: async (id) => {
     try {
       const { getThesis } = await import("@/lib/api");
