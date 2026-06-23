@@ -396,6 +396,8 @@
     "emptyChapter": "Tap the chat to ask the AI to draft this.",
     "resume": "Abstract",
     "empty": "No content yet.",
-    "titlePage": "Title page"
+    "titlePage": "Title page",
+    "wholeMemoir": "Whole memoir",
+    "askPlaceholder": "Ask the AI to write or edit…"
   }
 }

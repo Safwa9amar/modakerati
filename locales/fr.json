@@ -396,6 +396,8 @@
     "emptyChapter": "Touchez le chat pour demander à l'IA de rédiger ceci.",
     "resume": "Résumé",
     "empty": "Aucun contenu pour l'instant.",
-    "titlePage": "Page de garde"
+    "titlePage": "Page de garde",
+    "wholeMemoir": "Mémoire entier",
+    "askPlaceholder": "Demandez à l'IA d'écrire ou de modifier…"
   }
 }

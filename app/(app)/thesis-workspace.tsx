@@ -6,15 +6,22 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
+import { useChatStore } from "@/stores/chat-store";
+import { useBottomSheet } from "@/stores/bottom-sheet-store";
+import { sendMessageToAI } from "@/lib/ai-service";
 import { BackButton } from "@/components/BackButton";
 import { PaperPage } from "@/components/workspace/PaperPage";
 import { ChapterCard } from "@/components/workspace/ChapterCard";
+import { WorkspaceComposer } from "@/components/workspace/WorkspaceComposer";
+import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { Markdown } from "@/components/Markdown";
 import { getTextDirection } from "@/lib/text-direction";
 import type { SectionKind } from "@/types/thesis";
@@ -26,10 +33,12 @@ const MUTED = "#777777";
 export default function ThesisWorkspaceScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const { thesisId } = useLocalSearchParams<{ thesisId: string }>();
 
   const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
   const selected = useThesisStore((s) => s.selected);
+  const pendingAsk = useChatStore((s) => s.pendingAsk);
 
   // Mark this thesis current and pull the freshest copy from the server.
   useEffect(() => {
@@ -37,6 +46,13 @@ export default function ThesisWorkspaceScreen() {
     useThesisStore.getState().setCurrentThesis(thesisId);
     useThesisStore.getState().refreshThesis(thesisId);
   }, [thesisId]);
+
+  // Bridge the model's pending question (chat store) to the global sheet store,
+  // which is what actually drives the AskBottomSheet's open state.
+  useEffect(() => {
+    if (pendingAsk) useBottomSheet.getState().openSheet("ask");
+    else useBottomSheet.getState().closeSheet("ask");
+  }, [pendingAsk]);
 
   const kindLabel = (kind: SectionKind): string => {
     switch (kind) {
@@ -102,10 +118,16 @@ export default function ThesisWorkspaceScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
         {/* 1. Title page */}
         <PaperPage center>
           {frontMatter?.university ? (
@@ -243,7 +265,29 @@ export default function ThesisWorkspaceScreen() {
             </Text>
           </PaperPage>
         ) : null}
-      </ScrollView>
+        </ScrollView>
+
+        {/* AI composer pinned at the bottom, outside the ScrollView so the pages
+            scroll above it and it stays fixed. */}
+        <View style={{ paddingBottom: Math.max(insets.bottom, 8), backgroundColor: colors.bgPrimary }}>
+          <WorkspaceComposer thesisId={thesisId} />
+        </View>
+      </KeyboardAvoidingView>
+
+      {/* The model's pending question → blocking answer sheet. */}
+      {pendingAsk && (
+        <AskBottomSheet
+          ask={pendingAsk}
+          onAnswer={(answer) => {
+            useChatStore.getState().setPendingAsk(null);
+            void sendMessageToAI(thesisId, answer, {
+              sectionId: selected.sectionId ?? undefined,
+              chapterId: selected.chapterId ?? undefined,
+            });
+          }}
+          onClose={() => useChatStore.getState().setPendingAsk(null)}
+        />
+      )}
     </SafeAreaView>
   );
 }
