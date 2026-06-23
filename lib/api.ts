@@ -333,6 +333,35 @@ export async function getThesisPreviewHtml(id: string) {
   return apiGet<{ html: string }>(`/api/thesis/${id}/preview-html`);
 }
 
+// ============================================================
+// Live-.docx thesis document (read-only block render)
+// Mirrors the server DTO from GET /api/thesis/:id/document.
+// ============================================================
+
+export type DocBlockDTO =
+  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 }
+  | { index: number; kind: "table"; rows: string[][] }
+  | { index: number; kind: "image" }
+  | { index: number; kind: "other"; tag: string };
+
+export type DocumentDTO =
+  | {
+      id: string;
+      title: string;
+      docMode: "live-docx";
+      available: true;
+      blocks: DocBlockDTO[];
+      downloadUrl: string;
+    }
+  | { docMode: string; available: false };
+
+// Fetch the live-.docx block model for a thesis. When `available:false` the
+// thesis is still on the legacy section/chapter model — the workspace falls
+// back to that render.
+export async function getThesisDocument(id: string): Promise<DocumentDTO> {
+  return apiGet<DocumentDTO>(`/api/thesis/${id}/document`);
+}
+
 // Export the thesis to a downloadable file (default .docx) → signed URL.
 export async function exportThesis(thesisId: string, format: "docx" | "latex" = "docx") {
   return apiPost<{ success: boolean; url: string; filename: string; format: string; bytes: number; pageCount?: number }>(`/api/export/${thesisId}`, { format });

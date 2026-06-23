@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -8,11 +8,12 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { Maximize2, Paperclip } from "lucide-react-native";
+import { Maximize2, Paperclip, Download } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
@@ -21,16 +22,39 @@ import { sendMessageToAI } from "@/lib/ai-service";
 import { BackButton } from "@/components/BackButton";
 import { PaperPage } from "@/components/workspace/PaperPage";
 import { ChapterCard } from "@/components/workspace/ChapterCard";
+import { DocBlock } from "@/components/workspace/DocBlock";
 import { WorkspaceComposer } from "@/components/workspace/WorkspaceComposer";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { Markdown } from "@/components/Markdown";
 import { getTextDirection } from "@/lib/text-direction";
+import { getThesisDocument, type DocumentDTO, type DocBlockDTO } from "@/lib/api";
 import type { SectionKind } from "@/types/thesis";
 
 // Dark ink / muted ink for text rendered on the always-white PaperPage.
 const INK = "#1A1A1A";
 const MUTED = "#777777";
+
+/**
+ * Groups live-.docx blocks into paper pages. Heuristic: a level-1 heading starts
+ * a new page (a "Section"); leading blocks before the first level-1 heading (the
+ * cover banner/logo + title lines) form the first page. Empty trailing groups are
+ * dropped so we never render a blank PaperPage.
+ */
+function groupBlocksIntoPages(blocks: DocBlockDTO[]): DocBlockDTO[][] {
+  const pages: DocBlockDTO[][] = [];
+  let current: DocBlockDTO[] = [];
+  for (const block of blocks) {
+    const isLevel1Heading = block.kind === "paragraph" && block.level === 1;
+    if (isLevel1Heading && current.length > 0) {
+      pages.push(current);
+      current = [];
+    }
+    current.push(block);
+  }
+  if (current.length > 0) pages.push(current);
+  return pages;
+}
 
 export default function ThesisWorkspaceScreen() {
   const { t } = useTranslation();
@@ -43,12 +67,36 @@ export default function ThesisWorkspaceScreen() {
   const selected = useThesisStore((s) => s.selected);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
 
+  // Live-.docx document model. `undefined` while loading; `null` once we know
+  // the thesis is legacy (available:false) → fall back to the section render.
+  const [doc, setDoc] = useState<DocumentDTO | undefined>(undefined);
+
   // Mark this thesis current and pull the freshest copy from the server.
   useEffect(() => {
     if (!thesisId) return;
     useThesisStore.getState().setCurrentThesis(thesisId);
     useThesisStore.getState().refreshThesis(thesisId);
   }, [thesisId]);
+
+  // Fetch the live-.docx block model. Best-effort: on any failure we leave the
+  // legacy section/chapter render in place.
+  useEffect(() => {
+    if (!thesisId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await getThesisDocument(thesisId);
+        if (!cancelled) setDoc(result);
+      } catch {
+        if (!cancelled) setDoc({ docMode: "legacy-db", available: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [thesisId]);
+
+  const liveDoc = doc?.available ? doc : null;
 
   // Bridge the model's pending question (chat store) to the global sheet store,
   // which is what actually drives the AskBottomSheet's open state.
@@ -98,6 +146,8 @@ export default function ThesisWorkspaceScreen() {
   const frontMatter = thesis.frontMatter;
   const authors = frontMatter?.authors?.filter((a) => a && a.trim().length > 0);
   const resume = thesis.resume;
+  // RTL for the live-.docx block render is driven by the thesis language.
+  const isRtl = (thesis.language || "").startsWith("ar");
 
   return (
     <SafeAreaView
@@ -123,14 +173,35 @@ export default function ThesisWorkspaceScreen() {
         >
           <Paperclip size={20} color={colors.textPrimary} />
         </Pressable>
+        {/* Download → open the real .docx (live-docx mode only). */}
+        {liveDoc ? (
+          <Pressable
+            onPress={() => {
+              if (liveDoc.downloadUrl) {
+                Linking.openURL(liveDoc.downloadUrl).catch(() => {});
+              }
+            }}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t("workspace.download", { defaultValue: "Download" })}
+            style={styles.expandBtn}
+          >
+            <Download size={20} color={colors.textPrimary} />
+          </Pressable>
+        ) : null}
         {/* Expand → full A4 preview of the rendered thesis. */}
         <Pressable
-          onPress={() =>
+          onPress={() => {
+            // Live-docx: ⤢ opens the real file; legacy: the A4 HTML preview.
+            if (liveDoc?.downloadUrl) {
+              Linking.openURL(liveDoc.downloadUrl).catch(() => {});
+              return;
+            }
             router.push({
               pathname: "/(app)/thesis-preview-a4",
               params: { thesisId },
-            })
-          }
+            });
+          }}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel={t("preview.a4Title", { defaultValue: "A4 preview" })}
@@ -179,6 +250,19 @@ export default function ThesisWorkspaceScreen() {
           ) : null}
         </PaperPage>
 
+        {liveDoc ? (
+          /* Live-.docx render: paged blocks straight from the real .docx. The
+             title page above stays as a banner; legacy résumé/section/chapter
+             rendering is skipped entirely. */
+          groupBlocksIntoPages(liveDoc.blocks).map((page, pi) => (
+            <PaperPage key={`docpage-${pi}`}>
+              {page.map((block) => (
+                <DocBlock key={block.index} block={block} rtl={isRtl} />
+              ))}
+            </PaperPage>
+          ))
+        ) : (
+          <>
         {/* 2. Résumé / Abstract pages */}
         {resume && resume.length > 0
           ? resume.map((block, i) => {
@@ -281,6 +365,8 @@ export default function ThesisWorkspaceScreen() {
             </Text>
           </PaperPage>
         ) : null}
+          </>
+        )}
         </ScrollView>
 
         {/* AI composer pinned at the bottom, outside the ScrollView so the pages
