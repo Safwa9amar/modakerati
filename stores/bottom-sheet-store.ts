@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 // One name per globally-controlled bottom sheet. Add new sheets here as they're
 // migrated to the store so any screen can open them without prop plumbing.
-export type SheetName = "structure" | "ask" | "new-thesis";
+export type SheetName = "structure" | "ask" | "new-thesis" | "thesis-sources";
 
 interface BottomSheetState {
   openSheets: Set<SheetName>;

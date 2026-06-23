@@ -395,6 +395,16 @@
     "err_sharing": "Sharing isn't available on this device",
     "readOnlyBanner": "This document contains tables or content controls, so editing is disabled for now. Tap Preview to view the full document."
   },
+  "sources": {
+    "title": "Sources",
+    "add": "Add source",
+    "chooseFile": "Choose file",
+    "sourceTitle": "Title",
+    "description": "What should the AI take from this?",
+    "upload": "Upload",
+    "empty": "No sources yet. Add reference files to help the AI.",
+    "unextracted": "Not extracted"
+  },
   "workspace": {
     "open": "Open workspace",
     "emptyChapter": "Tap the chat to ask the AI to draft this.",

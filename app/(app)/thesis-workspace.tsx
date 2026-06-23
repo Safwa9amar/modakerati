@@ -12,7 +12,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { Maximize2 } from "lucide-react-native";
+import { Maximize2, Paperclip } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
@@ -23,6 +23,7 @@ import { PaperPage } from "@/components/workspace/PaperPage";
 import { ChapterCard } from "@/components/workspace/ChapterCard";
 import { WorkspaceComposer } from "@/components/workspace/WorkspaceComposer";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
+import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { Markdown } from "@/components/Markdown";
 import { getTextDirection } from "@/lib/text-direction";
 import type { SectionKind } from "@/types/thesis";
@@ -112,6 +113,16 @@ export default function ThesisWorkspaceScreen() {
         >
           {title}
         </Text>
+        {/* Sources → reference files the AI can draw from. */}
+        <Pressable
+          onPress={() => useBottomSheet.getState().openSheet("thesis-sources")}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("sources.title", { defaultValue: "Sources" })}
+          style={styles.expandBtn}
+        >
+          <Paperclip size={20} color={colors.textPrimary} />
+        </Pressable>
         {/* Expand → full A4 preview of the rendered thesis. */}
         <Pressable
           onPress={() =>
@@ -284,6 +295,9 @@ export default function ThesisWorkspaceScreen() {
           <WorkspaceComposer thesisId={thesisId} />
         </View>
       </KeyboardAvoidingView>
+
+      {/* Sources sheet — self-hides when closed (conditional unmount). */}
+      <SourcesSheet thesisId={thesisId} />
 
       {/* The model's pending question → blocking answer sheet. */}
       {pendingAsk && (
