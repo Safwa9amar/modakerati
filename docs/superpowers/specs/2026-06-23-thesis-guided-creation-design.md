@@ -139,26 +139,40 @@ Server: add `front_matter jsonb`, `resume jsonb` (nullable) to `theses`. Generat
 ### 4.3 Back matter
 `references` (exists). Add optional `annexes` (markdown blocks / attachments) — minimal in v1.
 
-### 4.4 Template — encode the **norm**
+### 4.4 Template = a **formatting profile** (research-driven)
+
+> **Research finding (see [research/2026-06-23-algerian-thesis-norms.md](../../research/2026-06-23-algerian-thesis-norms.md)):** there is **NO single national Algerian standard** — every norm is per-university/faculty, and the two axes that drive everything are **language** (French/Latin vs Arabic/RTL) and **discipline** (science/experimental vs law/humanities). So a "template" is really a **formatting profile** keyed by (university/faculty, language, discipline); we ship a few real profiles + a generic French and a generic Arabic one, and let students adjust.
 
 ```ts
-interface Template {
-  // …existing config…
-  frontMatter: {                 // which front-matter pages this norm requires
-    pageDeGarde: string[];       // ordered field keys to show on the title page
+interface Template {            // = a formatting profile
+  // …existing config (margins/fonts/paperSize)…
+  language: "ar" | "fr" | "en";
+  discipline: "science" | "law-humanities" | "generic";
+  bindingSide: "left" | "right";          // left for FR/Latin, right for AR/RTL
+  citationStyle: "apa" | "footnote-ar";   // APA (science/FR) vs التهميش footnotes (law/AR)
+  bodyPreset: "imrad" | "chapters" | "law-humanities"; // seeds the plan (see below)
+  frontMatter: {
+    pageDeGarde: string[];                 // ordered field keys for the title page
     ficheSynoptique: boolean; remerciements: boolean; dedicace: boolean;
-    resumeLanguages: Array<"ar"|"fr"|"en">;
-    sommaire: boolean; listeTableaux: boolean; listeFigures: boolean;
+    resumeLanguages: Array<"ar"|"fr"|"en">;     // Arabic always included
+    resumePlacement: "front" | "back";          // varies by institution
+    sommaire: boolean; listeTableaux: boolean; listeFigures: boolean; listeAbreviations: boolean;
   };
-  structure: { sectionLabel: string; chapterLabel: string };  // e.g. "Partie"/"Chapitre"
-  styleMap: {                    // docx outline mapping for THIS norm
+  structure: { sectionLabel: string; chapterLabel: string };  // "Partie"/"Chapitre" | "قسم"/"فصل"
+  styleMap: {                              // docx outline mapping for THIS norm
     section: "dividerPage" | "Heading1";
     chapter: "Heading1" | "Heading2";
     contentHeadings: ["Heading2","Heading3","Heading4"];  // for #/##/###
-    useDirectFormatting?: boolean;  // Arabic norms that bold instead of styling
+    useDirectFormatting?: boolean;         // Arabic norms that bold instead of styling
+    headingSizes?: Record<string, number>; // institution-specific (e.g. Alger1 18/16/14/12)
   };
 }
 ```
+
+**Two preset body structures** the plan-generator picks from (per `bodyPreset`):
+- **`imrad`** (science): Partie I *Synthèse Bibliographique* → Partie II *Matériel et Méthodes* → Partie III *Résultats et Discussion* (each a Section with chapters).
+- **`law-humanities`**: sequential chapitres (فصول), each nesting section/مبحث → subsection/مطلب as numbered headings.
+- **`chapters`**: simple Intro → N chapters → Conclusion (generic default).
 
 ### 4.5 Plan (transient)
 `GeneratedPlan = { sections: Array<{ title, kind, chapters: Array<{ title, hint? }> }> }`. On approval, seeds the thesis (sections + chapters + front matter) in one `POST /api/thesis`.
@@ -179,7 +193,9 @@ interface Template {
    - **Section dividers** (or Heading1) per `styleMap.section`; **Chapter** as Heading1.
    - **Parse chapter markdown** → `Heading 2/3/4` for `#/##/###`, real **Word tables** for markdown tables, **figures** (image + caption + auto-number), lists, bold/italic.
    - Bibliographie + annexes.
-   - Honor RTL + `useDirectFormatting` for Arabic norms.
+   - **Citations per `citationStyle`:** `apa` → author-date + APA reference list (electronic refs: "Consulté le" + URL in `< >`); `footnote-ar` → bottom-of-page footnotes (التهميش: Author, Title, Edition, Publisher, Country, Year, Page) with مرجع سابق / المرجع نفسه (Op. cit. / Ibid.) — uses the engine's `Footnote`/`CitationManager`.
+   - **Page numbering:** lowercase Roman (ii, iii…) for front matter, Arabic (1, 2, 3…) from the introduction, centered at the bottom.
+   - Honor RTL + `useDirectFormatting` for Arabic norms, and **mirror the binding margin** per `bindingSide` (left for FR, right for AR). Résumé page placed per `resumePlacement` (front vs back cover).
    - **The engine already supports this** — `mdocxengine` exposes `TableOfContentsManager` (TOC w/ `headingDepth`), `Table`/`TableRow`/`TableCell`, `MediaManager.insertImage` (figures), `ShapeManager`, and `Footnote`/`Endnote`/`CitationManager`. `docx.ts` simply never calls them (it only emits plain paragraphs). The work is **wiring `docx.ts` to these managers + a markdown→docx parser**, not building engine features.
    - Requires the base template `.docx` to define styles `Heading1-4`, `Title`, section/divider, `toc 1-3`, caption — **audit/extend the base template** as part of this work.
 
@@ -218,7 +234,7 @@ Wizard state (title, templateId, plan) in a transient `thesis-wizard-store`; the
 Select Section/Chapter → composer chip → send `{ thesisId, sectionId?, chapterId?, message }` to `/api/chat/stream` → AI calls MCP tools mutating server tables → on completion `refreshThesis(id)` → affected card re-renders → ⤢ Expand re-requests `preview-html`. `ask_user` surfaces via existing pending-ask UI inside the workspace.
 
 ## 8. AI at every step
-Title suggestions (exists) · Plan generation (new) · Content/tables/figures via chat→MCP, section/chapter-targeted · optional per-chapter quick actions (Generate / Expand / Rephrase / Add table) routed through the same chat pipeline.
+Title suggestions (exists) · Plan generation (new, uses the profile's `bodyPreset`) · Content/tables/figures via chat→MCP, section/chapter-targeted · optional per-chapter quick actions (Generate / Expand / Rephrase / Add table) routed through the same chat pipeline. **Research-driven emphasis:** weight the most AI help toward the stages students struggle with — *choix du sujet, problématique, démarche méthodologique* — surfaced as guided prompts at the relevant steps.
 
 ## 9. Error handling & edges
 Plan/offline failure → template default outline (no blank wall) · chat-stream failure → `/send` fallback · empty chapter → draft placeholder · A4 render failure → toast, stay on cards · abandon wizard → store cleared, no orphan thesis · **RTL/Arabic** → `Markdown` + `getTextDirection`, and export honors `useDirectFormatting` · server is source of truth, workspace reconciles via `getThesis`.
