@@ -9,11 +9,11 @@ const WELCOME =
 export async function sendMessageToAI(
   thesisId: string,
   userMessage: string,
-  chapterId?: string
+  opts?: { chapterId?: string; sectionId?: string }
 ): Promise<void> {
   // Add user message immediately (optimistic). Marked pending until reconciled.
-  useChatStore.getState().addMessage(thesisId, "user", userMessage, { chapterId, pending: true });
-  await runAssistantTurn(thesisId, userMessage, chapterId);
+  useChatStore.getState().addMessage(thesisId, "user", userMessage, { chapterId: opts?.chapterId, pending: true });
+  await runAssistantTurn(thesisId, userMessage, opts);
 }
 
 /**
@@ -36,7 +36,7 @@ export async function regenerateLastResponse(thesisId: string): Promise<void> {
   // Keep up to and including the user message; discard the stale reply so the
   // new one streams into a fresh bubble.
   store.setMessages(thesisId, msgs.slice(0, i + 1));
-  await runAssistantTurn(thesisId, userMsg.content, userMsg.chapterId);
+  await runAssistantTurn(thesisId, userMsg.content, { chapterId: userMsg.chapterId, sectionId: userMsg.sectionId });
 }
 
 // Streams one assistant turn for an already-present user message: opens the
@@ -46,7 +46,7 @@ export async function regenerateLastResponse(thesisId: string): Promise<void> {
 async function runAssistantTurn(
   thesisId: string,
   userMessage: string,
-  chapterId?: string
+  opts?: { chapterId?: string; sectionId?: string }
 ): Promise<void> {
   const store = useChatStore.getState();
 
@@ -99,7 +99,7 @@ async function runAssistantTurn(
           s.addFileToMessage(thesisId, assistantId, file);
         },
       },
-      { chapterId, signal: controller.signal }
+      { chapterId: opts?.chapterId, sectionId: opts?.sectionId, signal: controller.signal }
     );
 
     // Stream completed but produced nothing.
@@ -118,7 +118,7 @@ async function runAssistantTurn(
     if (!assistantId && (error?.status === 404 || error?.status === 405)) {
       try {
         store.setGeneratingPhase("thinking");
-        const result = await chatSend(thesisId, userMessage, { chapterId });
+        const result = await chatSend(thesisId, userMessage, { chapterId: opts?.chapterId, sectionId: opts?.sectionId });
         const id = store.addMessage(thesisId, "assistant", result.response, { pending: true });
         // Mirror the streaming path: surface any file cards and open the ask sheet.
         result.files?.forEach((f) => store.addFileToMessage(thesisId, id, f));

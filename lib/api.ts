@@ -105,12 +105,13 @@ export interface ChatSendResponse {
 export async function chatSend(
   thesisId: string,
   message: string,
-  options?: { chapterId?: string }
+  options?: { chapterId?: string; sectionId?: string }
 ): Promise<ChatSendResponse> {
   return apiPost("/api/chat/send", {
     thesisId,
     message,
     chapterId: options?.chapterId,
+    sectionId: options?.sectionId,
   });
 }
 
@@ -154,13 +155,13 @@ export async function chatSendStream(
   thesisId: string,
   message: string,
   handlers: ChatStreamHandlers,
-  options?: { chapterId?: string; signal?: AbortSignal }
+  options?: { chapterId?: string; sectionId?: string; signal?: AbortSignal }
 ): Promise<void> {
   const headers = await getAuthHeaders();
   const response = await expoFetch(`${API_URL}/api/chat/stream`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ thesisId, message, chapterId: options?.chapterId }),
+    body: JSON.stringify({ thesisId, message, chapterId: options?.chapterId, sectionId: options?.sectionId }),
     signal: options?.signal,
   });
 
