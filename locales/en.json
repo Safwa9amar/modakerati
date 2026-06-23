@@ -16,6 +16,10 @@
     "comingSoon": "Coming soon",
     "error": "Error"
   },
+  "preview": {
+    "a4Title": "A4 preview",
+    "download": "Download"
+  },
   "chatHead": {
     "permTitle": "Float over other apps",
     "permBody": "Allow Modakerati to display over other apps so the chat bubble follows you like Messenger.",

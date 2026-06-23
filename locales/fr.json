@@ -16,6 +16,10 @@
     "comingSoon": "Bientôt disponible",
     "error": "Erreur"
   },
+  "preview": {
+    "a4Title": "Aperçu A4",
+    "download": "Télécharger"
+  },
   "chatHead": {
     "permTitle": "Afficher par-dessus les autres applis",
     "permBody": "Autorisez Modakerati à s'afficher par-dessus les autres applications pour que la bulle de chat vous suive comme Messenger.",
