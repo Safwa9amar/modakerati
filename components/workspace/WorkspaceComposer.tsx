@@ -74,6 +74,17 @@ export function WorkspaceComposer({ thesisId }: { thesisId: string }) {
     prevGenerating.current = isGenerating;
   }, [isGenerating, thesisId]);
 
+  // Stream the edits onto the pages: while the AI is generating it commits each
+  // chapter edit to the server mid-turn (via its tools), so poll the thesis so
+  // those changes appear live on the pages above instead of only at the end.
+  useEffect(() => {
+    if (!isGenerating) return;
+    const id = setInterval(() => {
+      useThesisStore.getState().refreshThesis(thesisId);
+    }, 1800);
+    return () => clearInterval(id);
+  }, [isGenerating, thesisId]);
+
   async function handleSend() {
     const text = inputText.trim();
     if (!text || isGenerating) return;
