@@ -12,7 +12,9 @@
     "search": "بحث",
     "seeAll": "عرض الكل",
     "ok": "حسناً",
-    "close": "إغلاق"
+    "close": "إغلاق",
+    "comingSoon": "قريبًا",
+    "error": "خطأ"
   },
   "chatHead": {
     "permTitle": "العرض فوق التطبيقات الأخرى",
@@ -310,6 +312,25 @@
     "universityTemplates": "قوالب الجامعات",
     "templatePreview": "معاينة القالب",
     "useTemplate": "استخدام هذا القالب"
+  },
+  "wizard": {
+    "continue": "متابعة",
+    "planTitle": "خطتك",
+    "planSubtitle": "راجع وعدّل المخطط. الذكاء الاصطناعي يقترح وأنت تقرر.",
+    "generating": "جارٍ توليد خطتك…",
+    "regenerate": "إعادة التوليد",
+    "create": "إنشاء المذكرة",
+    "creating": "جارٍ الإنشاء…",
+    "addSection": "إضافة قسم",
+    "addChapter": "إضافة فصل",
+    "sectionTitle": "عنوان القسم",
+    "chapterTitle": "عنوان الفصل",
+    "partPlaceholder": "عنوان القسم",
+    "chapterPlaceholder": "عنوان الفصل",
+    "planEmpty": "أضف قسمًا واحدًا على الأقل مع عنوان.",
+    "kindIntroduction": "مقدمة",
+    "kindSection": "قسم",
+    "kindConclusion": "خاتمة"
   },
   "notifications": {
     "title": "الإشعارات",

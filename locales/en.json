@@ -12,7 +12,9 @@
     "search": "Search",
     "seeAll": "See all",
     "ok": "OK",
-    "close": "Close"
+    "close": "Close",
+    "comingSoon": "Coming soon",
+    "error": "Error"
   },
   "chatHead": {
     "permTitle": "Float over other apps",
@@ -310,6 +312,25 @@
     "universityTemplates": "University Templates",
     "templatePreview": "Template Preview",
     "useTemplate": "Use This Template"
+  },
+  "wizard": {
+    "continue": "Continue",
+    "planTitle": "Your plan",
+    "planSubtitle": "Review and adjust the outline. The AI drafts; you decide.",
+    "generating": "Generating your plan…",
+    "regenerate": "Regenerate",
+    "create": "Create thesis",
+    "creating": "Creating…",
+    "addSection": "Add part",
+    "addChapter": "Add chapter",
+    "sectionTitle": "Part title",
+    "chapterTitle": "Chapter title",
+    "partPlaceholder": "Part title",
+    "chapterPlaceholder": "Chapter title",
+    "planEmpty": "Add at least one part with a title.",
+    "kindIntroduction": "Introduction",
+    "kindSection": "Part",
+    "kindConclusion": "Conclusion"
   },
   "notifications": {
     "title": "Notifications",

@@ -12,7 +12,9 @@
     "search": "Rechercher",
     "seeAll": "Voir tout",
     "ok": "OK",
-    "close": "Fermer"
+    "close": "Fermer",
+    "comingSoon": "Bientôt disponible",
+    "error": "Erreur"
   },
   "chatHead": {
     "permTitle": "Afficher par-dessus les autres applis",
@@ -310,6 +312,25 @@
     "universityTemplates": "Modèles universitaires",
     "templatePreview": "Aperçu du modèle",
     "useTemplate": "Utiliser ce modèle"
+  },
+  "wizard": {
+    "continue": "Continuer",
+    "planTitle": "Votre plan",
+    "planSubtitle": "Revoyez et ajustez le plan. L'IA propose, vous décidez.",
+    "generating": "Génération de votre plan…",
+    "regenerate": "Régénérer",
+    "create": "Créer le mémoire",
+    "creating": "Création…",
+    "addSection": "Ajouter une partie",
+    "addChapter": "Ajouter un chapitre",
+    "sectionTitle": "Titre de la partie",
+    "chapterTitle": "Titre du chapitre",
+    "partPlaceholder": "Titre de la partie",
+    "chapterPlaceholder": "Titre du chapitre",
+    "planEmpty": "Ajoutez au moins une partie avec un titre.",
+    "kindIntroduction": "Introduction",
+    "kindSection": "Partie",
+    "kindConclusion": "Conclusion"
   },
   "notifications": {
     "title": "Notifications",
