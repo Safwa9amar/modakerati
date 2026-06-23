@@ -326,6 +326,16 @@ export async function generateThesisPlan(input: { title: string; language?: stri
   return apiPost<{ sections: Array<{ title: string; kind: "introduction" | "section" | "conclusion"; chapters: Array<{ title: string; hint?: string }> }> }>("/api/thesis/generate-plan", input);
 }
 
+// Server-rendered A4 HTML preview of the whole thesis (shown in a WebView).
+export async function getThesisPreviewHtml(id: string) {
+  return apiGet<{ html: string }>(`/api/thesis/${id}/preview-html`);
+}
+
+// Export the thesis to a downloadable file (default .docx) → signed URL.
+export async function exportThesis(thesisId: string, format: "docx" | "latex" = "docx") {
+  return apiPost<{ success: boolean; url: string; filename: string; format: string; bytes: number; pageCount?: number }>(`/api/export/${thesisId}`, { format });
+}
+
 // ============================================================
 // Enhance API
 // ============================================================
