@@ -76,9 +76,9 @@ export default function ThesisWorkspaceScreen() {
     return (
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.bgSurface }]}
-        edges={["top"]}
+        edges={[]}
       >
-        <View style={styles.topBar}>
+        <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
           <BackButton />
           <Text
             style={[styles.topTitle, { color: colors.textPrimary }]}
@@ -102,10 +102,10 @@ export default function ThesisWorkspaceScreen() {
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: colors.bgSurface }]}
-      edges={["top"]}
+      edges={[]}
     >
       {/* Top bar */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
         <BackButton />
         <Text
           style={[styles.topTitle, { color: colors.textPrimary }]}
