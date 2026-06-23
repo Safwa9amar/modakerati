@@ -7,25 +7,22 @@ import { Sparkles } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { BottomSheet } from "@/components/BottomSheet";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
-import { useThesisStore } from "@/stores/thesis-store";
-import { createThesis, getThesis, suggestThesisTitles } from "@/lib/api";
-
-// A blank thesis still seeds a standard chapter skeleton under a single body
-// section (Partie); only the title is collected up front.
-const DEFAULT_CHAPTERS = ["Introduction", "Literature Review", "Methodology", "Results", "Conclusion"];
+import { useThesisWizard } from "@/stores/thesis-wizard-store";
+import { suggestThesisTitles } from "@/lib/api";
+import i18n from "@/lib/i18n";
 
 /**
- * "Name your thesis" prompt shown before a blank thesis is created. Built on the
- * reusable <BottomSheet>; opened with useBottomSheet.getState().openSheet("new-thesis").
- * On submit it persists the title (POST /api/thesis), selects the thesis, and
- * opens the chat.
+ * "Name your thesis" prompt — the first step of the thesis-creation wizard.
+ * Built on the reusable <BottomSheet>; opened with
+ * useBottomSheet.getState().openSheet("new-thesis"). On continue it stores the
+ * title + language in the wizard store and routes to the template picker; no
+ * thesis is created until later in the wizard.
  */
 export function NewThesisSheet() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const [title, setTitle] = useState("");
-  const [creating, setCreating] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
@@ -53,35 +50,19 @@ export function NewThesisSheet() {
     setSuggestions([]);
   };
 
-  const create = async () => {
+  // Capture the title + language into the wizard store and advance to the
+  // template picker. The thesis itself is created later in the wizard flow.
+  const handleContinue = () => {
     const name = title.trim();
-    if (!name || creating) return;
-    setCreating(true);
-    try {
-      const created = await createThesis({
-        title: name,
-        sections: [{ title: "Corps", chapters: DEFAULT_CHAPTERS.map((t) => ({ title: t })) }],
-      });
-      // Fetch the full record (with nested sections/chapters) and mirror it
-      // into the store so chat / editor screens have the complete thesis.
-      const store = useThesisStore.getState();
-      try {
-        store.upsertThesis(await getThesis(created.id));
-      } catch {
-        store.upsertThesis(created);
-      }
-      store.setCurrentThesis(created.id);
-      setTitle("");
-      useBottomSheet.getState().closeSheet("new-thesis");
-      router.push("/(tabs)/chat" as any);
-    } catch (e) {
-      console.error("Failed to create thesis:", e instanceof Error ? e.message : e);
-    } finally {
-      setCreating(false);
-    }
+    if (!name) return;
+    useThesisWizard.getState().set({ title: name, language: i18n.language || "fr" });
+    setTitle("");
+    setSuggestions([]);
+    useBottomSheet.getState().closeSheet("new-thesis");
+    router.push("/(app)/template-picker");
   };
 
-  const disabled = !title.trim() || creating;
+  const disabled = !title.trim();
 
   return (
     <BottomSheet name="new-thesis" snapPoints={["40%", "80%"]} keyboardBehavior="extend">
@@ -94,7 +75,7 @@ export function NewThesisSheet() {
         placeholder={t("thesis.titlePlaceholder")}
         placeholderTextColor={colors.textPlaceholder}
         returnKeyType="done"
-        onSubmitEditing={create}
+        onSubmitEditing={handleContinue}
         style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.bgCard }]}
       />
 
@@ -139,15 +120,11 @@ export function NewThesisSheet() {
       )}
 
       <Pressable
-        onPress={create}
+        onPress={handleContinue}
         disabled={disabled}
         style={[styles.btn, { backgroundColor: colors.brandPrimary, opacity: disabled ? 0.5 : 1 }]}
       >
-        {creating ? (
-          <ActivityIndicator color="#FFFFFF" />
-        ) : (
-          <Text style={styles.btnText}>{t("thesis.createThesis")}</Text>
-        )}
+        <Text style={styles.btnText}>{t("wizard.continue", { defaultValue: "Continue" })}</Text>
       </Pressable>
     </BottomSheet>
   );
