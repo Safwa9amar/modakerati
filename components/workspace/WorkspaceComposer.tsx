@@ -45,25 +45,23 @@ export function WorkspaceComposer({ thesisId }: { thesisId: string }) {
   const [inputText, setInputText] = useState("");
 
   // Resolve the focus chip label from the current selection within the thesis.
+  // Priority: a specific content block → chapter → section → whole memoir.
   let chipLabel = t("workspace.wholeMemoir", { defaultValue: "Whole memoir" });
-  let hasSelection = false;
-  if (thesis) {
-    if (selected.chapterId) {
-      for (const section of thesis.sections) {
-        const chapter = section.chapters.find((c) => c.id === selected.chapterId);
-        if (chapter) {
-          chipLabel = `✎ ${chapter.title}`;
-          hasSelection = true;
-          break;
-        }
-      }
-    } else if (selected.sectionId) {
-      const section = thesis.sections.find((s) => s.id === selected.sectionId);
-      if (section) {
-        chipLabel = `✎ ${section.title}`;
-        hasSelection = true;
+  const hasSelection = !!(selected.blockText || selected.chapterId || selected.sectionId);
+  if (selected.blockText) {
+    const excerpt = selected.blockText.replace(/\s+/g, " ").trim().slice(0, 40);
+    chipLabel = `✎ ${excerpt}`;
+  } else if (thesis && selected.chapterId) {
+    for (const section of thesis.sections) {
+      const chapter = section.chapters.find((c) => c.id === selected.chapterId);
+      if (chapter) {
+        chipLabel = `✎ ${chapter.title}`;
+        break;
       }
     }
+  } else if (thesis && selected.sectionId) {
+    const section = thesis.sections.find((s) => s.id === selected.sectionId);
+    if (section) chipLabel = `✎ ${section.title}`;
   }
 
   // Live refresh: when a turn finishes (isGenerating true → false), pull the
@@ -84,6 +82,7 @@ export function WorkspaceComposer({ thesisId }: { thesisId: string }) {
     await sendMessageToAI(thesisId, text, {
       sectionId: selected.sectionId ?? undefined,
       chapterId: selected.chapterId ?? undefined,
+      selection: selected.blockText ?? undefined,
     });
   }
 

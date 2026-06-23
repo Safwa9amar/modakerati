@@ -264,12 +264,6 @@ export default function ThesisWorkspaceScreen() {
                 <ChapterCard
                   key={chapter.id}
                   chapter={chapter}
-                  selected={selected.chapterId === chapter.id}
-                  onPress={() =>
-                    useThesisStore
-                      .getState()
-                      .selectChapter(section.id, chapter.id)
-                  }
                   emptyLabel={t("workspace.emptyChapter", {
                     defaultValue: "Tap the chat to ask the AI to draft this.",
                   })}
@@ -308,6 +302,7 @@ export default function ThesisWorkspaceScreen() {
             void sendMessageToAI(thesisId, answer, {
               sectionId: selected.sectionId ?? undefined,
               chapterId: selected.chapterId ?? undefined,
+              selection: selected.blockText ?? undefined,
             });
           }}
           onClose={() => useChatStore.getState().setPendingAsk(null)}
