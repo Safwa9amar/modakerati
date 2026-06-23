@@ -24,6 +24,12 @@ interface ThesisState {
   updateChapter: (thesisId: string, sectionId: string, chapterId: string, updates: Partial<Chapter>) => void;
   deleteChapter: (thesisId: string, sectionId: string, chapterId: string) => void;
 
+  selected: { sectionId: string | null; chapterId: string | null };
+  selectChapter: (sectionId: string, chapterId: string) => void;
+  selectSection: (sectionId: string) => void;
+  clearSelection: () => void;
+  refreshThesis: (id: string) => Promise<void>;
+
   loadTemplates: () => Promise<void>;
 }
 
@@ -102,6 +108,20 @@ export const useThesisStore = create<ThesisState>()((set, get) => ({
       updatedAt: new Date().toISOString(),
     }),
   })),
+
+  selected: { sectionId: null, chapterId: null },
+  selectChapter: (sectionId, chapterId) => set({ selected: { sectionId, chapterId } }),
+  selectSection: (sectionId) => set({ selected: { sectionId, chapterId: null } }),
+  clearSelection: () => set({ selected: { sectionId: null, chapterId: null } }),
+  refreshThesis: async (id) => {
+    try {
+      const { getThesis } = await import("@/lib/api");
+      const full = await getThesis(id);
+      get().upsertThesis(full);
+    } catch (e) {
+      console.warn("refreshThesis failed", e);
+    }
+  },
 
   loadTemplates: async () => {
     try {
