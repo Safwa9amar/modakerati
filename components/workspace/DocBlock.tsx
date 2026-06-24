@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable, Image, StyleSheet } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import type { DocBlockDTO } from "@/lib/api";
@@ -11,6 +11,9 @@ const BORDER = "#D8D8DE";
 
 // Heading level → text style. Level 0 is justified body; 1 is the largest.
 const HEADING_SIZE: Record<1 | 2 | 3 | 4, number> = { 1: 22, 2: 19, 3: 16, 4: 14 };
+
+// Cap an inlined image's rendered height so a tall chart can't dominate the page.
+const MAX_IMAGE_HEIGHT = 360;
 
 /**
  * Renders one live-.docx block (read-only). Paragraphs/tables are tappable and
@@ -33,10 +36,65 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
   }
 
   if (block.kind === "image") {
+    // Caption sits under the image/placeholder; it aligns to the text edge in RTL.
+    const caption = block.caption?.trim();
+    const captionNode = caption ? (
+      <Text
+        style={[styles.figureCaption, { textAlign: "center", writingDirection }]}
+        numberOfLines={3}
+      >
+        {caption}
+      </Text>
+    ) : null;
+
+    const onSelect = () =>
+      useThesisStore.getState().selectDocBlock(block.index, caption || "figure");
+
+    // With inlined bytes → render the real image. Fill the paper content width
+    // (width:"100%") and preserve the intrinsic ratio via `aspectRatio` when the
+    // px size is known, capping the rendered height so a tall chart stays sane.
+    if (block.dataUri) {
+      const ratio =
+        block.width && block.height && block.height > 0
+          ? block.width / block.height
+          : undefined;
+      return (
+        <Pressable
+          onPress={onSelect}
+          style={[
+            styles.imageWrap,
+            { borderColor: isSelected ? hi : "transparent" },
+            isSelected && { backgroundColor: hi + "18" },
+          ]}
+        >
+          <Image
+            source={{ uri: block.dataUri }}
+            resizeMode="contain"
+            style={[
+              styles.image,
+              ratio
+                ? { aspectRatio: ratio, maxHeight: MAX_IMAGE_HEIGHT }
+                : { height: MAX_IMAGE_HEIGHT },
+            ]}
+          />
+          {captionNode}
+        </Pressable>
+      );
+    }
+
+    // No inlined bytes (large figure / non-chart) → keep the light placeholder.
     return (
-      <View style={[styles.figureCard, { borderColor: BORDER }]}>
+      <Pressable
+        onPress={onSelect}
+        style={[
+          styles.figureCard,
+          { borderColor: isSelected ? hi : BORDER },
+          isSelected && { backgroundColor: hi + "18" },
+        ]}
+      >
         <Text style={styles.figureText}>🖼 figure</Text>
-      </View>
+        {captionNode}
+      </Pressable>
     );
   }
 
@@ -152,6 +210,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#FAFAFC",
   },
   figureText: { color: MUTED, fontSize: 14, fontFamily: "Inter_500Medium" },
+  figureCaption: {
+    color: MUTED,
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    marginTop: 6,
+    alignSelf: "stretch",
+  },
+
+  imageWrap: {
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "transparent",
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    marginVertical: 8,
+    alignItems: "center",
+  },
+  // width:100% fits the paper content area; aspectRatio (set inline) keeps shape.
+  image: { width: "100%", borderRadius: 4 },
 
   tableWrap: {
     borderWidth: 1,

@@ -354,7 +354,18 @@ export async function getThesisPreviewHtml(id: string) {
 export type DocBlockDTO =
   | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 }
   | { index: number; kind: "table"; rows: string[][] }
-  | { index: number; kind: "image" }
+  // L4c: image blocks (charts/figures). The server inlines small images (charts
+  // ≤ ~200KB) as a base64 `dataUri` so the workspace can render the real image;
+  // larger figures omit `dataUri` and the app shows a placeholder. `width`/`height`
+  // are the intrinsic pixel size (for aspect-fit); `caption` is the adjacent label.
+  | {
+      index: number;
+      kind: "image";
+      dataUri?: string;
+      width?: number;
+      height?: number;
+      caption?: string;
+    }
   | { index: number; kind: "other"; tag: string };
 
 export type DocumentDTO =
