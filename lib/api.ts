@@ -353,6 +353,41 @@ export async function generateThesisPlan(input: { title: string; language?: stri
 }
 
 // ============================================================
+// Thesis Import & Analysis API
+// ============================================================
+
+export interface AnalysisSuggestion {
+  id: string;
+  category: "structure" | "formatting" | "content";
+  severity: "error" | "warning" | "info";
+  message: string;
+  fix: string | null;
+}
+
+export interface AnalysisReport {
+  structure: AnalysisSuggestion[];
+  formatting: AnalysisSuggestion[];
+  content: AnalysisSuggestion[];
+}
+
+export async function importThesis(input: {
+  base64: string;
+  filename: string;
+  language?: string;
+  normProfileId?: string;
+}): Promise<{ thesis: Thesis; analysisReport: AnalysisReport | null }> {
+  return apiPost("/api/thesis/import", input);
+}
+
+export async function getThesisAnalysis(thesisId: string): Promise<AnalysisReport> {
+  return apiGet(`/api/thesis/${thesisId}/analysis`);
+}
+
+export async function applyThesisSuggestions(thesisId: string, acceptedIds: string[]): Promise<{ applied: string[] }> {
+  return apiPost(`/api/thesis/${thesisId}/apply`, { acceptedIds });
+}
+
+// ============================================================
 // Live-.docx thesis document (read-only block render)
 // Mirrors the server DTO from GET /api/thesis/:id/document.
 // ============================================================

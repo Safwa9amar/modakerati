@@ -428,6 +428,25 @@
     "empty": "No sources yet. Add reference files to help the AI.",
     "unextracted": "Not extracted"
   },
+  "import": {
+    "title": "Import Thesis",
+    "analyzing": "Analyzing your document...",
+    "analysisTitle": "Analysis Results",
+    "structure": "Structure",
+    "formatting": "Formatting",
+    "content": "Content",
+    "noIssues": "No issues found",
+    "accept": "Accept",
+    "reject": "Reject",
+    "acceptAll": "Accept all",
+    "apply": "Apply changes",
+    "skip": "Skip to workspace",
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Suggestion",
+    "pickNormFirst": "Pick a formatting standard first",
+    "importing": "Importing your thesis..."
+  },
   "workspace": {
     "open": "Open workspace",
     "emptyChapter": "Tap the chat to ask the AI to draft this.",

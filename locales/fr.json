@@ -428,6 +428,25 @@
     "empty": "Aucune source. Ajoutez des fichiers de référence pour aider l'IA.",
     "unextracted": "Non extrait"
   },
+  "import": {
+    "title": "Importer un memoire",
+    "analyzing": "Analyse de votre document...",
+    "analysisTitle": "Resultats de l'analyse",
+    "structure": "Structure",
+    "formatting": "Mise en page",
+    "content": "Contenu",
+    "noIssues": "Aucun probleme detecte",
+    "accept": "Accepter",
+    "reject": "Rejeter",
+    "acceptAll": "Tout accepter",
+    "apply": "Appliquer les modifications",
+    "skip": "Aller a l'espace de travail",
+    "error": "Erreur",
+    "warning": "Avertissement",
+    "info": "Suggestion",
+    "pickNormFirst": "Choisissez d'abord une norme de mise en page",
+    "importing": "Importation de votre memoire..."
+  },
   "workspace": {
     "open": "Ouvrir l'espace de travail",
     "emptyChapter": "Touchez le chat pour demander à l'IA de rédiger ceci.",
