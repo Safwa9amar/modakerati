@@ -1,9 +1,12 @@
+import { useState } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
+import { useThesisWizard } from "@/stores/thesis-wizard-store";
+import { generateThesisPlan } from "@/lib/api";
 import { BackButton } from "@/components/BackButton";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -13,7 +16,8 @@ export default function TemplatePreviewScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
-  const { templates, setCurrentThesis } = useThesisStore();
+  const { templates } = useThesisStore();
+  const [generating, setGenerating] = useState(false);
 
   const template = templates.find((tpl) => tpl.id === templateId);
 
@@ -44,20 +48,29 @@ export default function TemplatePreviewScreen() {
     `${template.config.margins.left} binding`,
   ];
 
+  // Record the chosen template on the wizard, generate an AI plan for the
+  // captured title, then advance to the plan-review step. The thesis is not
+  // created until the user confirms the plan.
   const handleUseTemplate = async () => {
+    if (generating) return;
+    const wizard = useThesisWizard.getState();
+    wizard.set({ templateId: template.id, language: template.language });
+    setGenerating(true);
     try {
-      const { createThesis } = await import("@/lib/api");
-      const thesis = await createThesis(
-        `${template.type} - ${template.university}`,
-        template.chapterStructure,
-        template.id
-      );
-      const store = useThesisStore.getState();
-      store.theses.push({ id: thesis.id, title: thesis.title, status: "active", progress: 0, wordCount: 0, pageCount: 0, language: "fr", chapters: [], createdAt: thesis.createdAt, updatedAt: thesis.updatedAt });
-      setCurrentThesis(thesis.id);
-      router.push("/(tabs)/chat" as any);
-    } catch (e: any) {
-      console.error("Failed to create thesis:", e.message);
+      const { sections } = await generateThesisPlan({
+        title: useThesisWizard.getState().title || template.name,
+        language: template.language,
+        bodyPreset: template.bodyPreset,
+        templateId: template.id,
+      });
+      useThesisWizard.getState().set({ plan: sections });
+      router.push("/(app)/thesis-plan");
+    } catch (e) {
+      console.error("Failed to generate plan:", e instanceof Error ? e.message : e);
+      // The plan screen regenerates / falls back when no plan is present.
+      router.push("/(app)/thesis-plan");
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -181,9 +194,15 @@ export default function TemplatePreviewScreen() {
       {/* Bottom button */}
       <View style={styles.bottomBar}>
         <Button
-          title={t("template.useTemplate")}
+          title={
+            generating
+              ? t("wizard.generating", { defaultValue: "Generating your plan…" })
+              : t("template.useTemplate")
+          }
           onPress={handleUseTemplate}
           variant="accent"
+          loading={generating}
+          disabled={generating}
         />
       </View>
     </SafeAreaView>

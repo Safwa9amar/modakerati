@@ -90,6 +90,6 @@ const styles = StyleSheet.create({
   avatar: { borderWidth: 3, alignItems: "center", justifyContent: "center", position: "relative" },
   initials: { fontFamily: "Inter_700Bold", color: "#fff" },
   cameraCircle: { position: "absolute", bottom: 0, right: 0, alignItems: "center", justifyContent: "center", borderWidth: 2 },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
+  overlay: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" } as any,
   caption: { fontSize: 14, fontFamily: "Inter_500Medium", marginTop: 10, textAlign: "center" },
 });

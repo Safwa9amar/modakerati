@@ -1,8 +1,10 @@
 import { Fragment, useMemo, type ReactNode } from "react";
-import { View, Text, Platform, I18nManager, StyleSheet, type TextStyle } from "react-native";
+import { View, Text, Platform, I18nManager, StyleSheet, type TextStyle, type ViewStyle } from "react-native";
 import { useMarkdown, Renderer, type useMarkdownHookOptions } from "react-native-marked";
+import { SvgXml } from "react-native-svg";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { getTextDirection, type TextDirection } from "@/lib/text-direction";
+import { chartToSvg, type ChartSpec } from "@/lib/chart-svg";
 
 const MONO = Platform.OS === "ios" ? "Menlo" : "monospace";
 
@@ -11,7 +13,22 @@ const MONO = Platform.OS === "ios" ? "Menlo" : "monospace";
 const EMOJI_RE =
   /([\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{1F1E6}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}]+)/u;
 
-class EmojiRenderer extends Renderer {}
+class EmojiRenderer extends Renderer {
+  // Render fenced ```chart blocks (JSON ChartSpec) as inline SVG charts; any
+  // other code block (or invalid JSON) falls back to the base code renderer.
+  code(text: string, language?: string, containerStyle?: ViewStyle, textStyle?: TextStyle): ReactNode {
+    if ((language || "").trim().toLowerCase() === "chart") {
+      try {
+        const spec = JSON.parse(text) as ChartSpec;
+        const svg = chartToSvg(spec, { width: 320, height: 200 });
+        return <SvgXml key={this.getKey()} xml={svg} width="100%" />;
+      } catch {
+        // fall through to default code rendering on bad JSON
+      }
+    }
+    return super.code(text, language, containerStyle, textStyle);
+  }
+}
 // getTextNode is private in TS but is the single leaf all text methods funnel
 // through; override it at runtime, preserving the exact wrapper structure.
 (EmojiRenderer.prototype as any).getTextNode = function (children: ReactNode, styles: TextStyle) {

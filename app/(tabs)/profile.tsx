@@ -38,21 +38,14 @@ export default function ProfileScreen() {
   const levelLabel = profile?.level ? t(`profile.levels.${profile.level}`) : notSet;
 
   const stats = useMemo(() => {
+    // Structure lives in each thesis's .docx; cards use the stored word/page
+    // stats on the row (no DB section/chapter aggregation).
     const thesesCount = theses.length;
-    const chaptersCount = theses.reduce((sum, th) => sum + th.chapters.length, 0);
-    const wordsCount = theses.reduce(
-      (sum, th) =>
-        sum +
-        (th.wordCount ||
-          th.chapters.reduce(
-            (cSum, c) => cSum + c.sections.reduce((sSum, s) => sSum + (s.wordCount || 0), 0),
-            0
-          )),
-      0
-    );
+    const pagesCount = theses.reduce((sum, th) => sum + (th.pageCount || 0), 0);
+    const wordsCount = theses.reduce((sum, th) => sum + (th.wordCount || 0), 0);
     return [
       { value: formatCount(thesesCount), label: t("profile.theses"), color: colors.brandPrimary },
-      { value: formatCount(chaptersCount), label: t("profile.chapters"), color: colors.brandAccent },
+      { value: formatCount(pagesCount), label: t("home.pages", { defaultValue: "Pages" }), color: colors.brandAccent },
       { value: formatCount(wordsCount), label: t("profile.words"), color: colors.semanticWarning },
     ];
   }, [theses, t, colors]);

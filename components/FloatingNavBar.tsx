@@ -40,7 +40,8 @@ type TabDef = {
 
 const TABS: readonly TabDef[] = [
   { name: "index", href: "/(tabs)", icon: Home, labelKey: "nav.home" },
-  { name: "chat", href: "/(tabs)/chat", icon: MessageSquare, labelKey: "nav.chat" },
+  // Chat tab disabled for now — re-add to restore the bubble in the tab bar.
+  // { name: "chat", href: "/(tabs)/chat", icon: MessageSquare, labelKey: "nav.chat" },
   { name: "thesis", href: "/(tabs)/thesis", icon: FileText, labelKey: "nav.thesis" },
   { name: "notifications", href: "/(tabs)/notifications", icon: Bell, labelKey: "nav.notifications" },
   { name: "profile", href: "/(tabs)/profile", icon: User, labelKey: "nav.profile" },

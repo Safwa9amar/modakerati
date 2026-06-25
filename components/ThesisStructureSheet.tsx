@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import {
   BottomSheetModal,
@@ -11,9 +11,9 @@ import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
-import { Plus, Check, Circle } from "lucide-react-native";
-import type { Chapter } from "@/types/thesis";
+import { getThesisOutline, type OutlineDTO, type OutlineSectionDTO } from "@/lib/api";
 
 export function ThesisStructureSheet() {
   const { t } = useTranslation();
@@ -21,6 +21,8 @@ export function ThesisStructureSheet() {
   const router = useRouter();
   const thesis = useThesisStore((s) => s.getCurrentThesis());
   const isOpen = useBottomSheet((s) => s.openSheets.has("structure"));
+  // Structure is derived from the live .docx (the source of truth), fetched on open.
+  const [outline, setOutline] = useState<OutlineDTO | null>(null);
   const sheetRef = useRef<BottomSheetModal>(null);
   // gorhom wants a stable snapPoints reference; this component re-renders on
   // thesis-store changes, so memoize it to avoid handing the sheet a fresh array
@@ -39,6 +41,17 @@ export function ThesisStructureSheet() {
     return () => cancelAnimationFrame(id);
   }, [isOpen]);
 
+  // Pull the Partie/Chapitre outline from the working .docx whenever the sheet
+  // opens, so it reflects the latest AI edits.
+  useEffect(() => {
+    if (!isOpen || !thesis) return;
+    let active = true;
+    getThesisOutline(thesis.id)
+      .then((o) => { if (active) setOutline(o); })
+      .catch(() => { if (active) setOutline(null); });
+    return () => { active = false; };
+  }, [isOpen, thesis?.id]);
+
   // Dim + tap-to-close backdrop, fading in once the sheet is on screen.
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
@@ -54,32 +67,21 @@ export function ThesisStructureSheet() {
   // isOpen (not `thesis`): opening with no thesis still shows an empty list.
   if (!isOpen) return null;
 
-  const chapters = thesis?.chapters ?? [];
-  const doneCount = chapters.filter((c) => c.status === "done").length;
-  const progressCount = chapters.filter((c) => c.status === "in_progress").length;
-  const pendingCount = chapters.filter((c) => c.status === "not_started").length;
+  const liveOutline = outline?.available ? outline : null;
+  const sections: OutlineSectionDTO[] = liveOutline ? liveOutline.sections : [];
+  const sectionCount = liveOutline ? liveOutline.sectionCount : 0;
+  const chapterCount = liveOutline ? liveOutline.chapterCount : 0;
 
-  const statusColor = (status: string) => {
-    if (status === "done") return colors.brandAccent;
-    if (status === "in_progress") return colors.semanticWarning;
-    return colors.navInactive;
-  };
-
-  const statusIcon = (status: string) => {
-    if (status === "done") return <Check size={16} color={colors.brandAccent} strokeWidth={2.5} />;
-    if (status === "in_progress") return <Circle size={16} color={colors.semanticWarning} strokeWidth={2} fill={colors.semanticWarning} />;
-    return <Circle size={16} color={colors.navInactive} strokeWidth={1.5} />;
-  };
-
-  function handleChapterPress(chapter: Chapter) {
+  // Tap a Partie → open the live-docx workspace scrolled to that heading block.
+  function handleSectionPress(section: OutlineSectionDTO) {
     if (!thesis) return;
     useBottomSheet.getState().closeSheet("structure");
-    router.push({ pathname: "/(app)/edit-chapter", params: { thesisId: thesis.id, chapterId: chapter.id } } as any);
-  }
-
-  function handleAdd() {
-    if (!thesis) return;
-    useThesisStore.getState().addChapter(thesis.id, `Chapter ${chapters.length + 1}`);
+    useWorkspaceStore.getState().setActivePanel(null);
+    useWorkspaceStore.getState().selectBlock(section.index, section.title);
+    router.push({
+      pathname: "/(app)/thesis-workspace",
+      params: { thesisId: thesis.id, blockIndex: String(section.index) },
+    });
   }
 
   return (
@@ -87,7 +89,10 @@ export function ThesisStructureSheet() {
       ref={sheetRef}
       snapPoints={snapPoints}
       enableDynamicSizing={false}
-      onDismiss={() => useBottomSheet.getState().closeSheet("structure")}
+      onDismiss={() => {
+        useBottomSheet.getState().closeSheet("structure");
+        useWorkspaceStore.getState().setActivePanel(null);
+      }}
       backdropComponent={renderBackdrop}
       backgroundStyle={{ backgroundColor: colors.bgModal }}
       handleIndicatorStyle={{ backgroundColor: colors.textSecondary }}
@@ -96,53 +101,43 @@ export function ThesisStructureSheet() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.textPrimary }]}>{t("thesis.thesisStructure")}</Text>
-          <Pressable onPress={handleAdd} style={[styles.addBtn, { backgroundColor: colors.brandPrimary }]}>
-            <Plus size={14} color="#fff" strokeWidth={2.5} />
-            <Text style={styles.addBtnText}>{t("thesis.addChapter")}</Text>
-          </Pressable>
         </View>
 
-        {/* Status summary */}
+        {/* Counts summary (derived from the .docx) */}
         <View style={styles.statusRow}>
           <View style={styles.statusBadge}>
+            <View style={[styles.statusDot, { backgroundColor: colors.brandPrimary }]} />
+            <Text style={[styles.statusText, { color: colors.textSecondary }]}>{sectionCount} {t("home.sections")}</Text>
+          </View>
+          <View style={styles.statusBadge}>
             <View style={[styles.statusDot, { backgroundColor: colors.brandAccent }]} />
-            <Text style={[styles.statusText, { color: colors.textSecondary }]}>{doneCount} {t("thesis.done")}</Text>
-          </View>
-          <View style={styles.statusBadge}>
-            <View style={[styles.statusDot, { backgroundColor: colors.semanticWarning }]} />
-            <Text style={[styles.statusText, { color: colors.textSecondary }]}>{progressCount} {t("thesis.inProgress")}</Text>
-          </View>
-          <View style={styles.statusBadge}>
-            <View style={[styles.statusDot, { backgroundColor: colors.navInactive }]} />
-            <Text style={[styles.statusText, { color: colors.textSecondary }]}>{pendingCount} {t("thesis.pending")}</Text>
+            <Text style={[styles.statusText, { color: colors.textSecondary }]}>{chapterCount} {t("home.chapters")}</Text>
           </View>
         </View>
 
-        {/* Chapter list */}
+        {/* Section list (tap → open the document at that heading) */}
         <BottomSheetScrollView
           style={styles.chapterList}
           contentContainerStyle={styles.chapterListContent}
           showsVerticalScrollIndicator={false}
         >
-          {chapters.map((chapter) => (
+          {sections.map((section) => (
             <Pressable
-              key={chapter.id}
-              onPress={() => handleChapterPress(chapter)}
-              style={[styles.chapterCard, { backgroundColor: colors.bgCard, borderColor: statusColor(chapter.status) + "40" }]}
+              key={section.index}
+              onPress={() => handleSectionPress(section)}
+              style={[styles.chapterCard, { backgroundColor: colors.bgCard, borderColor: colors.navInactive + "40" }]}
             >
               <View style={styles.chapterRow}>
                 <View style={styles.chapterLeft}>
-                  <Text style={[styles.dragHandle, { color: colors.textSecondary + "80" }]}>{"⋮⋮"}</Text>
-                  <Text style={[styles.chapterTitle, { color: colors.textPrimary }]}>{chapter.title}</Text>
+                  <Text style={[styles.chapterTitle, { color: colors.textPrimary }]}>{section.title || t("thesis.thesisStructure")}</Text>
                 </View>
-                {statusIcon(chapter.status)}
               </View>
-              {chapter.sections.length > 0 && (
+              {section.chapters.length > 0 && (
                 <View style={styles.sectionsList}>
-                  {chapter.sections.map((sec) => (
-                    <View key={sec.id} style={styles.sectionRow}>
+                  {section.chapters.map((ch) => (
+                    <View key={ch.index} style={styles.sectionRow}>
                       <View style={[styles.sectionDot, { backgroundColor: colors.textSecondary }]} />
-                      <Text style={[styles.sectionName, { color: colors.textSecondary }]}>{sec.title}</Text>
+                      <Text style={[styles.sectionName, { color: colors.textSecondary }]}>{ch.title}</Text>
                     </View>
                   ))}
                 </View>
