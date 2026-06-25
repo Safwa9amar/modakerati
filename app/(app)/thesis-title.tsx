@@ -49,7 +49,7 @@ export default function ThesisTitleScreen() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [titleError, setTitleError] = useState(false);
 
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // -- debounced AI title suggestions --
 
