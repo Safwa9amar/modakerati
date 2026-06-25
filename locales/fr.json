@@ -356,7 +356,8 @@
     "planEmpty": "Ajoutez au moins une partie avec un titre.",
     "kindIntroduction": "Introduction",
     "kindSection": "Partie",
-    "kindConclusion": "Conclusion"
+    "kindConclusion": "Conclusion",
+    "titleRequired": "Veuillez entrer un titre pour votre memoire."
   },
   "notifications": {
     "title": "Notifications",

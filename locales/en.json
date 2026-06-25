@@ -356,7 +356,8 @@
     "planEmpty": "Add at least one part with a title.",
     "kindIntroduction": "Introduction",
     "kindSection": "Part",
-    "kindConclusion": "Conclusion"
+    "kindConclusion": "Conclusion",
+    "titleRequired": "Please enter a title for your thesis."
   },
   "notifications": {
     "title": "Notifications",

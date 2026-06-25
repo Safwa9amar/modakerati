@@ -356,7 +356,8 @@
     "planEmpty": "أضف قسمًا واحدًا على الأقل مع عنوان.",
     "kindIntroduction": "مقدمة",
     "kindSection": "قسم",
-    "kindConclusion": "خاتمة"
+    "kindConclusion": "خاتمة",
+    "titleRequired": "يرجى إدخال عنوان لمذكرتك."
   },
   "notifications": {
     "title": "الإشعارات",
