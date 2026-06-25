@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Image, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Image, useWindowDimensions, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useNavBarClearance } from "@/components/FloatingNavBar";
 import { useProfileStore } from "@/stores/profile-store";
+import { useImportStore } from "@/stores/import-store";
+import { useThesisStore } from "@/stores/thesis-store";
 import { listTheses, listNews } from "@/lib/api";
 import type { NewsArticle } from "@/types/news";
 import { useEffect, useState, useCallback } from "react";
@@ -18,8 +20,8 @@ interface ApiThesis {
   status: string;
   progress: number;
   updatedAt: string;
-  chapterCount?: number;
-  sectionCount?: number;
+  // Stored stats from the thesis row (structure lives in the .docx, not the DB).
+  pageCount?: number;
   wordCount?: number;
 }
 
@@ -67,9 +69,25 @@ export default function HomeScreen() {
     } as any);
   }, [router]);
 
+  const handleImport = useCallback(async () => {
+    const store = useImportStore.getState();
+    store.reset();
+    const result = await store.pickAndImport();
+    if (result === "ok") {
+      const thesis = useImportStore.getState().thesis;
+      if (thesis) {
+        useThesisStore.getState().upsertThesis(thesis);
+      }
+      router.push("/(app)/import-analysis" as any);
+    } else if (result === "error") {
+      const msg = useImportStore.getState().errorMessage;
+      Alert.alert(t("import.title"), msg || "Import failed");
+    }
+  }, [router, t]);
+
   const quickActions = [
     { icon: PenLine, label: t("home.newThesis"), color: colors.brandPrimary, onPress: () => router.push("/(app)/template-picker" as any) },
-    { icon: FolderUp, label: t("home.importDocx"), color: "#9959FF", onPress: () => {} },
+    { icon: FolderUp, label: t("home.importDocx"), color: "#9959FF", onPress: handleImport },
     { icon: LayoutGrid, label: t("home.templates"), color: colors.brandAccent, onPress: () => router.push("/(app)/template-picker" as any) },
     { icon: Zap, label: t("home.aiAssist"), color: colors.semanticWarning, onPress: () => {} },
   ];
@@ -95,7 +113,7 @@ export default function HomeScreen() {
           <Text style={[styles.emptyDesc, { color: colors.textSecondary }]}>{t("home.noThesesDesc")}</Text>
           <View style={styles.emptyButtons}>
             <Button title={t("home.createFirst")} onPress={() => router.push("/(app)/template-picker" as any)} />
-            <Button title={t("home.importExisting")} onPress={() => {}} variant="secondary" />
+            <Button title={t("home.importExisting")} onPress={handleImport} variant="secondary" />
           </View>
         </View>
       </SafeAreaView>
@@ -141,8 +159,7 @@ export default function HomeScreen() {
             const progressColors = [colors.brandPrimary, colors.brandAccent, colors.semanticWarning];
             const progressColor = progressColors[i % progressColors.length];
             const progress = Math.max(0, Math.min(100, Math.round(thesis.progress || 0)));
-            const chapterCount = thesis.chapterCount ?? 0;
-            const sectionCount = thesis.sectionCount ?? 0;
+            const pageCount = thesis.pageCount ?? 0;
             const wordCount = thesis.wordCount ?? 0;
             return (
               <Pressable key={thesis.id} onPress={() => selectThesis(thesis)} style={{ width: cardWidth }}>
@@ -162,22 +179,16 @@ export default function HomeScreen() {
                     <View style={styles.statItem}>
                       <Layers size={13} color={colors.textSecondary} strokeWidth={1.8} />
                       <Text style={[styles.statText, { color: colors.textSecondary }]}>
-                        {chapterCount} {t("home.chapters")}
+                        {pageCount} {t("home.pages", { defaultValue: "Pages" })}
                       </Text>
                     </View>
                     <View style={styles.statItem}>
                       <List size={13} color={colors.textSecondary} strokeWidth={1.8} />
                       <Text style={[styles.statText, { color: colors.textSecondary }]}>
-                        {sectionCount} {t("home.sections")}
+                        {wordCount.toLocaleString()} {t("home.words")}
                       </Text>
                     </View>
                   </View>
-
-                  {wordCount > 0 && (
-                    <Text style={[styles.cardWords, { color: colors.textSecondary }]}>
-                      {wordCount.toLocaleString()} {t("home.words")}
-                    </Text>
-                  )}
 
                   <View style={[styles.progressBg, { backgroundColor: colors.bgSurface }]}>
                     <View style={[styles.progressFill, { backgroundColor: progressColor, width: `${progress || 4}%` }]} />
