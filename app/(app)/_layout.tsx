@@ -28,5 +28,6 @@ export default function AppLayout() {
     <Stack.Screen name="citations" />
     <Stack.Screen name="ai-enhance" />
     <Stack.Screen name="network-error" />
+    <Stack.Screen name="import-analysis" />
   </Stack>;
 }
