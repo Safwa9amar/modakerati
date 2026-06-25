@@ -44,8 +44,8 @@ function SuggestionSection({
 
   return (
     <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
-      <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{title}</Text>
+      <View style={[styles.sectionCard, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}>
         {suggestions.map((s, i) => {
           const accepted = acceptedIds.includes(s.id);
           return (
@@ -53,11 +53,11 @@ function SuggestionSection({
               key={s.id}
               style={[
                 styles.suggestionRow,
-                i < suggestions.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.border },
+                i < suggestions.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.borderDefault },
               ]}
             >
               <SeverityIcon severity={s.severity} />
-              <Text style={[styles.suggestionText, { color: colors.text }]} numberOfLines={3}>
+              <Text style={[styles.suggestionText, { color: colors.textPrimary }]} numberOfLines={3}>
                 {s.message}
               </Text>
               <Pressable onPress={() => onToggle(s.id)} hitSlop={8}>
@@ -117,11 +117,11 @@ export default function ImportAnalysisScreen() {
   const isApplying = status === "applying";
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
       {/* Header */}
       <View style={styles.header}>
         <BackButton />
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
+        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
           {t("importAnalysis.title", "Analysis Results")}
         </Text>
         <View style={styles.headerSpacer} />
@@ -130,14 +130,14 @@ export default function ImportAnalysisScreen() {
       {isEmpty ? (
         <View style={styles.emptyContainer}>
           <CheckCircle size={48} color="#22C55E" />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>
+          <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>
             {t("importAnalysis.noIssues", "No issues found")}
           </Text>
-          <Text style={[styles.emptySubtitle, { color: colors.secondaryText }]}>
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
             {t("importAnalysis.noIssuesDesc", "Your document looks good. You can proceed to the workspace.")}
           </Text>
           <Pressable
-            style={[styles.primaryButton, { backgroundColor: colors.primary }]}
+            style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }]}
             onPress={handleSkip}
           >
             <Text style={styles.primaryButtonText}>
@@ -176,16 +176,16 @@ export default function ImportAnalysisScreen() {
 
             {/* Accept all */}
             <Pressable onPress={handleAcceptAll} style={styles.acceptAllButton}>
-              <Text style={[styles.acceptAllText, { color: colors.primary }]}>
+              <Text style={[styles.acceptAllText, { color: colors.brandPrimary }]}>
                 {t("importAnalysis.acceptAll", "Accept all")}
               </Text>
             </Pressable>
           </ScrollView>
 
           {/* Bottom actions */}
-          <View style={[styles.bottomActions, { borderTopColor: colors.border }]}>
+          <View style={[styles.bottomActions, { borderTopColor: colors.borderDefault }]}>
             <Pressable
-              style={[styles.primaryButton, { backgroundColor: colors.primary }, isApplying && styles.disabledButton]}
+              style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }, isApplying && styles.disabledButton]}
               onPress={handleApply}
               disabled={isApplying}
             >
@@ -199,11 +199,11 @@ export default function ImportAnalysisScreen() {
             </Pressable>
 
             <Pressable
-              style={[styles.secondaryButton, { borderColor: colors.border }]}
+              style={[styles.secondaryButton, { borderColor: colors.borderDefault }]}
               onPress={handleSkip}
               disabled={isApplying}
             >
-              <Text style={[styles.secondaryButtonText, { color: colors.text }]}>
+              <Text style={[styles.secondaryButtonText, { color: colors.textPrimary }]}>
                 {t("importAnalysis.skipToWorkspace", "Skip to workspace")}
               </Text>
             </Pressable>
