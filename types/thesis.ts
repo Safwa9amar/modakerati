@@ -1,28 +1,8 @@
 export type ThesisStatus = "active" | "completed" | "archived";
-export type ChapterStatus = "not_started" | "in_progress" | "done";
-export type SectionKind = "introduction" | "section" | "conclusion";
 
-// Chapter = content leaf ("Chapitre"), belongs to a Section.
-export interface Chapter {
-  id: string;
-  sectionId: string;
-  title: string;
-  content: string;          // markdown (#/##/### headings, tables, figures)
-  orderIndex: number;
-  wordCount: number;
-  status: ChapterStatus;
-}
-
-// Section = top container ("Partie").
-export interface Section {
-  id: string;
-  thesisId: string;
-  title: string;
-  kind: SectionKind;
-  content?: string | null;  // markdown, for intro/conclusion-style sections
-  orderIndex: number;
-  chapters: Chapter[];
-}
+// Structure (Partie/Chapitre) is no longer modeled in the DB/app — the working
+// .docx is the single source of truth. The detail screen derives the outline
+// from it via GET /api/thesis/:id/outline (see OutlineDTO in lib/api.ts).
 
 export interface ResumeBlock {
   language: "ar" | "fr" | "en";
@@ -49,7 +29,6 @@ export interface Thesis {
   pageCount: number;
   frontMatter?: ThesisFrontMatter;
   resume?: ResumeBlock[];
-  sections: Section[];
   createdAt: string;
   updatedAt: string;
 }
@@ -93,4 +72,24 @@ export interface Template {
     headingSizes?: Record<string, number>;
   };
   chapterStructure: string[]; // legacy seed (used as section titles for generic preset)
+}
+
+export interface NormProfile {
+  id: string;
+  name: string;
+  university: string | null;
+  language: string;
+  discipline: Discipline;
+  bodyPreset: BodyPreset;
+  citationStyle: CitationStyle;
+  bindingSide: "left" | "right";
+  formatting?: {
+    font: string;
+    fontSize: number;
+    headingSizes: { h1: number; h2: number; h3: number };
+    margins: { binding: number; opposite: number; top: number; bottom: number };
+    spacing: number;
+    footnoteFontSize: number;
+    alignment: string;
+  };
 }

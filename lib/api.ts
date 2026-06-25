@@ -13,7 +13,7 @@ import type {
   DocumentRecord,
   ParagraphMutationResult,
 } from "@/types/document";
-import type { Thesis, SectionKind, Template } from "@/types/thesis";
+import type { Thesis, Template, NormProfile } from "@/types/thesis";
 import type { ThesisSource } from "@/types/source";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://modakerati-api.fly.dev";
@@ -293,7 +293,7 @@ export async function chatSendStream(
 // ============================================================
 
 export async function listTheses() {
-  return apiGet<Array<Thesis & { sectionCount: number; chapterCount: number }>>("/api/thesis");
+  return apiGet<Thesis[]>("/api/thesis");
 }
 
 export async function getThesis(id: string) {
@@ -303,8 +303,11 @@ export async function getThesis(id: string) {
 export async function createThesis(input: {
   title: string;
   templateId?: string;
+  normProfileId?: string;
   language?: string;
-  sections?: Array<{ title: string; kind?: SectionKind; chapters?: Array<{ title: string; content?: string }> }>;
+  // The generated outline that SEEDS the working .docx. It is not persisted as
+  // section/chapter rows — the .docx is the source of truth.
+  sections?: Array<{ title: string; kind?: "introduction" | "section" | "conclusion"; chapters?: Array<{ title: string; content?: string }> }>;
 }) {
   return apiPost<Thesis>("/api/thesis", input);
 }
@@ -337,13 +340,16 @@ export async function listTemplates() {
   return apiGet<Template[]>("/api/templates");
 }
 
-export async function generateThesisPlan(input: { title: string; language?: string; bodyPreset?: string; templateId?: string }) {
-  return apiPost<{ sections: Array<{ title: string; kind: "introduction" | "section" | "conclusion"; chapters: Array<{ title: string; hint?: string; content?: string }> }> }>("/api/thesis/generate-plan", input);
+export async function listNormProfiles() {
+  return apiGet<NormProfile[]>("/api/norm-profiles");
 }
 
-// Server-rendered A4 HTML preview of the whole thesis (shown in a WebView).
-export async function getThesisPreviewHtml(id: string) {
-  return apiGet<{ html: string }>(`/api/thesis/${id}/preview-html`);
+export async function getNormProfile(id: string) {
+  return apiGet<NormProfile>(`/api/norm-profiles/${id}`);
+}
+
+export async function generateThesisPlan(input: { title: string; language?: string; bodyPreset?: string; templateId?: string }) {
+  return apiPost<{ sections: Array<{ title: string; kind: "introduction" | "section" | "conclusion"; chapters: Array<{ title: string; hint?: string; content?: string }> }> }>("/api/thesis/generate-plan", input);
 }
 
 // ============================================================
@@ -384,6 +390,49 @@ export type DocumentDTO =
 // back to that render.
 export async function getThesisDocument(id: string): Promise<DocumentDTO> {
   return apiGet<DocumentDTO>(`/api/thesis/${id}/document`);
+}
+
+// ============================================================
+// Docx-as-source structural outline (detail screen)
+// Mirrors GET /api/thesis/:id/outline. Sections (Partie) derived from the live
+// .docx headings, each grouping its chapters (Chapitre). `index` is the engine
+// block index → tapping navigates the workspace to that block.
+// ============================================================
+
+export type OutlineSectionDTO = {
+  index: number;
+  title: string;
+  chapters: { index: number; title: string }[];
+};
+export type OutlineDTO =
+  | {
+      id: string;
+      title: string;
+      docMode: "live-docx";
+      available: true;
+      wordCount: number;
+      pageCount: number;
+      sectionCount: number;
+      chapterCount: number;
+      sections: OutlineSectionDTO[];
+    }
+  | { id: string; title: string; docMode: string; available: false };
+
+export async function getThesisOutline(id: string): Promise<OutlineDTO> {
+  return apiGet<OutlineDTO>(`/api/thesis/${id}/outline`);
+}
+
+// OnlyOffice Docs editor config (signed DocEditor config + the public Document
+// Server URL). `enabled:false` when the server has no Document Server configured
+// → the workspace falls back to the docx-preview viewer (WordDocxView). The
+// signed `config.document.key` changes whenever the .docx changes, so a fresh
+// fetch after an AI turn forces the OnlyOffice view to reload the new bytes.
+export type EditorConfigDTO =
+  | { enabled: false }
+  | { enabled: true; documentServerUrl: string; config: any };
+
+export async function getThesisEditorConfig(id: string): Promise<EditorConfigDTO> {
+  return apiGet<EditorConfigDTO>(`/api/thesis/${id}/editor-config`);
 }
 
 // Export the thesis to a downloadable file (default .docx) → signed URL.
@@ -611,6 +660,12 @@ export async function getDocumentDownload(
   id: string
 ): Promise<{ url: string; filename: string }> {
   return apiGet<{ url: string; filename: string }>(`/api/documents/${id}/download`);
+}
+
+// OnlyOffice editor config to VIEW an imported .docx (same shape as the thesis
+// editor-config; `{ enabled:false }` → the app falls back to docx-preview).
+export async function getDocumentEditorConfig(id: string): Promise<EditorConfigDTO> {
+  return apiGet<EditorConfigDTO>(`/api/documents/${id}/editor-config`);
 }
 
 export async function editDocumentParagraph(
