@@ -76,6 +76,7 @@ export function ThesisStructureSheet() {
   function handleSectionPress(section: OutlineSectionDTO) {
     if (!thesis) return;
     useBottomSheet.getState().closeSheet("structure");
+    useWorkspaceStore.getState().setActivePanel(null);
     useWorkspaceStore.getState().selectBlock(section.index, section.title);
     router.push({
       pathname: "/(app)/thesis-workspace",
@@ -88,7 +89,10 @@ export function ThesisStructureSheet() {
       ref={sheetRef}
       snapPoints={snapPoints}
       enableDynamicSizing={false}
-      onDismiss={() => useBottomSheet.getState().closeSheet("structure")}
+      onDismiss={() => {
+        useBottomSheet.getState().closeSheet("structure");
+        useWorkspaceStore.getState().setActivePanel(null);
+      }}
       backdropComponent={renderBackdrop}
       backgroundStyle={{ backgroundColor: colors.bgModal }}
       handleIndicatorStyle={{ backgroundColor: colors.textSecondary }}

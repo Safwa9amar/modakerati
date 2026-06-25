@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   Pressable,
+  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
@@ -13,7 +14,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams } from "expo-router";
 import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
-import { Maximize2, Paperclip, Download } from "lucide-react-native";
+import { Maximize2, Paperclip, Download, Paintbrush, ListTree } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -26,7 +27,9 @@ import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
 import { WorkspaceComposer } from "@/components/workspace/WorkspaceComposer";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
+import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import {
+  formatThesis,
   getThesisDocument,
   getThesisEditorConfig,
   type DocumentDTO,
@@ -61,6 +64,8 @@ export default function ThesisWorkspaceScreen() {
   // Drives the live block refresh below: while a turn is generating the AI
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
   const isGenerating = useChatStore((s) => s.isGenerating);
+  const isFormatting = useWorkspaceStore((s) => s.isFormatting);
+  const activePanel = useWorkspaceStore((s) => s.activePanel);
 
   // Live-.docx document model. `undefined` while loading; `null` once we know
   // the thesis is legacy (available:false) → fall back to the section render.
@@ -107,6 +112,36 @@ export default function ThesisWorkspaceScreen() {
       setEditorCfg({ enabled: false });
     }
   }, [thesisId]);
+
+  // Format the thesis (apply norm-profile styles to the live .docx).
+  const handleFormat = useCallback(async () => {
+    const th = useThesisStore.getState().getCurrentThesis();
+    if (!th) return;
+    useWorkspaceStore.getState().setFormatting(true);
+    try {
+      await formatThesis(th.id);
+      Alert.alert(t("workspace.formatted"));
+      void refreshDoc();
+    } catch {
+      Alert.alert(t("workspace.formatError"));
+    } finally {
+      useWorkspaceStore.getState().setFormatting(false);
+    }
+  }, [t, refreshDoc]);
+
+  // Toggle the outline panel. The ThesisStructureSheet gates on the bottom-sheet
+  // store's "structure" key for its open state, so we sync both stores.
+  const handleOutlineToggle = useCallback(() => {
+    const ws = useWorkspaceStore.getState();
+    const bs = useBottomSheet.getState();
+    if (ws.activePanel === "outline") {
+      ws.togglePanel("outline");
+      bs.closeSheet("structure");
+    } else {
+      ws.togglePanel("outline");
+      bs.openSheet("structure");
+    }
+  }, []);
 
   // Initial load of the document model + editor config.
   useEffect(() => {
@@ -193,6 +228,34 @@ export default function ThesisWorkspaceScreen() {
         >
           {title}
         </Text>
+        {/* Outline toggle */}
+        <Pressable
+          onPress={handleOutlineToggle}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("workspace.outline", { defaultValue: "Outline" })}
+          style={styles.expandBtn}
+        >
+          <ListTree
+            size={20}
+            color={activePanel === "outline" ? colors.brandPrimary : colors.textPrimary}
+          />
+        </Pressable>
+        {/* Format thesis → apply norm-profile styles. */}
+        <Pressable
+          onPress={handleFormat}
+          hitSlop={8}
+          disabled={isFormatting}
+          accessibilityRole="button"
+          accessibilityLabel={t("workspace.format", { defaultValue: "Format" })}
+          style={[styles.expandBtn, isFormatting && { opacity: 0.5 }]}
+        >
+          {isFormatting ? (
+            <ActivityIndicator size="small" color={colors.brandPrimary} />
+          ) : (
+            <Paintbrush size={20} color={colors.textPrimary} />
+          )}
+        </Pressable>
         {/* Sources → reference files the AI can draw from. */}
         <Pressable
           onPress={() => useBottomSheet.getState().openSheet("thesis-sources")}
@@ -297,6 +360,9 @@ export default function ThesisWorkspaceScreen() {
 
       {/* Sources sheet — self-hides when closed (conditional unmount). */}
       <SourcesSheet thesisId={thesisId} />
+
+      {/* Outline sheet — mounted only while the outline panel is active. */}
+      {activePanel === "outline" && <ThesisStructureSheet />}
 
       {/* The model's pending question → blocking answer sheet. */}
       {pendingAsk && (
