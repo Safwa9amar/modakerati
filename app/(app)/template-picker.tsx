@@ -1,94 +1,355 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
-  StyleSheet,
-  ScrollView,
   Pressable,
-  Alert,
+  ScrollView,
+  ActivityIndicator,
+  StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
-import { useBottomSheet } from "@/stores/bottom-sheet-store";
-import { FileText, Wand2, Upload, Search } from "lucide-react-native";
+import { useThesisWizard } from "@/stores/thesis-wizard-store";
 import { BackButton } from "@/components/BackButton";
-import { Card } from "@/components/ui/Card";
-import { TextInput } from "@/components/ui/TextInput";
-import { NewThesisSheet } from "@/components/NewThesisSheet";
+import {
+  FileText,
+  ChevronRight,
+  Globe,
+  BookOpen,
+  GraduationCap,
+  ChevronDown,
+  X,
+} from "lucide-react-native";
+import type { NormProfile } from "@/types/thesis";
 
-const ACCENT_COLORS = ["#5C6BFF", "#33D6A6", "#9959FF", "#FF9933", "#FF5959"];
+// ---------------------------------------------------------------------------
+// Filter chip component
+// ---------------------------------------------------------------------------
+
+function FilterChip({
+  label,
+  active,
+  onPress,
+  colors,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  colors: ReturnType<typeof useThemeColors>;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.filterChip,
+        {
+          backgroundColor: active ? colors.brandPrimary + "18" : colors.bgSurface,
+          borderColor: active ? colors.brandPrimary : colors.borderSubtle,
+        },
+      ]}
+    >
+      <Text
+        style={[
+          styles.filterChipText,
+          { color: active ? colors.brandPrimary : colors.textSecondary },
+        ]}
+      >
+        {label}
+      </Text>
+      {active ? (
+        <X size={12} color={colors.brandPrimary} strokeWidth={2.5} />
+      ) : (
+        <ChevronDown size={12} color={colors.textSecondary} strokeWidth={2} />
+      )}
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Filter row with expandable options
+// ---------------------------------------------------------------------------
+
+type FilterKey = "university" | "discipline" | "language";
+
+function FilterRow({
+  profiles,
+  universityFilter,
+  disciplineFilter,
+  languageFilter,
+  setUniversityFilter,
+  setDisciplineFilter,
+  setLanguageFilter,
+  colors,
+  t,
+}: {
+  profiles: NormProfile[];
+  universityFilter: string | null;
+  disciplineFilter: string | null;
+  languageFilter: string | null;
+  setUniversityFilter: (v: string | null) => void;
+  setDisciplineFilter: (v: string | null) => void;
+  setLanguageFilter: (v: string | null) => void;
+  colors: ReturnType<typeof useThemeColors>;
+  t: (key: string) => string;
+}) {
+  const [expandedFilter, setExpandedFilter] = useState<FilterKey | null>(null);
+
+  const universities = useMemo(() => {
+    const set = new Set<string>();
+    profiles.forEach((p) => {
+      if (p.university) set.add(p.university);
+    });
+    return Array.from(set).sort();
+  }, [profiles]);
+
+  const disciplines = ["science", "law-humanities", "generic"];
+  const languages = ["fr", "ar", "en"];
+
+  const disciplineLabel = (d: string) => {
+    switch (d) {
+      case "science": return "Science / IMRAD";
+      case "law-humanities": return "Law & Humanities";
+      case "generic": return "Generic";
+      default: return d;
+    }
+  };
+
+  const languageLabel = (l: string) => {
+    switch (l) {
+      case "fr": return "Fran\u00e7ais";
+      case "ar": return "\u0627\u0644\u0639\u0631\u0628\u064a\u0629";
+      case "en": return "English";
+      default: return l.toUpperCase();
+    }
+  };
+
+  const toggleFilter = (key: FilterKey) => {
+    setExpandedFilter((prev) => (prev === key ? null : key));
+  };
+
+  const selectOption = (key: FilterKey, value: string | null) => {
+    if (key === "university") setUniversityFilter(value);
+    else if (key === "discipline") setDisciplineFilter(value);
+    else setLanguageFilter(value);
+    setExpandedFilter(null);
+  };
+
+  return (
+    <View style={styles.filterSection}>
+      {/* Chip row */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRow}
+      >
+        <FilterChip
+          label={universityFilter ?? t("wizard.allUniversities")}
+          active={!!universityFilter}
+          onPress={() =>
+            universityFilter ? setUniversityFilter(null) : toggleFilter("university")
+          }
+          colors={colors}
+        />
+        <FilterChip
+          label={
+            disciplineFilter
+              ? disciplineLabel(disciplineFilter)
+              : t("wizard.allDisciplines")
+          }
+          active={!!disciplineFilter}
+          onPress={() =>
+            disciplineFilter ? setDisciplineFilter(null) : toggleFilter("discipline")
+          }
+          colors={colors}
+        />
+        <FilterChip
+          label={
+            languageFilter
+              ? languageLabel(languageFilter)
+              : t("wizard.filterLanguage")
+          }
+          active={!!languageFilter}
+          onPress={() =>
+            languageFilter ? setLanguageFilter(null) : toggleFilter("language")
+          }
+          colors={colors}
+        />
+      </ScrollView>
+
+      {/* Expanded options */}
+      {expandedFilter === "university" && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.optionsRow}
+        >
+          {universities.map((u) => (
+            <Pressable
+              key={u}
+              onPress={() => selectOption("university", u)}
+              style={[styles.optionPill, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
+            >
+              <Text style={[styles.optionPillText, { color: colors.textPrimary }]}>{u}</Text>
+            </Pressable>
+          ))}
+          {universities.length === 0 && (
+            <Text style={[styles.emptyFilter, { color: colors.textSecondary }]}>--</Text>
+          )}
+        </ScrollView>
+      )}
+
+      {expandedFilter === "discipline" && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.optionsRow}
+        >
+          {disciplines.map((d) => (
+            <Pressable
+              key={d}
+              onPress={() => selectOption("discipline", d)}
+              style={[styles.optionPill, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
+            >
+              <Text style={[styles.optionPillText, { color: colors.textPrimary }]}>{disciplineLabel(d)}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
+      {expandedFilter === "language" && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.optionsRow}
+        >
+          {languages.map((l) => (
+            <Pressable
+              key={l}
+              onPress={() => selectOption("language", l)}
+              style={[styles.optionPill, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
+            >
+              <Text style={[styles.optionPillText, { color: colors.textPrimary }]}>{languageLabel(l)}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Badge component
+// ---------------------------------------------------------------------------
+
+function Badge({
+  icon: Icon,
+  label,
+  colors,
+}: {
+  icon: typeof Globe;
+  label: string;
+  colors: ReturnType<typeof useThemeColors>;
+}) {
+  return (
+    <View style={[styles.badge, { backgroundColor: colors.bgSurface }]}>
+      <Icon size={12} color={colors.textSecondary} strokeWidth={2} />
+      <Text style={[styles.badgeText, { color: colors.textSecondary }]}>{label}</Text>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main screen
+// ---------------------------------------------------------------------------
 
 export default function TemplatePickerScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
-  const { templates } = useThesisStore();
-  const [search, setSearch] = useState("");
 
-  // Pull the latest university templates from the server on mount.
+  const normProfiles = useThesisStore((s) => s.normProfiles);
+  const [loading, setLoading] = useState(true);
+
+  const [universityFilter, setUniversityFilter] = useState<string | null>(null);
+  const [disciplineFilter, setDisciplineFilter] = useState<string | null>(null);
+  const [languageFilter, setLanguageFilter] = useState<string | null>(null);
+
   useEffect(() => {
-    useThesisStore.getState().loadTemplates();
+    setLoading(true);
+    useThesisStore
+      .getState()
+      .loadNormProfiles()
+      .finally(() => setLoading(false));
   }, []);
 
-  const filteredTemplates = templates.filter(
-    (tpl) =>
-      tpl.university.toLowerCase().includes(search.toLowerCase()) ||
-      tpl.type.toLowerCase().includes(search.toLowerCase()) ||
-      tpl.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = useMemo(() => {
+    return normProfiles.filter((p) => {
+      if (universityFilter && p.university !== universityFilter) return false;
+      if (disciplineFilter && p.discipline !== disciplineFilter) return false;
+      if (languageFilter && p.language !== languageFilter) return false;
+      return true;
+    });
+  }, [normProfiles, universityFilter, disciplineFilter, languageFilter]);
 
-  // Both Blank and AI Wizard enter the same title -> template -> plan wizard;
-  // the title sheet (NewThesisSheet) captures the title and advances the flow.
-  const handleStartWizard = () => {
-    useBottomSheet.getState().openSheet("new-thesis");
+  // -- handlers --
+
+  const handleBlank = () => {
+    useThesisWizard.getState().set({
+      normProfileId: null,
+      step: "title",
+    });
+    router.push("/(app)/thesis-title" as any);
   };
 
-  // Importing an existing .docx is a deferred scenario.
-  const handleImport = () => {
-    Alert.alert(t("template.import"), t("common.comingSoon", { defaultValue: "Bientôt disponible" }));
+  const handleSelect = (profile: NormProfile) => {
+    useThesisWizard.getState().set({
+      normProfileId: profile.id,
+      language: profile.language,
+      step: "title",
+    });
+    router.push("/(app)/thesis-title" as any);
   };
 
-  const handleTemplateTap = (templateId: string) => {
-    router.push({ pathname: "/(app)/template-preview", params: { templateId } } as any);
+  // -- discipline display --
+  const disciplineLabel = (d: string) => {
+    switch (d) {
+      case "science": return "Science";
+      case "law-humanities": return "Law & Humanities";
+      case "generic": return "Generic";
+      default: return d;
+    }
   };
 
-  const quickStarts = [
-    {
-      icon: FileText,
-      label: t("template.blank"),
-      subtitle: t("template.startFresh"),
-      color: colors.brandPrimary,
-      onPress: handleStartWizard,
-    },
-    {
-      icon: Wand2,
-      label: t("template.aiWizard"),
-      subtitle: t("template.guidedSetup"),
-      color: "#9959FF",
-      onPress: handleStartWizard,
-    },
-    {
-      icon: Upload,
-      label: t("template.import"),
-      subtitle: t("template.docxFile"),
-      color: colors.brandAccent,
-      onPress: handleImport,
-    },
-  ];
+  const languageLabel = (l: string) => {
+    switch (l) {
+      case "fr": return "FR";
+      case "ar": return "AR";
+      case "en": return "EN";
+      default: return l.toUpperCase();
+    }
+  };
+
+  const citationLabel = (c: string) => {
+    switch (c) {
+      case "apa": return "APA";
+      case "footnote-ar": return "Footnote";
+      default: return c;
+    }
+  };
 
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: colors.bgPrimary }]}
       edges={["top"]}
     >
-      {/* Top bar */}
+      {/* Header */}
       <View style={styles.topBar}>
         <BackButton />
         <Text style={[styles.title, { color: colors.textPrimary }]}>
-          {t("template.startNew")}
+          {t("wizard.pickTemplate")}
         </Text>
         <View style={{ width: 30 }} />
       </View>
@@ -97,122 +358,128 @@ export default function TemplatePickerScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Search */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchIconWrap}>
-            <Search size={18} color={colors.textPlaceholder} strokeWidth={2} />
-          </View>
-          <TextInput
-            placeholder={t("template.searchTemplates")}
-            value={search}
-            onChangeText={setSearch}
-            style={styles.searchInput}
-          />
-        </View>
-
-        {/* Quick start row */}
-        <View style={styles.quickRow}>
-          {quickStarts.map((item, i) => (
-            <Pressable
-              key={i}
-              onPress={item.onPress}
-              style={[styles.quickCard, { backgroundColor: colors.bgCard }]}
-            >
-              <View
-                style={[
-                  styles.quickIconBg,
-                  { backgroundColor: item.color + "22" },
-                ]}
-              >
-                <item.icon
-                  size={22}
-                  color={item.color}
-                  strokeWidth={1.8}
-                />
-              </View>
-              <Text
-                style={[styles.quickLabel, { color: colors.textPrimary }]}
-              >
-                {item.label}
-              </Text>
-              <Text
-                style={[
-                  styles.quickSub,
-                  { color: colors.textSecondary },
-                ]}
-              >
-                {item.subtitle}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* University Templates */}
-        <Text
-          style={[styles.sectionTitle, { color: colors.textPrimary }]}
+        {/* Blank card */}
+        <Pressable
+          onPress={handleBlank}
+          style={[
+            styles.blankCard,
+            {
+              backgroundColor: colors.bgCard,
+              borderColor: colors.brandPrimary + "44",
+            },
+          ]}
         >
-          {t("template.universityTemplates")}
-        </Text>
-
-        {filteredTemplates.map((tpl, i) => (
-          <Pressable
-            key={tpl.id}
-            onPress={() => handleTemplateTap(tpl.id)}
+          <View
+            style={[
+              styles.blankIconWrap,
+              { backgroundColor: colors.brandPrimary + "18" },
+            ]}
           >
-            <Card style={styles.templateCard}>
-              <View
-                style={[
-                  styles.accentBar,
-                  {
-                    backgroundColor:
-                      ACCENT_COLORS[i % ACCENT_COLORS.length],
-                  },
-                ]}
-              />
-              <View style={styles.templateContent}>
+            <FileText size={28} color={colors.brandPrimary} strokeWidth={1.6} />
+          </View>
+          <View style={styles.blankTextWrap}>
+            <Text style={[styles.blankTitle, { color: colors.textPrimary }]}>
+              {t("wizard.blank")}
+            </Text>
+            <Text style={[styles.blankSubtitle, { color: colors.textSecondary }]}>
+              {t("wizard.blankDesc")}
+            </Text>
+          </View>
+          <ChevronRight size={20} color={colors.textSecondary} strokeWidth={2} />
+        </Pressable>
+
+        {/* Filters */}
+        <FilterRow
+          profiles={normProfiles}
+          universityFilter={universityFilter}
+          disciplineFilter={disciplineFilter}
+          languageFilter={languageFilter}
+          setUniversityFilter={setUniversityFilter}
+          setDisciplineFilter={setDisciplineFilter}
+          setLanguageFilter={setLanguageFilter}
+          colors={colors}
+          t={t}
+        />
+
+        {/* Loading state */}
+        {loading && (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="small" color={colors.brandPrimary} />
+          </View>
+        )}
+
+        {/* Norm profile cards */}
+        {!loading &&
+          filtered.map((profile) => (
+            <Pressable
+              key={profile.id}
+              onPress={() => handleSelect(profile)}
+              style={[
+                styles.profileCard,
+                {
+                  backgroundColor: colors.bgCard,
+                  borderColor: colors.borderSubtle,
+                },
+              ]}
+            >
+              <View style={styles.profileContent}>
                 <Text
-                  style={[
-                    styles.templateUniversity,
-                    { color: colors.textPrimary },
-                  ]}
+                  style={[styles.profileName, { color: colors.textPrimary }]}
+                  numberOfLines={2}
                 >
-                  {tpl.university}
+                  {profile.name}
                 </Text>
-                <View style={styles.templateMeta}>
-                  <Text
-                    style={[
-                      styles.templateType,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    {tpl.type}
-                  </Text>
-                  <View
-                    style={[
-                      styles.langBadge,
-                      { backgroundColor: colors.bgSurface },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.langText,
-                        { color: colors.textSecondary },
-                      ]}
-                    >
-                      {tpl.language}
-                    </Text>
-                  </View>
+
+                <View style={styles.badgeRow}>
+                  <Badge
+                    icon={GraduationCap}
+                    label={profile.university ?? t("wizard.allUniversities")}
+                    colors={colors}
+                  />
+                  <Badge
+                    icon={BookOpen}
+                    label={disciplineLabel(profile.discipline)}
+                    colors={colors}
+                  />
+                </View>
+
+                <View style={styles.badgeRow}>
+                  <Badge
+                    icon={Globe}
+                    label={languageLabel(profile.language)}
+                    colors={colors}
+                  />
+                  <Badge
+                    icon={FileText}
+                    label={citationLabel(profile.citationStyle)}
+                    colors={colors}
+                  />
                 </View>
               </View>
-            </Card>
-          </Pressable>
-        ))}
-      </ScrollView>
 
-      <NewThesisSheet />
+              <ChevronRight
+                size={18}
+                color={colors.textSecondary}
+                strokeWidth={2}
+                style={styles.profileChevron}
+              />
+            </Pressable>
+          ))}
+
+        {/* Empty state */}
+        {!loading && filtered.length === 0 && normProfiles.length > 0 && (
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+            No profiles match these filters.
+          </Text>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -231,88 +498,122 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
-    gap: 20,
+    gap: 16,
     paddingBottom: 40,
   },
-  searchContainer: {
-    position: "relative",
-  },
-  searchIconWrap: {
-    position: "absolute",
-    left: 14,
-    top: 15,
-    zIndex: 1,
-  },
-  searchInput: {
-    paddingLeft: 40,
-  },
-  quickRow: {
+
+  // Blank card
+  blankCard: {
     flexDirection: "row",
-    gap: 12,
-  },
-  quickCard: {
-    flex: 1,
-    borderRadius: 16,
-    padding: 14,
     alignItems: "center",
-    gap: 6,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    padding: 16,
+    gap: 14,
   },
-  quickIconBg: {
-    width: 40,
-    height: 40,
+  blankIconWrap: {
+    width: 52,
+    height: 52,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
-  quickLabel: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    textAlign: "center",
-  },
-  quickSub: {
-    fontSize: 10,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-  },
-  sectionTitle: {
-    fontSize: 18,
+  blankTextWrap: { flex: 1, gap: 2 },
+  blankTitle: {
+    fontSize: 16,
     fontFamily: "Inter_600SemiBold",
   },
-  templateCard: {
-    flexDirection: "row",
-    overflow: "hidden",
-    padding: 0,
-  },
-  accentBar: {
-    width: 4,
-    borderTopLeftRadius: 14,
-    borderBottomLeftRadius: 14,
-  },
-  templateContent: {
-    flex: 1,
-    padding: 16,
-    gap: 6,
-  },
-  templateUniversity: {
-    fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
-  },
-  templateMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  templateType: {
+  blankSubtitle: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
   },
-  langBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
+
+  // Filters
+  filterSection: { gap: 8 },
+  filterRow: { gap: 8 },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 6,
   },
-  langText: {
+  filterChipText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+  },
+  optionsRow: {
+    gap: 8,
+    paddingVertical: 4,
+  },
+  optionPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  optionPillText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+  },
+  emptyFilter: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    paddingHorizontal: 8,
+  },
+
+  // Loading
+  loadingWrap: {
+    paddingVertical: 32,
+    alignItems: "center",
+  },
+
+  // Profile cards
+  profileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    gap: 10,
+  },
+  profileContent: {
+    flex: 1,
+    gap: 8,
+  },
+  profileName: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    gap: 4,
+  },
+  badgeText: {
     fontSize: 11,
     fontFamily: "Inter_500Medium",
+  },
+  profileChevron: {
+    alignSelf: "center",
+  },
+
+  // Empty
+  emptyText: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    paddingVertical: 24,
   },
 });
