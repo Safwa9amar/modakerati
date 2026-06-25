@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   Pressable,
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,60 +10,53 @@ import {
   Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
 import { Maximize2, Paperclip, Download } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { sendMessageToAI } from "@/lib/ai-service";
 import { BackButton } from "@/components/BackButton";
-import { PaperPage } from "@/components/workspace/PaperPage";
-import { ChapterCard } from "@/components/workspace/ChapterCard";
-import { DocBlock } from "@/components/workspace/DocBlock";
+import { WordDocxView, type DocTapBlock } from "@/components/workspace/WordDocxView";
+import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
 import { WorkspaceComposer } from "@/components/workspace/WorkspaceComposer";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
-import { Markdown } from "@/components/Markdown";
-import { getTextDirection } from "@/lib/text-direction";
-import { getThesisDocument, type DocumentDTO, type DocBlockDTO } from "@/lib/api";
-import type { SectionKind } from "@/types/thesis";
+import {
+  getThesisDocument,
+  getThesisEditorConfig,
+  type DocumentDTO,
+  type DocBlockDTO,
+  type EditorConfigDTO,
+} from "@/lib/api";
 
-// Dark ink / muted ink for text rendered on the always-white PaperPage.
+// Ink colors retained by the workspace stylesheet.
 const INK = "#1A1A1A";
 const MUTED = "#777777";
 
-/**
- * Groups live-.docx blocks into paper pages. Heuristic: a level-1 heading starts
- * a new page (a "Section"); leading blocks before the first level-1 heading (the
- * cover banner/logo + title lines) form the first page. Empty trailing groups are
- * dropped so we never render a blank PaperPage.
- */
-function groupBlocksIntoPages(blocks: DocBlockDTO[]): DocBlockDTO[][] {
-  const pages: DocBlockDTO[][] = [];
-  let current: DocBlockDTO[] = [];
-  for (const block of blocks) {
-    const isLevel1Heading = block.kind === "paragraph" && block.level === 1;
-    if (isLevel1Heading && current.length > 0) {
-      pages.push(current);
-      current = [];
-    }
-    current.push(block);
-  }
-  if (current.length > 0) pages.push(current);
-  return pages;
+// Flat text of a block for tap→index matching in the docx-preview fallback view.
+function blockTapText(b: DocBlockDTO): string {
+  if (b.kind === "paragraph") return b.text;
+  if (b.kind === "table") return b.rows.map((r) => r.join(" ")).join(" ");
+  if (b.kind === "image") return b.caption ?? "";
+  return "";
 }
 
 export default function ThesisWorkspaceScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const { thesisId } = useLocalSearchParams<{ thesisId: string }>();
+  const { thesisId, blockIndex } = useLocalSearchParams<{ thesisId: string; blockIndex?: string }>();
 
   const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
-  const selected = useThesisStore((s) => s.selected);
+  const selected = useWorkspaceStore((s) => ({
+    blockText: s.selectedBlockText,
+    docBlockIndex: s.selectedBlockIndex,
+  }));
   const pendingAsk = useChatStore((s) => s.pendingAsk);
   // Drives the live block refresh below: while a turn is generating the AI
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
@@ -74,11 +66,21 @@ export default function ThesisWorkspaceScreen() {
   // the thesis is legacy (available:false) → fall back to the section render.
   const [doc, setDoc] = useState<DocumentDTO | undefined>(undefined);
 
+  // OnlyOffice editor config for the live-docx view. `undefined` while loading;
+  // `{ enabled:false }` when the Document Server isn't configured (or the fetch
+  // failed) → fall back to the docx-preview WordDocxView. When enabled it carries
+  // the signed DocEditor config (its `document.key` bumps after each AI turn).
+  const [editorCfg, setEditorCfg] = useState<EditorConfigDTO | undefined>(undefined);
+
   // Mark this thesis current and pull the freshest copy from the server.
   useEffect(() => {
     if (!thesisId) return;
     useThesisStore.getState().setCurrentThesis(thesisId);
     useThesisStore.getState().refreshThesis(thesisId);
+    useWorkspaceStore.getState().setThesis(thesisId);
+    return () => {
+      useWorkspaceStore.getState().reset();
+    };
   }, [thesisId]);
 
   // Fetch the live-.docx block model. Best-effort: on any failure we leave the
@@ -95,35 +97,54 @@ export default function ThesisWorkspaceScreen() {
     }
   }, [thesisId]);
 
-  // Initial load of the document model.
+  // Fetch the OnlyOffice editor config (only meaningful for live docs). On any
+  // failure we fall back to docx-preview by marking the editor disabled.
+  const refreshEditorCfg = useCallback(async () => {
+    if (!thesisId) return;
+    try {
+      setEditorCfg(await getThesisEditorConfig(thesisId));
+    } catch {
+      setEditorCfg({ enabled: false });
+    }
+  }, [thesisId]);
+
+  // Initial load of the document model + editor config.
   useEffect(() => {
     void refreshDoc();
-  }, [refreshDoc]);
+    void refreshEditorCfg();
+  }, [refreshDoc, refreshEditorCfg]);
+
+  // Deep-link target: when opened from the detail screen's outline, pre-select
+  // the tapped heading's block so the docx-preview view highlights/scrolls to it.
+  useEffect(() => {
+    if (blockIndex == null) return;
+    const idx = Number(blockIndex);
+    if (Number.isFinite(idx)) useWorkspaceStore.getState().selectBlock(idx, "");
+  }, [blockIndex]);
 
   const liveDoc = doc?.available ? doc : null;
   const isLiveDoc = !!liveDoc;
 
-  // Live block refresh during generation (live-.docx only). While the AI is
-  // generating it commits each block edit to the .docx mid-turn (via its tools),
-  // so poll the document so those edits appear on the rendered pages instead of
-  // only at the end. Mirrors the legacy `refreshThesis` cadence (~1800ms).
-  useEffect(() => {
-    if (!isGenerating || !isLiveDoc) return;
-    const id = setInterval(() => {
-      void refreshDoc();
-    }, 1800);
-    return () => clearInterval(id);
-  }, [isGenerating, isLiveDoc, refreshDoc]);
+  // Tap-target list for the Word view: each engine block → its flat text, so a
+  // tapped paragraph/table maps back to its block index for AI targeting.
+  const tapBlocks = useMemo<DocTapBlock[]>(
+    () => (liveDoc ? liveDoc.blocks.map((b) => ({ index: b.index, text: blockTapText(b) })) : []),
+    [liveDoc],
+  );
 
-  // Final pull when a turn finishes (generating true → false) so the last edit
-  // lands even if it committed between poll ticks. Live-.docx only.
+  // Refresh the document when a turn finishes (generating true → false): the AI
+  // committed its block edits to the .docx during the turn, so re-fetching gives
+  // a fresh signed url → the Word view reloads with the updated document.
   const prevGenerating = useRef(isGenerating);
   useEffect(() => {
     if (prevGenerating.current && !isGenerating && isLiveDoc) {
       void refreshDoc();
+      // New .docx bytes → the server returns a config with a bumped document.key,
+      // which remounts the OnlyOffice editor onto the updated document.
+      void refreshEditorCfg();
     }
     prevGenerating.current = isGenerating;
-  }, [isGenerating, isLiveDoc, refreshDoc]);
+  }, [isGenerating, isLiveDoc, refreshDoc, refreshEditorCfg]);
 
   // Bridge the model's pending question (chat store) to the global sheet store,
   // which is what actually drives the AskBottomSheet's open state.
@@ -132,22 +153,10 @@ export default function ThesisWorkspaceScreen() {
     else useBottomSheet.getState().closeSheet("ask");
   }, [pendingAsk]);
 
-  const kindLabel = (kind: SectionKind): string => {
-    switch (kind) {
-      case "introduction":
-        return t("wizard.kindIntroduction", { defaultValue: "Introduction" });
-      case "conclusion":
-        return t("wizard.kindConclusion", { defaultValue: "Conclusion" });
-      case "section":
-      default:
-        return t("wizard.kindSection", { defaultValue: "Partie" });
-    }
-  };
-
   const title = thesis?.title ?? "";
 
-  // Loading: no thesis yet (refreshThesis still in flight) or sections missing.
-  if (!thesis || !thesis.sections) {
+  // Loading: no thesis yet (refreshThesis still in flight).
+  if (!thesis) {
     return (
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.bgSurface }]}
@@ -169,12 +178,6 @@ export default function ThesisWorkspaceScreen() {
       </SafeAreaView>
     );
   }
-
-  const frontMatter = thesis.frontMatter;
-  const authors = frontMatter?.authors?.filter((a) => a && a.trim().length > 0);
-  const resume = thesis.resume;
-  // RTL for the live-.docx block render is driven by the thesis language.
-  const isRtl = (thesis.language || "").startsWith("ar");
 
   return (
     <SafeAreaView
@@ -216,185 +219,74 @@ export default function ThesisWorkspaceScreen() {
             <Download size={20} color={colors.textPrimary} />
           </Pressable>
         ) : null}
-        {/* Expand → full A4 preview of the rendered thesis. */}
-        <Pressable
-          onPress={() => {
-            // Live-docx: ⤢ opens the real file; legacy: the A4 HTML preview.
-            if (liveDoc?.downloadUrl) {
-              Linking.openURL(liveDoc.downloadUrl).catch(() => {});
-              return;
-            }
-            router.push({
-              pathname: "/(app)/thesis-preview-a4",
-              params: { thesisId },
-            });
-          }}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={t("preview.a4Title", { defaultValue: "A4 preview" })}
-          style={styles.expandBtn}
-        >
-          <Maximize2 size={20} color={colors.textPrimary} />
-        </Pressable>
+        {/* Expand → open the real .docx (the live document is the deliverable). */}
+        {liveDoc ? (
+          <Pressable
+            onPress={() => {
+              if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
+            }}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t("preview.a4Title", { defaultValue: "A4 preview" })}
+            style={styles.expandBtn}
+          >
+            <Maximize2 size={20} color={colors.textPrimary} />
+          </Pressable>
+        ) : (
+          <View style={styles.expandBtn} />
+        )}
       </View>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-        {/* 1. Title page */}
-        <PaperPage center>
-          {frontMatter?.university ? (
-            <Text style={styles.titleUniversity}>{frontMatter.university}</Text>
-          ) : null}
-          {frontMatter?.faculty ? (
-            <Text style={styles.titleMuted}>{frontMatter.faculty}</Text>
-          ) : null}
-          {frontMatter?.department ? (
-            <Text style={styles.titleMuted}>{frontMatter.department}</Text>
-          ) : null}
-          <View style={styles.titleSpacer} />
-          <Text style={styles.titleMain}>{title}</Text>
-          <View style={styles.titleSpacer} />
-          {authors && authors.length > 0 ? (
-            <Text style={styles.titleMeta}>
-              Présenté par: {authors.join(" • ")}
-            </Text>
-          ) : null}
-          {frontMatter?.supervisor ? (
-            <Text style={styles.titleMeta}>
-              Encadré par: {frontMatter.supervisor}
-            </Text>
-          ) : null}
-          {frontMatter?.academicYear ? (
-            <Text style={styles.titleMeta}>{frontMatter.academicYear}</Text>
-          ) : null}
-        </PaperPage>
+        {doc === undefined ? (
+          /* Document model not resolved yet — avoid flashing the legacy render
+             (migrated theses can still have section rows) before we know mode. */
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color={colors.brandPrimary} />
+          </View>
+        ) : liveDoc ? (
+          /* Live-.docx: prefer the OnlyOffice Docs editor (HTML5-canvas, OOXML-
+             native → Word-level fidelity); fall back to docx-preview when the
+             Document Server isn't configured. Both reload after each AI turn:
+             OnlyOffice via a bumped document.key, docx-preview via the signed url.
+             Tap-to-target isn't available in the OnlyOffice view yet — the composer
+             still works (the AI targets blocks via find), unlike WordDocxView where
+             tapping a paragraph/table selects it. No synthetic title page.
 
-        {liveDoc ? (
-          /* Live-.docx render: paged blocks straight from the real .docx. The
-             title page above stays as a banner; legacy résumé/section/chapter
-             rendering is skipped entirely. */
-          groupBlocksIntoPages(liveDoc.blocks).map((page, pi) => (
-            <PaperPage key={`docpage-${pi}`}>
-              {page.map((block) => (
-                <DocBlock key={block.index} block={block} rtl={isRtl} />
-              ))}
-            </PaperPage>
-          ))
-        ) : (
-          <>
-        {/* 2. Résumé / Abstract pages */}
-        {resume && resume.length > 0
-          ? resume.map((block, i) => {
-              const dir = getTextDirection(block.body || "");
-              const heading =
-                t("workspace.resume", { defaultValue: "Abstract" }) +
-                (block.language ? ` (${block.language.toUpperCase()})` : "");
-              return (
-                <PaperPage key={`resume-${i}`}>
-                  <Text
-                    style={[
-                      styles.pageHeading,
-                      { textAlign: dir === "rtl" ? "right" : "left" },
-                    ]}
-                  >
-                    {heading}
-                  </Text>
-                  {block.body?.trim() ? (
-                    <Markdown content={block.body} color={INK} direction={dir} />
-                  ) : null}
-                  {block.keywords && block.keywords.length > 0 ? (
-                    <Text
-                      style={[
-                        styles.keywords,
-                        { textAlign: dir === "rtl" ? "right" : "left" },
-                      ]}
-                    >
-                      {block.keywords.join(", ")}
-                    </Text>
-                  ) : null}
-                </PaperPage>
-              );
-            })
-          : null}
-
-        {/* 3. Sections (Parties) + their chapters (Chapitres) */}
-        {thesis.sections.map((section) => {
-          const hasContent = !!section.content?.trim();
-          const contentDir = hasContent
-            ? getTextDirection(section.content || "")
-            : "ltr";
-          const sectionSelected =
-            selected.sectionId === section.id && !selected.chapterId;
-
-          return (
-            <View key={section.id}>
-              {hasContent ? (
-                // Content section: left-aligned body under the title.
-                <PaperPage
-                  selected={sectionSelected}
-                  onPress={() =>
-                    useThesisStore.getState().selectSection(section.id)
-                  }
-                >
-                  <Text style={styles.sectionTitleLeft}>{section.title}</Text>
-                  <Text style={styles.sectionKindLeft}>
-                    {kindLabel(section.kind)}
-                  </Text>
-                  <View style={styles.contentSpacer} />
-                  <Markdown
-                    content={section.content || ""}
-                    color={INK}
-                    direction={contentDir}
-                  />
-                </PaperPage>
-              ) : (
-                // Divider page: centered title + kind sublabel.
-                <PaperPage
-                  center
-                  selected={sectionSelected}
-                  onPress={() =>
-                    useThesisStore.getState().selectSection(section.id)
-                  }
-                >
-                  <Text style={styles.sectionTitleCenter}>{section.title}</Text>
-                  <Text style={styles.sectionKindCenter}>
-                    {kindLabel(section.kind)}
-                  </Text>
-                </PaperPage>
-              )}
-
-              {section.chapters.map((chapter) => (
-                <ChapterCard
-                  key={chapter.id}
-                  chapter={chapter}
-                  emptyLabel={t("workspace.emptyChapter", {
-                    defaultValue: "Tap the chat to ask the AI to draft this.",
-                  })}
-                />
-              ))}
+             OnlyOffice only on REAL devices: its heavy WASM/JS editor crashes the
+             iOS Simulator's WebContent process (and is unreliable in emulators), so
+             simulators/emulators fall back to the lighter docx-preview render. */
+          editorCfg === undefined ? (
+            <View style={styles.centered}>
+              <ActivityIndicator size="large" color={colors.brandPrimary} />
             </View>
-          );
-        })}
-
-        {/* 4. Empty state */}
-        {thesis.sections.length === 0 ? (
-          <PaperPage center>
+          ) : editorCfg.enabled && Device.isDevice ? (
+            <OnlyOfficeView
+              documentServerUrl={editorCfg.documentServerUrl}
+              config={editorCfg.config}
+            />
+          ) : (
+            <WordDocxView
+              url={liveDoc.downloadUrl}
+              blocks={tapBlocks}
+              selectedIndex={selected.docBlockIndex}
+              onSelect={(index, text) =>
+                useWorkspaceStore.getState().selectBlock(index, text)
+              }
+            />
+          )
+        ) : (
+          /* Unseeded thesis (no live .docx yet). Structure lives in the document,
+             so there's nothing to render until it's seeded — ask the AI to start. */
+          <View style={styles.centered}>
             <Text style={styles.emptyText}>
               {t("workspace.empty", { defaultValue: "No content yet." })}
             </Text>
-          </PaperPage>
-        ) : null}
-          </>
+          </View>
         )}
-        </ScrollView>
 
         {/* AI composer pinned at the bottom, outside the ScrollView so the pages
             scroll above it and it stays fixed. */}
@@ -413,8 +305,6 @@ export default function ThesisWorkspaceScreen() {
           onAnswer={(answer) => {
             useChatStore.getState().setPendingAsk(null);
             void sendMessageToAI(thesisId, answer, {
-              sectionId: selected.sectionId ?? undefined,
-              chapterId: selected.chapterId ?? undefined,
               selection: selected.blockText ?? undefined,
               docBlockIndex: selected.docBlockIndex ?? null,
             });

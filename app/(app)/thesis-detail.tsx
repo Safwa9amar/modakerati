@@ -12,7 +12,8 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
-import { getThesis } from "@/lib/api";
+import { useWorkspaceStore } from "@/stores/workspace-store";
+import { getThesis, getThesisOutline, type OutlineDTO } from "@/lib/api";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import {
@@ -23,29 +24,11 @@ import {
   ChevronRight,
   FileText,
 } from "lucide-react-native";
-import type { ChapterStatus, Thesis, ThesisStatus } from "@/types/thesis";
+import type { Thesis, ThesisStatus } from "@/types/thesis";
 
-// getThesis() returns the full record with sections (Parties) + nested chapters
-// (Chapitres). Normalise defensively so the chat / editor screens work after
-// opening here. The server already serializes the new shape.
+// getThesis() returns the thesis row (no structure — that lives in the .docx).
+// Normalise defensively so the chat / workspace screens work after opening here.
 function normalize(raw: any): Thesis {
-  const sections = (raw.sections ?? []).map((sec: any, si: number) => ({
-    id: sec.id,
-    thesisId: raw.id,
-    title: sec.title,
-    kind: sec.kind ?? "section",
-    content: sec.content ?? null,
-    orderIndex: sec.orderIndex ?? si,
-    chapters: (sec.chapters ?? []).map((ch: any, ci: number) => ({
-      id: ch.id,
-      sectionId: sec.id,
-      title: ch.title,
-      content: ch.content ?? "",
-      orderIndex: ch.orderIndex ?? ci,
-      wordCount: ch.wordCount ?? 0,
-      status: (ch.status ?? "not_started") as ChapterStatus,
-    })),
-  }));
   return {
     id: raw.id,
     title: raw.title,
@@ -57,7 +40,6 @@ function normalize(raw: any): Thesis {
     pageCount: raw.pageCount ?? 0,
     frontMatter: raw.frontMatter ?? undefined,
     resume: raw.resume ?? undefined,
-    sections,
     createdAt: raw.createdAt ?? new Date().toISOString(),
     updatedAt: raw.updatedAt ?? new Date().toISOString(),
   };
@@ -70,10 +52,14 @@ export default function ThesisDetailScreen() {
   const { thesisId } = useLocalSearchParams<{ thesisId: string }>();
 
   const [thesis, setThesis] = useState<Thesis | null>(null);
+  // Docx-as-source structure: the Partie/Chapitre outline derived from the live
+  // .docx. The DB section/chapter rows are no longer the source of truth here.
+  const [outline, setOutline] = useState<OutlineDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // Refetch on focus so edits made in the chapter editor are reflected on return.
+  // Refetch on focus so AI edits to the .docx are reflected on return. The
+  // thesis row gives status/progress/title; the outline gives the structure.
   useFocusEffect(
     useCallback(() => {
       let active = true;
@@ -84,11 +70,15 @@ export default function ThesisDetailScreen() {
           return;
         }
         try {
-          const data = await getThesis(thesisId);
+          const [data, outlineData] = await Promise.all([
+            getThesis(thesisId),
+            getThesisOutline(thesisId).catch(() => null),
+          ]);
           if (!active) return;
           const normalized = normalize(data);
           setThesis(normalized);
-          // Mirror into the store so chat / edit-chapter have the full record.
+          setOutline(outlineData);
+          // Mirror into the store so chat / workspace have the full record.
           useThesisStore.setState((state) => ({
             theses: [normalized, ...state.theses.filter((th) => th.id !== normalized.id)],
           }));
@@ -118,12 +108,22 @@ export default function ThesisDetailScreen() {
     });
   };
 
-  const openSection = (sectionId: string) => {
+  // Tapping a Partie opens the live-docx workspace scrolled to that heading
+  // block (the .docx is the source of truth; editing happens there via the AI /
+  // engine). `blockIndex` is the engine block index from the outline.
+  const openSectionAt = (blockIndex?: number, title?: string) => {
     if (!thesis) return;
+    useThesisStore.getState().setCurrentThesis(thesis.id);
+    if (typeof blockIndex === "number") {
+      useWorkspaceStore.getState().selectBlock(blockIndex, title ?? "");
+    }
     router.push({
-      pathname: "/(app)/edit-chapter",
-      params: { thesisId: thesis.id, sectionId },
-    } as any);
+      pathname: "/(app)/thesis-workspace",
+      params: {
+        thesisId: thesis.id,
+        ...(typeof blockIndex === "number" ? { blockIndex: String(blockIndex) } : {}),
+      },
+    });
   };
 
   if (loading) {
@@ -156,12 +156,16 @@ export default function ThesisDetailScreen() {
     );
   }
 
-  const sectionCount = thesis.sections.length;
-  const chapterCount = thesis.sections.reduce((sum, sec) => sum + sec.chapters.length, 0);
-  const wordCount = thesis.sections.reduce(
-    (sum, sec) => sum + sec.chapters.reduce((s, ch) => s + (ch.wordCount || 0), 0),
-    thesis.wordCount || 0
-  );
+  // Structure + counts come from the live .docx outline (the source of truth).
+  // Unseeded theses (outline unavailable) show an empty list + the row's stats.
+  const liveOutline = outline?.available ? outline : null;
+  const outlineSections: { index?: number; title: string; chapterCount: number }[] = liveOutline
+    ? liveOutline.sections.map((s) => ({ index: s.index, title: s.title, chapterCount: s.chapters.length }))
+    : [];
+
+  const sectionCount = liveOutline ? liveOutline.sectionCount : 0;
+  const chapterCount = liveOutline ? liveOutline.chapterCount : 0;
+  const wordCount = liveOutline ? liveOutline.wordCount : thesis.wordCount || 0;
   const progress = Math.max(0, Math.min(100, Math.round(thesis.progress || 0)));
 
   const statusLabelMap: Record<ThesisStatus, string> = {
@@ -252,8 +256,8 @@ export default function ThesisDetailScreen() {
             </Text>
           </View>
         ) : (
-          thesis.sections.map((sec, i) => (
-            <Pressable key={sec.id} onPress={() => openSection(sec.id)}>
+          outlineSections.map((sec, i) => (
+            <Pressable key={`${sec.index ?? i}-${i}`} onPress={() => openSectionAt(sec.index, sec.title)}>
               <Card style={styles.chapterCard}>
                 <View style={[styles.chapterNum, { backgroundColor: colors.bgSurface }]}>
                   <Text style={[styles.chapterNumText, { color: colors.textSecondary }]}>{i + 1}</Text>
@@ -264,7 +268,7 @@ export default function ThesisDetailScreen() {
                   </Text>
                   <View style={styles.chapterMeta}>
                     <Text style={[styles.chapterMetaText, { color: colors.textSecondary }]}>
-                      {sec.chapters.length} {t("home.chapters")}
+                      {sec.chapterCount} {t("home.chapters")}
                     </Text>
                   </View>
                 </View>

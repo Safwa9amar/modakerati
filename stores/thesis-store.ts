@@ -13,11 +13,6 @@ interface ThesisState {
   setCurrentThesis: (id: string | null) => void;
   getCurrentThesis: () => Thesis | null;
 
-  // Selection for the live-.docx workspace: the engine block index the student
-  // tapped (+ its flat text), so an AI turn can target that exact paragraph.
-  selected: { blockText: string | null; docBlockIndex: number | null };
-  selectDocBlock: (docBlockIndex: number, blockText: string) => void;
-  clearSelection: () => void;
   refreshThesis: (id: string) => Promise<void>;
 
   loadTemplates: () => Promise<void>;
@@ -46,9 +41,6 @@ export const useThesisStore = create<ThesisState>()((set, get) => ({
     return theses.find((t) => t.id === currentThesisId) ?? null;
   },
 
-  selected: { blockText: null, docBlockIndex: null },
-  selectDocBlock: (docBlockIndex, blockText) => set({ selected: { blockText, docBlockIndex } }),
-  clearSelection: () => set({ selected: { blockText: null, docBlockIndex: null } }),
   refreshThesis: async (id) => {
     try {
       const { getThesis } = await import("@/lib/api");

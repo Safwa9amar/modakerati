@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, Image, StyleSheet } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { useThesisStore } from "@/stores/thesis-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import type { DocBlockDTO } from "@/lib/api";
 
 // Dark ink / muted ink for text rendered on the always-white PaperPage.
@@ -20,15 +20,15 @@ const MAX_IMAGE_HEIGHT = 360;
  * select themselves by their engine block `index` (so L2 chat can target them);
  * images render as a light figure placeholder and `other` blocks render nothing.
  *
- * `rtl` reflects the thesis language (Arabic) so text aligns to the right.
+ * Text direction is detected per block from its own content (so mixed-language
+ * theses render correctly); `rtl` (the thesis language) is only the fallback
+ * for blocks with no strong-directional character.
  */
 export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
   const colors = useThemeColors();
-  const selectedIndex = useThesisStore((s) => s.selected.docBlockIndex);
+  const selectedIndex = useWorkspaceStore((s) => s.selectedBlockIndex);
   const hi = colors.brandPrimary;
   const isSelected = selectedIndex === block.index;
-  const align = rtl ? "right" : "left";
-  const writingDirection = rtl ? "rtl" : "ltr";
 
   if (block.kind === "other") {
     // Structural/unsupported block — render nothing (a tiny marker is noise).
@@ -40,7 +40,10 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
     const caption = block.caption?.trim();
     const captionNode = caption ? (
       <Text
-        style={[styles.figureCaption, { textAlign: "center", writingDirection }]}
+        style={[
+          styles.figureCaption,
+          { textAlign: "center", writingDirection: detectDir(caption, rtl) },
+        ]}
         numberOfLines={3}
       >
         {caption}
@@ -48,7 +51,7 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
     ) : null;
 
     const onSelect = () =>
-      useThesisStore.getState().selectDocBlock(block.index, caption || "figure");
+      useWorkspaceStore.getState().selectBlock(block.index, caption || "figure");
 
     // With inlined bytes → render the real image. Fill the paper content width
     // (width:"100%") and preserve the intrinsic ratio via `aspectRatio` when the
@@ -102,7 +105,7 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
     return (
       <Pressable
         onPress={() =>
-          useThesisStore.getState().selectDocBlock(block.index, tableToText(block.rows))
+          useWorkspaceStore.getState().selectBlock(block.index, tableToText(block.rows))
         }
         style={[
           styles.tableWrap,
@@ -129,7 +132,7 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
                 ]}
               >
                 <Text
-                  style={[styles.tableCellText, { textAlign: align, writingDirection }]}
+                  style={[styles.tableCellText, dirStyle(cell, rtl)]}
                 >
                   {cell}
                 </Text>
@@ -144,10 +147,14 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
   // paragraph
   const isHeading = block.level >= 1;
   const empty = !block.text.trim();
+  // Base direction from this paragraph's own script, not the thesis flag, so
+  // French/English text never renders RTL (and Arabic never renders LTR).
+  const dir = detectDir(block.text, rtl);
+  const align = dir === "rtl" ? "right" : "left";
   return (
     <Pressable
       onPress={() =>
-        useThesisStore.getState().selectDocBlock(block.index, block.text)
+        useWorkspaceStore.getState().selectBlock(block.index, block.text)
       }
       style={[
         styles.paraWrap,
@@ -161,7 +168,7 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
             : styles.body,
           {
             textAlign: isHeading ? align : "justify",
-            writingDirection,
+            writingDirection: dir,
           },
           empty && styles.emptyPara,
         ]}
@@ -175,6 +182,28 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
 // Flatten a table grid to a single string for the selection chip / L2 targeting.
 function tableToText(rows: string[][]): string {
   return rows.map((r) => r.join(" | ")).join("\n");
+}
+
+// RTL scripts: Hebrew, Arabic (+ supplements), Syriac, Thaana, Arabic presentation forms.
+const RTL_CHAR = /[֐-׿؀-ۿ܀-ݏݐ-ݿࢠ-ࣿיִ-﷿ﹰ-﻿]/;
+const LTR_CHAR = /[A-Za-zÀ-ɏɐ-ʯ]/;
+
+/**
+ * Base text direction from the first strong-directional character (the Unicode
+ * bidi heuristic browsers use for `dir="auto"`). Falls back to the thesis
+ * default when the text has no strong character (digits/punctuation only).
+ */
+function detectDir(text: string, fallbackRtl: boolean): "rtl" | "ltr" {
+  for (const ch of text) {
+    if (RTL_CHAR.test(ch)) return "rtl";
+    if (LTR_CHAR.test(ch)) return "ltr";
+  }
+  return fallbackRtl ? "rtl" : "ltr";
+}
+
+function dirStyle(text: string, fallbackRtl: boolean) {
+  const dir = detectDir(text, fallbackRtl);
+  return { textAlign: dir === "rtl" ? "right" : "left", writingDirection: dir } as const;
 }
 
 const styles = StyleSheet.create({

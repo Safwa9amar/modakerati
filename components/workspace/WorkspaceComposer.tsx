@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { Send, Square, X } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI } from "@/lib/ai-service";
 import type { ChatMessage } from "@/types/chat";
@@ -45,32 +46,26 @@ export function WorkspaceComposer({
   const { t } = useTranslation();
   const colors = useThemeColors();
 
-  const selected = useThesisStore((s) => s.selected);
-  const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
+  const selected = useWorkspaceStore((s) => ({
+    blockText: s.selectedBlockText,
+    docBlockIndex: s.selectedBlockIndex,
+  }));
   const isGenerating = useChatStore((s) => s.isGenerating);
   const streamingId = useChatStore((s) => s.streamingId);
   const messages = useChatStore((s) => s.messages[thesisId] ?? EMPTY_MESSAGES);
 
   const [inputText, setInputText] = useState("");
 
-  // Resolve the focus chip label from the current selection within the thesis.
-  // Priority: a specific content block → chapter → section → whole memoir.
+  // Focus chip: the tapped .docx block (the AI targets it by block index), or the
+  // whole memoir when nothing is selected. A selection can carry text (tap in the
+  // doc) or just a block index (deep-link from the outline) — both count.
   let chipLabel = t("workspace.wholeMemoir", { defaultValue: "Whole memoir" });
-  const hasSelection = !!(selected.blockText || selected.chapterId || selected.sectionId);
+  const hasSelection = !!selected.blockText || selected.docBlockIndex != null;
   if (selected.blockText) {
     const excerpt = selected.blockText.replace(/\s+/g, " ").trim().slice(0, 40);
     chipLabel = `✎ ${excerpt}`;
-  } else if (thesis && selected.chapterId) {
-    for (const section of thesis.sections) {
-      const chapter = section.chapters.find((c) => c.id === selected.chapterId);
-      if (chapter) {
-        chipLabel = `✎ ${chapter.title}`;
-        break;
-      }
-    }
-  } else if (thesis && selected.sectionId) {
-    const section = thesis.sections.find((s) => s.id === selected.sectionId);
-    if (section) chipLabel = `✎ ${section.title}`;
+  } else if (selected.docBlockIndex != null) {
+    chipLabel = `✎ ${t("workspace.selectedBlock", { defaultValue: "Selected section" })}`;
   }
 
   // Legacy live refresh: when a turn finishes (isGenerating true → false), pull
@@ -102,8 +97,6 @@ export function WorkspaceComposer({
     setInputText("");
     Keyboard.dismiss();
     await sendMessageToAI(thesisId, text, {
-      sectionId: selected.sectionId ?? undefined,
-      chapterId: selected.chapterId ?? undefined,
       selection: selected.blockText ?? undefined,
       // Live-.docx (L2): the engine block index the student selected, so the AI
       // edits that exact paragraph. `null` when nothing block-specific is focused.
@@ -161,7 +154,7 @@ export function WorkspaceComposer({
           </Text>
           {hasSelection && (
             <Pressable
-              onPress={() => useThesisStore.getState().clearSelection()}
+              onPress={() => useWorkspaceStore.getState().clearSelection()}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={t("common.clear", { defaultValue: "Clear" })}
