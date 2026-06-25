@@ -11,7 +11,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { Plus, FileText, ChevronRight } from "lucide-react-native";
+import { Plus } from "lucide-react-native";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
@@ -27,8 +27,9 @@ interface ApiThesis {
   status: ThesisStatus;
   progress: number;
   updatedAt: string;
-  chapterCount?: number;
-  sectionCount?: number;
+  // Stored stats from the thesis row (structure lives in the .docx, not the DB).
+  pageCount?: number;
+  wordCount?: number;
 }
 
 export default function AllThesesScreen() {
@@ -110,24 +111,6 @@ export default function AllThesesScreen() {
         contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Entry point: import a Word document as an editable file */}
-        <Pressable onPress={() => router.push("/(app)/documents" as any)}>
-          <Card style={styles.importCard}>
-            <View style={[styles.importIcon, { backgroundColor: colors.bgSurface }]}>
-              <FileText size={20} color={colors.brandPrimary} strokeWidth={2} />
-            </View>
-            <View style={styles.importBody}>
-              <Text style={[styles.importTitle, { color: colors.textPrimary }]}>
-                {t("documents.importEntryTitle")}
-              </Text>
-              <Text style={[styles.importSubtitle, { color: colors.textSecondary }]}>
-                {t("documents.importEntrySubtitle")}
-              </Text>
-            </View>
-            <ChevronRight size={18} color={colors.textSecondary} />
-          </Card>
-        </Pressable>
-
         {loading ? (
           <View style={styles.emptyState}>
             <ActivityIndicator size="large" color={colors.brandPrimary} />
@@ -140,8 +123,8 @@ export default function AllThesesScreen() {
           </View>
         ) : (
           filteredTheses.map((thesis) => {
-            const chapterCount = thesis.chapterCount ?? 0;
-            const sectionCount = thesis.sectionCount ?? 0;
+            const pageCount = thesis.pageCount ?? 0;
+            const wordCount = thesis.wordCount ?? 0;
             const progress = Math.max(0, Math.min(100, Math.round(thesis.progress || 0)));
 
             return (
@@ -171,7 +154,7 @@ export default function AllThesesScreen() {
                         { color: colors.textSecondary },
                       ]}
                     >
-                      {chapterCount} {t("home.chapters")}
+                      {pageCount} {t("home.pages", { defaultValue: "Pages" })}
                     </Text>
                     <Text
                       style={[
@@ -179,7 +162,7 @@ export default function AllThesesScreen() {
                         { color: colors.textSecondary },
                       ]}
                     >
-                      {sectionCount} {t("home.sections")}
+                      {wordCount.toLocaleString()} {t("home.words")}
                     </Text>
                     <Text
                       style={[
@@ -255,22 +238,6 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingBottom: 100,
   },
-  importCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 0,
-  },
-  importIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  importBody: { flex: 1, gap: 2 },
-  importTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  importSubtitle: { fontSize: 12, fontFamily: "Inter_400Regular" },
   thesisCard: {
     marginBottom: 0,
   },

@@ -258,11 +258,11 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
     flatListRef.current?.scrollToEnd({ animated: true });
   }
 
-  // Open an exported file in the IN-APP document preview — never externally.
+  // Open the thesis's live .docx in the workspace (the document IS the export).
   // (Stable identity so the memoized Bubble doesn't re-render on every keystroke.)
   const handlePreviewFile = useCallback(
     (_file: FilePayload) => {
-      router.push({ pathname: "/(app)/document-preview", params: { thesisId } });
+      router.push({ pathname: "/(app)/thesis-workspace", params: { thesisId } });
     },
     [router, thesisId]
   );
@@ -320,9 +320,6 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
       case "structure":
         useBottomSheet.getState().openSheet("structure");
         break;
-      case "enhance":
-        router.push("/(app)/ai-enhance" as any);
-        break;
       case "file":
         try {
           const result = await DocumentPicker.getDocumentAsync({
@@ -369,7 +366,6 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
 
   const tools = [
     { key: "structure", icon: List, label: "Structure", color: colors.brandAccent },
-    { key: "enhance", icon: Sparkles, label: "AI Enhance", color: colors.brandPrimary },
     { key: "file", icon: Paperclip, label: "Attach", color: colors.semanticWarning },
     { key: "image", icon: ImageIcon, label: "Image", color: "#9959FF" },
   ];
