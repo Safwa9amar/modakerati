@@ -15,18 +15,8 @@ export default function AppLayout() {
     <Stack.Screen name="thesis-workspace" />
     <Stack.Screen name="news" />
     <Stack.Screen name="news-detail" />
-    <Stack.Screen name="documents" />
-    <Stack.Screen name="document-editor" />
-    <Stack.Screen name="document-view" />
     <Stack.Screen name="export" />
     <Stack.Screen name="export-success" />
-    <Stack.Screen name="auto-layout" />
-    <Stack.Screen name="auto-numbering" />
-    <Stack.Screen name="auto-toc" />
-    <Stack.Screen name="list-figures" />
-    <Stack.Screen name="list-tables" />
-    <Stack.Screen name="citations" />
-    <Stack.Screen name="ai-enhance" />
     <Stack.Screen name="network-error" />
     <Stack.Screen name="import-analysis" />
   </Stack>;
