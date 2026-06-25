@@ -454,6 +454,14 @@
     "empty": "No content yet.",
     "titlePage": "Title page",
     "wholeMemoir": "Whole memoir",
-    "askPlaceholder": "Ask the AI to write or edit…"
+    "askPlaceholder": "Ask the AI to write or edit…",
+    "formatThesis": "Format thesis",
+    "formatting": "Formatting...",
+    "formatted": "Formatting applied",
+    "formatError": "Could not format thesis",
+    "noNormProfile": "No formatting standard assigned",
+    "outline": "Outline",
+    "sources": "Sources",
+    "export": "Export"
   }
 }

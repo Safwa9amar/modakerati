@@ -454,6 +454,14 @@
     "empty": "Aucun contenu pour l'instant.",
     "titlePage": "Page de garde",
     "wholeMemoir": "Mémoire entier",
-    "askPlaceholder": "Demandez à l'IA d'écrire ou de modifier…"
+    "askPlaceholder": "Demandez à l'IA d'écrire ou de modifier…",
+    "formatThesis": "Formater le memoire",
+    "formatting": "Formatage en cours...",
+    "formatted": "Formatage applique",
+    "formatError": "Impossible de formater le memoire",
+    "noNormProfile": "Aucune norme de mise en page assignee",
+    "outline": "Plan",
+    "sources": "Sources",
+    "export": "Exporter"
   }
 }

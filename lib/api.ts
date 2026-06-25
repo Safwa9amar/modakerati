@@ -387,6 +387,13 @@ export async function applyThesisSuggestions(thesisId: string, acceptedIds: stri
   return apiPost(`/api/thesis/${thesisId}/apply`, { acceptedIds });
 }
 
+export async function formatThesis(
+  thesisId: string,
+  normProfileId?: string
+): Promise<{ formatted: boolean; applied: string[]; skipped: string[] }> {
+  return apiPost(`/api/thesis/${thesisId}/format`, normProfileId ? { normProfileId } : {});
+}
+
 // ============================================================
 // Live-.docx thesis document (read-only block render)
 // Mirrors the server DTO from GET /api/thesis/:id/document.
