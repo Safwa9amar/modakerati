@@ -166,10 +166,12 @@ export default function ThesisPlanScreen() {
     }
     setCreating(true);
     try {
+      const wiz = useThesisWizard.getState();
       const created = await createThesis({
         title,
         templateId: templateId ?? undefined,
         language,
+        normProfileId: wiz.normProfileId || undefined,
         sections: localPlan.map((s) => ({
           title: s.title || "Partie",
           kind: s.kind,
