@@ -6,7 +6,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { NetworkBanner } from "@/components/NetworkBanner";
-import { ChatHead } from "@/components/ChatHead";
+// import { ChatHead } from "@/components/ChatHead"; // disabled for now
 import { useAuthStore } from "@/stores/auth-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useNotificationStore } from "@/stores/notification-store";
@@ -112,9 +112,8 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="(app)" />
           </Stack>
-          {/* Floating chat-head: draggable bubble that expands into the thesis
-              chat, overlaying every screen. Mounted last so it sits on top. */}
-          <ChatHead />
+          {/* Floating chat-head disabled for now — re-add <ChatHead /> here
+              (and its import) to restore the draggable bubble. */}
         </BottomSheetModalProvider>
       </ThemeProvider>
     </GestureHandlerRootView>

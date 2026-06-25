@@ -1,0 +1,88 @@
+<h2>How should the memoir preview render? (Step 4)</h2>
+<p class="subtitle">This is the big architectural fork. Your data model is chapters → sections (markdown content), and the server can already export real .docx / .tex. Pick the editing surface — click your preference.</p>
+
+<div class="cards">
+
+  <!-- OPTION A -->
+  <div class="card" data-choice="A" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#e8eaf0;padding:18px;display:flex;justify-content:center">
+      <div style="width:150px;background:#52607a;border-radius:22px;padding:8px">
+        <div style="background:#f3f1ea;border-radius:14px;height:230px;overflow:hidden;position:relative">
+          <div style="background:#fff;margin:10px 8px 0;border-radius:3px;box-shadow:0 2px 6px rgba(0,0,0,.18);padding:14px 10px;text-align:center">
+            <div style="font-size:6px;color:#888">UNIVERSITÉ D'ALGER</div>
+            <div style="height:8px"></div>
+            <div style="height:5px;background:#333;border-radius:2px;margin:3px 14px"></div>
+            <div style="height:5px;background:#333;border-radius:2px;margin:3px 22px"></div>
+            <div style="height:24px"></div>
+            <div style="font-size:6px;color:#aaa">Mémoire de Master</div>
+            <div style="height:14px"></div>
+            <div style="height:3px;background:#ccc;border-radius:2px;margin:3px 30px"></div>
+          </div>
+          <div style="background:#fff;margin:6px 8px 0;border-radius:3px;box-shadow:0 2px 6px rgba(0,0,0,.12);padding:8px;font-size:5px;color:#999">Résumé…</div>
+          <div style="position:absolute;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e3e3e3;padding:6px;display:flex;align-items:center;gap:4px">
+            <div style="flex:1;background:#eee;border-radius:8px;height:11px"></div>
+            <div style="width:11px;height:11px;border-radius:50%;background:#6366f1"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · Native "paper" cards &nbsp;<span class="label" style="background:rgba(34,197,94,.18);padding:2px 8px;border-radius:6px">Recommended</span></h3>
+      <p>Pages rendered as native white cards (title page, résumé, TOC, chapters) that <i>look</i> like documents but reflow. Markdown + tables render natively. Tap a section → chat targets it. No true pagination.</p>
+      <p style="font-size:12px;color:#6ee7b7">✓ Fast, smooth · ✓ Live edits instant · ✓ Matches your data model · ✓ Tables easy</p>
+      <p style="font-size:12px;color:#fca5a5">✗ Not pixel-exact to the printed page</p>
+    </div>
+  </div>
+
+  <!-- OPTION B -->
+  <div class="card" data-choice="B" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#e8eaf0;padding:18px;display:flex;justify-content:center">
+      <div style="width:150px;background:#52607a;border-radius:22px;padding:8px">
+        <div style="background:#9aa3b2;border-radius:14px;height:230px;overflow:hidden;position:relative;display:flex;align-items:flex-start;justify-content:center;padding-top:12px">
+          <div style="width:108px;background:#fff;box-shadow:0 3px 10px rgba(0,0,0,.3);padding:12px 12px;height:200px">
+            <div style="height:4px;background:#444;margin:2px 0;border-radius:1px"></div>
+            <div style="height:3px;background:#bbb;margin:3px 0;border-radius:1px"></div>
+            <div style="height:3px;background:#bbb;margin:3px 0;border-radius:1px"></div>
+            <div style="height:3px;background:#bbb;margin:3px 0;border-radius:1px;width:80%"></div>
+            <div style="height:8px"></div>
+            <div style="height:3px;background:#bbb;margin:3px 0;border-radius:1px"></div>
+            <div style="height:3px;background:#bbb;margin:3px 0;border-radius:1px"></div>
+            <div style="height:3px;background:#bbb;margin:3px 0;border-radius:1px;width:60%"></div>
+            <div style="position:absolute;bottom:16px;left:0;right:0;text-align:center;font-size:6px;color:#999">— 1 —</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B · True A4 pagination (WebView)</h3>
+      <p>A WebView renders real paginated A4 pages with the template's exact fonts/margins (via paged.js). Looks like the printed thesis. Editing happens through chat; re-render after each change.</p>
+      <p style="font-size:12px;color:#6ee7b7">✓ Pixel-faithful to print · ✓ Exact margins/fonts</p>
+      <p style="font-size:12px;color:#fca5a5">✗ Heavy · ✗ Re-paginate lag on edits · ✗ WebView↔native bridge complexity</p>
+    </div>
+  </div>
+
+  <!-- OPTION C -->
+  <div class="card" data-choice="C" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#e8eaf0;padding:18px;display:flex;justify-content:center">
+      <div style="width:150px;background:#52607a;border-radius:22px;padding:8px">
+        <div style="background:#2c2c2c;border-radius:14px;height:230px;overflow:hidden;position:relative;display:flex;align-items:flex-start;justify-content:center;padding-top:14px">
+          <div style="width:104px;background:#fff;box-shadow:0 3px 10px rgba(0,0,0,.4);padding:12px;height:170px">
+            <div style="height:4px;background:#444;margin:2px 0;border-radius:1px"></div>
+            <div style="height:3px;background:#bbb;margin:3px 0;border-radius:1px"></div>
+            <div style="height:3px;background:#bbb;margin:3px 0;border-radius:1px;width:70%"></div>
+          </div>
+          <div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;font-size:7px;color:#bbb">Page 1 / 24 · 🔒 read-only</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C · Server-rendered PDF preview</h3>
+      <p>Server generates the real PDF (reusing the export pipeline); app shows it in a PDF viewer. Editing is a separate native mode; you regenerate the PDF to see the "real" look.</p>
+      <p style="font-size:12px;color:#6ee7b7">✓ 100% accurate · ✓ Reuses export engine</p>
+      <p style="font-size:12px;color:#fca5a5">✗ Edit↔preview split (not live) · ✗ Round-trip latency per change</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:22px"><b>My recommendation: A</b> as the live working surface — it's the only one where chat-driven edits feel instant, and it fits your chapters/sections model. We can add a "📄 Exact preview" button later that uses C (your export engine already exists) for a true print check. <b>B</b> is the most faithful but fights the live-editing goal.</p>
