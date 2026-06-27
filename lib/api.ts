@@ -718,6 +718,18 @@ export async function editDocumentParagraph(
   return apiPut<ParagraphMutationResult>(`/api/documents/${id}/paragraphs/${index}`, changes);
 }
 
+// Manual single-paragraph edit of a live-.docx THESIS (the in-app block editor).
+// Distinct from editDocumentParagraph above, which targets the imported-documents
+// feature; theses are edited through their own thesis-scoped route (which shares
+// the AI's thesis lock). `index` is the engine block index from the document DTO.
+export async function editThesisParagraph(
+  thesisId: string,
+  index: number,
+  changes: { text: string }
+): Promise<{ ok: true }> {
+  return apiPut<{ ok: true }>(`/api/thesis/${thesisId}/paragraphs/${index}`, changes);
+}
+
 export async function addDocumentParagraph(
   id: string,
   body: { index?: number; text: string; styleId?: string; alignment?: Align }

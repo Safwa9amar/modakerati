@@ -130,7 +130,7 @@ export function WorkspaceComposerSheet({
         if (documentId && docBlockIndex != null) {
           router.push({
             pathname: "/(app)/block-editor",
-            params: { thesisId, documentId, blockIndex: String(docBlockIndex) },
+            params: { thesisId, blockIndex: String(docBlockIndex) },
           });
         }
       },

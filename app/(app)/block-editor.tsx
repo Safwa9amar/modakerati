@@ -18,7 +18,7 @@ import { Send, Square } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI } from "@/lib/ai-service";
-import { getThesisDocument, editDocumentParagraph } from "@/lib/api";
+import { getThesisDocument, editThesisParagraph } from "@/lib/api";
 import { BackButton } from "@/components/BackButton";
 
 // RTL when right-to-left characters dominate (thesis content is often Arabic and
@@ -39,9 +39,8 @@ export default function BlockEditorScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { thesisId, documentId, blockIndex } = useLocalSearchParams<{
+  const { thesisId, blockIndex } = useLocalSearchParams<{
     thesisId: string;
-    documentId: string;
     blockIndex: string;
   }>();
   const index = Number(blockIndex);
@@ -92,10 +91,10 @@ export default function BlockEditorScreen() {
   const rtl = isRtl(text);
 
   const handleSave = async () => {
-    if (saving || !documentId || !Number.isFinite(index)) return;
+    if (saving || !thesisId || !Number.isFinite(index)) return;
     setSaving(true);
     try {
-      await editDocumentParagraph(documentId, index, { text });
+      await editThesisParagraph(thesisId, index, { text });
       router.back();
     } catch {
       Alert.alert(t("blockEditor.saveError", { defaultValue: "Couldn't save. Please try again." }));
@@ -106,12 +105,12 @@ export default function BlockEditorScreen() {
 
   const handleAskAi = async () => {
     const prompt = aiPrompt.trim();
-    if (!prompt || isGenerating || !documentId) return;
+    if (!prompt || isGenerating || !thesisId) return;
     Keyboard.dismiss();
     // Persist the current manual text first so the AI edits on top of it and the
     // post-turn reload doesn't discard unsaved changes.
     try {
-      await editDocumentParagraph(documentId, index, { text });
+      await editThesisParagraph(thesisId, index, { text });
     } catch {
       Alert.alert(t("blockEditor.saveError", { defaultValue: "Couldn't save. Please try again." }));
       return;
