@@ -10,7 +10,7 @@ import {
   ScrollView,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useFocusEffect } from "expo-router";
 import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
 import { Maximize2 } from "lucide-react-native";
@@ -149,11 +149,15 @@ export default function ThesisWorkspaceScreen() {
     }
   }, []);
 
-  // Initial load of the document model + editor config.
-  useEffect(() => {
-    void refreshDoc();
-    void refreshEditorCfg();
-  }, [refreshDoc, refreshEditorCfg]);
+  // Load the document model + editor config on focus. Using focus (not mount)
+  // means returning from the block editor re-fetches, so a saved paragraph edit
+  // shows on the pages without a manual refresh.
+  useFocusEffect(
+    useCallback(() => {
+      void refreshDoc();
+      void refreshEditorCfg();
+    }, [refreshDoc, refreshEditorCfg]),
+  );
 
   // Deep-link target: when opened from the detail screen's outline, pre-select
   // the tapped heading's block so the docx-preview view highlights/scrolls to it.
@@ -336,6 +340,7 @@ export default function ThesisWorkspaceScreen() {
         isLiveDoc={isLiveDoc}
         rtl={docRtl}
         downloadUrl={liveDoc?.downloadUrl}
+        documentId={liveDoc?.id}
         onFormat={handleFormat}
         onOpenSources={() => useBottomSheet.getState().openSheet("thesis-sources")}
         onOpenOutline={handleOutlineToggle}

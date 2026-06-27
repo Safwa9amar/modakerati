@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, Alert, Keyboard, Text, Pressable } from "react-native";
 import GorhomBottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
+import { router } from "expo-router";
 import { useTranslation } from "react-i18next";
 import {
   Paperclip,
@@ -10,6 +11,7 @@ import {
   Download,
   RotateCcw,
   Brain,
+  SquarePen,
   X,
 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -31,6 +33,8 @@ interface Props {
   rtl: boolean;
   /** Live-doc only; undefined disables the Export tool. */
   downloadUrl?: string;
+  /** Underlying document id (live-doc only); undefined disables Edit block. */
+  documentId?: string;
   onFormat: () => void;
   onOpenSources: () => void;
   onOpenOutline: () => void;
@@ -42,6 +46,7 @@ export function WorkspaceComposerSheet({
   isLiveDoc,
   rtl,
   downloadUrl,
+  documentId,
   onFormat,
   onOpenSources,
   onOpenOutline,
@@ -116,6 +121,20 @@ export function WorkspaceComposerSheet({
     { key: "export", label: t("composer.tools.export"), icon: Download, onPress: onExport, disabled: !downloadUrl },
     { key: "regenerate", label: t("composer.tools.regenerate"), icon: RotateCcw, onPress: () => void regenerateLastResponse(thesisId), disabled: isGenerating },
     { key: "thinking", label: t("composer.tools.thinking"), icon: Brain, active: thinkingEnabled, onPress: () => useWorkspaceStore.getState().setThinkingEnabled(!thinkingEnabled) },
+    {
+      key: "editBlock",
+      label: t("composer.tools.editBlock"),
+      icon: SquarePen,
+      disabled: !documentId || docBlockIndex == null,
+      onPress: () => {
+        if (documentId && docBlockIndex != null) {
+          router.push({
+            pathname: "/(app)/block-editor",
+            params: { thesisId, documentId, blockIndex: String(docBlockIndex) },
+          });
+        }
+      },
+    },
   ];
 
   return (

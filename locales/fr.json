@@ -478,7 +478,8 @@
       "view": "Vue",
       "export": "Exporter",
       "regenerate": "Régénérer",
-      "thinking": "Réflexion"
+      "thinking": "Réflexion",
+      "editBlock": "Modifier"
     },
     "presets": {
       "expand": { "label": "Développer", "prompt": "Développez cette section avec plus de détails et d'arguments." },
@@ -489,5 +490,13 @@
     },
     "micLabel": "Saisie vocale",
     "voiceComingSoon": "La saisie vocale arrive bientôt."
+  },
+  "blockEditor": {
+    "title": "Modifier le paragraphe",
+    "save": "Enregistrer",
+    "saveError": "Échec de l'enregistrement. Veuillez réessayer.",
+    "notFound": "Ce paragraphe n'est plus disponible.",
+    "empty": "Texte du paragraphe…",
+    "aiPlaceholder": "Demandez à l'IA de modifier ce paragraphe…"
   }
 }

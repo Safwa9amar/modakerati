@@ -478,7 +478,8 @@
       "view": "View",
       "export": "Export",
       "regenerate": "Regenerate",
-      "thinking": "Thinking"
+      "thinking": "Thinking",
+      "editBlock": "Edit block"
     },
     "presets": {
       "expand": { "label": "Expand", "prompt": "Expand this section with more detail and supporting arguments." },
@@ -489,5 +490,13 @@
     },
     "micLabel": "Voice input",
     "voiceComingSoon": "Voice input is coming soon."
+  },
+  "blockEditor": {
+    "title": "Edit paragraph",
+    "save": "Save",
+    "saveError": "Couldn't save. Please try again.",
+    "notFound": "This paragraph is no longer available.",
+    "empty": "Paragraph text…",
+    "aiPlaceholder": "Ask the AI to edit this paragraph…"
   }
 }
