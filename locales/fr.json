@@ -487,6 +487,7 @@
       "summarize": { "label": "Résumer", "prompt": "Résumez cette section de manière concise." },
       "improve": { "label": "Améliorer", "prompt": "Améliorez la clarté et la fluidité de ce passage." }
     },
+    "micLabel": "Saisie vocale",
     "voiceComingSoon": "La saisie vocale arrive bientôt."
   }
 }

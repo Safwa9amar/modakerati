@@ -86,6 +86,11 @@ export default function ThesisWorkspaceScreen() {
     useWorkspaceStore.getState().setThesis(thesisId);
     return () => {
       useWorkspaceStore.getState().reset();
+      // The chat tab shares `pendingAsk` and the "structure" sheet key, so clear
+      // an unanswered question and close the outline panel on leave — otherwise
+      // either can ghost open on the chat screen.
+      useChatStore.getState().setPendingAsk(null);
+      useBottomSheet.getState().closeSheet("structure");
     };
   }, [thesisId]);
 
@@ -371,7 +376,7 @@ const styles = StyleSheet.create({
   expandIcon: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   content: { paddingBottom: 40 },
-  outlineContent: { paddingVertical: 8, paddingBottom: 40 },
+  outlineContent: { paddingVertical: 8 },
 
   // Title page
   titleUniversity: {

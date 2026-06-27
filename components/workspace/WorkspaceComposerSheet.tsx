@@ -16,7 +16,6 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, regenerateLastResponse } from "@/lib/ai-service";
-import type { ChatMessage } from "@/types/chat";
 import { ComposerThinking } from "./ComposerThinking";
 import { ComposerInput } from "./ComposerInput";
 import { ComposerQuickActions } from "./ComposerQuickActions";
@@ -25,10 +24,6 @@ import { ComposerAsk } from "./ComposerAsk";
 
 /** Height of the collapsed peek (the doc area pads its bottom by this). */
 export const COMPOSER_COLLAPSED_HEIGHT = 210;
-
-// Stable empty array so the messages selector never returns a fresh literal
-// (zustand v5 Object.is → "Maximum update depth exceeded").
-const EMPTY_MESSAGES: ChatMessage[] = [];
 
 interface Props {
   thesisId: string;
@@ -64,17 +59,25 @@ export function WorkspaceComposerSheet({
 
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
-  const streamingId = useChatStore((s) => s.streamingId);
-  const messages = useChatStore((s) => s.messages[thesisId] ?? EMPTY_MESSAGES);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
+  // Read just the streaming message's reasoning (a string primitive) so the
+  // composer re-renders only when that text changes — not on every token of an
+  // unrelated message, and without re-scanning the whole array on each render.
+  const thinking = useChatStore((s) => {
+    const id = s.streamingId;
+    if (!id) return "";
+    return s.messages[thesisId]?.find((m) => m.id === id)?.thinking ?? "";
+  });
 
   const [inputText, setInputText] = useState("");
 
   const snapPoints = useMemo(() => [COMPOSER_COLLAPSED_HEIGHT, "62%"], []);
 
-  // Auto-expand when the AI starts working or asks a question.
+  // Auto-expand when the AI starts working or asks a question; collapse back to
+  // the peek once it finishes so the updated document is visible again.
   useEffect(() => {
     if (isGenerating || pendingAsk) sheetRef.current?.snapToIndex(1);
+    else sheetRef.current?.snapToIndex(0);
   }, [isGenerating, pendingAsk]);
 
   // Focus chip: tapped block, deep-linked block, or the whole memoir.
@@ -85,9 +88,6 @@ export function WorkspaceComposerSheet({
   } else if (docBlockIndex != null) {
     chipLabel = `✎ ${t("workspace.selectedBlock", { defaultValue: "Selected section" })}`;
   }
-
-  const streamingMsg = streamingId ? messages.find((m) => m.id === streamingId) : undefined;
-  const thinking = streamingMsg?.thinking ?? "";
 
   const handleSend = async () => {
     const text = inputText.trim();
@@ -176,7 +176,7 @@ export function WorkspaceComposerSheet({
               placeholder={t("workspace.askPlaceholder", { defaultValue: "Ask the AI to write or edit…" })}
               sendLabel={t("chat.send", { defaultValue: "Send" })}
               stopLabel={t("chat.stop", { defaultValue: "Stop" })}
-              micLabel={t("composer.tools.thinking")}
+              micLabel={t("composer.micLabel", { defaultValue: "Voice input" })}
             />
             <ComposerQuickActions
               onPreset={(prompt) => {
