@@ -463,5 +463,30 @@
     "outline": "Plan",
     "sources": "Sources",
     "export": "Exporter"
+  },
+  "composer": {
+    "status": {
+      "ready": "Prêt — demandez-moi d'écrire ou de modifier cette section.",
+      "thinking": "Réflexion…",
+      "writing": "Rédaction…"
+    },
+    "toolsLabel": "Outils",
+    "tools": {
+      "sources": "Sources",
+      "format": "Format",
+      "outline": "Plan",
+      "view": "Vue",
+      "export": "Exporter",
+      "regenerate": "Régénérer",
+      "thinking": "Réflexion"
+    },
+    "presets": {
+      "expand": { "label": "Développer", "prompt": "Développez cette section avec plus de détails et d'arguments." },
+      "rephrase": { "label": "Reformuler", "prompt": "Reformulez ce passage pour plus de clarté et un ton académique." },
+      "cite": { "label": "Citer", "prompt": "Ajoutez une citation pertinente pour appuyer ce passage." },
+      "summarize": { "label": "Résumer", "prompt": "Résumez cette section de manière concise." },
+      "improve": { "label": "Améliorer", "prompt": "Améliorez la clarté et la fluidité de ce passage." }
+    },
+    "voiceComingSoon": "La saisie vocale arrive bientôt."
   }
 }

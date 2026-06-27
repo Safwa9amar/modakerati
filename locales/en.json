@@ -463,5 +463,30 @@
     "outline": "Outline",
     "sources": "Sources",
     "export": "Export"
+  },
+  "composer": {
+    "status": {
+      "ready": "Ready — ask me to write or edit this section.",
+      "thinking": "Thinking…",
+      "writing": "Writing…"
+    },
+    "toolsLabel": "Tools",
+    "tools": {
+      "sources": "Sources",
+      "format": "Format",
+      "outline": "Outline",
+      "view": "View",
+      "export": "Export",
+      "regenerate": "Regenerate",
+      "thinking": "Thinking"
+    },
+    "presets": {
+      "expand": { "label": "Expand", "prompt": "Expand this section with more detail and supporting arguments." },
+      "rephrase": { "label": "Rephrase", "prompt": "Rephrase this passage for clarity and an academic tone." },
+      "cite": { "label": "Cite", "prompt": "Add a relevant citation to support this passage." },
+      "summarize": { "label": "Summarize", "prompt": "Summarize this section concisely." },
+      "improve": { "label": "Improve", "prompt": "Improve the clarity and flow of this passage." }
+    },
+    "voiceComingSoon": "Voice input is coming soon."
   }
 }
