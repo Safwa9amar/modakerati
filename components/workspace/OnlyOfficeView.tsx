@@ -102,8 +102,6 @@ export function OnlyOfficeView({
 // with the signed config, and posts lifecycle/error messages back to RN.
 function buildHtml(documentServerUrl: string, config: any): string {
   const apiSrc = `${documentServerUrl}/web-apps/apps/api/documents/api.js`;
-  console.log(apiSrc);
-  
   const configJson = JSON.stringify(config);
   return `<!DOCTYPE html>
 <html>

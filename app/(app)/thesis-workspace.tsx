@@ -9,12 +9,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Linking,
+  ScrollView,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
-import { Maximize2, Paperclip, Download, Paintbrush, ListTree } from "lucide-react-native";
+import { Maximize2, Paperclip, Download, Paintbrush, ListTree, FileText, AlignLeft } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -24,6 +25,8 @@ import { sendMessageToAI } from "@/lib/ai-service";
 import { BackButton } from "@/components/BackButton";
 import { WordDocxView, type DocTapBlock } from "@/components/workspace/WordDocxView";
 import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
+import { DocBlock } from "@/components/workspace/DocBlock";
+import { PaperPage } from "@/components/workspace/PaperPage";
 import { WorkspaceComposer } from "@/components/workspace/WorkspaceComposer";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
@@ -56,10 +59,11 @@ export default function ThesisWorkspaceScreen() {
   const { thesisId, blockIndex } = useLocalSearchParams<{ thesisId: string; blockIndex?: string }>();
 
   const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
-  const selected = useWorkspaceStore((s) => ({
-    blockText: s.selectedBlockText,
-    docBlockIndex: s.selectedBlockIndex,
-  }));
+  // Select primitives individually — an object-literal selector hands
+  // useSyncExternalStore a fresh reference every render → "Maximum update depth
+  // exceeded".
+  const blockText = useWorkspaceStore((s) => s.selectedBlockText);
+  const docBlockIndex = useWorkspaceStore((s) => s.selectedBlockIndex);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
   // Drives the live block refresh below: while a turn is generating the AI
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
@@ -76,6 +80,12 @@ export default function ThesisWorkspaceScreen() {
   // failed) → fall back to the docx-preview WordDocxView. When enabled it carries
   // the signed DocEditor config (its `document.key` bumps after each AI turn).
   const [editorCfg, setEditorCfg] = useState<EditorConfigDTO | undefined>(undefined);
+
+  // Main-view mode. "docx" renders the real Word document at full fidelity
+  // (headers, page numbers, pagination via docx-preview/OnlyOffice); "outline"
+  // renders the same blocks as lightweight editable text on white paper (native,
+  // no WebView). Defaults to "docx" so a thesis always opens as the real document.
+  const [viewMode, setViewMode] = useState<"docx" | "outline">("docx");
 
   // Mark this thesis current and pull the freshest copy from the server.
   useEffect(() => {
@@ -167,6 +177,27 @@ export default function ThesisWorkspaceScreen() {
     [liveDoc],
   );
 
+  // Base text direction for rendering. The thesis `language` field is unreliable
+  // (imports default to "fr" even for Arabic docs), so detect from the actual
+  // block content — RTL when right-to-left characters dominate. Drives both the
+  // docx-preview container direction and the outline view's block fallback.
+  const docRtl = useMemo(() => {
+    if (!liveDoc) return false;
+    const RTL = /[֐-ࣿיִ-﻿]/;
+    const LTR = /[A-Za-z]/;
+    let r = 0;
+    let l = 0;
+    for (const b of liveDoc.blocks) {
+      const text = b.kind === "paragraph" ? b.text : b.kind === "table" ? b.rows.flat().join(" ") : "";
+      for (const ch of text) {
+        if (RTL.test(ch)) r++;
+        else if (LTR.test(ch)) l++;
+      }
+      if (r + l > 3000) break;
+    }
+    return r > l;
+  }, [liveDoc]);
+
   // Refresh the document when a turn finishes (generating true → false): the AI
   // committed its block edits to the .docx during the turn, so re-fetching gives
   // a fresh signed url → the Word view reloads with the updated document.
@@ -228,6 +259,27 @@ export default function ThesisWorkspaceScreen() {
         >
           {title}
         </Text>
+        {/* View toggle: docx (real document) ⟷ outline (editable text blocks).
+            Shows the icon of the mode you'll switch TO. Only when a live doc exists. */}
+        {liveDoc ? (
+          <Pressable
+            onPress={() => setViewMode((m) => (m === "docx" ? "outline" : "docx"))}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={
+              viewMode === "docx"
+                ? t("workspace.viewOutline", { defaultValue: "Outline view" })
+                : t("workspace.viewDocument", { defaultValue: "Document view" })
+            }
+            style={styles.expandBtn}
+          >
+            {viewMode === "docx" ? (
+              <AlignLeft size={20} color={colors.textPrimary} />
+            ) : (
+              <FileText size={20} color={colors.brandPrimary} />
+            )}
+          </Pressable>
+        ) : null}
         {/* Outline toggle */}
         <Pressable
           onPress={handleOutlineToggle}
@@ -322,7 +374,22 @@ export default function ThesisWorkspaceScreen() {
              OnlyOffice only on REAL devices: its heavy WASM/JS editor crashes the
              iOS Simulator's WebContent process (and is unreliable in emulators), so
              simulators/emulators fall back to the lighter docx-preview render. */
-          editorCfg === undefined ? (
+          viewMode === "outline" ? (
+            /* Outline mode: the same .docx blocks as lightweight editable text on
+               white "paper" — native render (no WebView), tap a block to select it
+               for the AI. Reads liveDoc.blocks (already in the DTO), so no extra
+               fetch and no editor-config gating. */
+            <ScrollView
+              contentContainerStyle={styles.outlineContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <PaperPage>
+                {liveDoc.blocks.map((b) => (
+                  <DocBlock key={b.index} block={b} rtl={docRtl} />
+                ))}
+              </PaperPage>
+            </ScrollView>
+          ) : editorCfg === undefined ? (
             <View style={styles.centered}>
               <ActivityIndicator size="large" color={colors.brandPrimary} />
             </View>
@@ -335,7 +402,8 @@ export default function ThesisWorkspaceScreen() {
             <WordDocxView
               url={liveDoc.downloadUrl}
               blocks={tapBlocks}
-              selectedIndex={selected.docBlockIndex}
+              selectedIndex={docBlockIndex}
+              rtl={docRtl}
               onSelect={(index, text) =>
                 useWorkspaceStore.getState().selectBlock(index, text)
               }
@@ -371,8 +439,8 @@ export default function ThesisWorkspaceScreen() {
           onAnswer={(answer) => {
             useChatStore.getState().setPendingAsk(null);
             void sendMessageToAI(thesisId, answer, {
-              selection: selected.blockText ?? undefined,
-              docBlockIndex: selected.docBlockIndex ?? null,
+              selection: blockText ?? undefined,
+              docBlockIndex: docBlockIndex ?? null,
             });
           }}
           onClose={() => useChatStore.getState().setPendingAsk(null)}
@@ -405,6 +473,7 @@ const styles = StyleSheet.create({
   expandIcon: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   content: { paddingBottom: 40 },
+  outlineContent: { paddingVertical: 8, paddingBottom: 40 },
 
   // Title page
   titleUniversity: {

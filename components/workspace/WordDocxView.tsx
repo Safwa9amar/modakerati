@@ -25,11 +25,17 @@ export function WordDocxView({
   blocks,
   onSelect,
   selectedIndex,
+  rtl = false,
 }: {
   url: string;
   blocks: DocTapBlock[];
   onSelect: (index: number, text: string) => void;
   selectedIndex: number | null;
+  // Base page direction. docx-preview renders Arabic runs RTL via bidi, but the
+  // block-level layout (indents, justification anchor, header tab stops, table
+  // column order) stays LTR unless the container is dir="rtl". True for Arabic
+  // theses (detected from content, since the thesis language field is unreliable).
+  rtl?: boolean;
 }) {
   const colors = useThemeColors();
   const webRef = useRef<WebView>(null);
@@ -39,9 +45,9 @@ export function WordDocxView({
   // Rebuilds (and reloads the WebView) only when the doc bytes change — i.e. when
   // the signed url changes. blocks ride along for tap→index matching.
   const html = useMemo(
-    () => buildHtml(url, blocks, selectedIndex),
+    () => buildHtml(url, blocks, selectedIndex, rtl),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [url],
+    [url, rtl],
   );
 
   // Keep the highlight in sync without a full reload when only the selection changes.
@@ -105,7 +111,7 @@ export function WordDocxView({
 
 // The WebView shell: loads docx-preview, fetches the .docx, renders it, wires
 // tap-to-select, and posts lifecycle/selection messages back to RN.
-function buildHtml(url: string, blocks: DocTapBlock[], selectedIndex: number | null): string {
+function buildHtml(url: string, blocks: DocTapBlock[], selectedIndex: number | null, rtl: boolean): string {
   const blocksJson = JSON.stringify(blocks);
   const urlJson = JSON.stringify(url);
   const selJson = selectedIndex == null ? "null" : String(selectedIndex);
@@ -121,6 +127,9 @@ function buildHtml(url: string, blocks: DocTapBlock[], selectedIndex: number | n
   /* docx-preview wraps each section/page in .docx-wrapper > section.docx; give it
      the page-on-gray look + shadow, and let it scale to the device width. */
   .docx-wrapper { background: #e7e7ee; padding: 12px 0 32px; display: flex; flex-direction: column; align-items: center; }
+  /* RTL theses: set the base direction so block layout (indents, justification
+     anchor, header tab stops, table column order) flows right-to-left like Word. */
+  .docx-wrapper, #container, section.docx { direction: ${rtl ? "rtl" : "ltr"}; }
   .docx-wrapper > section.docx { box-shadow: 0 1px 6px rgba(0,0,0,0.28); margin-bottom: 14px; background: #fff; }
   /* The doc declares its own page width in pt; scale the wrapper down to fit. */
   #container { transform-origin: top center; }
@@ -128,7 +137,7 @@ function buildHtml(url: string, blocks: DocTapBlock[], selectedIndex: number | n
   .mk-tap { cursor: pointer; }
 </style>
 </head>
-<body>
+<body${rtl ? ' dir="rtl"' : ""}>
 <div id="container"></div>
 <script>
   var RN = window.ReactNativeWebView;

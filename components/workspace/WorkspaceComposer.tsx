@@ -46,10 +46,11 @@ export function WorkspaceComposer({
   const { t } = useTranslation();
   const colors = useThemeColors();
 
-  const selected = useWorkspaceStore((s) => ({
-    blockText: s.selectedBlockText,
-    docBlockIndex: s.selectedBlockIndex,
-  }));
+  // Select primitives individually. Returning an object literal here would hand
+  // useSyncExternalStore a fresh reference every render → "Maximum update depth
+  // exceeded" (same trap EMPTY_MESSAGES guards against above).
+  const blockText = useWorkspaceStore((s) => s.selectedBlockText);
+  const docBlockIndex = useWorkspaceStore((s) => s.selectedBlockIndex);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const streamingId = useChatStore((s) => s.streamingId);
   const messages = useChatStore((s) => s.messages[thesisId] ?? EMPTY_MESSAGES);
@@ -60,11 +61,11 @@ export function WorkspaceComposer({
   // whole memoir when nothing is selected. A selection can carry text (tap in the
   // doc) or just a block index (deep-link from the outline) — both count.
   let chipLabel = t("workspace.wholeMemoir", { defaultValue: "Whole memoir" });
-  const hasSelection = !!selected.blockText || selected.docBlockIndex != null;
-  if (selected.blockText) {
-    const excerpt = selected.blockText.replace(/\s+/g, " ").trim().slice(0, 40);
+  const hasSelection = !!blockText || docBlockIndex != null;
+  if (blockText) {
+    const excerpt = blockText.replace(/\s+/g, " ").trim().slice(0, 40);
     chipLabel = `✎ ${excerpt}`;
-  } else if (selected.docBlockIndex != null) {
+  } else if (docBlockIndex != null) {
     chipLabel = `✎ ${t("workspace.selectedBlock", { defaultValue: "Selected section" })}`;
   }
 
@@ -97,10 +98,10 @@ export function WorkspaceComposer({
     setInputText("");
     Keyboard.dismiss();
     await sendMessageToAI(thesisId, text, {
-      selection: selected.blockText ?? undefined,
+      selection: blockText ?? undefined,
       // Live-.docx (L2): the engine block index the student selected, so the AI
       // edits that exact paragraph. `null` when nothing block-specific is focused.
-      docBlockIndex: selected.docBlockIndex ?? null,
+      docBlockIndex: docBlockIndex ?? null,
     });
   }
 
