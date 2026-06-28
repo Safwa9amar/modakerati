@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -10,8 +12,8 @@ import { setLanguageWithRTL } from "@/lib/i18n";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import {
-  Globe, Moon, Sun, Cpu, Bell, Sparkles, Clock,
-  Cloud, HardDrive, Trash2, AlertTriangle,
+  Globe, Moon, Sun, Bell, Sparkles, Clock,
+  Trash2, AlertTriangle,
   Info, FileText, Shield, ChevronRight, ChevronDown, Check,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
@@ -44,6 +46,7 @@ interface SettingRow {
 export default function SettingsScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const router = useRouter();
   const theme = useSettingsStore((s) => s.theme);
   const language = useSettingsStore((s) => s.language);
   const setTheme = useSettingsStore((s) => s.setTheme);
@@ -51,7 +54,6 @@ export default function SettingsScreen() {
 
   const preferences = useNotificationStore((s) => s.preferences);
   const updatePreferences = useNotificationStore((s) => s.updatePreferences);
-  const [cloudSync, setCloudSync] = useState(true);
   const [langExpanded, setLangExpanded] = useState(false);
 
   useEffect(() => {
@@ -68,6 +70,37 @@ export default function SettingsScreen() {
         { text: t("common.ok") },
       ]);
     }
+  };
+
+  // Clears the app's temporary cache directory (downloaded previews, exported
+  // PDFs, picked-file copies). Does NOT touch AsyncStorage, the session, or any
+  // saved preferences — only disposable on-device files.
+  const handleClearCache = () => {
+    Alert.alert(
+      t("settings.clearCacheConfirmTitle"),
+      t("settings.clearCacheConfirmMessage"),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("settings.clearCache"),
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const dir = FileSystem.cacheDirectory;
+              if (dir) {
+                const entries = await FileSystem.readDirectoryAsync(dir);
+                await Promise.all(
+                  entries.map((name) => FileSystem.deleteAsync(dir + name, { idempotent: true })),
+                );
+              }
+              Alert.alert(t("settings.clearCacheDoneTitle"), t("settings.clearCacheDoneMessage"));
+            } catch {
+              Alert.alert(t("common.error"), t("settings.clearCacheError"));
+            }
+          },
+        },
+      ],
+    );
   };
 
   const languageLabel = LANGUAGES.find((l) => l.value === language)?.label ?? language;
@@ -87,7 +120,6 @@ export default function SettingsScreen() {
           type: "toggle", toggleValue: theme === "dark",
           onToggle: (v) => setTheme(v ? "dark" : "light"),
         },
-        { icon: Cpu, iconColor: colors.semanticWarning, label: t("settings.aiModel"), value: "Claude", type: "chevron" },
       ],
     },
     {
@@ -101,18 +133,16 @@ export default function SettingsScreen() {
     {
       title: t("settings.dataPrivacy"),
       rows: [
-        { icon: Cloud, iconColor: colors.brandPrimary, label: t("settings.cloudSync"), type: "toggle", toggleValue: cloudSync, onToggle: setCloudSync },
-        { icon: HardDrive, iconColor: colors.textSecondary, label: t("settings.offlineStorage"), type: "chevron" },
-        { icon: Trash2, iconColor: colors.semanticWarning, label: t("settings.clearCache"), type: "plain" },
-        { icon: AlertTriangle, iconColor: colors.semanticError, label: t("settings.deleteAccount"), type: "plain", destructive: true },
+        { icon: Trash2, iconColor: colors.semanticWarning, label: t("settings.clearCache"), type: "plain", onPress: handleClearCache },
+        { icon: AlertTriangle, iconColor: colors.semanticError, label: t("settings.deleteAccount"), type: "plain", destructive: true, onPress: () => router.push("/(app)/delete-account" as any) },
       ],
     },
     {
       title: t("settings.about"),
       rows: [
         { icon: Info, iconColor: colors.textSecondary, label: t("settings.version"), value: "1.0.0", type: "plain" },
-        { icon: FileText, iconColor: colors.textSecondary, label: t("settings.terms"), type: "chevron" },
-        { icon: Shield, iconColor: colors.textSecondary, label: t("settings.privacy"), type: "chevron" },
+        { icon: FileText, iconColor: colors.textSecondary, label: t("settings.terms"), type: "chevron", onPress: () => router.push("/(app)/terms-of-service" as any) },
+        { icon: Shield, iconColor: colors.textSecondary, label: t("settings.privacy"), type: "chevron", onPress: () => router.push("/(app)/privacy-policy" as any) },
       ],
     },
   ];
