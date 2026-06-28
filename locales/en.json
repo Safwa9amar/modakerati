@@ -55,6 +55,28 @@
     "verifyCode": "Verify Code",
     "resetPassword": "Reset Password"
   },
+  "combine": {
+    "short": "Combine\nDocs",
+    "action": "Combine documents",
+    "arrangeTitle": "Arrange parts",
+    "arrangeSubtitle": "Reorder and rename each part, then combine into one document.",
+    "partTitleLabel": "Section title",
+    "pickProfile": "Formatting standard",
+    "combineButton": "Combine",
+    "classifying": "Reading your documents…",
+    "combining": "Combining your documents…",
+    "needTwo": "Pick at least 2 .docx files",
+    "role_introduction": "Introduction",
+    "role_revue_litterature": "Literature review",
+    "role_partie_theorique": "Theoretical part",
+    "role_methodologie": "Methodology",
+    "role_partie_pratique": "Practical part",
+    "role_resultats": "Results",
+    "role_discussion": "Discussion",
+    "role_conclusion": "Conclusion",
+    "role_annexe": "Appendix",
+    "role_autre": "Other"
+  },
   "home": {
     "goodMorning": "Good morning",
     "newThesis": "New\nThesis",
@@ -171,7 +193,27 @@
     "notificationsPermissionNeeded": "Permission needed",
     "manageNotifications": "Manage Notifications",
     "rtlRestartTitle": "Restart required",
-    "rtlRestartMessage": "Please close and reopen the app to apply the new text direction."
+    "rtlRestartMessage": "Please close and reopen the app to apply the new text direction.",
+    "clearCacheConfirmTitle": "Clear cache?",
+    "clearCacheConfirmMessage": "This removes temporary files (previews, exports and cached uploads). Your theses and settings are kept.",
+    "clearCacheDoneTitle": "Cache cleared",
+    "clearCacheDoneMessage": "Temporary files have been removed.",
+    "clearCacheError": "Could not clear the cache. Please try again."
+  },
+  "deleteAccountScreen": {
+    "lead": "Delete your account",
+    "permanentNote": "This action is permanent and cannot be undone. Everything below will be erased immediately.",
+    "whatGetsDeleted": "What gets deleted",
+    "itemProfile": "Your profile and account details",
+    "itemTheses": "All your theses, documents and chats",
+    "itemSources": "All uploaded sources and references",
+    "itemSubscription": "Your subscription and saved preferences",
+    "acknowledge": "I understand this will permanently delete my account and all of my data.",
+    "deleteButton": "Delete my account",
+    "confirmTitle": "Delete account permanently?",
+    "confirmMessage": "This cannot be undone. Your account and all associated data will be deleted.",
+    "confirmButton": "Delete",
+    "error": "We couldn't delete your account. Please try again."
   },
   "thesis": {
     "nameThesis": "Name your thesis",
@@ -462,7 +504,16 @@
     "noNormProfile": "No formatting standard assigned",
     "outline": "Outline",
     "sources": "Sources",
-    "export": "Export"
+    "export": "Export",
+    "selectedBlock": "Selected section",
+    "nSelected": "{{count}} selected",
+    "deleteSelected": "Delete {{count}}",
+    "startOnNewPage": "New page",
+    "deleteSelectedTitle": "Delete selected blocks?",
+    "deleteSelectedBody": "Remove {{count}} block(s) from the document? This can't be undone.",
+    "bulkEditError": "Could not apply the change.",
+    "pdfFailed": "Couldn't generate the PDF. Please try again.",
+    "pdfUnavailable": "PDF preview isn't available for this document."
   },
   "composer": {
     "status": {
@@ -479,7 +530,8 @@
       "export": "Export",
       "regenerate": "Regenerate",
       "thinking": "Thinking",
-      "editBlock": "Edit block"
+      "editBlock": "Edit block",
+      "pdf": "PDF"
     },
     "presets": {
       "expand": { "label": "Expand", "prompt": "Expand this section with more detail and supporting arguments." },

@@ -55,6 +55,28 @@
     "verifyCode": "Vérifier le code",
     "resetPassword": "Réinitialiser"
   },
+  "combine": {
+    "short": "Combiner\nDocs",
+    "action": "Combiner des documents",
+    "arrangeTitle": "Organiser les parties",
+    "arrangeSubtitle": "Réordonnez et renommez chaque partie, puis combinez en un seul document.",
+    "partTitleLabel": "Titre de section",
+    "pickProfile": "Norme de mise en forme",
+    "combineButton": "Combiner",
+    "classifying": "Lecture de vos documents…",
+    "combining": "Combinaison de vos documents…",
+    "needTwo": "Choisissez au moins 2 fichiers .docx",
+    "role_introduction": "Introduction",
+    "role_revue_litterature": "Revue de littérature",
+    "role_partie_theorique": "Partie théorique",
+    "role_methodologie": "Méthodologie",
+    "role_partie_pratique": "Partie pratique",
+    "role_resultats": "Résultats",
+    "role_discussion": "Discussion",
+    "role_conclusion": "Conclusion",
+    "role_annexe": "Annexe",
+    "role_autre": "Autre"
+  },
   "home": {
     "goodMorning": "Bonjour",
     "newThesis": "Nouveau\nMémoire",
@@ -171,7 +193,27 @@
     "notificationsPermissionNeeded": "Autorisation requise",
     "manageNotifications": "Gerer les notifications",
     "rtlRestartTitle": "Redemarrage requis",
-    "rtlRestartMessage": "Veuillez fermer et rouvrir l'application pour appliquer la nouvelle orientation du texte."
+    "rtlRestartMessage": "Veuillez fermer et rouvrir l'application pour appliquer la nouvelle orientation du texte.",
+    "clearCacheConfirmTitle": "Vider le cache ?",
+    "clearCacheConfirmMessage": "Cela supprime les fichiers temporaires (aperçus, exports et imports en cache). Vos mémoires et réglages sont conservés.",
+    "clearCacheDoneTitle": "Cache vidé",
+    "clearCacheDoneMessage": "Les fichiers temporaires ont été supprimés.",
+    "clearCacheError": "Impossible de vider le cache. Veuillez réessayer."
+  },
+  "deleteAccountScreen": {
+    "lead": "Supprimer votre compte",
+    "permanentNote": "Cette action est définitive et irréversible. Tout ce qui figure ci-dessous sera effacé immédiatement.",
+    "whatGetsDeleted": "Ce qui sera supprimé",
+    "itemProfile": "Votre profil et les informations du compte",
+    "itemTheses": "Tous vos mémoires, documents et conversations",
+    "itemSources": "Toutes les sources et références importées",
+    "itemSubscription": "Votre abonnement et vos préférences enregistrées",
+    "acknowledge": "Je comprends que cela supprimera définitivement mon compte et toutes mes données.",
+    "deleteButton": "Supprimer mon compte",
+    "confirmTitle": "Supprimer définitivement le compte ?",
+    "confirmMessage": "Cette action est irréversible. Votre compte et toutes les données associées seront supprimés.",
+    "confirmButton": "Supprimer",
+    "error": "Impossible de supprimer votre compte. Veuillez réessayer."
   },
   "thesis": {
     "nameThesis": "Nommez votre mémoire",
@@ -462,7 +504,16 @@
     "noNormProfile": "Aucune norme de mise en page assignee",
     "outline": "Plan",
     "sources": "Sources",
-    "export": "Exporter"
+    "export": "Exporter",
+    "selectedBlock": "Section sélectionnée",
+    "nSelected": "{{count}} sélectionnés",
+    "deleteSelected": "Supprimer {{count}}",
+    "startOnNewPage": "Nouvelle page",
+    "deleteSelectedTitle": "Supprimer les blocs sélectionnés ?",
+    "deleteSelectedBody": "Retirer {{count}} bloc(s) du document ? Cette action est irréversible.",
+    "bulkEditError": "Impossible d'appliquer la modification.",
+    "pdfFailed": "Impossible de générer le PDF. Veuillez réessayer.",
+    "pdfUnavailable": "L'aperçu PDF n'est pas disponible pour ce document."
   },
   "composer": {
     "status": {
@@ -479,7 +530,8 @@
       "export": "Exporter",
       "regenerate": "Régénérer",
       "thinking": "Réflexion",
-      "editBlock": "Modifier"
+      "editBlock": "Modifier",
+      "pdf": "PDF"
     },
     "presets": {
       "expand": { "label": "Développer", "prompt": "Développez cette section avec plus de détails et d'arguments." },

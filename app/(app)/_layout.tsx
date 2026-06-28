@@ -2,6 +2,9 @@ import { Stack } from "expo-router";
 export default function AppLayout() {
   return <Stack screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
     <Stack.Screen name="settings" />
+    <Stack.Screen name="delete-account" />
+    <Stack.Screen name="terms-of-service" />
+    <Stack.Screen name="privacy-policy" />
     <Stack.Screen name="edit-profile" />
     <Stack.Screen name="subscription" />
     <Stack.Screen name="payment-checkout" />
@@ -20,5 +23,6 @@ export default function AppLayout() {
     <Stack.Screen name="export-success" />
     <Stack.Screen name="network-error" />
     <Stack.Screen name="import-analysis" />
+    <Stack.Screen name="combine-arrange" />
   </Stack>;
 }

@@ -106,7 +106,7 @@ export interface ChatSendResponse {
 export async function chatSend(
   thesisId: string,
   message: string,
-  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null }
+  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[] }
 ): Promise<ChatSendResponse> {
   return apiPost("/api/chat/send", {
     thesisId,
@@ -117,6 +117,9 @@ export async function chatSend(
     // Live-.docx (L2): the engine block index the student selected, so the AI
     // edits that exact paragraph. `null` when nothing block-specific is focused.
     docBlockIndex: options?.docBlockIndex ?? null,
+    // Multi-select: every block the student long-pressed, so the AI acts on the
+    // whole set. Omitted when there's a single (or no) selection.
+    docBlockIndices: options?.docBlockIndices,
   });
 }
 
@@ -160,14 +163,15 @@ export async function chatSendStream(
   thesisId: string,
   message: string,
   handlers: ChatStreamHandlers,
-  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; signal?: AbortSignal }
+  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; signal?: AbortSignal }
 ): Promise<void> {
   const headers = await getAuthHeaders();
   const response = await expoFetch(`${API_URL}/api/chat/stream`, {
     method: "POST",
     headers,
     // `docBlockIndex` (live-.docx, L2): the selected engine block index → the AI
-    // edits that paragraph. Legacy fields (chapterId/sectionId/selection) stay so
+    // edits that paragraph. `docBlockIndices` carries a multi-select set so the AI
+    // acts on all of them. Legacy fields (chapterId/sectionId/selection) stay so
     // the server's legacy chapter/section path keeps working unchanged.
     body: JSON.stringify({
       thesisId,
@@ -176,6 +180,7 @@ export async function chatSendStream(
       sectionId: options?.sectionId,
       selection: options?.selection,
       docBlockIndex: options?.docBlockIndex ?? null,
+      docBlockIndices: options?.docBlockIndices,
     }),
     signal: options?.signal,
   });
@@ -395,6 +400,48 @@ export async function formatThesis(
 }
 
 // ============================================================
+// Combine documents API
+// Mirrors the server DTOs from POST /api/thesis/combine/classify and /combine.
+// ============================================================
+
+export type PartRole =
+  | "introduction"
+  | "revue_litterature"
+  | "partie_theorique"
+  | "methodologie"
+  | "partie_pratique"
+  | "resultats"
+  | "discussion"
+  | "conclusion"
+  | "annexe"
+  | "autre";
+
+export interface ClassifiedPartDTO {
+  filename: string;
+  suggestedTitle: string;
+  role: PartRole;
+  wordCount: number;
+  pageCount: number;
+}
+
+// Classify uploaded parts (read content → role + suggested title + default order).
+export async function classifyCombineParts(
+  parts: { filename: string; base64: string }[]
+): Promise<{ parts: ClassifiedPartDTO[]; suggestedOrder: string[] }> {
+  return apiPost("/api/thesis/combine/classify", { parts });
+}
+
+// Combine ordered parts into one new live-docx thesis (returns the import shape).
+export async function combineThesis(input: {
+  title: string;
+  normProfileId?: string;
+  language?: string;
+  parts: { filename: string; base64: string; title: string; order: number }[];
+}): Promise<{ thesis: Thesis; analysisReport: AnalysisReport | null }> {
+  return apiPost("/api/thesis/combine", input);
+}
+
+// ============================================================
 // Live-.docx thesis document (read-only block render)
 // Mirrors the server DTO from GET /api/thesis/:id/document.
 // ============================================================
@@ -446,6 +493,15 @@ export type OutlineSectionDTO = {
   title: string;
   chapters: { index: number; title: string }[];
 };
+// Full multi-level heading tree (Thesis Structure sheet): every heading (H1..H6)
+// nests the deeper headings that follow it, like a table of contents. `index` is
+// the engine block index → tap navigates the workspace to it; `level` is depth (1+).
+export type OutlineNodeDTO = {
+  index: number;
+  level: number;
+  title: string;
+  children: OutlineNodeDTO[];
+};
 export type OutlineDTO =
   | {
       id: string;
@@ -456,7 +512,9 @@ export type OutlineDTO =
       pageCount: number;
       sectionCount: number;
       chapterCount: number;
+      headingCount: number;
       sections: OutlineSectionDTO[];
+      nodes: OutlineNodeDTO[];
     }
   | { id: string; title: string; docMode: string; available: false };
 
@@ -475,6 +533,26 @@ export type EditorConfigDTO =
 
 export async function getThesisEditorConfig(id: string): Promise<EditorConfigDTO> {
   return apiGet<EditorConfigDTO>(`/api/thesis/${id}/editor-config`);
+}
+
+// Signed URL to a TEMPORARY PDF render of the live .docx (converted on demand by
+// the OnlyOffice Document Server, not persisted). `available:false` when no
+// Document Server is configured ("disabled"), the thesis has no .docx
+// ("not-seeded"), or the conversion failed ("failed") → the PDF view shows the
+// matching message. Re-fetched after each AI turn so the preview reflects edits;
+// the preview object is removed via deleteThesisPdf when the view closes.
+export type ThesisPdfDTO =
+  | { available: true; url: string }
+  | { available: false; reason: "disabled" | "not-seeded" | "failed" };
+
+export async function getThesisPdf(id: string): Promise<ThesisPdfDTO> {
+  return apiGet<ThesisPdfDTO>(`/api/thesis/${id}/pdf`);
+}
+
+// Discard the transient PDF preview — called when the user switches away from the
+// PDF view or leaves the workspace, so the throwaway render isn't kept around.
+export async function deleteThesisPdf(id: string): Promise<void> {
+  return apiDelete(`/api/thesis/${id}/pdf`);
 }
 
 // Export the thesis to a downloadable file (default .docx) → signed URL.
@@ -535,6 +613,13 @@ export async function updateProfile(updates: any) {
 // are unreliable from RN); the server stores it and returns the updated profile.
 export async function uploadAvatar(base64: string, mimeType: string) {
   return apiPost<any>("/api/user/avatar", { base64, mimeType });
+}
+
+// Permanently delete the account and all associated data (irreversible). The
+// caller is responsible for signing the user out afterwards — the auth user no
+// longer exists, so the cached session is dead.
+export async function deleteAccount() {
+  return apiDelete("/api/user/account");
 }
 
 // ============================================================
@@ -728,6 +813,28 @@ export async function editThesisParagraph(
   changes: { text: string }
 ): Promise<{ ok: true }> {
   return apiPut<{ ok: true }>(`/api/thesis/${thesisId}/paragraphs/${index}`, changes);
+}
+
+// Bulk-delete several live-.docx thesis blocks at once (the workspace multi-select).
+// `indices` are engine block indices; the server removes them high-to-low so they
+// stay valid as the list shrinks. Shares the AI's thesis lock.
+export async function deleteThesisBlocks(
+  thesisId: string,
+  indices: number[]
+): Promise<{ ok: true; deleted: number; skipped: number }> {
+  // `skipped` counts protected non-paragraph blocks (cover logo / jury table) the
+  // server refused to delete.
+  return apiPost<{ ok: true; deleted: number; skipped: number }>(`/api/thesis/${thesisId}/blocks/delete`, { indices });
+}
+
+// Make each selected block start on a new page (a next-page section break), in one
+// locked pass. `indices` are engine block indices.
+export async function startThesisBlocksOnNewPage(
+  thesisId: string,
+  indices: number[],
+  breakType?: "nextPage" | "evenPage" | "oddPage"
+): Promise<{ ok: true; changed: number }> {
+  return apiPost<{ ok: true; changed: number }>(`/api/thesis/${thesisId}/blocks/start-on-new-page`, { indices, breakType });
 }
 
 export async function addDocumentParagraph(

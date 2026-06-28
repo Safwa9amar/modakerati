@@ -3,12 +3,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { PenLine, FolderUp, LayoutGrid, Zap, FileText, Layers, List, ChevronRight, Newspaper } from "lucide-react-native";
+import { PenLine, FolderUp, LayoutGrid, Zap, FileText, Layers, List, ChevronRight, Newspaper, Combine } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useNavBarClearance } from "@/components/FloatingNavBar";
 import { useProfileStore } from "@/stores/profile-store";
 import { useImportStore } from "@/stores/import-store";
+import { useCombineStore } from "@/stores/combine-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { listTheses, listNews } from "@/lib/api";
 import type { NewsArticle } from "@/types/news";
@@ -85,9 +86,22 @@ export default function HomeScreen() {
     }
   }, [router, t]);
 
+  const handleCombine = useCallback(async () => {
+    const store = useCombineStore.getState();
+    store.reset();
+    const result = await store.pickAndClassify();
+    if (result === "ok") {
+      router.push("/(app)/combine-arrange" as any);
+    } else if (result === "error") {
+      const msg = useCombineStore.getState().errorMessage;
+      Alert.alert(t("combine.action"), msg || "Failed");
+    }
+  }, [router, t]);
+
   const quickActions = [
     { icon: PenLine, label: t("home.newThesis"), color: colors.brandPrimary, onPress: () => router.push("/(app)/template-picker" as any) },
     { icon: FolderUp, label: t("home.importDocx"), color: "#9959FF", onPress: handleImport },
+    { icon: Combine, label: t("combine.short"), color: "#1FB6A8", onPress: handleCombine },
     { icon: LayoutGrid, label: t("home.templates"), color: colors.brandAccent, onPress: () => router.push("/(app)/template-picker" as any) },
     { icon: Zap, label: t("home.aiAssist"), color: colors.semanticWarning, onPress: () => {} },
   ];

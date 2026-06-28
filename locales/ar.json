@@ -55,6 +55,28 @@
     "verifyCode": "تحقق من الرمز",
     "resetPassword": "إعادة التعيين"
   },
+  "combine": {
+    "short": "دمج\nملفات",
+    "action": "دمج المستندات",
+    "arrangeTitle": "ترتيب الأجزاء",
+    "arrangeSubtitle": "أعد ترتيب كل جزء وأعد تسميته ثم ادمجها في مستند واحد.",
+    "partTitleLabel": "عنوان القسم",
+    "pickProfile": "معيار التنسيق",
+    "combineButton": "دمج",
+    "classifying": "جارٍ قراءة مستنداتك…",
+    "combining": "جارٍ دمج مستنداتك…",
+    "needTwo": "اختر ملفين .docx على الأقل",
+    "role_introduction": "مقدمة",
+    "role_revue_litterature": "مراجعة الأدبيات",
+    "role_partie_theorique": "الجزء النظري",
+    "role_methodologie": "المنهجية",
+    "role_partie_pratique": "الجزء التطبيقي",
+    "role_resultats": "النتائج",
+    "role_discussion": "المناقشة",
+    "role_conclusion": "الخاتمة",
+    "role_annexe": "ملحق",
+    "role_autre": "أخرى"
+  },
   "home": {
     "goodMorning": "صباح الخير",
     "newThesis": "مذكرة\nجديدة",
@@ -171,7 +193,27 @@
     "notificationsPermissionNeeded": "الإذن مطلوب",
     "manageNotifications": "إدارة الإشعارات",
     "rtlRestartTitle": "إعادة التشغيل مطلوبة",
-    "rtlRestartMessage": "يرجى إغلاق التطبيق وإعادة فتحه لتطبيق اتجاه النص الجديد."
+    "rtlRestartMessage": "يرجى إغلاق التطبيق وإعادة فتحه لتطبيق اتجاه النص الجديد.",
+    "clearCacheConfirmTitle": "مسح ذاكرة التخزين المؤقت؟",
+    "clearCacheConfirmMessage": "سيؤدي ذلك إلى حذف الملفات المؤقتة (المعاينات والتصديرات والملفات المرفوعة المخزّنة مؤقتًا). تبقى مذكراتك وإعداداتك كما هي.",
+    "clearCacheDoneTitle": "تم مسح الذاكرة المؤقتة",
+    "clearCacheDoneMessage": "تم حذف الملفات المؤقتة.",
+    "clearCacheError": "تعذّر مسح الذاكرة المؤقتة. يرجى المحاولة مرة أخرى."
+  },
+  "deleteAccountScreen": {
+    "lead": "حذف حسابك",
+    "permanentNote": "هذا الإجراء نهائي ولا يمكن التراجع عنه. سيتم حذف كل ما يلي على الفور.",
+    "whatGetsDeleted": "ما الذي سيُحذف",
+    "itemProfile": "ملفك الشخصي وبيانات الحساب",
+    "itemTheses": "جميع مذكراتك ومستنداتك ومحادثاتك",
+    "itemSources": "جميع المصادر والمراجع المرفوعة",
+    "itemSubscription": "اشتراكك وتفضيلاتك المحفوظة",
+    "acknowledge": "أفهم أن هذا سيحذف حسابي وجميع بياناتي نهائيًا.",
+    "deleteButton": "حذف حسابي",
+    "confirmTitle": "حذف الحساب نهائيًا؟",
+    "confirmMessage": "لا يمكن التراجع عن هذا الإجراء. سيتم حذف حسابك وجميع البيانات المرتبطة به.",
+    "confirmButton": "حذف",
+    "error": "تعذّر حذف حسابك. يرجى المحاولة مرة أخرى."
   },
   "thesis": {
     "nameThesis": "سمِّ مذكرتك",
@@ -462,7 +504,16 @@
     "noNormProfile": "لم يتم تعيين معيار تنسيق",
     "outline": "الخطة",
     "sources": "المصادر",
-    "export": "تصدير"
+    "export": "تصدير",
+    "selectedBlock": "القسم المحدد",
+    "nSelected": "{{count}} محدد",
+    "deleteSelected": "حذف {{count}}",
+    "startOnNewPage": "صفحة جديدة",
+    "deleteSelectedTitle": "حذف الكتل المحددة؟",
+    "deleteSelectedBody": "إزالة {{count}} كتلة من المستند؟ لا يمكن التراجع عن هذا الإجراء.",
+    "bulkEditError": "تعذّر تطبيق التغيير.",
+    "pdfFailed": "تعذّر إنشاء ملف PDF. يرجى المحاولة مرة أخرى.",
+    "pdfUnavailable": "معاينة PDF غير متاحة لهذا المستند."
   },
   "composer": {
     "status": {
@@ -479,7 +530,8 @@
       "export": "تصدير",
       "regenerate": "إعادة التوليد",
       "thinking": "التفكير",
-      "editBlock": "تحرير الفقرة"
+      "editBlock": "تحرير الفقرة",
+      "pdf": "PDF"
     },
     "presets": {
       "expand": { "label": "توسيع", "prompt": "وسّع هذا القسم بمزيد من التفصيل والحجج الداعمة." },
