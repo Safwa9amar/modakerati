@@ -12,12 +12,16 @@ import {
   RotateCcw,
   Brain,
   SquarePen,
+  Trash2,
+  FileStack,
+  FileText,
   X,
 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, regenerateLastResponse } from "@/lib/ai-service";
+import { deleteThesisBlocks, startThesisBlocksOnNewPage } from "@/lib/api";
 import { ComposerThinking } from "./ComposerThinking";
 import { ComposerInput } from "./ComposerInput";
 import { ComposerQuickActions } from "./ComposerQuickActions";
@@ -39,6 +43,8 @@ interface Props {
   onOpenSources: () => void;
   onOpenOutline: () => void;
   onExport: () => void;
+  /** Called after a bulk block edit (delete / start-on-new-page) rewrites the .docx. */
+  onAfterBulkEdit: () => void;
 }
 
 export function WorkspaceComposerSheet({
@@ -51,16 +57,35 @@ export function WorkspaceComposerSheet({
   onOpenSources,
   onOpenOutline,
   onExport,
+  onAfterBulkEdit,
 }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const sheetRef = useRef<React.ComponentRef<typeof GorhomBottomSheet>>(null);
 
-  // Select primitives individually (object/array literals loop the render).
-  const blockText = useWorkspaceStore((s) => s.selectedBlockText);
-  const docBlockIndex = useWorkspaceStore((s) => s.selectedBlockIndex);
+  // Select primitives / the stored array individually (object/array literals
+  // built INSIDE a selector loop the render; `selectedBlocks` is a stored ref).
+  const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
+  const multiSelect = useWorkspaceStore((s) => s.multiSelect);
   const isFormatting = useWorkspaceStore((s) => s.isFormatting);
   const thinkingEnabled = useWorkspaceStore((s) => s.thinkingEnabled);
+
+  // Derived selection in document order: indices to act on, and the combined text
+  // of the selected blocks (used as the AI focus and the chip preview).
+  const ordered = useMemo(
+    () => [...selectedBlocks].sort((a, b) => a.index - b.index),
+    [selectedBlocks],
+  );
+  const indices = useMemo(() => ordered.map((b) => b.index), [ordered]);
+  const combinedSelection = useMemo(() => {
+    const parts = ordered.map((b) => b.text).filter((t) => t && t.trim());
+    if (!parts.length) return undefined;
+    // Cap before it leaves the device: the server's prompt truncates anyway, so a
+    // big multi-selection shouldn't waste bandwidth on every request.
+    const joined = parts.join("\n\n");
+    return joined.length > 6000 ? joined.slice(0, 6000) + "…" : joined;
+  }, [ordered]);
+  const count = selectedBlocks.length;
 
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
@@ -85,32 +110,72 @@ export function WorkspaceComposerSheet({
     else sheetRef.current?.snapToIndex(0);
   }, [isGenerating, pendingAsk]);
 
-  // Focus chip: tapped block, deep-linked block, or the whole memoir.
-  const hasSelection = !!blockText || docBlockIndex != null;
+  // Focus chip: one tapped block, a multi-selection count, or the whole memoir.
+  const hasSelection = count > 0;
+  const firstText = selectedBlocks[0]?.text?.replace(/\s+/g, " ").trim() ?? "";
   let chipLabel = t("workspace.wholeMemoir", { defaultValue: "Whole memoir" });
-  if (blockText) {
-    chipLabel = `✎ ${blockText.replace(/\s+/g, " ").trim().slice(0, 40)}`;
-  } else if (docBlockIndex != null) {
-    chipLabel = `✎ ${t("workspace.selectedBlock", { defaultValue: "Selected section" })}`;
+  if (count === 1) {
+    chipLabel = `✎ ${firstText ? firstText.slice(0, 40) : t("workspace.selectedBlock", { defaultValue: "Selected section" })}`;
+  } else if (count > 1) {
+    chipLabel = `✎ ${t("workspace.nSelected", { count, defaultValue: `${count} selected` })}`;
   }
+
+  // The AI focus payload for the current selection: combined text + every index
+  // (and a single index for back-compat). Empty when nothing is selected.
+  const focusOpts = {
+    selection: combinedSelection,
+    docBlockIndex: indices.length ? indices[0] : null,
+    docBlockIndices: indices.length > 1 ? indices : undefined,
+  };
 
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || isGenerating) return;
     setInputText("");
     Keyboard.dismiss();
-    await sendMessageToAI(thesisId, text, {
-      selection: blockText ?? undefined,
-      docBlockIndex: docBlockIndex ?? null,
-    });
+    await sendMessageToAI(thesisId, text, focusOpts);
   };
 
   const handleAnswer = (answer: string) => {
     useChatStore.getState().setPendingAsk(null);
-    void sendMessageToAI(thesisId, answer, {
-      selection: blockText ?? undefined,
-      docBlockIndex: docBlockIndex ?? null,
-    });
+    void sendMessageToAI(thesisId, answer, focusOpts);
+  };
+
+  // Bulk actions on the multi-selection. Delete is destructive → confirm first.
+  // Both rewrite the .docx, so clear the selection and ask the screen to refresh.
+  const handleBulkDelete = () => {
+    if (!indices.length) return;
+    Alert.alert(
+      t("workspace.deleteSelectedTitle", { defaultValue: "Delete selected blocks?" }),
+      t("workspace.deleteSelectedBody", { count, defaultValue: `Remove ${count} block(s) from the document? This can't be undone.` }),
+      [
+        { text: t("common.cancel", { defaultValue: "Cancel" }), style: "cancel" },
+        {
+          text: t("common.delete", { defaultValue: "Delete" }),
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteThesisBlocks(thesisId, indices);
+              useWorkspaceStore.getState().clearSelection();
+              onAfterBulkEdit();
+            } catch {
+              Alert.alert(t("common.error", { defaultValue: "Error" }), t("workspace.bulkEditError", { defaultValue: "Could not apply the change." }));
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleBulkNewPage = async () => {
+    if (!indices.length) return;
+    try {
+      await startThesisBlocksOnNewPage(thesisId, indices);
+      useWorkspaceStore.getState().clearSelection();
+      onAfterBulkEdit();
+    } catch {
+      Alert.alert(t("common.error", { defaultValue: "Error" }), t("workspace.bulkEditError", { defaultValue: "Could not apply the change." }));
+    }
   };
 
   const tools: ToolItem[] = [
@@ -118,6 +183,7 @@ export function WorkspaceComposerSheet({
     { key: "format", label: t("composer.tools.format"), icon: Paintbrush, onPress: onFormat, disabled: isFormatting },
     { key: "outline", label: t("composer.tools.outline"), icon: ListTree, onPress: onOpenOutline },
     { key: "view", label: t("composer.tools.view"), icon: AlignLeft, onPress: () => useWorkspaceStore.getState().toggleViewMode(), disabled: !isLiveDoc },
+    { key: "pdf", label: t("composer.tools.pdf"), icon: FileText, onPress: () => useWorkspaceStore.getState().setViewMode("pdf"), disabled: !isLiveDoc },
     { key: "export", label: t("composer.tools.export"), icon: Download, onPress: onExport, disabled: !downloadUrl },
     { key: "regenerate", label: t("composer.tools.regenerate"), icon: RotateCcw, onPress: () => void regenerateLastResponse(thesisId), disabled: isGenerating },
     { key: "thinking", label: t("composer.tools.thinking"), icon: Brain, active: thinkingEnabled, onPress: () => useWorkspaceStore.getState().setThinkingEnabled(!thinkingEnabled) },
@@ -125,12 +191,13 @@ export function WorkspaceComposerSheet({
       key: "editBlock",
       label: t("composer.tools.editBlock"),
       icon: SquarePen,
-      disabled: !documentId || docBlockIndex == null,
+      // Single-block editor — only meaningful when exactly one block is selected.
+      disabled: !documentId || count !== 1,
       onPress: () => {
-        if (documentId && docBlockIndex != null) {
+        if (documentId && count === 1) {
           router.push({
             pathname: "/(app)/block-editor",
-            params: { thesisId, blockIndex: String(docBlockIndex) },
+            params: { thesisId, blockIndex: String(selectedBlocks[0].index) },
           });
         }
       },
@@ -169,6 +236,32 @@ export function WorkspaceComposerSheet({
             )}
           </View>
         </View>
+
+        {/* Bulk actions — only while building a multi-selection on a live .docx. */}
+        {isLiveDoc && multiSelect && count > 0 && (
+          <View style={[styles.bulkRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+            <Pressable
+              onPress={handleBulkNewPage}
+              style={[styles.bulkBtn, { borderColor: colors.borderDefault }]}
+              accessibilityRole="button"
+            >
+              <FileStack size={15} color={colors.textPrimary} strokeWidth={2} />
+              <Text style={[styles.bulkText, { color: colors.textPrimary }]} numberOfLines={1}>
+                {t("workspace.startOnNewPage", { count, defaultValue: "New page" })}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={handleBulkDelete}
+              style={[styles.bulkBtn, { borderColor: colors.semanticError + "55", backgroundColor: colors.semanticError + "12" }]}
+              accessibilityRole="button"
+            >
+              <Trash2 size={15} color={colors.semanticError} strokeWidth={2} />
+              <Text style={[styles.bulkText, { color: colors.semanticError }]} numberOfLines={1}>
+                {t("workspace.deleteSelected", { count, defaultValue: `Delete ${count}` })}
+              </Text>
+            </Pressable>
+          </View>
+        )}
 
         {pendingAsk ? (
           <ComposerAsk ask={pendingAsk} onAnswer={handleAnswer} rtl={rtl} />
@@ -232,4 +325,15 @@ const styles = StyleSheet.create({
   },
   chipText: { flexShrink: 1, fontSize: 12, fontFamily: "Inter_500Medium" },
   inputSpacer: { height: 8 },
+  bulkRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  bulkBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  bulkText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 });

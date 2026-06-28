@@ -26,9 +26,10 @@ const MAX_IMAGE_HEIGHT = 360;
  */
 export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
   const colors = useThemeColors();
-  const selectedIndex = useWorkspaceStore((s) => s.selectedBlockIndex);
+  // Membership test against the multi-selection set — a boolean primitive, so this
+  // selector is stable for zustand's Object.is comparison (no fresh-object loop).
+  const isSelected = useWorkspaceStore((s) => s.selectedBlocks.some((b) => b.index === block.index));
   const hi = colors.brandPrimary;
-  const isSelected = selectedIndex === block.index;
 
   if (block.kind === "other") {
     // Structural/unsupported block — render nothing (a tiny marker is noise).
@@ -50,8 +51,9 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
       </Text>
     ) : null;
 
-    const onSelect = () =>
-      useWorkspaceStore.getState().selectBlock(block.index, caption || "figure");
+    const figText = caption || "figure";
+    const onSelect = () => pickBlock(block.index, figText);
+    const onLong = () => longPickBlock(block.index, figText);
 
     // With inlined bytes → render the real image. Fill the paper content width
     // (width:"100%") and preserve the intrinsic ratio via `aspectRatio` when the
@@ -64,6 +66,7 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
       return (
         <Pressable
           onPress={onSelect}
+          onLongPress={onLong}
           style={[
             styles.imageWrap,
             { borderColor: isSelected ? hi : "transparent" },
@@ -89,6 +92,7 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
     return (
       <Pressable
         onPress={onSelect}
+        onLongPress={onLong}
         style={[
           styles.figureCard,
           { borderColor: isSelected ? hi : BORDER },
@@ -104,9 +108,8 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
   if (block.kind === "table") {
     return (
       <Pressable
-        onPress={() =>
-          useWorkspaceStore.getState().selectBlock(block.index, tableToText(block.rows))
-        }
+        onPress={() => pickBlock(block.index, tableToText(block.rows))}
+        onLongPress={() => longPickBlock(block.index, tableToText(block.rows))}
         style={[
           styles.tableWrap,
           { borderColor: isSelected ? hi : BORDER },
@@ -153,9 +156,8 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
   const align = dir === "rtl" ? "right" : "left";
   return (
     <Pressable
-      onPress={() =>
-        useWorkspaceStore.getState().selectBlock(block.index, block.text)
-      }
+      onPress={() => pickBlock(block.index, block.text)}
+      onLongPress={() => longPickBlock(block.index, block.text)}
       style={[
         styles.paraWrap,
         isSelected && { backgroundColor: hi + "18", borderColor: hi },
@@ -182,6 +184,20 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
 // Flatten a table grid to a single string for the selection chip / L2 targeting.
 function tableToText(rows: string[][]): string {
   return rows.map((r) => r.join(" | ")).join("\n");
+}
+
+// Tap: in multi-select mode toggle this block in/out of the set; otherwise it's a
+// single-select (replace). Read mode at press time via getState() so the press
+// handlers don't need to subscribe.
+function pickBlock(index: number, text: string): void {
+  const ws = useWorkspaceStore.getState();
+  if (ws.multiSelect) ws.toggleBlock(index, text);
+  else ws.selectBlock(index, text);
+}
+
+// Long-press: enter multi-select mode and add this block (keeping any current one).
+function longPickBlock(index: number, text: string): void {
+  useWorkspaceStore.getState().addToSelection(index, text);
 }
 
 // RTL scripts: Hebrew, Arabic (+ supplements), Syriac, Thaana, Arabic presentation forms.

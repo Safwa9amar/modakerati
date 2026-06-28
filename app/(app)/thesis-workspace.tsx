@@ -22,6 +22,7 @@ import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { BackButton } from "@/components/BackButton";
 import { WordDocxView, type DocTapBlock } from "@/components/workspace/WordDocxView";
 import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
+import { PdfView } from "@/components/workspace/PdfView";
 import { DocBlock } from "@/components/workspace/DocBlock";
 import { PaperPage } from "@/components/workspace/PaperPage";
 import { WorkspaceComposerSheet, COMPOSER_COLLAPSED_HEIGHT } from "@/components/workspace/WorkspaceComposerSheet";
@@ -31,9 +32,12 @@ import {
   formatThesis,
   getThesisDocument,
   getThesisEditorConfig,
+  getThesisPdf,
+  deleteThesisPdf,
   type DocumentDTO,
   type DocBlockDTO,
   type EditorConfigDTO,
+  type ThesisPdfDTO,
 } from "@/lib/api";
 
 // Ink colors retained by the workspace stylesheet.
@@ -58,8 +62,9 @@ export default function ThesisWorkspaceScreen() {
   // Select primitives individually — an object-literal selector hands
   // useSyncExternalStore a fresh reference every render → "Maximum update depth
   // exceeded".
-  const blockText = useWorkspaceStore((s) => s.selectedBlockText);
-  const docBlockIndex = useWorkspaceStore((s) => s.selectedBlockIndex);
+  const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
+  // Indices feed the Word view's multi-highlight. Derived once per selection change.
+  const selectedIndices = useMemo(() => selectedBlocks.map((b) => b.index), [selectedBlocks]);
   // Drives the live block refresh below: while a turn is generating the AI
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
   const isGenerating = useChatStore((s) => s.isGenerating);
@@ -76,6 +81,11 @@ export default function ThesisWorkspaceScreen() {
   // the signed DocEditor config (its `document.key` bumps after each AI turn).
   const [editorCfg, setEditorCfg] = useState<EditorConfigDTO | undefined>(undefined);
 
+  // PDF render of the live .docx (OnlyOffice-converted, fetched lazily only when
+  // the user opens the PDF view). `undefined` while (re)converting; the DTO's
+  // `available:false` carries why (no Document Server / conversion failed).
+  const [pdfDoc, setPdfDoc] = useState<ThesisPdfDTO | undefined>(undefined);
+
   const viewMode = useWorkspaceStore((s) => s.viewMode);
 
   // Mark this thesis current and pull the freshest copy from the server.
@@ -85,6 +95,11 @@ export default function ThesisWorkspaceScreen() {
     useThesisStore.getState().refreshThesis(thesisId);
     useWorkspaceStore.getState().setThesis(thesisId);
     return () => {
+      // Leaving the workspace while the PDF view is open → drop the transient
+      // preview (read viewMode BEFORE reset() clears it back to "docx").
+      if (useWorkspaceStore.getState().viewMode === "pdf") {
+        void deleteThesisPdf(thesisId).catch(() => {});
+      }
       useWorkspaceStore.getState().reset();
       // The chat tab shares `pendingAsk` and the "structure" sheet key, so clear
       // an unanswered question and close the outline panel on leave — otherwise
@@ -116,6 +131,19 @@ export default function ThesisWorkspaceScreen() {
       setEditorCfg(await getThesisEditorConfig(thesisId));
     } catch {
       setEditorCfg({ enabled: false });
+    }
+  }, [thesisId]);
+
+  // Convert + fetch the PDF render. Clears to `undefined` first so the view shows
+  // a spinner while the Document Server (re)renders. Only called when the PDF
+  // view is open (see the effect below) — conversion is too costly to prefetch.
+  const refreshPdf = useCallback(async () => {
+    if (!thesisId) return;
+    setPdfDoc(undefined);
+    try {
+      setPdfDoc(await getThesisPdf(thesisId));
+    } catch {
+      setPdfDoc({ available: false, reason: "failed" });
     }
   }, [thesisId]);
 
@@ -212,6 +240,30 @@ export default function ThesisWorkspaceScreen() {
     prevGenerating.current = isGenerating;
   }, [isGenerating, isLiveDoc, refreshDoc, refreshEditorCfg]);
 
+  // Document-version token: the OnlyOffice config's document.key bumps only when
+  // the .docx actually changes (it's derived from updatedAt). Keying the PDF
+  // fetch on it re-converts after a real edit but not on incidental refreshes.
+  const docVersionKey = editorCfg?.enabled ? editorCfg.config?.document?.key : undefined;
+
+  // (Re)fetch the PDF only while its view is open — on first open and whenever the
+  // document version changes (after an AI turn / bulk edit). Server-side caching
+  // makes an unchanged re-fetch cheap.
+  useEffect(() => {
+    if (viewMode !== "pdf" || !isLiveDoc) return;
+    void refreshPdf();
+  }, [viewMode, isLiveDoc, docVersionKey, refreshPdf]);
+
+  // Switching OUT of the PDF view (while staying on the screen) discards the
+  // transient preview and drops the local copy so it isn't kept around.
+  const prevViewMode = useRef(viewMode);
+  useEffect(() => {
+    if (prevViewMode.current === "pdf" && viewMode !== "pdf" && thesisId) {
+      setPdfDoc(undefined);
+      void deleteThesisPdf(thesisId).catch(() => {});
+    }
+    prevViewMode.current = viewMode;
+  }, [viewMode, thesisId]);
+
   const title = thesis?.title ?? "";
 
   // Loading: no thesis yet (refreshThesis still in flight).
@@ -285,7 +337,29 @@ export default function ThesisWorkspaceScreen() {
              OnlyOffice only on REAL devices: its heavy WASM/JS editor crashes the
              iOS Simulator's WebContent process (and is unreliable in emulators), so
              simulators/emulators fall back to the lighter docx-preview render. */
-          viewMode === "outline" ? (
+          viewMode === "pdf" ? (
+            /* PDF mode: the OnlyOffice-rendered PDF of the live .docx in a WebView
+               (PDF.js). Read-only deliverable preview; works on simulator too
+               (conversion is server-side). Re-converts after each edit via the
+               docVersionKey-keyed fetch above. */
+            pdfDoc === undefined ? (
+              <View style={styles.centered}>
+                <ActivityIndicator size="large" color={colors.brandPrimary} />
+              </View>
+            ) : pdfDoc.available ? (
+              <View style={{ flex: 1, paddingBottom: COMPOSER_COLLAPSED_HEIGHT + insets.bottom }}>
+                <PdfView url={pdfDoc.url} />
+              </View>
+            ) : (
+              <View style={styles.centered}>
+                <Text style={styles.emptyText}>
+                  {pdfDoc.reason === "failed"
+                    ? t("workspace.pdfFailed", { defaultValue: "Couldn't generate the PDF. Please try again." })
+                    : t("workspace.pdfUnavailable", { defaultValue: "PDF preview isn't available for this document." })}
+                </Text>
+              </View>
+            )
+          ) : viewMode === "outline" ? (
             /* Outline mode: the same .docx blocks as lightweight editable text on
                white "paper" — native render (no WebView), tap a block to select it
                for the AI. Reads liveDoc.blocks (already in the DTO), so no extra
@@ -312,14 +386,20 @@ export default function ThesisWorkspaceScreen() {
               />
             </View>
           ) : (
-            <View style={{ flex: 1, paddingBottom: COMPOSER_COLLAPSED_HEIGHT + insets.bottom }}>
+            <View style={{ flex: 1 }}>
               <WordDocxView
                 url={liveDoc.downloadUrl}
                 blocks={tapBlocks}
-                selectedIndex={docBlockIndex}
+                selectedIndices={selectedIndices}
                 rtl={docRtl}
-                onSelect={(index, text) =>
-                  useWorkspaceStore.getState().selectBlock(index, text)
+                onSelect={(index, text) => {
+                  // Tap: toggle in multi mode, else single-select (replace).
+                  const ws = useWorkspaceStore.getState();
+                  if (ws.multiSelect) ws.toggleBlock(index, text);
+                  else ws.selectBlock(index, text);
+                }}
+                onLongPress={(index, text) =>
+                  useWorkspaceStore.getState().addToSelection(index, text)
                 }
               />
             </View>
@@ -346,6 +426,12 @@ export default function ThesisWorkspaceScreen() {
         onOpenOutline={handleOutlineToggle}
         onExport={() => {
           if (liveDoc?.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
+        }}
+        onAfterBulkEdit={() => {
+          // A bulk delete / start-on-new-page rewrote the .docx — re-fetch so the
+          // view (and OnlyOffice config key) reflect the change immediately.
+          void refreshDoc();
+          void refreshEditorCfg();
         }}
       />
 

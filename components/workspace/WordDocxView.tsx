@@ -24,13 +24,18 @@ export function WordDocxView({
   url,
   blocks,
   onSelect,
-  selectedIndex,
+  onLongPress,
+  selectedIndices,
   rtl = false,
 }: {
   url: string;
   blocks: DocTapBlock[];
+  // A normal tap selects/toggles one block; a long-press (≥500ms) starts/extends a
+  // multi-selection. The parent decides single-vs-toggle from the store's mode.
   onSelect: (index: number, text: string) => void;
-  selectedIndex: number | null;
+  onLongPress: (index: number, text: string) => void;
+  // Every currently-selected engine block index (0, 1, or many). Drives multi-highlight.
+  selectedIndices: number[];
   // Base page direction. docx-preview renders Arabic runs RTL via bidi, but the
   // block-level layout (indents, justification anchor, header tab stops, table
   // column order) stays LTR unless the container is dir="rtl". True for Arabic
@@ -45,17 +50,22 @@ export function WordDocxView({
   // Rebuilds (and reloads the WebView) only when the doc bytes change — i.e. when
   // the signed url changes. blocks ride along for tap→index matching.
   const html = useMemo(
-    () => buildHtml(url, blocks, selectedIndex, rtl),
+    () => buildHtml(url, blocks, selectedIndices, rtl),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [url, rtl],
   );
 
+  // Stable key for the selection set so the highlight effect runs only when the
+  // set of indices actually changes (a fresh array ref every render otherwise).
+  const selKey = selectedIndices.join(",");
+
   // Keep the highlight in sync without a full reload when only the selection changes.
   React.useEffect(() => {
     webRef.current?.injectJavaScript(
-      `window.__setSelected && window.__setSelected(${selectedIndex == null ? "null" : selectedIndex}); true;`,
+      `window.__setSelected && window.__setSelected(${JSON.stringify(selectedIndices)}); true;`,
     );
-  }, [selectedIndex]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selKey]);
 
   // A url change means new html → spinner until the new render reports ready.
   React.useEffect(() => {
@@ -70,8 +80,10 @@ export function WordDocxView({
       else if (msg.type === "error") {
         setLoading(false);
         setError(typeof msg.message === "string" ? msg.message : "render failed");
-      } else if (msg.type === "select" && typeof msg.index === "number") {
-        onSelect(msg.index, typeof msg.text === "string" ? msg.text : "");
+      } else if ((msg.type === "select" || msg.type === "longpress") && typeof msg.index === "number") {
+        const text = typeof msg.text === "string" ? msg.text : "";
+        if (msg.type === "longpress") onLongPress(msg.index, text);
+        else onSelect(msg.index, text);
       }
     } catch {
       // ignore malformed bridge messages
@@ -110,11 +122,11 @@ export function WordDocxView({
 }
 
 // The WebView shell: loads docx-preview, fetches the .docx, renders it, wires
-// tap-to-select, and posts lifecycle/selection messages back to RN.
-function buildHtml(url: string, blocks: DocTapBlock[], selectedIndex: number | null, rtl: boolean): string {
+// tap + long-press selection, and posts lifecycle/selection messages back to RN.
+function buildHtml(url: string, blocks: DocTapBlock[], selectedIndices: number[], rtl: boolean): string {
   const blocksJson = JSON.stringify(blocks);
   const urlJson = JSON.stringify(url);
-  const selJson = selectedIndex == null ? "null" : String(selectedIndex);
+  const selJson = JSON.stringify(selectedIndices);
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -158,18 +170,33 @@ function buildHtml(url: string, blocks: DocTapBlock[], selectedIndex: number | n
     return null;
   }
 
-  var selectedEl = null;
-  window.__setSelected = function(idx){
-    if (selectedEl){ selectedEl.classList.remove('mk-sel'); selectedEl = null; }
-    if (idx == null) return;
-    // best effort: highlight the block whose text matches BLOCKS[idx]
-    var target = null; var want = null;
-    for (var i=0;i<BLOCKS.length;i++){ if (BLOCKS[i].index === idx){ want = norm(BLOCKS[i].text); break; } }
-    if (want){
-      var els = document.querySelectorAll('#container p, #container table');
-      for (var j=0;j<els.length;j++){ if (norm(els[j].innerText) === want){ target = els[j]; break; } }
+  // Multi-highlight: track every highlighted element so a new selection set can
+  // clear the old ones. Accepts an array of block indices (or, for back-compat, a
+  // scalar / null). Highlights every rendered p/table whose normalized text matches
+  // a selected block's text.
+  var selectedEls = [];
+  function clearHighlights(){
+    for (var i=0;i<selectedEls.length;i++){ selectedEls[i].classList.remove('mk-sel'); }
+    selectedEls = [];
+  }
+  window.__setSelected = function(indices){
+    clearHighlights();
+    if (indices == null) return;
+    var arr = (typeof indices === 'number') ? [indices] : indices;
+    if (!arr || !arr.length) return;
+    // Match by text (docx-preview gives no stable per-block id). To avoid lighting
+    // up EVERY duplicate paragraph when only some are selected, budget by COUNT:
+    // for a text selected N times, highlight only the first N elements (in DOM
+    // order) carrying that text — so the highlight count tracks the selection.
+    var budget = {};
+    for (var i=0;i<BLOCKS.length;i++){
+      if (arr.indexOf(BLOCKS[i].index) >= 0){ var w = norm(BLOCKS[i].text); if (w) budget[w] = (budget[w] || 0) + 1; }
     }
-    if (target){ target.classList.add('mk-sel'); selectedEl = target; }
+    var els = document.querySelectorAll('#container p, #container table');
+    for (var j=0;j<els.length;j++){
+      var t = norm(els[j].innerText);
+      if (budget[t] > 0){ els[j].classList.add('mk-sel'); selectedEls.push(els[j]); budget[t]--; }
+    }
   };
 
   function blockEl(node){
@@ -185,15 +212,37 @@ function buildHtml(url: string, blocks: DocTapBlock[], selectedIndex: number | n
 
   function wireTaps(){
     var container = document.getElementById('container');
-    container.addEventListener('click', function(ev){
-      var el = blockEl(ev.target);
+    // Touch-timing long-press: WebView delivers no native onLongPress, so we time
+    // touchstart→touchend ourselves. ≥500ms with no scroll = long-press (extend the
+    // multi-selection); a quick tap = select. RN applies the single-vs-toggle rule.
+    var timer = null, startEl = null, moved = false, longFired = false, lastTouchEnd = 0;
+    function clearTimer(){ if (timer){ clearTimeout(timer); timer = null; } }
+    function report(el, kind){
       if (!el) return;
       var text = el.innerText || "";
       var idx = matchIndex(text);
       if (idx == null) return;
-      if (selectedEl) selectedEl.classList.remove('mk-sel');
-      el.classList.add('mk-sel'); selectedEl = el;
-      post({ type:'select', index: idx, text: norm(text).slice(0, 600) });
+      post({ type: kind, index: idx, text: norm(text).slice(0, 600) });
+    }
+    container.addEventListener('touchstart', function(ev){
+      startEl = blockEl(ev.target); moved = false; longFired = false;
+      clearTimer();
+      if (!startEl) return;
+      timer = setTimeout(function(){ longFired = true; report(startEl, 'longpress'); }, 500);
+    }, { passive: true });
+    container.addEventListener('touchmove', function(){ moved = true; clearTimer(); }, { passive: true });
+    container.addEventListener('touchend', function(){
+      lastTouchEnd = Date.now();
+      clearTimer();
+      if (longFired){ longFired = false; return; } // already handled as a long-press
+      if (moved) return; // a scroll, not a tap
+      report(startEl, 'select');
+    }, { passive: true });
+    // Fallback for environments that fire click without touch; guard against the
+    // synthetic click that trails a real touch so we don't double-handle it.
+    container.addEventListener('click', function(ev){
+      if (Date.now() - lastTouchEnd < 700) return;
+      report(blockEl(ev.target), 'select');
     }, true);
     var ps = container.querySelectorAll('p, table');
     for (var i=0;i<ps.length;i++) ps[i].classList.add('mk-tap');
