@@ -541,7 +541,13 @@
       "improve": { "label": "Améliorer", "prompt": "Améliorez la clarté et la fluidité de ce passage." }
     },
     "micLabel": "Saisie vocale",
-    "voiceComingSoon": "La saisie vocale arrive bientôt."
+    "voiceComingSoon": "La saisie vocale arrive bientôt.",
+    "modeAi": "IA",
+    "modeEdit": "Éditer",
+    "edit": {
+      "normal": "Normal",
+      "selectHint": "Sélectionnez un paragraphe à modifier."
+    }
   },
   "blockEditor": {
     "title": "Modifier le paragraphe",

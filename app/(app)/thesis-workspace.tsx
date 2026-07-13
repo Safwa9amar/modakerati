@@ -419,6 +419,7 @@ export default function ThesisWorkspaceScreen() {
         thesisId={thesisId}
         isLiveDoc={isLiveDoc}
         rtl={docRtl}
+        blocks={liveDoc?.blocks ?? []}
         downloadUrl={liveDoc?.downloadUrl}
         documentId={liveDoc?.id}
         onFormat={handleFormat}

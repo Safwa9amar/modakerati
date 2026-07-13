@@ -541,7 +541,13 @@
       "improve": { "label": "Improve", "prompt": "Improve the clarity and flow of this passage." }
     },
     "micLabel": "Voice input",
-    "voiceComingSoon": "Voice input is coming soon."
+    "voiceComingSoon": "Voice input is coming soon.",
+    "modeAi": "AI",
+    "modeEdit": "Edit",
+    "edit": {
+      "normal": "Normal",
+      "selectHint": "Select a paragraph to edit."
+    }
   },
   "blockEditor": {
     "title": "Edit paragraph",

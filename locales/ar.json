@@ -541,7 +541,13 @@
       "improve": { "label": "تحسين", "prompt": "حسّن وضوح هذه الفقرة وانسيابيتها." }
     },
     "micLabel": "الإدخال الصوتي",
-    "voiceComingSoon": "الإدخال الصوتي قادم قريبًا."
+    "voiceComingSoon": "الإدخال الصوتي قادم قريبًا.",
+    "modeAi": "ذكاء",
+    "modeEdit": "تحرير",
+    "edit": {
+      "normal": "عادي",
+      "selectHint": "اختر فقرة لتحريرها."
+    }
   },
   "blockEditor": {
     "title": "تحرير الفقرة",
