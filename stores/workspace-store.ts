@@ -25,6 +25,9 @@ interface WorkspaceState {
   isFormatting: boolean;
   viewMode: DocViewMode;
   thinkingEnabled: boolean;
+  // Composer bottom-sheet mode: "ai" = chat/generation, "edit" = manual
+  // block-level style/alignment tools. Only meaningful on a live-.docx thesis.
+  composerMode: "ai" | "edit";
 
   setThesis: (id: string) => void;
   // Single-select: replace the whole selection with just this block and exit
@@ -43,6 +46,7 @@ interface WorkspaceState {
   setViewMode: (mode: DocViewMode) => void;
   toggleViewMode: () => void;
   setThinkingEnabled: (v: boolean) => void;
+  setComposerMode: (m: "ai" | "edit") => void;
   reset: () => void;
 }
 
@@ -54,6 +58,7 @@ const INITIAL = {
   isFormatting: false,
   viewMode: "docx" as DocViewMode,
   thinkingEnabled: true,
+  composerMode: "ai" as "ai" | "edit",
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -99,6 +104,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   toggleViewMode: () => set({ viewMode: get().viewMode === "docx" ? "outline" : "docx" }),
 
   setThinkingEnabled: (v) => set({ thinkingEnabled: v }),
+
+  setComposerMode: (m) => set({ composerMode: m }),
 
   reset: () => set(INITIAL),
 }));

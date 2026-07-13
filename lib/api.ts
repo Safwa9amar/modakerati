@@ -810,7 +810,7 @@ export async function editDocumentParagraph(
 export async function editThesisParagraph(
   thesisId: string,
   index: number,
-  changes: { text: string }
+  changes: { text?: string; level?: number; alignment?: "left" | "center" | "right" | "justify"; clearFormatting?: boolean }
 ): Promise<{ ok: true }> {
   return apiPut<{ ok: true }>(`/api/thesis/${thesisId}/paragraphs/${index}`, changes);
 }
