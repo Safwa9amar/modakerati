@@ -166,7 +166,7 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
       <Text
         style={[
           isHeading
-            ? { ...styles.heading, fontSize: HEADING_SIZE[block.level as 1 | 2 | 3 | 4] }
+            ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
             : styles.body,
           {
             textAlign: isHeading ? align : "justify",

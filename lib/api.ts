@@ -16,7 +16,7 @@ import type {
 import type { Thesis, Template, NormProfile } from "@/types/thesis";
 import type { ThesisSource } from "@/types/source";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://modakerati-api.fly.dev";
+const API_URL = process.env.EXPO_PUBLIC_API_URL
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -447,7 +447,7 @@ export async function combineThesis(input: {
 // ============================================================
 
 export type DocBlockDTO =
-  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 }
+  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; alignment: "left" | "center" | "right" | "both" | null }
   | { index: number; kind: "table"; rows: string[][] }
   // L4c: image blocks (charts/figures). The server inlines small images (charts
   // ≤ ~200KB) as a base64 `dataUri` so the workspace can render the real image;
