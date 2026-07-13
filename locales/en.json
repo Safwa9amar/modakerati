@@ -60,6 +60,8 @@
     "action": "Combine documents",
     "arrangeTitle": "Arrange parts",
     "arrangeSubtitle": "Reorder and rename each part, then combine into one document.",
+    "docTitleLabel": "Document title",
+    "defaultTitle": "Graduation thesis",
     "partTitleLabel": "Section title",
     "pickProfile": "Formatting standard",
     "combineButton": "Combine",
@@ -541,7 +543,13 @@
       "improve": { "label": "Improve", "prompt": "Improve the clarity and flow of this passage." }
     },
     "micLabel": "Voice input",
-    "voiceComingSoon": "Voice input is coming soon."
+    "voiceComingSoon": "Voice input is coming soon.",
+    "modeAi": "AI",
+    "modeEdit": "Edit",
+    "edit": {
+      "normal": "Normal",
+      "selectHint": "Select a paragraph to edit."
+    }
   },
   "blockEditor": {
     "title": "Edit paragraph",

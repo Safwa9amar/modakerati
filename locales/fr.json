@@ -60,6 +60,8 @@
     "action": "Combiner des documents",
     "arrangeTitle": "Organiser les parties",
     "arrangeSubtitle": "Réordonnez et renommez chaque partie, puis combinez en un seul document.",
+    "docTitleLabel": "Titre du document",
+    "defaultTitle": "Mémoire de fin d'études",
     "partTitleLabel": "Titre de section",
     "pickProfile": "Norme de mise en forme",
     "combineButton": "Combiner",
@@ -541,7 +543,13 @@
       "improve": { "label": "Améliorer", "prompt": "Améliorez la clarté et la fluidité de ce passage." }
     },
     "micLabel": "Saisie vocale",
-    "voiceComingSoon": "La saisie vocale arrive bientôt."
+    "voiceComingSoon": "La saisie vocale arrive bientôt.",
+    "modeAi": "IA",
+    "modeEdit": "Éditer",
+    "edit": {
+      "normal": "Normal",
+      "selectHint": "Sélectionnez un paragraphe à modifier."
+    }
   },
   "blockEditor": {
     "title": "Modifier le paragraphe",

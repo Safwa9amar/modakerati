@@ -187,14 +187,6 @@ export default function ThesisWorkspaceScreen() {
     }, [refreshDoc, refreshEditorCfg]),
   );
 
-  // Deep-link target: when opened from the detail screen's outline, pre-select
-  // the tapped heading's block so the docx-preview view highlights/scrolls to it.
-  useEffect(() => {
-    if (blockIndex == null) return;
-    const idx = Number(blockIndex);
-    if (Number.isFinite(idx)) useWorkspaceStore.getState().selectBlock(idx, "");
-  }, [blockIndex]);
-
   const liveDoc = doc?.available ? doc : null;
   const isLiveDoc = !!liveDoc;
 
@@ -204,6 +196,23 @@ export default function ThesisWorkspaceScreen() {
     () => (liveDoc ? liveDoc.blocks.map((b) => ({ index: b.index, text: blockTapText(b) })) : []),
     [liveDoc],
   );
+
+  // Deep-link target: when opened from the detail screen's outline, pre-select
+  // the tapped heading's block so the docx-preview view highlights/scrolls to it,
+  // and so the AI composer sends its text as the focus. The callers navigate here
+  // with the heading text already in the store, so NEVER clobber an existing
+  // non-empty selection (doing so dropped the heading text from the AI request).
+  // For a cold deep-link with no pre-set text, resolve it from the loaded doc.
+  useEffect(() => {
+    if (blockIndex == null) return;
+    const idx = Number(blockIndex);
+    if (!Number.isFinite(idx)) return;
+    const store = useWorkspaceStore.getState();
+    const existing = store.selectedBlocks.find((b) => b.index === idx);
+    if (existing?.text) return;
+    const resolved = tapBlocks.find((b) => b.index === idx)?.text ?? existing?.text ?? "";
+    store.selectBlock(idx, resolved);
+  }, [blockIndex, tapBlocks]);
 
   // Base text direction for rendering. The thesis `language` field is unreliable
   // (imports default to "fr" even for Arabic docs), so detect from the actual
@@ -419,6 +428,7 @@ export default function ThesisWorkspaceScreen() {
         thesisId={thesisId}
         isLiveDoc={isLiveDoc}
         rtl={docRtl}
+        blocks={liveDoc?.blocks ?? []}
         downloadUrl={liveDoc?.downloadUrl}
         documentId={liveDoc?.id}
         onFormat={handleFormat}

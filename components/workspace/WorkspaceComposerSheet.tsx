@@ -21,12 +21,14 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, regenerateLastResponse } from "@/lib/ai-service";
-import { deleteThesisBlocks, startThesisBlocksOnNewPage } from "@/lib/api";
+import { deleteThesisBlocks, startThesisBlocksOnNewPage, type DocBlockDTO } from "@/lib/api";
 import { ComposerThinking } from "./ComposerThinking";
 import { ComposerInput } from "./ComposerInput";
 import { ComposerQuickActions } from "./ComposerQuickActions";
 import { ComposerToolsTray, type ToolItem } from "./ComposerToolsTray";
 import { ComposerAsk } from "./ComposerAsk";
+import { ComposerModeToggle } from "./ComposerModeToggle";
+import { ComposerEditTools } from "./ComposerEditTools";
 
 /** Height of the collapsed peek (the doc area pads its bottom by this). */
 export const COMPOSER_COLLAPSED_HEIGHT = 210;
@@ -35,6 +37,8 @@ interface Props {
   thesisId: string;
   isLiveDoc: boolean;
   rtl: boolean;
+  /** Live-.docx block model (empty for legacy docs) — powers the Edit-mode tools. */
+  blocks: DocBlockDTO[];
   /** Live-doc only; undefined disables the Export tool. */
   downloadUrl?: string;
   /** Underlying document id (live-doc only); undefined disables Edit block. */
@@ -51,6 +55,7 @@ export function WorkspaceComposerSheet({
   thesisId,
   isLiveDoc,
   rtl,
+  blocks,
   downloadUrl,
   documentId,
   onFormat,
@@ -69,6 +74,7 @@ export function WorkspaceComposerSheet({
   const multiSelect = useWorkspaceStore((s) => s.multiSelect);
   const isFormatting = useWorkspaceStore((s) => s.isFormatting);
   const thinkingEnabled = useWorkspaceStore((s) => s.thinkingEnabled);
+  const composerMode = useWorkspaceStore((s) => s.composerMode);
 
   // Derived selection in document order: indices to act on, and the combined text
   // of the selected blocks (used as the AI focus and the chip preview).
@@ -86,6 +92,14 @@ export function WorkspaceComposerSheet({
     return joined.length > 6000 ? joined.slice(0, 6000) + "…" : joined;
   }, [ordered]);
   const count = selectedBlocks.length;
+
+  // Edit mode acts on a SINGLE selected paragraph block. Resolve it from the doc
+  // model (null when 0/>1 selected, or the selection isn't a paragraph).
+  const editBlock = useMemo(() => {
+    if (count !== 1) return null;
+    const b = blocks.find((x) => x.index === selectedBlocks[0].index);
+    return b && b.kind === "paragraph" ? b : null;
+  }, [count, blocks, selectedBlocks]);
 
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
@@ -109,6 +123,12 @@ export function WorkspaceComposerSheet({
     if (isGenerating || pendingAsk) sheetRef.current?.snapToIndex(1);
     else sheetRef.current?.snapToIndex(0);
   }, [isGenerating, pendingAsk]);
+
+  // A legacy (non-live) doc has no editable blocks — never let it get stuck in
+  // Edit mode (the toggle is hidden there, so the user couldn't switch back).
+  useEffect(() => {
+    if (!isLiveDoc && composerMode === "edit") useWorkspaceStore.getState().setComposerMode("ai");
+  }, [isLiveDoc, composerMode]);
 
   // Focus chip: one tapped block, a multi-selection count, or the whole memoir.
   const hasSelection = count > 0;
@@ -237,6 +257,17 @@ export function WorkspaceComposerSheet({
           </View>
         </View>
 
+        {/* AI ⇄ Edit mode toggle — only meaningful on a live .docx. */}
+        {isLiveDoc && (
+          <ComposerModeToggle
+            mode={composerMode}
+            onChange={(m) => useWorkspaceStore.getState().setComposerMode(m)}
+            aiLabel={t("composer.modeAi", { defaultValue: "AI" })}
+            editLabel={t("composer.modeEdit", { defaultValue: "Edit" })}
+            rtl={rtl}
+          />
+        )}
+
         {/* Bulk actions — only while building a multi-selection on a live .docx. */}
         {isLiveDoc && multiSelect && count > 0 && (
           <View style={[styles.bulkRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
@@ -267,35 +298,48 @@ export function WorkspaceComposerSheet({
           <ComposerAsk ask={pendingAsk} onAnswer={handleAnswer} rtl={rtl} />
         ) : (
           <>
-            <ComposerThinking
-              isGenerating={isGenerating}
-              phase={generatingPhase}
-              thinking={thinking}
-              statusReady={t("composer.status.ready")}
-              thinkingLabel={t("composer.status.thinking")}
-              writingLabel={t("composer.status.writing")}
-              rtl={rtl}
-            />
-            <View style={styles.inputSpacer} />
-            <ComposerInput
-              value={inputText}
-              onChangeText={setInputText}
-              onSend={handleSend}
-              onStop={() => useChatStore.getState().stopGenerating()}
-              onMicPress={() => Alert.alert(t("composer.voiceComingSoon"))}
-              onFocus={() => sheetRef.current?.snapToIndex(1)}
-              isGenerating={isGenerating}
-              placeholder={t("workspace.askPlaceholder", { defaultValue: "Ask the AI to write or edit…" })}
-              sendLabel={t("chat.send", { defaultValue: "Send" })}
-              stopLabel={t("chat.stop", { defaultValue: "Stop" })}
-              micLabel={t("composer.micLabel", { defaultValue: "Voice input" })}
-            />
-            <ComposerQuickActions
-              onPreset={(prompt) => {
-                setInputText(prompt);
-                sheetRef.current?.snapToIndex(1);
-              }}
-            />
+            {composerMode === "edit" && isLiveDoc ? (
+              <ComposerEditTools
+                thesisId={thesisId}
+                block={editBlock}
+                hint={t("composer.edit.selectHint", { defaultValue: "Select a paragraph to edit." })}
+                styleLabels={{ normal: t("composer.edit.normal", { defaultValue: "Normal" }) }}
+                onAfterEdit={onAfterBulkEdit}
+                rtl={rtl}
+              />
+            ) : (
+              <>
+                <ComposerThinking
+                  isGenerating={isGenerating}
+                  phase={generatingPhase}
+                  thinking={thinking}
+                  statusReady={t("composer.status.ready")}
+                  thinkingLabel={t("composer.status.thinking")}
+                  writingLabel={t("composer.status.writing")}
+                  rtl={rtl}
+                />
+                <View style={styles.inputSpacer} />
+                <ComposerInput
+                  value={inputText}
+                  onChangeText={setInputText}
+                  onSend={handleSend}
+                  onStop={() => useChatStore.getState().stopGenerating()}
+                  onMicPress={() => Alert.alert(t("composer.voiceComingSoon"))}
+                  onFocus={() => sheetRef.current?.snapToIndex(1)}
+                  isGenerating={isGenerating}
+                  placeholder={t("workspace.askPlaceholder", { defaultValue: "Ask the AI to write or edit…" })}
+                  sendLabel={t("chat.send", { defaultValue: "Send" })}
+                  stopLabel={t("chat.stop", { defaultValue: "Stop" })}
+                  micLabel={t("composer.micLabel", { defaultValue: "Voice input" })}
+                />
+                <ComposerQuickActions
+                  onPreset={(prompt) => {
+                    setInputText(prompt);
+                    sheetRef.current?.snapToIndex(1);
+                  }}
+                />
+              </>
+            )}
             <ComposerToolsTray label={t("composer.toolsLabel")} tools={tools} />
           </>
         )}
