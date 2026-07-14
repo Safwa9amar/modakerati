@@ -889,6 +889,22 @@ export async function startThesisBlocksOnNewPage(
   return apiPost<{ ok: true; changed: number }>(`/api/thesis/${thesisId}/blocks/start-on-new-page`, { indices, breakType });
 }
 
+export interface ThesisPageSetup {
+  marginPreset?: "normal" | "narrow" | "moderate" | "wide" | "mirrored";
+  orientation?: "portrait" | "landscape";
+  pageSize?: "A4" | "USLetter" | "USLegal" | "A3" | "A5";
+  columns?: 1 | 2 | 3;
+}
+
+/** Document-wide page setup (margins / orientation / size / columns). Byte-safe on
+ *  the server; pass only the field(s) you want to change. */
+export async function setThesisPageSetup(
+  thesisId: string,
+  setup: ThesisPageSetup,
+): Promise<{ ok: true; applied: string[] }> {
+  return apiPost<{ ok: true; applied: string[] }>(`/api/thesis/${thesisId}/page-setup`, setup);
+}
+
 export async function addDocumentParagraph(
   id: string,
   body: { index?: number; text: string; styleId?: string; alignment?: Align }

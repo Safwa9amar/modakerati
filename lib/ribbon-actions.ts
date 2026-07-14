@@ -9,6 +9,7 @@ import {
   insertThesisImage,
   startThesisBlocksOnNewPage,
   editThesisParagraphs,
+  setThesisPageSetup,
 } from "@/lib/api";
 
 export interface DispatchDeps {
@@ -76,6 +77,39 @@ export async function dispatchRibbonAction(
         // promote = smaller number (toward H1); demote = larger. Clamp 0..6.
         const next = tool.actionKey === "heading.promote" ? Math.max(1, cur - 1) : Math.min(6, cur + 1);
         await editThesisParagraphs(deps.thesisId, [first.index], { level: next });
+        deps.onAfterEdit();
+        return;
+      }
+
+      case "layout.margins": {
+        // MARGIN_OPTS values: normal | narrow | moderate | wide | mirrored
+        if (!optionValue) return toAi();
+        await setThesisPageSetup(deps.thesisId, { marginPreset: optionValue as any });
+        deps.onAfterEdit();
+        return;
+      }
+
+      case "layout.orientation": {
+        // ORIENT_OPTS values: portrait | landscape
+        if (optionValue !== "portrait" && optionValue !== "landscape") return toAi();
+        await setThesisPageSetup(deps.thesisId, { orientation: optionValue });
+        deps.onAfterEdit();
+        return;
+      }
+
+      case "layout.size": {
+        // SIZE_OPTS values: A4 | USLetter | USLegal | A3 | A5
+        if (!optionValue) return toAi();
+        await setThesisPageSetup(deps.thesisId, { pageSize: optionValue as any });
+        deps.onAfterEdit();
+        return;
+      }
+
+      case "layout.columns": {
+        // COLUMN_OPTS values: "1" | "2" | "3" (arrive as strings)
+        const count = Number(optionValue);
+        if (!(count === 1 || count === 2 || count === 3)) return toAi();
+        await setThesisPageSetup(deps.thesisId, { columns: count as 1 | 2 | 3 });
         deps.onAfterEdit();
         return;
       }
