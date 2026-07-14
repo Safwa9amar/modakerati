@@ -102,8 +102,7 @@ export default function HomeScreen() {
     { icon: PenLine, label: t("home.newThesis"), color: colors.brandPrimary, onPress: () => router.push("/(app)/template-picker" as any) },
     { icon: FolderUp, label: t("home.importDocx"), color: "#9959FF", onPress: handleImport },
     { icon: Combine, label: t("combine.short"), color: "#1FB6A8", onPress: handleCombine },
-    { icon: LayoutGrid, label: t("home.templates"), color: colors.brandAccent, onPress: () => router.push("/(app)/template-picker" as any) },
-    { icon: Zap, label: t("home.aiAssist"), color: colors.semanticWarning, onPress: () => {} },
+    { icon: LayoutGrid, label: t("home.templates"), color: colors.semanticWarning, onPress: () => router.push("/(app)/template-picker" as any) },
   ];
 
   if (loading) {

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { View, Pressable, StyleSheet } from "react-native";
 import { BottomSheetTextInput } from "@gorhom/bottom-sheet";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
@@ -5,6 +6,14 @@ import { Send, Square, Mic } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+// Composer auto-grow bounds (one line … ~6 lines, then it scrolls internally).
+// Belt-and-suspenders so it grows whichever mechanism the New Architecture honors:
+// minHeight/maxHeight bound the intrinsic auto-sizing, and onContentSizeChange drives
+// an explicit height when that event fires. Height stays unset until measured, so if
+// the event never fires the intrinsic path still governs (never pinned to one line).
+const INPUT_MIN_HEIGHT = 28;
+const INPUT_MAX_HEIGHT = 120;
 
 interface Props {
   value: string;
@@ -39,15 +48,25 @@ export function ComposerInput({
 }: Props) {
   const colors = useThemeColors();
   const hasText = value.trim().length > 0;
+  const [inputHeight, setInputHeight] = useState<number | undefined>(undefined);
+  // Collapse back to one line when the parent clears the text (e.g. after sending).
+  useEffect(() => {
+    if (!value) setInputHeight(undefined);
+  }, [value]);
 
   return (
     <View style={[styles.wrapper, { backgroundColor: colors.bgInput }]}>
       <BottomSheetTextInput
-        style={[styles.input, { color: colors.textPrimary }]}
+        style={[styles.input, { color: colors.textPrimary }, inputHeight != null && { height: inputHeight }]}
         placeholder={placeholder}
         placeholderTextColor={colors.textPlaceholder}
         value={value}
         onChangeText={onChangeText}
+        onContentSizeChange={(e) =>
+          setInputHeight(
+            Math.min(INPUT_MAX_HEIGHT, Math.max(INPUT_MIN_HEIGHT, e.nativeEvent.contentSize.height))
+          )
+        }
         onFocus={onFocus}
         editable={!isGenerating}
         multiline
@@ -100,7 +119,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     gap: 6,
   },
-  input: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", maxHeight: 100, paddingVertical: 4 },
+  input: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", paddingVertical: 4, minHeight: INPUT_MIN_HEIGHT, maxHeight: INPUT_MAX_HEIGHT },
   micBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   actionBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
 });

@@ -1,20 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, Alert, Keyboard, Text, Pressable } from "react-native";
+import type { SharedValue } from "react-native-reanimated";
 import GorhomBottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { router } from "expo-router";
 import { useTranslation } from "react-i18next";
 import {
   Paperclip,
-  Paintbrush,
   ListTree,
-  AlignLeft,
   Download,
   RotateCcw,
   Brain,
   SquarePen,
   Trash2,
   FileStack,
-  FileText,
   X,
 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -25,25 +23,32 @@ import { deleteThesisBlocks, startThesisBlocksOnNewPage, type DocBlockDTO } from
 import { ComposerThinking } from "./ComposerThinking";
 import { ComposerInput } from "./ComposerInput";
 import { ComposerQuickActions } from "./ComposerQuickActions";
+import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { ComposerToolsTray, type ToolItem } from "./ComposerToolsTray";
 import { ComposerAsk } from "./ComposerAsk";
 import { ComposerModeToggle } from "./ComposerModeToggle";
 import { ComposerEditTools } from "./ComposerEditTools";
+import { ComposerRibbon } from "./ribbon/ComposerRibbon";
 
 /** Height of the collapsed peek (the doc area pads its bottom by this). */
 export const COMPOSER_COLLAPSED_HEIGHT = 210;
+/** Expanded snap point as a fraction of the container height. Shared with the
+ *  workspace screen so the document's bottom spacing tracks the sheet height. */
+export const COMPOSER_EXPANDED_FRACTION = 0.62;
 
 interface Props {
   thesisId: string;
   isLiveDoc: boolean;
   rtl: boolean;
+  /** gorhom writes the sheet's live top-edge Y here so the document area can
+   *  reserve exactly the height the sheet covers, at any position. */
+  animatedPosition?: SharedValue<number>;
   /** Live-.docx block model (empty for legacy docs) — powers the Edit-mode tools. */
   blocks: DocBlockDTO[];
   /** Live-doc only; undefined disables the Export tool. */
   downloadUrl?: string;
   /** Underlying document id (live-doc only); undefined disables Edit block. */
   documentId?: string;
-  onFormat: () => void;
   onOpenSources: () => void;
   onOpenOutline: () => void;
   onExport: () => void;
@@ -55,10 +60,10 @@ export function WorkspaceComposerSheet({
   thesisId,
   isLiveDoc,
   rtl,
+  animatedPosition,
   blocks,
   downloadUrl,
   documentId,
-  onFormat,
   onOpenSources,
   onOpenOutline,
   onExport,
@@ -72,9 +77,9 @@ export function WorkspaceComposerSheet({
   // built INSIDE a selector loop the render; `selectedBlocks` is a stored ref).
   const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
   const multiSelect = useWorkspaceStore((s) => s.multiSelect);
-  const isFormatting = useWorkspaceStore((s) => s.isFormatting);
   const thinkingEnabled = useWorkspaceStore((s) => s.thinkingEnabled);
   const composerMode = useWorkspaceStore((s) => s.composerMode);
+  const composerOpen = useWorkspaceStore((s) => s.composerOpen);
 
   // Derived selection in document order: indices to act on, and the combined text
   // of the selected blocks (used as the AI focus and the chip preview).
@@ -93,13 +98,27 @@ export function WorkspaceComposerSheet({
   }, [ordered]);
   const count = selectedBlocks.length;
 
-  // Edit mode acts on a SINGLE selected paragraph block. Resolve it from the doc
-  // model (null when 0/>1 selected, or the selection isn't a paragraph).
-  const editBlock = useMemo(() => {
-    if (count !== 1) return null;
-    const b = blocks.find((x) => x.index === selectedBlocks[0].index);
-    return b && b.kind === "paragraph" ? b : null;
-  }, [count, blocks, selectedBlocks]);
+  // Edit mode's formatting tools act on the selected PARAGRAPH blocks (one or many).
+  // Resolve them from the doc model in document order, dropping non-paragraph
+  // selections (tables/images) so a style tap never targets them. [] → the hint.
+  const editSelection = useMemo(() => {
+    if (!ordered.length) return [] as Extract<DocBlockDTO, { kind: "paragraph" }>[];
+    const byIndex = new Map(blocks.map((b) => [b.index, b]));
+    return ordered
+      .map((s) => byIndex.get(s.index))
+      .filter((b): b is Extract<DocBlockDTO, { kind: "paragraph" }> => !!b && b.kind === "paragraph");
+  }, [ordered, blocks]);
+
+  // Selection payload for the ribbon dispatcher: index + text + heading level.
+  const ribbonSelection = useMemo(
+    () =>
+      ordered.map((b) => {
+        const doc = blocks.find((x) => x.index === b.index);
+        const level = doc && doc.kind === "paragraph" ? doc.level ?? 0 : 0;
+        return { index: b.index, text: b.text, level };
+      }),
+    [ordered, blocks],
+  );
 
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
@@ -115,14 +134,38 @@ export function WorkspaceComposerSheet({
 
   const [inputText, setInputText] = useState("");
 
-  const snapPoints = useMemo(() => [COMPOSER_COLLAPSED_HEIGHT, "62%"], []);
+  // AI-generated quick-action chips — only while the AI-mode composer is showing
+  // them (open, not in Edit mode, and not while an ask sheet is open). Falls back to
+  // the static presets whenever the list is empty (offline / fresh thesis / failure).
+  const { suggestions } = useComposerSuggestions(thesisId, {
+    enabled: composerOpen && composerMode === "ai" && !pendingAsk,
+    selectedBlocks,
+  });
 
-  // Auto-expand when the AI starts working or asks a question; collapse back to
-  // the peek once it finishes so the updated document is visible again.
+  const snapPoints = useMemo(
+    () => [COMPOSER_COLLAPSED_HEIGHT, `${COMPOSER_EXPANDED_FRACTION * 100}%`],
+    [],
+  );
+
+  // AI activity forces the composer visible so its progress/question is seen even
+  // if the user had closed the sheet via the header toggle.
   useEffect(() => {
-    if (isGenerating || pendingAsk) sheetRef.current?.snapToIndex(1);
-    else sheetRef.current?.snapToIndex(0);
+    if (isGenerating || pendingAsk) useWorkspaceStore.getState().setComposerOpen(true);
   }, [isGenerating, pendingAsk]);
+
+  // Single source of truth for the sheet's position: closed when toggled off;
+  // otherwise expanded while the AI works / asks, and collapsed to the peek when
+  // idle so the updated document is visible again. Driving it off `composerOpen`
+  // (not just the generation flags) means a view-mode switch can't strand it.
+  useEffect(() => {
+    if (!composerOpen) {
+      sheetRef.current?.close();
+    } else if (isGenerating || pendingAsk) {
+      sheetRef.current?.snapToIndex(1);
+    } else {
+      sheetRef.current?.snapToIndex(0);
+    }
+  }, [composerOpen, isGenerating, pendingAsk]);
 
   // A legacy (non-live) doc has no editable blocks — never let it get stuck in
   // Edit mode (the toggle is hidden there, so the user couldn't switch back).
@@ -159,6 +202,15 @@ export function WorkspaceComposerSheet({
   const handleAnswer = (answer: string) => {
     useChatStore.getState().setPendingAsk(null);
     void sendMessageToAI(thesisId, answer, focusOpts);
+  };
+
+  // AI-bridge target: fill the composer input with the instruction and switch to AI
+  // mode + expand, matching the quick-action "fill, don't send" behavior.
+  const handleRibbonAiAction = (instruction: string) => {
+    useWorkspaceStore.getState().setComposerMode("ai");
+    setInputText(instruction);
+    useWorkspaceStore.getState().setComposerOpen(true);
+    sheetRef.current?.snapToIndex(1);
   };
 
   // Bulk actions on the multi-selection. Delete is destructive → confirm first.
@@ -200,10 +252,7 @@ export function WorkspaceComposerSheet({
 
   const tools: ToolItem[] = [
     { key: "sources", label: t("composer.tools.sources"), icon: Paperclip, onPress: onOpenSources },
-    { key: "format", label: t("composer.tools.format"), icon: Paintbrush, onPress: onFormat, disabled: isFormatting },
     { key: "outline", label: t("composer.tools.outline"), icon: ListTree, onPress: onOpenOutline },
-    { key: "view", label: t("composer.tools.view"), icon: AlignLeft, onPress: () => useWorkspaceStore.getState().toggleViewMode(), disabled: !isLiveDoc },
-    { key: "pdf", label: t("composer.tools.pdf"), icon: FileText, onPress: () => useWorkspaceStore.getState().setViewMode("pdf"), disabled: !isLiveDoc },
     { key: "export", label: t("composer.tools.export"), icon: Download, onPress: onExport, disabled: !downloadUrl },
     { key: "regenerate", label: t("composer.tools.regenerate"), icon: RotateCcw, onPress: () => void regenerateLastResponse(thesisId), disabled: isGenerating },
     { key: "thinking", label: t("composer.tools.thinking"), icon: Brain, active: thinkingEnabled, onPress: () => useWorkspaceStore.getState().setThinkingEnabled(!thinkingEnabled) },
@@ -229,7 +278,18 @@ export function WorkspaceComposerSheet({
       ref={sheetRef}
       index={0}
       snapPoints={snapPoints}
+      animatedPosition={animatedPosition}
       enablePanDownToClose={false}
+      onChange={(index) => {
+        // Guard against gorhom snapping the sheet shut on a layout re-measure
+        // (happens when the sibling view swaps on a view-mode change). If it
+        // collapsed to closed while we still intend it open, restore the peek.
+        // An intentional toggle-close sets composerOpen=false FIRST, so this
+        // won't fight it.
+        if (index === -1 && useWorkspaceStore.getState().composerOpen) {
+          requestAnimationFrame(() => sheetRef.current?.snapToIndex(0));
+        }
+      }}
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
@@ -299,13 +359,23 @@ export function WorkspaceComposerSheet({
         ) : (
           <>
             {composerMode === "edit" && isLiveDoc ? (
-              <ComposerEditTools
+              <ComposerRibbon
                 thesisId={thesisId}
-                block={editBlock}
-                hint={t("composer.edit.selectHint", { defaultValue: "Select a paragraph to edit." })}
-                styleLabels={{ normal: t("composer.edit.normal", { defaultValue: "Normal" }) }}
+                blocks={blocks}
+                selection={ribbonSelection}
                 onAfterEdit={onAfterBulkEdit}
-                rtl={rtl}
+                onAiAction={handleRibbonAiAction}
+                homeSlot={
+                  <ComposerEditTools
+                    thesisId={thesisId}
+                    selection={editSelection}
+                    blockCount={blocks.length}
+                    hint={t("composer.edit.selectHint", { defaultValue: "Select a paragraph to edit." })}
+                    styleLabels={{ normal: t("composer.edit.normal", { defaultValue: "Normal" }) }}
+                    onAfterEdit={onAfterBulkEdit}
+                    rtl={rtl}
+                  />
+                }
               />
             ) : (
               <>
@@ -332,7 +402,9 @@ export function WorkspaceComposerSheet({
                   stopLabel={t("chat.stop", { defaultValue: "Stop" })}
                   micLabel={t("composer.micLabel", { defaultValue: "Voice input" })}
                 />
+                <View style={styles.quickActionsSpacer} />
                 <ComposerQuickActions
+                  suggestions={suggestions}
                   onPreset={(prompt) => {
                     setInputText(prompt);
                     sheetRef.current?.snapToIndex(1);
@@ -369,6 +441,7 @@ const styles = StyleSheet.create({
   },
   chipText: { flexShrink: 1, fontSize: 12, fontFamily: "Inter_500Medium" },
   inputSpacer: { height: 8 },
+  quickActionsSpacer: { height: 12 },
   bulkRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
   bulkBtn: {
     flexDirection: "row",

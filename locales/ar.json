@@ -60,6 +60,8 @@
     "action": "دمج المستندات",
     "arrangeTitle": "ترتيب الأجزاء",
     "arrangeSubtitle": "أعد ترتيب كل جزء وأعد تسميته ثم ادمجها في مستند واحد.",
+    "docTitleLabel": "عنوان المستند",
+    "defaultTitle": "مذكرة التخرج",
     "partTitleLabel": "عنوان القسم",
     "pickProfile": "معيار التنسيق",
     "combineButton": "دمج",
@@ -496,6 +498,8 @@
     "empty": "لا يوجد محتوى بعد.",
     "titlePage": "صفحة الغلاف",
     "wholeMemoir": "كامل المذكرة",
+    "showComposer": "إظهار المُنشئ",
+    "hideComposer": "إخفاء المُنشئ",
     "askPlaceholder": "اطلب من الذكاء الاصطناعي الكتابة أو التعديل…",
     "formatThesis": "تنسيق المذكرة",
     "formatting": "جاري التنسيق...",
@@ -514,6 +518,27 @@
     "bulkEditError": "تعذّر تطبيق التغيير.",
     "pdfFailed": "تعذّر إنشاء ملف PDF. يرجى المحاولة مرة أخرى.",
     "pdfUnavailable": "معاينة PDF غير متاحة لهذا المستند."
+  },
+  "ribbon": {
+    "soon": "قريبًا",
+    "search": "البحث عن الأدوات",
+    "searchPlaceholder": "ماذا تريد أن تفعل؟…",
+    "empty": "لا توجد أدوات.",
+    "tab": { "home": "الرئيسية", "layout": "التخطيط", "design": "التصميم", "insert": "إدراج", "references": "المراجع", "heading": "عنوان", "table": "جدول", "picture": "صورة" },
+    "grp": { "pageSetup": "إعداد الصفحة", "paragraph": "فقرة", "format": "تنسيق", "pageDesign": "تصميم الصفحة", "tables": "جداول", "illustrations": "رسومات", "headerFooter": "رأس وتذييل", "symbols": "رموز", "toc": "المحتويات", "footnotes": "الحواشي", "citations": "الاستشهادات", "captions": "التسميات", "heading": "عنوان", "tableRows": "صفوف وأعمدة", "tableStyle": "نمط الجدول", "picture": "صورة" },
+    "tools": {
+      "margins": "الهوامش", "orientation": "الاتجاه", "size": "الحجم", "columns": "الأعمدة", "breaks": "الفواصل", "lineNumbers": "أرقام الأسطر", "indent": "المسافة البادئة", "spacing": "التباعد",
+      "thesisReady": "جاهزة للمذكرة", "fonts": "الخطوط", "paraSpacing": "تباعد الفقرات", "themes": "السمات", "pageColor": "لون الصفحة", "pageBorders": "حدود الصفحة", "watermark": "علامة مائية",
+      "table": "جدول", "picture": "صورة", "chart": "مخطط", "shapes": "أشكال", "textBox": "مربع نص", "header": "رأس", "footer": "تذييل", "pageNumber": "رقم الصفحة", "footnote": "حاشية", "symbol": "رمز", "pageBreak": "فاصل صفحة",
+      "toc": "المحتويات", "updateToc": "تحديث المحتويات", "endnote": "تعليق ختامي", "citation": "استشهاد", "citationStyle": "النمط", "bibliography": "المراجع", "caption": "تسمية", "figuresList": "قائمة الأشكال", "crossRef": "إحالة مرجعية",
+      "promote": "ترقية", "demote": "خفض", "insertRow": "إدراج صف", "insertCol": "إدراج عمود", "headerRow": "صف رأس", "replace": "استبدال"
+    },
+    "opt": {
+      "marginNormal": "عادية", "marginNarrow": "ضيقة", "marginModerate": "متوسطة", "marginWide": "واسعة", "marginMirrored": "متقابلة",
+      "portrait": "طولي", "landscape": "عرضي", "a4": "A4", "letter": "Letter", "legal": "Legal", "a3": "A3", "a5": "A5",
+      "oneCol": "واحد", "twoCol": "اثنان", "threeCol": "ثلاثة", "pageBreak": "فاصل صفحة", "evenPage": "صفحة زوجية", "oddPage": "صفحة فردية",
+      "apa": "APA", "mla": "MLA", "chicago": "Chicago", "pickTableSize": "اختر حجم الجدول"
+    }
   },
   "composer": {
     "status": {

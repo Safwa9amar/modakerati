@@ -16,7 +16,7 @@ import type {
 import type { Thesis, Template, NormProfile } from "@/types/thesis";
 import type { ThesisSource } from "@/types/source";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://modakerati-api.fly.dev";
+const API_URL = process.env.EXPO_PUBLIC_API_URL
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -121,6 +121,28 @@ export async function chatSend(
     // whole set. Omitted when there's a single (or no) selection.
     docBlockIndices: options?.docBlockIndices,
   });
+}
+
+/** One AI-generated composer quick-action chip. */
+export interface ComposerSuggestion {
+  label: string;
+  prompt: string;
+}
+
+// Fetch dynamic composer quick-action chips for a thesis, grounded in the recent
+// conversation + the current selection + RAG context. Best-effort: the server
+// returns an empty array on any failure, and callers fall back to static presets.
+export async function getComposerSuggestions(
+  thesisId: string,
+  options?: { selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[] }
+): Promise<ComposerSuggestion[]> {
+  const res = await apiPost<{ suggestions?: ComposerSuggestion[] }>("/api/chat/suggestions", {
+    thesisId,
+    selection: options?.selection,
+    docBlockIndex: options?.docBlockIndex ?? null,
+    docBlockIndices: options?.docBlockIndices,
+  });
+  return Array.isArray(res?.suggestions) ? res.suggestions : [];
 }
 
 // Pass `since` (an ISO timestamp) to fetch only messages created after it —
@@ -447,7 +469,7 @@ export async function combineThesis(input: {
 // ============================================================
 
 export type DocBlockDTO =
-  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; alignment: "left" | "center" | "right" | "both" | null }
+  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; alignment: "left" | "center" | "right" | "both" | null; direction: "rtl" | "ltr" | null }
   | { index: number; kind: "table"; rows: string[][] }
   // L4c: image blocks (charts/figures). The server inlines small images (charts
   // ≤ ~200KB) as a base64 `dataUri` so the workspace can render the real image;
@@ -810,14 +832,44 @@ export async function editDocumentParagraph(
 export async function editThesisParagraph(
   thesisId: string,
   index: number,
-  changes: { text?: string; level?: number; alignment?: "left" | "center" | "right" | "justify"; clearFormatting?: boolean }
+  changes: { text?: string; level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr"; clearFormatting?: boolean }
 ): Promise<{ ok: true }> {
   return apiPut<{ ok: true }>(`/api/thesis/${thesisId}/paragraphs/${index}`, changes);
+}
+
+// Bulk-apply ONE formatting change (level / alignment / direction / clearFormatting —
+// text is per-paragraph, so it's excluded) to several live-.docx paragraph blocks at
+// once: the workspace multi-select edit tools. Non-paragraph blocks in `indices` are
+// skipped server-side. One locked pass, so it can't race the AI. Engine block indices.
+export async function editThesisParagraphs(
+  thesisId: string,
+  indices: number[],
+  changes: { level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr"; clearFormatting?: boolean }
+): Promise<{ ok: true; changed: number }> {
+  return apiPost<{ ok: true; changed: number }>(`/api/thesis/${thesisId}/paragraphs/bulk`, { indices, ...changes });
 }
 
 // Bulk-delete several live-.docx thesis blocks at once (the workspace multi-select).
 // `indices` are engine block indices; the server removes them high-to-low so they
 // stay valid as the list shrinks. Shares the AI's thesis lock.
+// Move one block from engine index `from` to index `to` (drag-reorder / up-down).
+export async function moveThesisBlock(
+  thesisId: string,
+  from: number,
+  to: number
+): Promise<{ ok: true }> {
+  return apiPost<{ ok: true }>(`/api/thesis/${thesisId}/blocks/move`, { from, to });
+}
+
+// Insert a base64 image as a new block AFTER `afterIndex` (-1 = top). width/height
+// are the image's pixel size (server clamps the on-page width).
+export async function insertThesisImage(
+  thesisId: string,
+  img: { data: string; format: string; width?: number; height?: number; afterIndex: number }
+): Promise<{ ok: true; newIndex: number }> {
+  return apiPost<{ ok: true; newIndex: number }>(`/api/thesis/${thesisId}/blocks/image`, img);
+}
+
 export async function deleteThesisBlocks(
   thesisId: string,
   indices: number[]

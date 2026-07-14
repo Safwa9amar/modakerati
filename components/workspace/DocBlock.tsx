@@ -152,8 +152,28 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
   const empty = !block.text.trim();
   // Base direction from this paragraph's own script, not the thesis flag, so
   // French/English text never renders RTL (and Arabic never renders LTR).
-  const dir = detectDir(block.text, rtl);
+  // An explicit paragraph direction (w:bidi, set via the Edit tools) wins;
+  // otherwise fall back to auto-detecting from the text's script.
+  const dir = block.direction ?? detectDir(block.text, rtl);
   const align = dir === "rtl" ? "right" : "left";
+  // Explicit paragraph alignment (w:jc) wins; otherwise fall back to the
+  // direction-based default (headings) / justified body. Without this the native
+  // render ignores the paragraph's real alignment, so the Edit tools look broken.
+  const jcAlign =
+    block.alignment === "center"
+      ? "center"
+      : block.alignment === "left"
+        ? "left"
+        : block.alignment === "right"
+          ? "right"
+          : block.alignment === "both"
+            ? "justify"
+            : null;
+  const textAlign = (jcAlign ?? (isHeading ? align : "justify")) as
+    | "left"
+    | "right"
+    | "center"
+    | "justify";
   return (
     <Pressable
       onPress={() => pickBlock(block.index, block.text)}
@@ -169,7 +189,7 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
             ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
             : styles.body,
           {
-            textAlign: isHeading ? align : "justify",
+            textAlign,
             writingDirection: dir,
           },
           empty && styles.emptyPara,

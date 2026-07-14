@@ -26,6 +26,7 @@ export function WordDocxView({
   onSelect,
   onLongPress,
   selectedIndices,
+  scrollToIndex,
   rtl = false,
 }: {
   url: string;
@@ -36,6 +37,10 @@ export function WordDocxView({
   onLongPress: (index: number, text: string) => void;
   // Every currently-selected engine block index (0, 1, or many). Drives multi-highlight.
   selectedIndices: number[];
+  // Deep-link target: on first render, scroll this engine block into view (e.g.
+  // when opened from the detail screen's outline). Fired ONCE per value so an
+  // AI-turn reload doesn't yank the reader back to the originally-linked heading.
+  scrollToIndex?: number;
   // Base page direction. docx-preview renders Arabic runs RTL via bidi, but the
   // block-level layout (indents, justification anchor, header tab stops, table
   // column order) stays LTR unless the container is dir="rtl". True for Arabic
@@ -46,6 +51,9 @@ export function WordDocxView({
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The block index we've already scrolled to, so a post-edit reload (which fires
+  // "ready" again with the same target) doesn't re-scroll.
+  const scrolledToRef = useRef<number | null>(null);
 
   // Rebuilds (and reloads the WebView) only when the doc bytes change — i.e. when
   // the signed url changes. blocks ride along for tap→index matching.
@@ -76,8 +84,21 @@ export function WordDocxView({
   const onMessage = (e: WebViewMessageEvent) => {
     try {
       const msg = JSON.parse(e.nativeEvent.data);
-      if (msg.type === "ready") setLoading(false);
-      else if (msg.type === "error") {
+      if (msg.type === "ready") {
+        setLoading(false);
+        // First successful render: honour the deep-link scroll target once (the
+        // doc is fully laid out here, so scrollIntoView lands on the heading).
+        if (
+          typeof scrollToIndex === "number" &&
+          Number.isFinite(scrollToIndex) &&
+          scrolledToRef.current !== scrollToIndex
+        ) {
+          scrolledToRef.current = scrollToIndex;
+          webRef.current?.injectJavaScript(
+            `window.__scrollTo && window.__scrollTo(${scrollToIndex}); true;`,
+          );
+        }
+      } else if (msg.type === "error") {
         setLoading(false);
         setError(typeof msg.message === "string" ? msg.message : "render failed");
       } else if ((msg.type === "select" || msg.type === "longpress") && typeof msg.index === "number") {
@@ -131,7 +152,7 @@ function buildHtml(url: string, blocks: DocTapBlock[], selectedIndices: number[]
 <html>
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=3, user-scalable=yes" />
+<meta id="vp" name="viewport" content="width=device-width, initial-scale=1, maximum-scale=3, user-scalable=yes" />
 <script src="${JSZIP}"></script>
 <script src="${DOCX_PREVIEW}"></script>
 <style>
@@ -199,6 +220,29 @@ function buildHtml(url: string, blocks: DocTapBlock[], selectedIndices: number[]
     }
   };
 
+  // Deep-link scroll: bring the first element carrying a given block's text into
+  // view. docx-preview exposes no stable per-block id, so we match by normalized
+  // text (headings are unique, so this lands correctly). Re-asserts across the
+  // late fitWidth() reflows so the final resting position is the target.
+  window.__scrollTo = function(index){
+    var want = null;
+    for (var i=0;i<BLOCKS.length;i++){ if (BLOCKS[i].index === index){ want = norm(BLOCKS[i].text); break; } }
+    if (!want) return;
+    function findEl(){
+      var els = document.querySelectorAll('#container p, #container table');
+      for (var j=0;j<els.length;j++){ if (norm(els[j].innerText) === want) return els[j]; }
+      for (var k=0;k<els.length;k++){ if (norm(els[k].innerText).indexOf(want) >= 0) return els[k]; }
+      return null;
+    }
+    function go(){
+      var el = findEl();
+      if (!el) return;
+      el.scrollIntoView({ block: 'start' });
+      window.scrollBy(0, -12); // a little breathing room above the heading
+    }
+    go(); setTimeout(go, 200); setTimeout(go, 600);
+  };
+
   function blockEl(node){
     // Walk up to the nearest paragraph/table rendered by docx-preview.
     var el = node;
@@ -249,17 +293,23 @@ function buildHtml(url: string, blocks: DocTapBlock[], selectedIndices: number[]
   }
 
   function fitWidth(){
-    // Scale the rendered page down so its pt-width fits the device width.
-    var sec = document.querySelector('#container section.docx');
-    if (!sec) return;
-    var pageW = sec.getBoundingClientRect().width;
+    // Fixed-width Word pages (A4 ≈ 794px) overflow a phone screen. Fit by setting
+    // the LAYOUT viewport to the page width + a uniform gutter, so the browser
+    // scales the whole page down to the device width — crisp text, no horizontal
+    // scroll, and EVERY document renders identically as a framed page-on-gray
+    // (we base this on the page box, not scrollWidth, which varied between docs and
+    // made some fill edge-to-edge while others floated). Genuinely wide content
+    // (rare oversized tables/images) is reachable via pinch-zoom (user-scalable).
+    var pageW = 0;
+    var secs = document.querySelectorAll('#container section.docx');
+    for (var i=0;i<secs.length;i++){ pageW = Math.max(pageW, Math.ceil(secs[i].getBoundingClientRect().width)); }
+    if (pageW <= 0) return;
+    var GUTTER = 24; // ~12px of gray frame on each side, for every document
+    var target = pageW + GUTTER;
     var avail = document.documentElement.clientWidth;
-    if (pageW > 0 && pageW > avail){
-      var scale = avail / pageW;
-      var c = document.getElementById('container');
-      c.style.transform = 'scale(' + scale + ')';
-      // Compensate height so the page doesn't leave a huge gap after scaling.
-      c.style.height = (c.scrollHeight * scale) + 'px';
+    if (target > avail + 1){
+      var vp = document.getElementById('vp');
+      if (vp) vp.setAttribute('content', 'width=' + target + ', maximum-scale=3, user-scalable=yes');
     }
   }
 
@@ -275,7 +325,12 @@ function buildHtml(url: string, blocks: DocTapBlock[], selectedIndices: number[]
           renderHeaders: true, renderFooters: true, useBase64URL: true,
         });
       })
-      .then(function(){ wireTaps(); fitWidth(); window.__setSelected(${selJson}); post({ type:'ready' }); })
+      .then(function(){
+        wireTaps(); fitWidth(); window.__setSelected(${selJson}); post({ type:'ready' });
+        // Re-fit after late-loading images/fonts reflow the pages (the widest page
+        // can grow once base64 images decode), so the page still fits the screen.
+        setTimeout(fitWidth, 150); setTimeout(fitWidth, 500);
+      })
       .catch(function(e){ post({ type:'error', message: String(e && e.message || e) }); });
   }
 

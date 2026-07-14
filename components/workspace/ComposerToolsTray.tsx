@@ -1,4 +1,5 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
+import { ScrollView } from "react-native-gesture-handler";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import type { LucideIcon } from "lucide-react-native";
 
@@ -17,14 +18,18 @@ interface Props {
   tools: ToolItem[];
 }
 
-/** The expanded tray: a grid of labelled icon buttons. */
+/** The expanded tray: a horizontally-scrollable row of labelled icon buttons. */
 export function ComposerToolsTray({ label, tools }: Props) {
   const colors = useThemeColors();
 
   return (
     <View style={styles.container}>
       <Text style={[styles.heading, { color: colors.textPlaceholder }]}>{label}</Text>
-      <View style={styles.grid}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.row}
+      >
         {tools.map((tool) => {
           const Icon = tool.icon;
           const tint = tool.active ? colors.semanticSuccess : colors.textSecondary;
@@ -49,7 +54,7 @@ export function ComposerToolsTray({ label, tools }: Props) {
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -57,10 +62,9 @@ export function ComposerToolsTray({ label, tools }: Props) {
 const styles = StyleSheet.create({
   container: { marginTop: 12 },
   heading: { fontSize: 10, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  row: { flexDirection: "row", gap: 8, paddingRight: 8 },
   tool: {
-    width: "22%",
-    minWidth: 72,
+    width: 72,
     alignItems: "center",
     gap: 4,
     paddingVertical: 10,

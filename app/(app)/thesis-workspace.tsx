@@ -8,15 +8,18 @@ import {
   ActivityIndicator,
   Linking,
   ScrollView,
+  useWindowDimensions,
 } from "react-native";
+import Animated, { useSharedValue, useAnimatedStyle } from "react-native-reanimated";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useFocusEffect } from "expo-router";
 import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
-import { Maximize2 } from "lucide-react-native";
+import { Maximize2, PanelBottomOpen, PanelBottomClose } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useRibbonStore } from "@/stores/ribbon-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { BackButton } from "@/components/BackButton";
@@ -25,11 +28,15 @@ import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
 import { PdfView } from "@/components/workspace/PdfView";
 import { DocBlock } from "@/components/workspace/DocBlock";
 import { PaperPage } from "@/components/workspace/PaperPage";
-import { WorkspaceComposerSheet, COMPOSER_COLLAPSED_HEIGHT } from "@/components/workspace/WorkspaceComposerSheet";
+import {
+  WorkspaceComposerSheet,
+  COMPOSER_COLLAPSED_HEIGHT,
+} from "@/components/workspace/WorkspaceComposerSheet";
+import { WorkspaceViewSwitcher } from "@/components/workspace/WorkspaceViewSwitcher";
+import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import {
-  formatThesis,
   getThesisDocument,
   getThesisEditorConfig,
   getThesisPdf,
@@ -56,6 +63,7 @@ export default function ThesisWorkspaceScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { thesisId, blockIndex } = useLocalSearchParams<{ thesisId: string; blockIndex?: string }>();
 
   const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
@@ -68,12 +76,23 @@ export default function ThesisWorkspaceScreen() {
   // Drives the live block refresh below: while a turn is generating the AI
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
   const isGenerating = useChatStore((s) => s.isGenerating);
-  const isFormatting = useWorkspaceStore((s) => s.isFormatting);
   const activePanel = useWorkspaceStore((s) => s.activePanel);
+  const composerOpen = useWorkspaceStore((s) => s.composerOpen);
+  // The composer sheet writes its LIVE top-edge Y into this shared value (gorhom's
+  // `animatedPosition`). The document area reserves exactly the height the sheet
+  // covers from the bottom, so content always clears the sheet at any position —
+  // peek, expanded, mid-drag, or keyboard-resized — with no stale-padding gaps.
+  const sheetPosition = useSharedValue(windowHeight - COMPOSER_COLLAPSED_HEIGHT);
 
   // Live-.docx document model. `undefined` while loading; `null` once we know
   // the thesis is legacy (available:false) → fall back to the section render.
   const [doc, setDoc] = useState<DocumentDTO | undefined>(undefined);
+
+  // Monotonic reload token, bumped on every doc refresh. Appended to the Word
+  // view's URL so the docx-preview WebView reliably re-fetches after an edit —
+  // the signed download URL can be byte-identical across two fetches in the same
+  // second, so relying on it alone leaves a manual edit (style/alignment) invisible.
+  const [docTick, setDocTick] = useState(0);
 
   // OnlyOffice editor config for the live-docx view. `undefined` while loading;
   // `{ enabled:false }` when the Document Server isn't configured (or the fetch
@@ -101,6 +120,7 @@ export default function ThesisWorkspaceScreen() {
         void deleteThesisPdf(thesisId).catch(() => {});
       }
       useWorkspaceStore.getState().reset();
+      useRibbonStore.getState().reset();
       // The chat tab shares `pendingAsk` and the "structure" sheet key, so clear
       // an unanswered question and close the outline panel on leave — otherwise
       // either can ghost open on the chat screen.
@@ -117,6 +137,7 @@ export default function ThesisWorkspaceScreen() {
     try {
       const result = await getThesisDocument(thesisId);
       setDoc(result);
+      setDocTick((n) => n + 1);
     } catch {
       // Keep whatever we last had; only fall to legacy if we never loaded a doc.
       setDoc((prev) => prev ?? { docMode: "legacy-db", available: false });
@@ -147,22 +168,6 @@ export default function ThesisWorkspaceScreen() {
     }
   }, [thesisId]);
 
-  // Format the thesis (apply norm-profile styles to the live .docx).
-  const handleFormat = useCallback(async () => {
-    const th = useThesisStore.getState().getCurrentThesis();
-    if (!th) return;
-    useWorkspaceStore.getState().setFormatting(true);
-    try {
-      await formatThesis(th.id);
-      Alert.alert(t("workspace.formatted"));
-      void refreshDoc();
-    } catch {
-      Alert.alert(t("workspace.formatError"));
-    } finally {
-      useWorkspaceStore.getState().setFormatting(false);
-    }
-  }, [t, refreshDoc]);
-
   // Toggle the outline panel. The ThesisStructureSheet gates on the bottom-sheet
   // store's "structure" key for its open state, so we sync both stores.
   const handleOutlineToggle = useCallback(() => {
@@ -187,14 +192,6 @@ export default function ThesisWorkspaceScreen() {
     }, [refreshDoc, refreshEditorCfg]),
   );
 
-  // Deep-link target: when opened from the detail screen's outline, pre-select
-  // the tapped heading's block so the docx-preview view highlights/scrolls to it.
-  useEffect(() => {
-    if (blockIndex == null) return;
-    const idx = Number(blockIndex);
-    if (Number.isFinite(idx)) useWorkspaceStore.getState().selectBlock(idx, "");
-  }, [blockIndex]);
-
   const liveDoc = doc?.available ? doc : null;
   const isLiveDoc = !!liveDoc;
 
@@ -204,6 +201,23 @@ export default function ThesisWorkspaceScreen() {
     () => (liveDoc ? liveDoc.blocks.map((b) => ({ index: b.index, text: blockTapText(b) })) : []),
     [liveDoc],
   );
+
+  // Deep-link target: when opened from the detail screen's outline, pre-select
+  // the tapped heading's block so the docx-preview view highlights/scrolls to it,
+  // and so the AI composer sends its text as the focus. The callers navigate here
+  // with the heading text already in the store, so NEVER clobber an existing
+  // non-empty selection (doing so dropped the heading text from the AI request).
+  // For a cold deep-link with no pre-set text, resolve it from the loaded doc.
+  useEffect(() => {
+    if (blockIndex == null) return;
+    const idx = Number(blockIndex);
+    if (!Number.isFinite(idx)) return;
+    const store = useWorkspaceStore.getState();
+    const existing = store.selectedBlocks.find((b) => b.index === idx);
+    if (existing?.text) return;
+    const resolved = tapBlocks.find((b) => b.index === idx)?.text ?? existing?.text ?? "";
+    store.selectBlock(idx, resolved);
+  }, [blockIndex, tapBlocks]);
 
   // Base text direction for rendering. The thesis `language` field is unreliable
   // (imports default to "fr" even for Arabic docs), so detect from the actual
@@ -266,6 +280,13 @@ export default function ThesisWorkspaceScreen() {
 
   const title = thesis?.title ?? "";
 
+  // Reserve exactly the height the sheet covers from the bottom = containerHeight
+  // (≈ window) − the sheet's live top-edge Y. Tracks every position continuously,
+  // so there's never a stale gap when the snap point changes.
+  const docAreaStyle = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(0, windowHeight - sheetPosition.value),
+  }));
+
   // Loading: no thesis yet (refreshThesis still in flight).
   if (!thesis) {
     return (
@@ -301,6 +322,28 @@ export default function ThesisWorkspaceScreen() {
         <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
           {title}
         </Text>
+        {/* One-tap view cycler (Document → Outline → PDF), live docs only. */}
+        {liveDoc && <WorkspaceViewSwitcher />}
+        {/* Show / hide the AI composer sheet. */}
+        {liveDoc && (
+          <Pressable
+            onPress={() => useWorkspaceStore.getState().toggleComposer()}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={
+              composerOpen
+                ? t("workspace.hideComposer", { defaultValue: "Hide composer" })
+                : t("workspace.showComposer", { defaultValue: "Show composer" })
+            }
+            style={styles.expandBtn}
+          >
+            {composerOpen ? (
+              <PanelBottomClose size={20} color={colors.brandPrimary} />
+            ) : (
+              <PanelBottomOpen size={20} color={colors.textPrimary} />
+            )}
+          </Pressable>
+        )}
         {liveDoc ? (
           <Pressable
             onPress={() => {
@@ -318,7 +361,7 @@ export default function ThesisWorkspaceScreen() {
         )}
       </View>
 
-      <View style={{ flex: 1 }}>
+      <Animated.View style={[{ flex: 1 }, docAreaStyle]}>
         {doc === undefined ? (
           /* Document model not resolved yet — avoid flashing the legacy render
              (migrated theses can still have section rows) before we know mode. */
@@ -347,7 +390,7 @@ export default function ThesisWorkspaceScreen() {
                 <ActivityIndicator size="large" color={colors.brandPrimary} />
               </View>
             ) : pdfDoc.available ? (
-              <View style={{ flex: 1, paddingBottom: COMPOSER_COLLAPSED_HEIGHT + insets.bottom }}>
+              <View style={{ flex: 1 }}>
                 <PdfView url={pdfDoc.url} />
               </View>
             ) : (
@@ -361,25 +404,22 @@ export default function ThesisWorkspaceScreen() {
             )
           ) : viewMode === "outline" ? (
             /* Outline mode: the same .docx blocks as lightweight editable text on
-               white "paper" — native render (no WebView), tap a block to select it
-               for the AI. Reads liveDoc.blocks (already in the DTO), so no extra
-               fetch and no editor-config gating. */
-            <ScrollView
-              contentContainerStyle={[styles.outlineContent, { paddingBottom: COMPOSER_COLLAPSED_HEIGHT + insets.bottom }]}
-              showsVerticalScrollIndicator={false}
-            >
-              <PaperPage>
-                {liveDoc.blocks.map((b) => (
-                  <DocBlock key={b.index} block={b} rtl={docRtl} />
-                ))}
-              </PaperPage>
-            </ScrollView>
+               white "paper" — native render (no WebView). Tap a block to select it
+               for the AI; long-press the grip handle to drag-reorder it. Reads
+               liveDoc.blocks (already in the DTO), so no extra fetch. */
+            <OutlineReorderable
+              thesisId={thesisId}
+              blocks={liveDoc.blocks}
+              rtl={docRtl}
+              onAfterMove={() => void refreshDoc()}
+              paddingBottom={16}
+            />
           ) : editorCfg === undefined ? (
             <View style={styles.centered}>
               <ActivityIndicator size="large" color={colors.brandPrimary} />
             </View>
           ) : editorCfg.enabled && Device.isDevice ? (
-            <View style={{ flex: 1, paddingBottom: COMPOSER_COLLAPSED_HEIGHT + insets.bottom }}>
+            <View style={{ flex: 1 }}>
               <OnlyOfficeView
                 documentServerUrl={editorCfg.documentServerUrl}
                 config={editorCfg.config}
@@ -388,9 +428,14 @@ export default function ThesisWorkspaceScreen() {
           ) : (
             <View style={{ flex: 1 }}>
               <WordDocxView
-                url={liveDoc.downloadUrl}
+                url={`${liveDoc.downloadUrl}${liveDoc.downloadUrl.includes("?") ? "&" : "?"}_v=${docTick}`}
                 blocks={tapBlocks}
                 selectedIndices={selectedIndices}
+                scrollToIndex={
+                  blockIndex != null && Number.isFinite(Number(blockIndex))
+                    ? Number(blockIndex)
+                    : undefined
+                }
                 rtl={docRtl}
                 onSelect={(index, text) => {
                   // Tap: toggle in multi mode, else single-select (replace).
@@ -413,16 +458,16 @@ export default function ThesisWorkspaceScreen() {
             </Text>
           </View>
         )}
-      </View>
+      </Animated.View>
 
       <WorkspaceComposerSheet
         thesisId={thesisId}
         isLiveDoc={isLiveDoc}
         rtl={docRtl}
+        animatedPosition={sheetPosition}
         blocks={liveDoc?.blocks ?? []}
         downloadUrl={liveDoc?.downloadUrl}
         documentId={liveDoc?.id}
-        onFormat={handleFormat}
         onOpenSources={() => useBottomSheet.getState().openSheet("thesis-sources")}
         onOpenOutline={handleOutlineToggle}
         onExport={() => {

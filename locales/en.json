@@ -60,6 +60,8 @@
     "action": "Combine documents",
     "arrangeTitle": "Arrange parts",
     "arrangeSubtitle": "Reorder and rename each part, then combine into one document.",
+    "docTitleLabel": "Document title",
+    "defaultTitle": "Graduation thesis",
     "partTitleLabel": "Section title",
     "pickProfile": "Formatting standard",
     "combineButton": "Combine",
@@ -496,6 +498,8 @@
     "empty": "No content yet.",
     "titlePage": "Title page",
     "wholeMemoir": "Whole memoir",
+    "showComposer": "Show composer",
+    "hideComposer": "Hide composer",
     "askPlaceholder": "Ask the AI to write or edit…",
     "formatThesis": "Format thesis",
     "formatting": "Formatting...",
@@ -514,6 +518,27 @@
     "bulkEditError": "Could not apply the change.",
     "pdfFailed": "Couldn't generate the PDF. Please try again.",
     "pdfUnavailable": "PDF preview isn't available for this document."
+  },
+  "ribbon": {
+    "soon": "soon",
+    "search": "Search tools",
+    "searchPlaceholder": "Tell me what you want to do…",
+    "empty": "No tools.",
+    "tab": { "home": "Home", "layout": "Layout", "design": "Design", "insert": "Insert", "references": "References", "heading": "Heading", "table": "Table", "picture": "Picture" },
+    "grp": { "pageSetup": "Page setup", "paragraph": "Paragraph", "format": "Format", "pageDesign": "Page design", "tables": "Tables", "illustrations": "Illustrations", "headerFooter": "Header & footer", "symbols": "Symbols", "toc": "Contents", "footnotes": "Footnotes", "citations": "Citations", "captions": "Captions", "heading": "Heading", "tableRows": "Rows & columns", "tableStyle": "Table style", "picture": "Picture" },
+    "tools": {
+      "margins": "Margins", "orientation": "Orientation", "size": "Size", "columns": "Columns", "breaks": "Breaks", "lineNumbers": "Line numbers", "indent": "Indent", "spacing": "Spacing",
+      "thesisReady": "Thesis-ready", "fonts": "Fonts", "paraSpacing": "Paragraph spacing", "themes": "Themes", "pageColor": "Page color", "pageBorders": "Page borders", "watermark": "Watermark",
+      "table": "Table", "picture": "Picture", "chart": "Chart", "shapes": "Shapes", "textBox": "Text box", "header": "Header", "footer": "Footer", "pageNumber": "Page number", "footnote": "Footnote", "symbol": "Symbol", "pageBreak": "Page break",
+      "toc": "Contents", "updateToc": "Update contents", "endnote": "Endnote", "citation": "Citation", "citationStyle": "Style", "bibliography": "Bibliography", "caption": "Caption", "figuresList": "Figures list", "crossRef": "Cross-reference",
+      "promote": "Promote", "demote": "Demote", "insertRow": "Insert row", "insertCol": "Insert column", "headerRow": "Header row", "replace": "Replace"
+    },
+    "opt": {
+      "marginNormal": "Normal", "marginNarrow": "Narrow", "marginModerate": "Moderate", "marginWide": "Wide", "marginMirrored": "Mirrored",
+      "portrait": "Portrait", "landscape": "Landscape", "a4": "A4", "letter": "Letter", "legal": "Legal", "a3": "A3", "a5": "A5",
+      "oneCol": "One", "twoCol": "Two", "threeCol": "Three", "pageBreak": "Page break", "evenPage": "Even page", "oddPage": "Odd page",
+      "apa": "APA", "mla": "MLA", "chicago": "Chicago", "pickTableSize": "Pick table size"
+    }
   },
   "composer": {
     "status": {

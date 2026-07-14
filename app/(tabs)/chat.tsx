@@ -15,8 +15,11 @@ import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { Markdown } from "@/components/Markdown";
 import { MessageViewer } from "@/components/MessageViewer";
+import { ChatSkeleton } from "@/components/ChatSkeleton";
 import { FileCard } from "@/components/FileCard";
 import { splitFileFrames } from "@/lib/file-frames";
+import { ComposerQuickActions } from "@/components/workspace/ComposerQuickActions";
+import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { getTextDirection } from "@/lib/text-direction";
 import { TypingIndicator, ThinkingDots } from "@/components/TypingIndicator";
 import * as DocumentPicker from "expo-document-picker";
@@ -40,6 +43,14 @@ type Attachment =
 const EXPAND_THRESHOLD = 280;
 // Height of the clipped preview shown before the reader expands the message.
 const COLLAPSED_HEIGHT = 220;
+// Composer auto-grow bounds (one line … ~6 lines, then it scrolls internally).
+// Belt-and-suspenders so it grows whichever mechanism the New Architecture honors:
+//   • minHeight/maxHeight in the style bound the input's INTRINSIC auto-sizing, and
+//   • onContentSizeChange drives an explicit height when that event fires.
+// The height stays UNSET until measured, so if onContentSizeChange never fires the
+// intrinsic path still governs (we never pin the box to one line).
+const INPUT_MIN_HEIGHT = 28;
+const INPUT_MAX_HEIGHT = 120;
 
 /**
  * Gradient-style fade from transparent to the bubble color, masking the hard
@@ -187,6 +198,9 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   const router = useRouter();
   const { t } = useTranslation();
   const [inputText, setInputText] = useState("");
+  // Explicit height once onContentSizeChange measures it; undefined = let the
+  // intrinsic (min/maxHeight-bounded) sizing govern. See INPUT_*_HEIGHT.
+  const [inputHeight, setInputHeight] = useState<number | undefined>(undefined);
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [viewerContent, setViewerContent] = useState<string | null>(null);
@@ -199,22 +213,37 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // tab yields to the overlay while it's expanded.
   const chatHeadExpanded = useChatHead((s) => s.expanded);
   const active = variant === "overlay" ? chatHeadExpanded : !chatHeadExpanded;
+  // AI-generated quick-action chips from the recent conversation + RAG. Only the
+  // visible instance fetches, and not while an ask sheet is open. No block
+  // selection in plain chat, so it grounds on the conversation alone.
+  const { suggestions } = useComposerSuggestions(thesisId, { enabled: active && !pendingAsk });
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<RNTextInput>(null);
   // True while the list is within NEAR_BOTTOM of the end. Gates auto-scroll so
   // reading older messages isn't interrupted by streaming/new-message scrolls.
+  // Starts true so the chat opens pinned to the newest message.
   const isNearBottomRef = useRef(true);
+  // Whether the user has ever manually dragged the list. Until they do, the
+  // stick-to-bottom state must NOT be changed by scroll events — the async,
+  // multi-pass layout when the chat first opens fires scroll events at offset 0
+  // (looks "far from bottom") that would otherwise disengage the pin and leave
+  // the chat stranded mid-history. Only a real drag hands scroll control over.
+  const userHasScrolledRef = useRef(false);
   const messages = useChatStore((s) => s.getMessages(thesisId));
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
   const streamingId = useChatStore((s) => s.streamingId);
   const loadedRef = useRef(false);
   const rotation = useSharedValue(0);
+  // True while the initial history is being pulled from cache/server. Starts true
+  // only when nothing is in memory yet — a thesis revisited this session already
+  // has its messages and shouldn't flash a skeleton.
+  const [loadingHistory, setLoadingHistory] = useState(() => messages.length === 0);
 
   useEffect(() => {
     if (!loadedRef.current) {
       loadedRef.current = true;
-      loadInitialMessages(thesisId);
+      loadInitialMessages(thesisId).finally(() => setLoadingHistory(false));
     }
   }, []);
 
@@ -226,30 +255,37 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
     else useBottomSheet.getState().closeSheet("ask");
   }, [pendingAsk, active]);
 
-  const msgLen = messages.length;
+  // Focusing the input shrinks the list (keyboard/KeyboardAvoidingView) without
+  // changing content size, so onContentSizeChange won't fire — keep the latest
+  // message visible on keyboard-open, the way messaging apps do. Only while the
+  // user is already at the bottom, so reading history isn't disrupted.
   useEffect(() => {
-    if (msgLen > 0 && isNearBottomRef.current) {
-      const t = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 150);
-      return () => clearTimeout(t);
-    }
-  }, [msgLen]);
+    const evt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const sub = Keyboard.addListener(evt, () => {
+      if (isNearBottomRef.current) flatListRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => sub.remove();
+  }, []);
 
-  // Keep the streaming message pinned to the bottom as it grows, and follow the
-  // typing indicator when it appears. Non-animated so rapid tokens don't jitter.
-  // Skipped when the user has scrolled up to read previous messages.
-  const lastMsg = messages[messages.length - 1];
-  const streamingLen = lastMsg?.id === streamingId ? lastMsg.content.length : 0;
+  // A new thesis is a fresh conversation: re-arm the open-at-bottom behaviour so
+  // it isn't left in the previous chat's "scrolled up" state (this component is
+  // reused across theses, not remounted).
   useEffect(() => {
-    if (isGenerating && isNearBottomRef.current) flatListRef.current?.scrollToEnd({ animated: false });
-  }, [streamingLen, generatingPhase, isGenerating]);
+    isNearBottomRef.current = true;
+    userHasScrolledRef.current = false;
+    setShowScrollDown(false);
+  }, [thesisId]);
 
   const NEAR_BOTTOM = 160;
   function handleScroll(e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
     const nearBottom = distanceFromBottom < NEAR_BOTTOM;
-    isNearBottomRef.current = nearBottom;
-    setShowScrollDown(!nearBottom); // no-op re-render bailout when unchanged
+    // Only honour position once the user has taken control with a drag. Before
+    // that, the pin stays engaged through the opening layout passes (see
+    // userHasScrolledRef) so the chat reliably lands on the newest message.
+    if (userHasScrolledRef.current) isNearBottomRef.current = nearBottom;
+    setShowScrollDown(!isNearBottomRef.current); // no-op re-render bailout when unchanged
   }
 
   function scrollToBottom() {
@@ -299,6 +335,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
     // the editable flip / keyboard dismiss can be dropped on Fabric, leaving the
     // sent text stuck in the field.
     inputRef.current?.clear();
+    setInputHeight(undefined); // collapse back to one line after sending
     setAttachment(null);
     Keyboard.dismiss();
     // Sending your own message always jumps to the latest, even if scrolled up.
@@ -390,6 +427,9 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <View style={{ flex: 1 }}>
+          {loadingHistory && messages.length === 0 ? (
+            <ChatSkeleton />
+          ) : (
           <FlatList
             ref={flatListRef}
             data={messages}
@@ -400,6 +440,20 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
             keyboardShouldPersistTaps="handled"
             onScroll={handleScroll}
             scrollEventThrottle={32}
+            // A real finger-drag is what hands scroll control to the user; from
+            // here on, position decides whether we stick to the bottom.
+            onScrollBeginDrag={() => { userHasScrolledRef.current = true; }}
+            onContentSizeChange={() => {
+              // The bottom is the anchor (Messenger/WhatsApp style): re-pin to the
+              // newest message on every content-size change while the user is at
+              // the bottom. This is what makes the chat reliably OPEN at the end —
+              // bubbles with markdown/images lay out over several async passes, and
+              // each pass keeps us pinned instead of settling above the last
+              // message. It also covers incoming messages and streaming tokens.
+              // Suppressed once the user scrolls up to read history; re-armed when
+              // they return to the bottom (handleScroll / the scroll-to-latest FAB).
+              if (isNearBottomRef.current) flatListRef.current?.scrollToEnd({ animated: false });
+            }}
             ListFooterComponent={
               // Only show the standalone typing indicator BEFORE the assistant
               // bubble exists. Once it streams (reasoning models create it on the
@@ -416,9 +470,10 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
               }
             }}
           />
+          )}
 
           {/* Scroll-to-latest FAB — appears when scrolled away from the bottom */}
-          {showScrollDown && (
+          {showScrollDown && !loadingHistory && (
             <AnimatedPressable
               entering={FadeIn.duration(150)}
               exiting={FadeOut.duration(120)}
@@ -490,6 +545,20 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
             </Animated.View>
           )}
 
+          {/* AI suggestion chips — grounded in the conversation. Shown only when the
+              model returned some (no static fallback here, unlike the workspace). */}
+          {suggestions.length > 0 && !isGenerating && (
+            <View style={styles.suggestionsRow}>
+              <ComposerQuickActions
+                suggestions={suggestions}
+                onPreset={(prompt) => {
+                  setInputText(prompt);
+                  inputRef.current?.focus();
+                }}
+              />
+            </View>
+          )}
+
           {/* Input row: + button on left, input with embedded send on right */}
           <View style={styles.inputRow}>
             {/* Plus button — always visible on the left */}
@@ -506,11 +575,16 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
             <View style={[styles.inputWrapper, { backgroundColor: colors.bgSurface }]}>
               <RNTextInput
                 ref={inputRef}
-                style={[styles.input, { color: colors.textPrimary }]}
+                style={[styles.input, { color: colors.textPrimary }, inputHeight != null && { height: inputHeight }]}
                 placeholder={t("chat.askPlaceholder")}
                 placeholderTextColor={colors.textPlaceholder}
                 value={inputText}
                 onChangeText={setInputText}
+                onContentSizeChange={(e) =>
+                  setInputHeight(
+                    Math.min(INPUT_MAX_HEIGHT, Math.max(INPUT_MIN_HEIGHT, e.nativeEvent.contentSize.height))
+                  )
+                }
                 onSubmitEditing={handleSend}
                 onFocus={() => {
                   if (toolsExpanded) {
@@ -646,6 +720,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   inputContainer: { paddingHorizontal: 12, paddingTop: 8 },
+  suggestionsRow: { marginBottom: 10, marginHorizontal: 2 },
   attachmentChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -669,7 +744,7 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   plusBtn: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   inputWrapper: { flex: 1, flexDirection: "row", alignItems: "flex-end", borderRadius: 22, paddingLeft: 16, paddingRight: 6, paddingVertical: 6 },
-  input: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", maxHeight: 100, paddingVertical: 4 },
+  input: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", paddingVertical: 4, minHeight: INPUT_MIN_HEIGHT, maxHeight: INPUT_MAX_HEIGHT },
   sendBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", marginLeft: 6 },
   noThesis: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
   noThesisText: { fontSize: 16, fontFamily: "Inter_400Regular", textAlign: "center" },
