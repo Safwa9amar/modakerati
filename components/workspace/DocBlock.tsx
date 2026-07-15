@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, Text, Pressable, Image, StyleSheet } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useAuthHeader } from "@/hooks/useAuthHeader";
 import { useWorkspaceStore } from "@/stores/workspace-store";
-import type { DocBlockDTO } from "@/lib/api";
+import { thesisBlockImageUrl, type DocBlockDTO } from "@/lib/api";
 
 // Dark ink / muted ink for text rendered on the always-white PaperPage.
 const INK = "#1A1A1A";
@@ -24,7 +25,19 @@ const MAX_IMAGE_HEIGHT = 360;
  * theses render correctly); `rtl` (the thesis language) is only the fallback
  * for blocks with no strong-directional character.
  */
-export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
+export function DocBlock({
+  block,
+  rtl,
+  thesisId,
+  version,
+}: {
+  block: DocBlockDTO;
+  rtl: boolean;
+  // Needed to lazily load large figures from the media endpoint (bytes not inlined
+  // in the block DTO). `version` busts the image cache after an edit.
+  thesisId: string;
+  version?: number;
+}) {
   const colors = useThemeColors();
   // Membership test against the multi-selection set — a boolean primitive, so this
   // selector is stable for zustand's Object.is comparison (no fresh-object loop).
@@ -54,54 +67,41 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
     const figText = caption || "figure";
     const onSelect = () => pickBlock(block.index, figText);
     const onLong = () => longPickBlock(block.index, figText);
+    const ratio =
+      block.width && block.height && block.height > 0 ? block.width / block.height : undefined;
 
-    // With inlined bytes → render the real image. Fill the paper content width
-    // (width:"100%") and preserve the intrinsic ratio via `aspectRatio` when the
-    // px size is known, capping the rendered height so a tall chart stays sane.
-    if (block.dataUri) {
-      const ratio =
-        block.width && block.height && block.height > 0
-          ? block.width / block.height
-          : undefined;
+    // Prefer the inlined bytes (small charts, instant). Otherwise, if the server
+    // reports real bytes exist (`hasMedia`), load them on demand from the media
+    // endpoint so large figures render here too — matching the docx/OnlyOffice
+    // views. Only a genuine no-image drawing falls through to the placeholder.
+    const uri =
+      block.dataUri ??
+      (block.hasMedia ? thesisBlockImageUrl(thesisId, block.index, version) : undefined);
+    if (uri) {
       return (
-        <Pressable
-          onPress={onSelect}
-          onLongPress={onLong}
-          style={[
-            styles.imageWrap,
-            { borderColor: isSelected ? hi : "transparent" },
-            isSelected && { backgroundColor: hi + "18" },
-          ]}
-        >
-          <Image
-            source={{ uri: block.dataUri }}
-            resizeMode="contain"
-            style={[
-              styles.image,
-              ratio
-                ? { aspectRatio: ratio, maxHeight: MAX_IMAGE_HEIGHT }
-                : { height: MAX_IMAGE_HEIGHT },
-            ]}
-          />
-          {captionNode}
-        </Pressable>
+        <FigureImage
+          uri={uri}
+          // dataUri is self-contained; the media endpoint needs the Bearer token.
+          needsAuth={!block.dataUri}
+          ratio={ratio}
+          isSelected={isSelected}
+          hi={hi}
+          onSelect={onSelect}
+          onLong={onLong}
+          captionNode={captionNode}
+        />
       );
     }
 
-    // No inlined bytes (large figure / non-chart) → keep the light placeholder.
+    // No resolvable image bytes → keep the light placeholder.
     return (
-      <Pressable
-        onPress={onSelect}
-        onLongPress={onLong}
-        style={[
-          styles.figureCard,
-          { borderColor: isSelected ? hi : BORDER },
-          isSelected && { backgroundColor: hi + "18" },
-        ]}
-      >
-        <Text style={styles.figureText}>🖼 figure</Text>
-        {captionNode}
-      </Pressable>
+      <FigurePlaceholder
+        isSelected={isSelected}
+        hi={hi}
+        onSelect={onSelect}
+        onLong={onLong}
+        captionNode={captionNode}
+      />
     );
   }
 
@@ -197,6 +197,101 @@ export function DocBlock({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
       >
         {empty ? "·" : block.text}
       </Text>
+    </Pressable>
+  );
+}
+
+// A figure rendered from its bytes. When `needsAuth` the bytes come from the
+// authed media endpoint (Bearer header resolved once); until that header is ready,
+// or if the load fails, we show the placeholder so the row never renders blank.
+function FigureImage({
+  uri,
+  needsAuth,
+  ratio,
+  isSelected,
+  hi,
+  onSelect,
+  onLong,
+  captionNode,
+}: {
+  uri: string;
+  needsAuth: boolean;
+  ratio?: number;
+  isSelected: boolean;
+  hi: string;
+  onSelect: () => void;
+  onLong: () => void;
+  captionNode: React.ReactNode;
+}) {
+  const authHeader = useAuthHeader();
+  const [failed, setFailed] = useState(false);
+
+  // Wait for the token before hitting the media endpoint (an unauthed request
+  // would 401 and needlessly flip us to the placeholder); show the placeholder on
+  // any load failure (404 for a genuinely image-less drawing, network, etc.).
+  if (failed || (needsAuth && !authHeader)) {
+    return (
+      <FigurePlaceholder
+        isSelected={isSelected}
+        hi={hi}
+        onSelect={onSelect}
+        onLong={onLong}
+        captionNode={captionNode}
+      />
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={onSelect}
+      onLongPress={onLong}
+      style={[
+        styles.imageWrap,
+        { borderColor: isSelected ? hi : "transparent" },
+        isSelected && { backgroundColor: hi + "18" },
+      ]}
+    >
+      <Image
+        source={needsAuth && authHeader ? { uri, headers: authHeader } : { uri }}
+        resizeMode="contain"
+        onError={() => setFailed(true)}
+        style={[
+          styles.image,
+          ratio ? { aspectRatio: ratio, maxHeight: MAX_IMAGE_HEIGHT } : { height: MAX_IMAGE_HEIGHT },
+        ]}
+      />
+      {captionNode}
+    </Pressable>
+  );
+}
+
+// The dashed "figure" card: a drawing block with no resolvable image, or a figure
+// still resolving / failed to load.
+function FigurePlaceholder({
+  isSelected,
+  hi,
+  onSelect,
+  onLong,
+  captionNode,
+}: {
+  isSelected: boolean;
+  hi: string;
+  onSelect: () => void;
+  onLong: () => void;
+  captionNode: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onSelect}
+      onLongPress={onLong}
+      style={[
+        styles.figureCard,
+        { borderColor: isSelected ? hi : BORDER },
+        isSelected && { backgroundColor: hi + "18" },
+      ]}
+    >
+      <Text style={styles.figureText}>🖼 figure</Text>
+      {captionNode}
     </Pressable>
   );
 }

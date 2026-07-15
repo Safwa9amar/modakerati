@@ -7,10 +7,13 @@ import i18n from "@/lib/i18n";
 import {
   formatThesis,
   insertThesisImage,
+  replaceThesisBlockImage,
+  removeThesisBlockBg,
   startThesisBlocksOnNewPage,
   editThesisParagraphs,
   setThesisPageSetup,
 } from "@/lib/api";
+import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 
 export interface DispatchDeps {
   thesisId: string;
@@ -22,6 +25,10 @@ export interface DispatchDeps {
   onAiAction: (instruction: string) => void;
   /** Localized label of the chosen option (for AI instructions), if any. */
   optionLabel?: string;
+  /** Show/hide a busy overlay for slow ops. Pass an i18n key, or null to clear. */
+  onBusy?: (messageKey: string | null) => void;
+  /** Open the interactive crop modal for the given engine block index. */
+  onCropImage?: (blockIndex: number) => void;
 }
 
 /** Run a ribbon tool. `optionValue` is the chosen preset/segment value (if any). */
@@ -111,6 +118,71 @@ export async function dispatchRibbonAction(
         if (!(count === 1 || count === 2 || count === 3)) return toAi();
         await setThesisPageSetup(deps.thesisId, { columns: count as 1 | 2 | 3 });
         deps.onAfterEdit();
+        return;
+      }
+
+      case "picture.removeBg": {
+        // Server-side (rembg sidecar) — slow, so show a busy overlay. No pixels
+        // travel through the app; the server re-embeds a transparent PNG.
+        if (!first) return;
+        deps.onBusy?.("workspace.removingBg");
+        try {
+          await removeThesisBlockBg(deps.thesisId, first.index);
+          deps.onAfterEdit();
+        } catch {
+          Alert.alert(i18n.t("common.error", { defaultValue: "Error" }), i18n.t("workspace.bgError", { defaultValue: "Couldn't remove the background. Please try again." }));
+        } finally {
+          deps.onBusy?.(null);
+        }
+        return;
+      }
+
+      case "picture.replace": {
+        // Pick a new image and swap the selected figure's bytes in place.
+        if (!first) return;
+        const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], base64: true, quality: 0.85 });
+        const asset = res.canceled ? null : res.assets[0];
+        if (!asset?.base64) return;
+        deps.onBusy?.("workspace.updatingImage");
+        try {
+          const mime = asset.mimeType ?? "";
+          const format = mime.includes("png") ? "png" : mime.includes("gif") ? "gif" : "jpeg";
+          await replaceThesisBlockImage(deps.thesisId, first.index, {
+            data: asset.base64, format, width: asset.width, height: asset.height,
+          });
+          deps.onAfterEdit();
+        } catch {
+          Alert.alert(i18n.t("common.error", { defaultValue: "Error" }), i18n.t("workspace.imageError", { defaultValue: "Couldn't update the image." }));
+        } finally {
+          deps.onBusy?.(null);
+        }
+        return;
+      }
+
+      case "picture.rotate": {
+        // ROTATE_OPTS values: rotateRight | rotateLeft | flipH | flipV. Manipulate
+        // on-device, then send the new bytes to the same replace endpoint.
+        if (!first) return;
+        const op = optionValue as RotateFlipOp | undefined;
+        if (op !== "rotateRight" && op !== "rotateLeft" && op !== "flipH" && op !== "flipV") return toAi();
+        deps.onBusy?.("workspace.updatingImage");
+        try {
+          const edited = await rotateFlipBlockImage(deps.thesisId, first.index, op);
+          if (!edited.data) throw new Error("empty image");
+          await replaceThesisBlockImage(deps.thesisId, first.index, edited);
+          deps.onAfterEdit();
+        } catch {
+          Alert.alert(i18n.t("common.error", { defaultValue: "Error" }), i18n.t("workspace.imageError", { defaultValue: "Couldn't update the image." }));
+        } finally {
+          deps.onBusy?.(null);
+        }
+        return;
+      }
+
+      case "picture.crop": {
+        // Interactive — hand off to the crop modal (owned by the composer sheet).
+        if (!first) return;
+        deps.onCropImage?.(first.index);
         return;
       }
 

@@ -1,6 +1,6 @@
 // components/workspace/ribbon/ComposerRibbon.tsx
-import { useEffect, useMemo } from "react";
-import { View, Pressable, Text, StyleSheet } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { View, Pressable, Text, StyleSheet, Modal, ActivityIndicator } from "react-native";
 import { Search } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useTranslation } from "react-i18next";
@@ -12,6 +12,7 @@ import { RibbonFavorites } from "./RibbonFavorites";
 import { useContextualTab } from "./useContextualTab";
 import { useRibbonStore } from "@/stores/ribbon-store";
 import { dispatchRibbonAction } from "@/lib/ribbon-actions";
+import { PictureCropModal } from "@/components/workspace/PictureCropModal";
 import type { DocBlockDTO } from "@/lib/api";
 // TabBarId ("home" | RibbonTabId) is defined in the store.
 
@@ -33,6 +34,10 @@ export function ComposerRibbon({ thesisId, blocks, selection, homeSlot, onAfterE
   const searchOpen = useRibbonStore((s) => s.searchOpen);
   const setSearchOpen = useRibbonStore((s) => s.setSearchOpen);
 
+  // Busy overlay for slow image ops; crop target block for the crop modal.
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [cropIndex, setCropIndex] = useState<number | null>(null);
+
   const selectedIndices = useMemo(() => selection.map((s) => s.index), [selection]);
   const contextual = useContextualTab(blocks, selectedIndices);
 
@@ -48,6 +53,7 @@ export function ComposerRibbon({ thesisId, blocks, selection, homeSlot, onAfterE
     setSearchOpen(false);
     void dispatchRibbonAction(tool, option?.value, {
       thesisId, selection, onAfterEdit, onAiAction, optionLabel: option?.label,
+      onBusy: setBusyKey, onCropImage: setCropIndex,
     });
   };
 
@@ -75,6 +81,23 @@ export function ComposerRibbon({ thesisId, blocks, selection, homeSlot, onAfterE
       ) : (
         <Text style={{ color: colors.textSecondary, fontSize: 12, padding: 8 }}>{t("ribbon.empty", { defaultValue: "No tools." })}</Text>
       )}
+
+      {/* Busy overlay for slow image ops (background removal, upload round-trips). */}
+      <Modal visible={busyKey != null} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={styles.busyOverlay}>
+          <View style={[styles.busyCard, { backgroundColor: colors.bgSurface }]}>
+            <ActivityIndicator size="large" color={colors.brandPrimary} />
+            {busyKey ? <Text style={[styles.busyText, { color: colors.textSecondary }]}>{t(busyKey)}</Text> : null}
+          </View>
+        </View>
+      </Modal>
+
+      <PictureCropModal
+        thesisId={thesisId}
+        blockIndex={cropIndex}
+        onClose={() => setCropIndex(null)}
+        onDone={onAfterEdit}
+      />
     </View>
   );
 }
@@ -82,4 +105,7 @@ export function ComposerRibbon({ thesisId, blocks, selection, homeSlot, onAfterE
 const styles = StyleSheet.create({
   tabRow: { flexDirection: "row", alignItems: "flex-end", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#8883" },
   searchBtn: { paddingHorizontal: 6, paddingBottom: 6 },
+  busyOverlay: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.35)" },
+  busyCard: { paddingHorizontal: 28, paddingVertical: 24, borderRadius: 14, alignItems: "center", gap: 12, minWidth: 180 },
+  busyText: { fontSize: 14, fontFamily: "Inter_500Medium", textAlign: "center" },
 });

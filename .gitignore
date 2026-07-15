@@ -43,3 +43,12 @@ yarn-error.*
 
 # Visual brainstorming companion (local mockups)
 .superpowers/
+
+# env backups (may contain secrets)
+.env*.bak
+
+# gradle build cache (native modules)
+**/.gradle/
+
+# supabase local temp
+/supabase/.temp/

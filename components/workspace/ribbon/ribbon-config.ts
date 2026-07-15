@@ -68,6 +68,13 @@ const CITATION_STYLE_OPTS: ToolOption[] = [
   { value: "mla", labelKey: "ribbon.opt.mla" },
   { value: "chicago", labelKey: "ribbon.opt.chicago" },
 ];
+// Rotate/flip a selected picture. Values map to on-device expo-image-manipulator ops.
+const ROTATE_OPTS: ToolOption[] = [
+  { value: "rotateRight", labelKey: "ribbon.opt.rotateRight" },
+  { value: "rotateLeft", labelKey: "ribbon.opt.rotateLeft" },
+  { value: "flipH", labelKey: "ribbon.opt.flipH" },
+  { value: "flipV", labelKey: "ribbon.opt.flipV" },
+];
 
 export const RIBBON_TABS: RibbonTabDef[] = [
   {
@@ -144,7 +151,10 @@ export const RIBBON_TABS: RibbonTabDef[] = [
   {
     id: "picture", labelKey: "ribbon.tab.picture", contextual: true,
     tools: [
-      { id: "picture.replace", tab: "picture", group: "ribbon.grp.picture", labelKey: "ribbon.tools.replace", icon: "picture", kind: "action", status: "soon", actionKey: "picture.replace", keywords: ["replace image"] },
+      { id: "picture.removeBg", tab: "picture", group: "ribbon.grp.pictureAdjust", labelKey: "ribbon.tools.removeBg", icon: "removeBg", kind: "action", status: "wired", actionKey: "picture.removeBg", keywords: ["background", "remove", "transparent", "cutout"] },
+      { id: "picture.crop", tab: "picture", group: "ribbon.grp.pictureArrange", labelKey: "ribbon.tools.crop", icon: "crop", kind: "action", status: "wired", actionKey: "picture.crop", keywords: ["crop", "trim"] },
+      { id: "picture.rotate", tab: "picture", group: "ribbon.grp.pictureArrange", labelKey: "ribbon.tools.rotate", icon: "rotate", kind: "preset", options: ROTATE_OPTS, status: "wired", actionKey: "picture.rotate", keywords: ["rotate", "flip", "turn", "mirror"] },
+      { id: "picture.replace", tab: "picture", group: "ribbon.grp.picture", labelKey: "ribbon.tools.replace", icon: "picture", kind: "action", status: "wired", actionKey: "picture.replace", keywords: ["replace image", "swap"] },
       { id: "picture.caption", tab: "picture", group: "ribbon.grp.picture", labelKey: "ribbon.tools.caption", icon: "caption", kind: "action", status: "soon", actionKey: "picture.caption", keywords: ["caption"] },
     ],
   },

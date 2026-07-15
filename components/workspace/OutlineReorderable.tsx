@@ -12,7 +12,17 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 
 // One outline row: a drag handle (long-press to lift) + the block. The handle
 // owns the drag so DocBlock keeps its tap-to-select / long-press-multi-select.
-function Row({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
+function Row({
+  block,
+  rtl,
+  thesisId,
+  version,
+}: {
+  block: DocBlockDTO;
+  rtl: boolean;
+  thesisId: string;
+  version?: number;
+}) {
   const colors = useThemeColors();
   const drag = useReorderableDrag();
   return (
@@ -21,7 +31,7 @@ function Row({ block, rtl }: { block: DocBlockDTO; rtl: boolean }) {
         <GripVertical size={18} color={colors.textPlaceholder} />
       </Pressable>
       <View style={{ flex: 1 }}>
-        <DocBlock block={block} rtl={rtl} />
+        <DocBlock block={block} rtl={rtl} thesisId={thesisId} version={version} />
       </View>
     </View>
   );
@@ -37,12 +47,15 @@ export function OutlineReorderable({
   rtl,
   onAfterMove,
   paddingBottom,
+  version,
 }: {
   thesisId: string;
   blocks: DocBlockDTO[];
   rtl: boolean;
   onAfterMove: () => void;
   paddingBottom: number;
+  // Doc version → busts on-demand figure image caches after an edit.
+  version?: number;
 }) {
   const [data, setData] = useState(blocks);
   useEffect(() => setData(blocks), [blocks]);
@@ -60,7 +73,7 @@ export function OutlineReorderable({
       data={data}
       onReorder={onReorder}
       keyExtractor={(b) => String(b.index)}
-      renderItem={({ item }) => <Row block={item} rtl={rtl} />}
+      renderItem={({ item }) => <Row block={item} rtl={rtl} thesisId={thesisId} version={version} />}
       style={styles.list}
       contentContainerStyle={[styles.content, { paddingBottom }]}
       showsVerticalScrollIndicator={false}

@@ -107,6 +107,16 @@ export default function ThesisWorkspaceScreen() {
 
   const viewMode = useWorkspaceStore((s) => s.viewMode);
 
+  // The three live-.docx views stay mounted at once (see the layered doc area), so
+  // switching keeps each view's scroll. The PDF is the exception: its render is a
+  // costly server conversion, so its layer is mounted LAZILY on first open and then
+  // kept warm. These refs track that lifecycle — delete the server render only on
+  // screen-leave (not on every switch) and re-convert only when the doc changes.
+  const [pdfMounted, setPdfMounted] = useState(false);
+  const pdfMountedRef = useRef(false);
+  const pdfConvertedRef = useRef(false);
+  const pdfVersionRef = useRef<string | undefined>(undefined);
+
   // Mark this thesis current and pull the freshest copy from the server.
   useEffect(() => {
     if (!thesisId) return;
@@ -114,9 +124,11 @@ export default function ThesisWorkspaceScreen() {
     useThesisStore.getState().refreshThesis(thesisId);
     useWorkspaceStore.getState().setThesis(thesisId);
     return () => {
-      // Leaving the workspace while the PDF view is open → drop the transient
-      // preview (read viewMode BEFORE reset() clears it back to "docx").
-      if (useWorkspaceStore.getState().viewMode === "pdf") {
+      // Leaving the workspace → drop the transient PDF render if it was ever
+      // converted this session (its layer now stays mounted across view switches,
+      // so keying on the current viewMode would leak it when leaving from another
+      // view).
+      if (pdfMountedRef.current) {
         void deleteThesisPdf(thesisId).catch(() => {});
       }
       useWorkspaceStore.getState().reset();
@@ -259,24 +271,22 @@ export default function ThesisWorkspaceScreen() {
   // fetch on it re-converts after a real edit but not on incidental refreshes.
   const docVersionKey = editorCfg?.enabled ? editorCfg.config?.document?.key : undefined;
 
-  // (Re)fetch the PDF only while its view is open — on first open and whenever the
-  // document version changes (after an AI turn / bulk edit). Server-side caching
-  // makes an unchanged re-fetch cheap.
+  // Mount the PDF layer on first open and keep it warm thereafter (see the layered
+  // doc area), so toggling back to it preserves the rendered page and its scroll.
+  // Convert only on first open and after a REAL document change (docVersionKey) —
+  // never on a mere re-entry, which would reload the WebView and lose the scroll.
+  // The render is dropped on screen-leave (cleanup above), not on view switch.
   useEffect(() => {
     if (viewMode !== "pdf" || !isLiveDoc) return;
+    if (!pdfMountedRef.current) {
+      pdfMountedRef.current = true;
+      setPdfMounted(true);
+    }
+    if (pdfConvertedRef.current && pdfVersionRef.current === docVersionKey) return;
+    pdfConvertedRef.current = true;
+    pdfVersionRef.current = docVersionKey;
     void refreshPdf();
   }, [viewMode, isLiveDoc, docVersionKey, refreshPdf]);
-
-  // Switching OUT of the PDF view (while staying on the screen) discards the
-  // transient preview and drops the local copy so it isn't kept around.
-  const prevViewMode = useRef(viewMode);
-  useEffect(() => {
-    if (prevViewMode.current === "pdf" && viewMode !== "pdf" && thesisId) {
-      setPdfDoc(undefined);
-      void deleteThesisPdf(thesisId).catch(() => {});
-    }
-    prevViewMode.current = viewMode;
-  }, [viewMode, thesisId]);
 
   const title = thesis?.title ?? "";
 
@@ -369,86 +379,108 @@ export default function ThesisWorkspaceScreen() {
             <ActivityIndicator size="large" color={colors.brandPrimary} />
           </View>
         ) : liveDoc ? (
-          /* Live-.docx: prefer the OnlyOffice Docs editor (HTML5-canvas, OOXML-
-             native → Word-level fidelity); fall back to docx-preview when the
-             Document Server isn't configured. Both reload after each AI turn:
-             OnlyOffice via a bumped document.key, docx-preview via the signed url.
-             Tap-to-target isn't available in the OnlyOffice view yet — the composer
-             still works (the AI targets blocks via find), unlike WordDocxView where
-             tapping a paragraph/table selects it. No synthetic title page.
+          /* All three live-.docx views stay MOUNTED at once, stacked as absolute
+             layers; only the active one is on top + interactive (the others sit
+             behind at opacity 0). Switching views therefore never unmounts a view,
+             so each keeps its own scroll position — crucially including the
+             OnlyOffice editor, whose in-canvas scroll we can't otherwise read or
+             restore. Each layer reloads after an AI turn on its own (OnlyOffice via
+             a bumped document.key, docx-preview via the signed url, PDF via a
+             re-convert). The wrapper is a normal flex child so it honours the
+             animated paddingBottom (reserved for the composer sheet); the absolute
+             layers then fill exactly that reserved box. */
+          <View style={styles.layerHost}>
+            {/* Word-fidelity layer: prefer the OnlyOffice Docs editor (HTML5-canvas,
+                OOXML-native → Word-level fidelity); fall back to docx-preview when
+                the Document Server isn't configured. Tap-to-target lives in
+                WordDocxView (tapping a paragraph/table selects it); OnlyOffice is
+                view-only for now — the composer still works (the AI targets blocks
+                via find). OnlyOffice only on REAL devices: its heavy WASM/JS editor
+                crashes the iOS Simulator's WebContent process (and is unreliable in
+                emulators), so simulators/emulators fall back to docx-preview. */}
+            <View
+              style={[styles.docLayer, viewMode === "docx" ? styles.layerActive : styles.layerHidden]}
+              pointerEvents={viewMode === "docx" ? "auto" : "none"}
+            >
+              {editorCfg === undefined ? (
+                <View style={styles.centered}>
+                  <ActivityIndicator size="large" color={colors.brandPrimary} />
+                </View>
+              ) : editorCfg.enabled && Device.isDevice ? (
+                <OnlyOfficeView
+                  documentServerUrl={editorCfg.documentServerUrl}
+                  config={editorCfg.config}
+                />
+              ) : (
+                <WordDocxView
+                  url={`${liveDoc.downloadUrl}${liveDoc.downloadUrl.includes("?") ? "&" : "?"}_v=${docTick}`}
+                  blocks={tapBlocks}
+                  selectedIndices={selectedIndices}
+                  scrollToIndex={
+                    blockIndex != null && Number.isFinite(Number(blockIndex))
+                      ? Number(blockIndex)
+                      : undefined
+                  }
+                  rtl={docRtl}
+                  onSelect={(index, text) => {
+                    // Tap: toggle in multi mode, else single-select (replace).
+                    const ws = useWorkspaceStore.getState();
+                    if (ws.multiSelect) ws.toggleBlock(index, text);
+                    else ws.selectBlock(index, text);
+                  }}
+                  onLongPress={(index, text) =>
+                    useWorkspaceStore.getState().addToSelection(index, text)
+                  }
+                />
+              )}
+            </View>
 
-             OnlyOffice only on REAL devices: its heavy WASM/JS editor crashes the
-             iOS Simulator's WebContent process (and is unreliable in emulators), so
-             simulators/emulators fall back to the lighter docx-preview render. */
-          viewMode === "pdf" ? (
-            /* PDF mode: the OnlyOffice-rendered PDF of the live .docx in a WebView
-               (PDF.js). Read-only deliverable preview; works on simulator too
-               (conversion is server-side). Re-converts after each edit via the
-               docVersionKey-keyed fetch above. */
-            pdfDoc === undefined ? (
-              <View style={styles.centered}>
-                <ActivityIndicator size="large" color={colors.brandPrimary} />
-              </View>
-            ) : pdfDoc.available ? (
-              <View style={{ flex: 1 }}>
-                <PdfView url={pdfDoc.url} />
-              </View>
-            ) : (
-              <View style={styles.centered}>
-                <Text style={styles.emptyText}>
-                  {pdfDoc.reason === "failed"
-                    ? t("workspace.pdfFailed", { defaultValue: "Couldn't generate the PDF. Please try again." })
-                    : t("workspace.pdfUnavailable", { defaultValue: "PDF preview isn't available for this document." })}
-                </Text>
-              </View>
-            )
-          ) : viewMode === "outline" ? (
-            /* Outline mode: the same .docx blocks as lightweight editable text on
-               white "paper" — native render (no WebView). Tap a block to select it
-               for the AI; long-press the grip handle to drag-reorder it. Reads
-               liveDoc.blocks (already in the DTO), so no extra fetch. */
-            <OutlineReorderable
-              thesisId={thesisId}
-              blocks={liveDoc.blocks}
-              rtl={docRtl}
-              onAfterMove={() => void refreshDoc()}
-              paddingBottom={16}
-            />
-          ) : editorCfg === undefined ? (
-            <View style={styles.centered}>
-              <ActivityIndicator size="large" color={colors.brandPrimary} />
-            </View>
-          ) : editorCfg.enabled && Device.isDevice ? (
-            <View style={{ flex: 1 }}>
-              <OnlyOfficeView
-                documentServerUrl={editorCfg.documentServerUrl}
-                config={editorCfg.config}
-              />
-            </View>
-          ) : (
-            <View style={{ flex: 1 }}>
-              <WordDocxView
-                url={`${liveDoc.downloadUrl}${liveDoc.downloadUrl.includes("?") ? "&" : "?"}_v=${docTick}`}
-                blocks={tapBlocks}
-                selectedIndices={selectedIndices}
-                scrollToIndex={
-                  blockIndex != null && Number.isFinite(Number(blockIndex))
-                    ? Number(blockIndex)
-                    : undefined
-                }
+            {/* Outline layer: the same .docx blocks as lightweight editable text on
+                white "paper" — native render (no WebView). Tap a block to select it
+                for the AI; long-press the grip handle to drag-reorder it. Reads
+                liveDoc.blocks (already in the DTO), so no extra fetch. */}
+            <View
+              style={[styles.docLayer, viewMode === "outline" ? styles.layerActive : styles.layerHidden]}
+              pointerEvents={viewMode === "outline" ? "auto" : "none"}
+            >
+              <OutlineReorderable
+                thesisId={thesisId}
+                blocks={liveDoc.blocks}
                 rtl={docRtl}
-                onSelect={(index, text) => {
-                  // Tap: toggle in multi mode, else single-select (replace).
-                  const ws = useWorkspaceStore.getState();
-                  if (ws.multiSelect) ws.toggleBlock(index, text);
-                  else ws.selectBlock(index, text);
-                }}
-                onLongPress={(index, text) =>
-                  useWorkspaceStore.getState().addToSelection(index, text)
-                }
+                onAfterMove={() => void refreshDoc()}
+                paddingBottom={16}
+                version={docTick}
               />
             </View>
-          )
+
+            {/* PDF layer: the OnlyOffice-rendered PDF of the live .docx in a WebView
+                (PDF.js). Read-only deliverable preview; works on simulator too
+                (conversion is server-side). Mounted lazily on first open, then kept
+                warm so returning preserves its scroll; re-converts only after a real
+                edit (see the effect above). */}
+            {(pdfMounted || viewMode === "pdf") && (
+              <View
+                style={[styles.docLayer, viewMode === "pdf" ? styles.layerActive : styles.layerHidden]}
+                pointerEvents={viewMode === "pdf" ? "auto" : "none"}
+              >
+                {pdfDoc === undefined ? (
+                  <View style={styles.centered}>
+                    <ActivityIndicator size="large" color={colors.brandPrimary} />
+                  </View>
+                ) : pdfDoc.available ? (
+                  <PdfView url={pdfDoc.url} />
+                ) : (
+                  <View style={styles.centered}>
+                    <Text style={styles.emptyText}>
+                      {pdfDoc.reason === "failed"
+                        ? t("workspace.pdfFailed", { defaultValue: "Couldn't generate the PDF. Please try again." })
+                        : t("workspace.pdfUnavailable", { defaultValue: "PDF preview isn't available for this document." })}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
         ) : (
           /* Unseeded thesis (no live .docx yet). Structure lives in the document,
              so there's nothing to render until it's seeded — ask the AI to start. */
@@ -511,6 +543,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   expandIcon: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
+  // Each live-doc view is an absolute layer filling the doc area; they overlap so
+  // switching only toggles which is on top + interactive (all stay mounted → each
+  // keeps its scroll). Inactive layers sit behind at opacity 0 (the active layer is
+  // opaque/full-bleed, so it fully covers them).
+  layerHost: { flex: 1 },
+  docLayer: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+  layerActive: { opacity: 1, zIndex: 1 },
+  layerHidden: { opacity: 0, zIndex: 0 },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   content: { paddingBottom: 40 },
   outlineContent: { paddingVertical: 8 },

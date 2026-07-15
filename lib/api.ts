@@ -479,6 +479,10 @@ export type DocBlockDTO =
       index: number;
       kind: "image";
       dataUri?: string;
+      // Real image bytes exist for this block (any size). When `dataUri` is absent
+      // (figure too large to inline), the app lazily loads the bytes from
+      // `thesisBlockImageUrl(id, index)`. Absent → render the "figure" placeholder.
+      hasMedia?: boolean;
       width?: number;
       height?: number;
       caption?: string;
@@ -501,6 +505,23 @@ export type DocumentDTO =
 // back to that render.
 export async function getThesisDocument(id: string): Promise<DocumentDTO> {
   return apiGet<DocumentDTO>(`/api/thesis/${id}/document`);
+}
+
+// URL that streams a single figure's image bytes (by engine block index) out of
+// the live .docx — the on-demand source for figures too large to inline as a
+// `dataUri`. Loaded by an <Image> with an Authorization header (see
+// `getAuthHeader`); `version` busts the cache after an edit changes the doc.
+export function thesisBlockImageUrl(id: string, index: number, version?: number | string): string {
+  const v = version != null ? `?v=${encodeURIComponent(String(version))}` : "";
+  return `${API_URL}/api/thesis/${id}/document/media/${index}${v}`;
+}
+
+// Just the Bearer Authorization header (no Content-Type), for attaching to a
+// native <Image source={{ uri, headers }}> that hits an authed API route.
+export async function getAuthHeader(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // ============================================================
@@ -868,6 +889,27 @@ export async function insertThesisImage(
   img: { data: string; format: string; width?: number; height?: number; afterIndex: number }
 ): Promise<{ ok: true; newIndex: number }> {
   return apiPost<{ ok: true; newIndex: number }>(`/api/thesis/${thesisId}/blocks/image`, img);
+}
+
+// Replace the image bytes of an existing figure block (engine block `index`) with
+// new bytes produced on-device (crop / rotate / replace). `width`/`height` are the
+// NEW pixel size — when the aspect ratio changed the server rescales the drawing so
+// the picture isn't stretched.
+export async function replaceThesisBlockImage(
+  thesisId: string,
+  index: number,
+  img: { data: string; format: string; width?: number; height?: number }
+): Promise<{ ok: true }> {
+  return apiPost<{ ok: true }>(`/api/thesis/${thesisId}/blocks/${index}/image`, img);
+}
+
+// Remove the background from a figure block's image (server-side via the rembg
+// sidecar → re-embeds a transparent PNG). No image bytes travel through the app.
+export async function removeThesisBlockBg(
+  thesisId: string,
+  index: number
+): Promise<{ ok: true }> {
+  return apiPost<{ ok: true }>(`/api/thesis/${thesisId}/blocks/${index}/remove-bg`, {});
 }
 
 export async function deleteThesisBlocks(

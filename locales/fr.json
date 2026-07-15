@@ -516,6 +516,12 @@
     "deleteSelectedTitle": "Supprimer les blocs sélectionnés ?",
     "deleteSelectedBody": "Retirer {{count}} bloc(s) du document ? Cette action est irréversible.",
     "bulkEditError": "Impossible d'appliquer la modification.",
+    "removingBg": "Suppression de l'arrière-plan…",
+    "updatingImage": "Mise à jour de l'image…",
+    "imageError": "Impossible de mettre à jour l'image.",
+    "bgError": "Impossible de supprimer l'arrière-plan. Réessayez.",
+    "cropTitle": "Rogner l'image",
+    "cropApply": "Appliquer",
     "pdfFailed": "Impossible de générer le PDF. Veuillez réessayer.",
     "pdfUnavailable": "L'aperçu PDF n'est pas disponible pour ce document."
   },
@@ -525,19 +531,21 @@
     "searchPlaceholder": "Que voulez-vous faire ?…",
     "empty": "Aucun outil.",
     "tab": { "home": "Accueil", "layout": "Mise en page", "design": "Création", "insert": "Insertion", "references": "Références", "heading": "Titre", "table": "Tableau", "picture": "Image" },
-    "grp": { "pageSetup": "Mise en page", "paragraph": "Paragraphe", "format": "Format", "pageDesign": "Conception", "tables": "Tableaux", "illustrations": "Illustrations", "headerFooter": "En-tête & pied", "symbols": "Symboles", "toc": "Sommaire", "footnotes": "Notes", "citations": "Citations", "captions": "Légendes", "heading": "Titre", "tableRows": "Lignes & colonnes", "tableStyle": "Style de tableau", "picture": "Image" },
+    "grp": { "pageSetup": "Mise en page", "paragraph": "Paragraphe", "format": "Format", "pageDesign": "Conception", "tables": "Tableaux", "illustrations": "Illustrations", "headerFooter": "En-tête & pied", "symbols": "Symboles", "toc": "Sommaire", "footnotes": "Notes", "citations": "Citations", "captions": "Légendes", "heading": "Titre", "tableRows": "Lignes & colonnes", "tableStyle": "Style de tableau", "picture": "Image", "pictureAdjust": "Ajuster", "pictureArrange": "Disposition" },
     "tools": {
       "margins": "Marges", "orientation": "Orientation", "size": "Taille", "columns": "Colonnes", "breaks": "Sauts", "lineNumbers": "Numéros de ligne", "indent": "Retrait", "spacing": "Espacement",
       "thesisReady": "Prêt-mémoire", "fonts": "Polices", "paraSpacing": "Espacement paragraphe", "themes": "Thèmes", "pageColor": "Couleur de page", "pageBorders": "Bordures", "watermark": "Filigrane",
       "table": "Tableau", "picture": "Image", "chart": "Graphique", "shapes": "Formes", "textBox": "Zone de texte", "header": "En-tête", "footer": "Pied de page", "pageNumber": "Numéro de page", "footnote": "Note de bas", "symbol": "Symbole", "pageBreak": "Saut de page",
       "toc": "Sommaire", "updateToc": "Mettre à jour", "endnote": "Note de fin", "citation": "Citation", "citationStyle": "Style", "bibliography": "Bibliographie", "caption": "Légende", "figuresList": "Table des figures", "crossRef": "Renvoi",
-      "promote": "Promouvoir", "demote": "Abaisser", "insertRow": "Insérer ligne", "insertCol": "Insérer colonne", "headerRow": "Ligne d'en-tête", "replace": "Remplacer"
+      "promote": "Promouvoir", "demote": "Abaisser", "insertRow": "Insérer ligne", "insertCol": "Insérer colonne", "headerRow": "Ligne d'en-tête", "replace": "Remplacer",
+      "removeBg": "Supprimer l'arrière-plan", "crop": "Rogner", "rotate": "Pivoter"
     },
     "opt": {
       "marginNormal": "Normales", "marginNarrow": "Étroites", "marginModerate": "Modérées", "marginWide": "Larges", "marginMirrored": "En vis-à-vis",
       "portrait": "Portrait", "landscape": "Paysage", "a4": "A4", "letter": "Letter", "legal": "Legal", "a3": "A3", "a5": "A5",
       "oneCol": "Une", "twoCol": "Deux", "threeCol": "Trois", "pageBreak": "Saut de page", "evenPage": "Page paire", "oddPage": "Page impaire",
-      "apa": "APA", "mla": "MLA", "chicago": "Chicago", "pickTableSize": "Choisir la taille"
+      "apa": "APA", "mla": "MLA", "chicago": "Chicago", "pickTableSize": "Choisir la taille",
+      "rotateRight": "Pivoter à droite 90°", "rotateLeft": "Pivoter à gauche 90°", "flipH": "Retourner horizontalement", "flipV": "Retourner verticalement"
     }
   },
   "composer": {

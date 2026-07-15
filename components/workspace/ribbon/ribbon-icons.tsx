@@ -6,7 +6,7 @@ import {
   Droplets, Table, ImagePlus, ChartBar, Shapes, TextCursorInput, PanelTop,
   PanelBottom, Hash, Superscript, Sigma, SquareSplitVertical, ListTree, RefreshCw,
   StickyNote, BookMarked, Quote, BookText, Tag, Images, CornerDownRight,
-  ChevronUp, ChevronDown, Rows3, TableProperties, Heading,
+  ChevronUp, ChevronDown, Rows3, TableProperties, Heading, Crop, Eraser,
 } from "lucide-react-native";
 import { RIBBON_ICON_KEYS } from "./ribbon-config";
 
@@ -51,6 +51,9 @@ export const RIBBON_ICONS: Record<string, LucideIcon> = {
   insertRow: Rows3,
   insertCol: TableProperties,
   headerRow: Heading,
+  removeBg: Eraser,
+  crop: Crop,
+  rotate: RotateCw,
 };
 
 if (__DEV__) {
