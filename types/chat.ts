@@ -12,6 +12,11 @@ export interface ChatMessage {
   // Reasoning ("thinking") tokens from a reasoning model, shown in a collapsible
   // section. Ephemeral — streamed live, not persisted server-side.
   thinking?: string;
+  // When reasoning started / ended (ISO). Drives the "Thought for Xs" chip; set
+  // by the chat-store as tokens stream (start) and by ai-service at the first
+  // answer token / turn end (end).
+  thinkingStartedAt?: string;
+  thinkingEndedAt?: string;
   // Downloadable artifacts (e.g. a DOCX/LaTeX export) attached to this message,
   // rendered as file cards. Carried live via the stream's [[MODK_FILE]] frame;
   // on history reload they're re-parsed from the frame embedded in `content`.
