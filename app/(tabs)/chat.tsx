@@ -9,7 +9,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import { sendMessageToAI, loadInitialMessages, regenerateLastResponse } from "@/lib/ai-service";
-import { Send, Plus, Home, List, Paperclip, Image as ImageIcon, Sparkles, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw } from "lucide-react-native";
+import { Send, Plus, Home, List, Paperclip, Image as ImageIcon, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
@@ -21,7 +21,9 @@ import { splitFileFrames } from "@/lib/file-frames";
 import { ComposerQuickActions } from "@/components/workspace/ComposerQuickActions";
 import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { getTextDirection } from "@/lib/text-direction";
-import { TypingIndicator, ThinkingDots } from "@/components/TypingIndicator";
+import { TypingIndicator } from "@/components/TypingIndicator";
+import { ThinkingTrace } from "@/components/ThinkingTrace";
+import { deriveThinkingMs } from "@/lib/thinking";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { Alert } from "react-native";
@@ -72,7 +74,6 @@ function FadeOverlay({ color }: { color: string }) {
 const Bubble = memo(({ item, colors, isStreaming, isLastAssistant, onExpand, onPreviewFile, onRegenerate }: { item: ChatMessage; colors: any; isStreaming?: boolean; isLastAssistant?: boolean; onExpand?: (content: string) => void; onPreviewFile?: (file: FilePayload) => void; onRegenerate?: () => void }) => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
-  const [thinkOpen, setThinkOpen] = useState(false);
   const isUser = item.role === "user";
   // Assistant content may carry [[MODK_FILE]] frames (e.g. an export). Strip them
   // for display and render file cards instead. Live-streamed files arrive on
@@ -106,16 +107,13 @@ const Bubble = memo(({ item, colors, isStreaming, isLastAssistant, onExpand, onP
       {!isUser && <Image source={LOGO} style={styles.aiAvatar} />}
       <View style={[styles.bubble, isUser ? { backgroundColor: colors.chatUserBubble, borderTopRightRadius: 4 } : { backgroundColor: colors.chatAiBubble, borderTopLeftRadius: 4 }]}>
         {!isUser && item.thinking ? (
-          <View style={[hasContent && styles.thinkWrap, { borderColor: colors.borderDefault }]}>
-            <Pressable onPress={() => setThinkOpen((o) => !o)} hitSlop={6} style={styles.thinkHeader} accessibilityRole="button">
-              <Sparkles size={13} color={colors.textSecondary} strokeWidth={2} />
-              <Text style={[styles.thinkLabel, { color: colors.textSecondary }]}>{t("chat.thinking", { defaultValue: "Thinking" })}</Text>
-              {thinkingActive && <ThinkingDots color={colors.textSecondary} />}
-              <View style={styles.thinkSpacer} />
-              {thinkOpen ? <ChevronUp size={14} color={colors.textSecondary} strokeWidth={2} /> : <ChevronDown size={14} color={colors.textSecondary} strokeWidth={2} />}
-            </Pressable>
-            {thinkOpen && <Text selectable style={[styles.thinkText, { color: colors.textSecondary }]}>{item.thinking}</Text>}
-          </View>
+          <ThinkingTrace
+            text={item.thinking}
+            streaming={thinkingActive}
+            durationMs={deriveThinkingMs(item)}
+            dividerBelow={hasContent}
+            rtl={dir === "rtl"}
+          />
         ) : null}
         {isUser ? (
           <Text selectable style={[styles.messageText, { color: colors.chatUserText }, textDirStyle]}>{item.content}</Text>
@@ -698,11 +696,6 @@ const styles = StyleSheet.create({
   fileCardsSpaced: { marginTop: 10 },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
   actionLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  thinkWrap: { marginBottom: 8, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth },
-  thinkHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
-  thinkLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  thinkSpacer: { flex: 1 },
-  thinkText: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18, marginTop: 8, fontStyle: "italic" },
   scrollDownFab: {
     position: "absolute",
     right: 16,
