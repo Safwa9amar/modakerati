@@ -124,9 +124,6 @@ export function WorkspaceComposerSheet({
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
-  // Read just the streaming message's reasoning (a string primitive) so the
-  // composer re-renders only when that text changes — not on every token of an
-  // unrelated message, and without re-scanning the whole array on each render.
   // Reasoning to surface: the live streaming message while generating, else the
   // most recent assistant message that produced reasoning (kept reviewable until
   // the next turn). Both selectors return primitives so the composer re-renders
