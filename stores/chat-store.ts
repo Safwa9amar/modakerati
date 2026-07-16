@@ -30,6 +30,7 @@ interface ChatState {
   addMessage: (thesisId: string, role: "user" | "assistant", content: string, opts?: { chapterId?: string; pending?: boolean }) => string;
   appendToMessage: (thesisId: string, id: string, chunk: string) => void;
   appendToThinking: (thesisId: string, id: string, chunk: string) => void;
+  markThinkingEnded: (thesisId: string, id: string) => void;
   addFileToMessage: (thesisId: string, id: string, file: FilePayload) => void;
   setGenerating: (generating: boolean) => void;
   setGeneratingStep: (step: number) => void;
@@ -89,7 +90,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return {
         messages: {
           ...s.messages,
-          [thesisId]: list.map((m) => (m.id === id ? { ...m, thinking: (m.thinking ?? "") + chunk } : m)),
+          [thesisId]: list.map((m) =>
+            m.id === id
+              ? {
+                  ...m,
+                  thinking: (m.thinking ?? "") + chunk,
+                  // First reasoning token → start the clock (idempotent).
+                  thinkingStartedAt: m.thinkingStartedAt ?? new Date().toISOString(),
+                }
+              : m,
+          ),
         },
       };
     }),
@@ -117,6 +127,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setStreamingId: (id) => set({ streamingId: id }),
   setAbortController: (controller) => set({ abortController: controller }),
   setPendingAsk: (ask) => set({ pendingAsk: ask }),
+  // Stamp when reasoning ended. Idempotent: only stamps if thinking actually
+  // started and the end isn't already set. Called at the first answer token and
+  // again in ai-service's finally (covers tool-only turns and aborts).
+  markThinkingEnded: (thesisId, id) =>
+    set((s) => {
+      const list = s.messages[thesisId];
+      if (!list) return s;
+      let changed = false;
+      const next = list.map((m) => {
+        if (m.id !== id || !m.thinkingStartedAt || m.thinkingEndedAt) return m;
+        changed = true;
+        return { ...m, thinkingEndedAt: new Date().toISOString() };
+      });
+      return changed ? { messages: { ...s.messages, [thesisId]: next } } : s;
+    }),
   // Cancel the in-flight AI turn. The request's reader rejects with an
   // AbortError, which sendMessageToAI swallows — the partial response stays.
   stopGenerating: () => {
