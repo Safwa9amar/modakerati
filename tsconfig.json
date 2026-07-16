@@ -7,5 +7,6 @@
     "paths": {
       "@/*": ["./*"]
     }
-  }
+  },
+  "exclude": ["node_modules", "**/*.check.ts"]
 }
