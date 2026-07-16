@@ -1,37 +1,32 @@
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import type { GeneratingPhase } from "@/stores/chat-store";
+import { ThinkingTrace } from "@/components/ThinkingTrace";
 
 interface Props {
   isGenerating: boolean;
-  phase: GeneratingPhase;
-  /** Live reasoning tokens for the streaming message (message.thinking). */
+  /** True only while actively reasoning (phase === "thinking"). Drives the live
+   *  stream; once the model starts writing this is false so the chip appears. */
+  reasoning: boolean;
+  /** Reasoning to surface: the live turn's, else the last turn's (for review). */
   thinking: string;
+  /** Duration of the completed reasoning → "Thought for Xs". */
+  durationMs?: number;
   /** Localized idle status line. */
   statusReady: string;
-  thinkingLabel: string;
-  writingLabel: string;
   rtl: boolean;
 }
 
 /**
- * The composer's "model thinking" box. Idle → a one-line muted status. While the
- * AI works → a labelled, scrollable stream of its reasoning (already sent by the
- * server between [[MODK_THINK]] markers → chat-store message.thinking).
+ * The composer's "model thinking" area. When there's nothing to show it's a
+ * one-line status; otherwise it renders the shared ThinkingTrace — live while
+ * reasoning, then a reviewable "Thought for Xs" chip (through the writing phase
+ * and until the next turn).
  */
-export function ComposerThinking({
-  isGenerating,
-  phase,
-  thinking,
-  statusReady,
-  thinkingLabel,
-  writingLabel,
-  rtl,
-}: Props) {
+export function ComposerThinking({ isGenerating, reasoning, thinking, durationMs, statusReady, rtl }: Props) {
   const colors = useThemeColors();
 
-  if (!isGenerating) {
+  if (!isGenerating && !thinking) {
     return (
       <View style={[styles.box, { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle }]}>
         <Text
@@ -44,21 +39,16 @@ export function ComposerThinking({
     );
   }
 
-  const label = phase === "writing" ? writingLabel : thinkingLabel;
-
   return (
     <View style={[styles.box, { backgroundColor: colors.bgSurface, borderColor: colors.brandPrimary + "44" }]}>
-      <View style={[styles.labelRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
-        <ActivityIndicator size="small" color={colors.brandPrimary} />
-        <Text style={[styles.label, { color: colors.brandPrimary }]}>{label}</Text>
-      </View>
-      {thinking ? (
-        <BottomSheetScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          <Text style={[styles.reason, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
-            {thinking}
-          </Text>
-        </BottomSheetScrollView>
-      ) : null}
+      <ThinkingTrace
+        text={thinking}
+        streaming={reasoning}
+        durationMs={reasoning ? undefined : durationMs}
+        defaultOpen={reasoning}
+        rtl={rtl}
+        ScrollComponent={BottomSheetScrollView}
+      />
     </View>
   );
 }
@@ -72,9 +62,4 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   status: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  labelRow: { alignItems: "center", gap: 8, marginBottom: 4 },
-  label: { fontSize: 11, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.4 },
-  scroll: { maxHeight: 140 },
-  scrollContent: { paddingBottom: 2 },
-  reason: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
 });

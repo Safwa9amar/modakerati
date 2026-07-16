@@ -21,6 +21,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { sendMessageToAI, regenerateLastResponse } from "@/lib/ai-service";
 import { deleteThesisBlocks, startThesisBlocksOnNewPage, type DocBlockDTO } from "@/lib/api";
 import { ComposerThinking } from "./ComposerThinking";
+import { deriveThinkingMs } from "@/lib/thinking";
 import { ComposerInput } from "./ComposerInput";
 import { ComposerQuickActions } from "./ComposerQuickActions";
 import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
@@ -126,10 +127,34 @@ export function WorkspaceComposerSheet({
   // Read just the streaming message's reasoning (a string primitive) so the
   // composer re-renders only when that text changes — not on every token of an
   // unrelated message, and without re-scanning the whole array on each render.
+  // Reasoning to surface: the live streaming message while generating, else the
+  // most recent assistant message that produced reasoning (kept reviewable until
+  // the next turn). Both selectors return primitives so the composer re-renders
+  // only when the value changes (no fresh-object selector loop).
   const thinking = useChatStore((s) => {
-    const id = s.streamingId;
-    if (!id) return "";
-    return s.messages[thesisId]?.find((m) => m.id === id)?.thinking ?? "";
+    const list = s.messages[thesisId];
+    if (!list) return "";
+    if (s.streamingId) return list.find((m) => m.id === s.streamingId)?.thinking ?? "";
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i].role === "assistant" && list[i].thinking) return list[i].thinking ?? "";
+    }
+    return "";
+  });
+  const thinkingMs = useChatStore((s) => {
+    const list = s.messages[thesisId];
+    if (!list) return undefined;
+    let msg: (typeof list)[number] | undefined;
+    if (s.streamingId) {
+      msg = list.find((m) => m.id === s.streamingId);
+    } else {
+      for (let i = list.length - 1; i >= 0; i--) {
+        if (list[i].role === "assistant" && list[i].thinking) {
+          msg = list[i];
+          break;
+        }
+      }
+    }
+    return msg ? deriveThinkingMs(msg) : undefined;
   });
 
   const [inputText, setInputText] = useState("");
@@ -381,11 +406,10 @@ export function WorkspaceComposerSheet({
               <>
                 <ComposerThinking
                   isGenerating={isGenerating}
-                  phase={generatingPhase}
+                  reasoning={isGenerating && generatingPhase === "thinking"}
                   thinking={thinking}
+                  durationMs={thinkingMs}
                   statusReady={t("composer.status.ready")}
-                  thinkingLabel={t("composer.status.thinking")}
-                  writingLabel={t("composer.status.writing")}
                   rtl={rtl}
                 />
                 <View style={styles.inputSpacer} />
