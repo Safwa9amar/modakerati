@@ -48,6 +48,7 @@ export function ComposerThinking({ isGenerating, reasoning, thinking, durationMs
         defaultOpen={reasoning}
         rtl={rtl}
         ScrollComponent={BottomSheetScrollView}
+        surfaceColor={colors.bgSurface}
       />
     </View>
   );

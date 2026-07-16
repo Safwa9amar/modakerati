@@ -124,14 +124,17 @@ export function WorkspaceComposerSheet({
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
-  // Reasoning to surface: the live streaming message while generating, else the
+  // Reasoning to surface: the live streaming message once tokens arrive, else the
   // most recent assistant message that produced reasoning (kept reviewable until
-  // the next turn). Both selectors return primitives so the composer re-renders
-  // only when the value changes (no fresh-object selector loop).
+  // the next turn). During a new turn's pre-stream gap (generating, but no stream
+  // yet) show nothing rather than the PREVIOUS turn's reasoning. Both selectors
+  // return primitives so the composer re-renders only when the value changes (no
+  // fresh-object selector loop).
   const thinking = useChatStore((s) => {
     const list = s.messages[thesisId];
     if (!list) return "";
     if (s.streamingId) return list.find((m) => m.id === s.streamingId)?.thinking ?? "";
+    if (s.isGenerating) return ""; // new turn starting → don't fall back to the last turn
     for (let i = list.length - 1; i >= 0; i--) {
       if (list[i].role === "assistant" && list[i].thinking) return list[i].thinking ?? "";
     }
@@ -143,6 +146,8 @@ export function WorkspaceComposerSheet({
     let msg: (typeof list)[number] | undefined;
     if (s.streamingId) {
       msg = list.find((m) => m.id === s.streamingId);
+    } else if (s.isGenerating) {
+      return undefined; // pre-stream gap of a new turn
     } else {
       for (let i = list.length - 1; i >= 0; i--) {
         if (list[i].role === "assistant" && list[i].thinking) {

@@ -29,6 +29,9 @@ interface Props {
   rtl?: boolean;
   /** The sheet injects BottomSheetScrollView; chat leaves it default. */
   ScrollComponent?: ComponentType<any>;
+  /** Background the live-window top-fade blends into (its parent's bg). Defaults
+   *  to bgCard; callers pass their actual surface (chat bubble / composer box). */
+  surfaceColor?: string;
 }
 
 /** A ✻ that spins while the model is reasoning. */
@@ -71,6 +74,7 @@ export function ThinkingTrace({
   dividerBelow = false,
   rtl = false,
   ScrollComponent,
+  surfaceColor,
 }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -134,7 +138,7 @@ export function ThinkingTrace({
               </Text>
             ))}
           </View>
-          <TopFade color={colors.bgCard} />
+          <TopFade color={surfaceColor ?? colors.bgCard} />
         </View>
       ) : null}
 
@@ -161,6 +165,7 @@ const styles = StyleSheet.create({
   liveWindow: { maxHeight: 110, overflow: "hidden", justifyContent: "flex-end" },
   doneScroll: { maxHeight: 220 },
   doneScrollContent: { paddingBottom: 2 },
-  line: { fontSize: 11.5, lineHeight: 17, fontFamily: "Inter_400Regular", fontStyle: "italic" },
+  // Reasoning is the model's English scratchpad → keep it LTR even in RTL locales.
+  line: { fontSize: 11.5, lineHeight: 17, fontFamily: "Inter_400Regular", fontStyle: "italic", writingDirection: "ltr", textAlign: "left" },
   topFade: { position: "absolute", top: 0, left: 0, right: 0 },
 });

@@ -113,6 +113,7 @@ const Bubble = memo(({ item, colors, isStreaming, isLastAssistant, onExpand, onP
             durationMs={deriveThinkingMs(item)}
             dividerBelow={hasContent}
             rtl={dir === "rtl"}
+            surfaceColor={colors.chatAiBubble}
           />
         ) : null}
         {isUser ? (
