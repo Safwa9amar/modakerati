@@ -60,6 +60,8 @@ async function runAssistantTurn(
   // Lazily created on the first streamed chunk so the "thinking" indicator
   // shows until the AI actually starts producing text.
   let assistantId: string | null = null;
+  // Flips true at the first answer token → marks the end of reasoning exactly once.
+  let sawContent = false;
 
   try {
     await chatSendStream(
@@ -71,6 +73,11 @@ async function runAssistantTurn(
           if (!assistantId) {
             assistantId = s.addMessage(thesisId, "assistant", "", { pending: true });
             s.setStreamingId(assistantId);
+          }
+          if (!sawContent) {
+            sawContent = true;
+            // First answer token → reasoning is over; stamp its end and flip phase.
+            s.markThinkingEnded(thesisId, assistantId);
             s.setGeneratingPhase("writing");
           }
           s.appendToMessage(thesisId, assistantId, chunk);
@@ -136,6 +143,9 @@ async function runAssistantTurn(
       store.addMessage(thesisId, "assistant", note, { pending: true });
     }
   } finally {
+    // Covers turns that end with no answer text (tool-only actions) or a mid-think
+    // abort — markThinkingEnded is a no-op if reasoning never started or already ended.
+    if (assistantId) store.markThinkingEnded(thesisId, assistantId);
     store.setGenerating(false);
     store.setGeneratingPhase("idle");
     store.setStreamingId(null);
