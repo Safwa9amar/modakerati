@@ -255,6 +255,8 @@
     "askPlaceholder": "اسأل عن مذكرتك...",
     "aiWriting": "الذكاء الاصطناعي يكتب...",
     "thinking": "يفكر",
+    "thinkingEllipsis": "يفكر…",
+    "thoughtFor": "فكّر لمدة {{d}}",
     "writing": "يكتب",
     "generating": "جاري التوليد",
     "stop": "إيقاف التوليد",

@@ -255,6 +255,8 @@
     "askPlaceholder": "Posez une question sur votre memoire...",
     "aiWriting": "L'IA ecrit...",
     "thinking": "Reflexion",
+    "thinkingEllipsis": "Réflexion…",
+    "thoughtFor": "Réfléchi pendant {{d}}",
     "writing": "Redaction",
     "generating": "Generation",
     "stop": "Arreter la generation",

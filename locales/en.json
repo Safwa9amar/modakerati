@@ -255,6 +255,8 @@
     "askPlaceholder": "Ask about your thesis...",
     "aiWriting": "AI is writing...",
     "thinking": "Thinking",
+    "thinkingEllipsis": "Thinking…",
+    "thoughtFor": "Thought for {{d}}",
     "writing": "Writing",
     "generating": "Generating",
     "stop": "Stop generating",
