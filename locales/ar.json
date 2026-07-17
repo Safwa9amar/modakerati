@@ -249,7 +249,19 @@
     "aiActions": "إجراءات الذكاء",
     "generateAll": "توليد جميع الأقسام",
     "suggestMissing": "اقتراح الأقسام المفقودة",
-    "reorderFlow": "إعادة الترتيب لتدفق أفضل"
+    "reorderFlow": "إعادة الترتيب لتدفق أفضل",
+    "rename": "إعادة تسمية",
+    "renameTitle": "إعادة تسمية المذكرة",
+    "renameSave": "حفظ",
+    "renameCancel": "إلغاء",
+    "export": "تصدير",
+    "delete": "حذف",
+    "deleteConfirmTitle": "حذف المذكرة؟",
+    "deleteConfirmMessage": "سيؤدي هذا إلى حذف المذكرة ومستندها نهائيًا. لا يمكن التراجع عن ذلك.",
+    "menuTitle": "خيارات المذكرة",
+    "resumeJustBegun": "لقد بدأت للتو",
+    "resumeKeepGoing": "واصل التقدم",
+    "genericError": "حدث خطأ ما. يرجى المحاولة مرة أخرى."
   },
   "chat": {
     "askPlaceholder": "اسأل عن مذكرتك...",

@@ -249,7 +249,19 @@
     "aiActions": "Actions IA",
     "generateAll": "Générer toutes les sections",
     "suggestMissing": "Suggérer les sections manquantes",
-    "reorderFlow": "Réorganiser pour un meilleur flux"
+    "reorderFlow": "Réorganiser pour un meilleur flux",
+    "rename": "Renommer",
+    "renameTitle": "Renommer la thèse",
+    "renameSave": "Enregistrer",
+    "renameCancel": "Annuler",
+    "export": "Exporter",
+    "delete": "Supprimer",
+    "deleteConfirmTitle": "Supprimer la thèse ?",
+    "deleteConfirmMessage": "Cela supprime définitivement la thèse et son document. Action irréversible.",
+    "menuTitle": "Options de la thèse",
+    "resumeJustBegun": "vous venez de commencer",
+    "resumeKeepGoing": "continuez",
+    "genericError": "Une erreur est survenue. Veuillez réessayer."
   },
   "chat": {
     "askPlaceholder": "Posez une question sur votre memoire...",

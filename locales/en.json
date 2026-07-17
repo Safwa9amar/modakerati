@@ -249,7 +249,19 @@
     "aiActions": "AI Actions",
     "generateAll": "Generate all sections",
     "suggestMissing": "Suggest missing sections",
-    "reorderFlow": "Reorder for better flow"
+    "reorderFlow": "Reorder for better flow",
+    "rename": "Rename",
+    "renameTitle": "Rename thesis",
+    "renameSave": "Save",
+    "renameCancel": "Cancel",
+    "export": "Export",
+    "delete": "Delete",
+    "deleteConfirmTitle": "Delete thesis?",
+    "deleteConfirmMessage": "This permanently removes the thesis and its document. This can’t be undone.",
+    "menuTitle": "Thesis options",
+    "resumeJustBegun": "you’ve just begun",
+    "resumeKeepGoing": "keep going",
+    "genericError": "Something went wrong. Please try again."
   },
   "chat": {
     "askPlaceholder": "Ask about your thesis...",
