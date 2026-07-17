@@ -104,7 +104,8 @@ export default function ThesisDetailScreen() {
 
   const onRenamed = (title: string) => {
     setThesis((prev) => (prev ? { ...prev, title } : prev));
-    useThesisStore.getState().upsertThesis({ ...(thesis as Thesis), title });
+    const base = useThesisStore.getState().theses.find((th) => th.id === thesisId);
+    if (base) useThesisStore.getState().upsertThesis({ ...base, title });
   };
 
   if (loading) {

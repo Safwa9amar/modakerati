@@ -28,7 +28,7 @@ export function ThesisActionBar({
         style={styles.fade}
         pointerEvents="none"
       />
-      <View style={[styles.bar, { paddingBottom: (insets.bottom || 16) }]}>
+      <View style={[styles.bar, { backgroundColor: colors.bgPrimary, paddingBottom: (insets.bottom || 16) }]}>
         <Pressable
           onPress={onOpenWorkspace}
           style={[styles.primary, { backgroundColor: colors.brandPrimary }]}

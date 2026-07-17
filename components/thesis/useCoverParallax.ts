@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AccessibilityInfo } from "react-native";
 import { DeviceMotion } from "expo-sensors";
 import { Gesture } from "react-native-gesture-handler";
@@ -32,15 +32,21 @@ export function useCoverParallax() {
   const dragX = useSharedValue(0);
   const dragY = useSharedValue(0);
   const enter = useSharedValue(0); // 0 → 1 on mount
-  const reduceMotion = useSharedValue(false);
+  const reduceMotionSV = useSharedValue(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    AccessibilityInfo.isReduceMotionEnabled().then((rm) => {
-      if (!mounted) return;
-      reduceMotion.value = rm;
-      enter.value = rm ? 1 : withSpring(1, ENTRANCE);
-    });
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((rm) => {
+        if (!mounted) return;
+        setReduceMotion(rm);
+        reduceMotionSV.value = rm;
+        enter.value = rm ? 1 : withSpring(1, ENTRANCE);
+      })
+      .catch(() => {
+        if (mounted) enter.value = 1;
+      });
     return () => {
       mounted = false;
     };
@@ -51,7 +57,7 @@ export function useCoverParallax() {
       let active = true;
       let sub: { remove: () => void } | null = null;
       (async () => {
-        if (reduceMotion.value) return;
+        if (reduceMotion) return;
         const ok = await DeviceMotion.isAvailableAsync().catch(() => false);
         if (!ok || !active) return;
         DeviceMotion.setUpdateInterval(50);
@@ -75,13 +81,13 @@ export function useCoverParallax() {
         gyroX.value = withSpring(0);
         gyroY.value = withSpring(0);
       };
-    }, [])
+    }, [reduceMotion])
   );
 
   const panGesture = Gesture.Pan()
     .onUpdate((e) => {
       "worklet";
-      if (reduceMotion.value) return;
+      if (reduceMotionSV.value) return;
       dragY.value = Math.max(-DRAG_LIMIT, Math.min(DRAG_LIMIT, e.translationX / 12));
       dragX.value = Math.max(-DRAG_LIMIT, Math.min(DRAG_LIMIT, -e.translationY / 12));
     })
