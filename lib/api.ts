@@ -495,6 +495,16 @@ export type DocBlockDTO =
     }
   | { index: number; kind: "other"; tag: string };
 
+// One Word section's page chrome (mirror of the server's DocSectionDTO).
+export type DocSectionDTO = {
+  startBlockIndex: number;
+  header: { text: string } | null;
+  footer: {
+    text: string; // "" when the footer is page-numbers-only
+    pageNumbers: { format: string; startAt: number | null } | null;
+  } | null;
+};
+
 export type DocumentDTO =
   | {
       id: string;
@@ -502,6 +512,8 @@ export type DocumentDTO =
       docMode: "live-docx";
       available: true;
       blocks: DocBlockDTO[];
+      // Optional: older SQLite-cached DTOs predate this field.
+      sections?: DocSectionDTO[];
       downloadUrl: string;
     }
   | { docMode: string; available: false };

@@ -3,7 +3,7 @@ import { Alert } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 import { getThesisDocument, type DocumentDTO } from "@/lib/api";
 import { getDocCache, setDocCache } from "@/lib/thesis-doc-cache";
-import { applyOpToBlocks, executeOp, isRetryableError, type ThesisOp } from "@/lib/thesis-ops";
+import { applyOpToDoc, executeOp, isRetryableError, type ThesisOp } from "@/lib/thesis-ops";
 import {
   newOpId,
   enqueueOp,
@@ -211,9 +211,9 @@ export const useThesisDocStore = create<ThesisDocState>((set, get) => {
         setPending(thesisId, p.queue.length);
         const cur = get().byId[thesisId];
         if (cur?.available) {
-          let blocks = cur.blocks;
-          for (const d of fresh) blocks = applyOpToBlocks(blocks, d.op);
-          set((s) => ({ byId: { ...s.byId, [thesisId]: { ...cur, blocks } } }));
+          let doc = cur;
+          for (const d of fresh) doc = applyOpToDoc(doc, d.op);
+          set((s) => ({ byId: { ...s.byId, [thesisId]: doc } }));
         }
         void runPump(thesisId);
       })().catch(() => {});
@@ -278,7 +278,7 @@ export const useThesisDocStore = create<ThesisDocState>((set, get) => {
       const cur = get().byId[thesisId];
       if (cur?.available) {
         set((s) => ({
-          byId: { ...s.byId, [thesisId]: { ...cur, blocks: applyOpToBlocks(cur.blocks, op) } },
+          byId: { ...s.byId, [thesisId]: applyOpToDoc(cur, op) },
         }));
       }
       for (const l of opListeners) l(thesisId, op);

@@ -7,6 +7,7 @@ import {
   startThesisBlocksOnNewPage,
   type DocBlockDTO,
   type DocumentDTO,
+  type DocSectionDTO,
 } from "@/lib/api";
 
 // Serializable manual-edit operations on a live-.docx thesis.
@@ -121,6 +122,52 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
       // views pick the change up from the server reconcile).
       return blocks;
   }
+}
+
+/**
+ * Optimistic shift of section boundaries (startBlockIndex) for ops that change
+ * block positions. Approximation — exact Word semantics (the section break
+ * travels with its paragraph) are reconciled by the server echo at queue drain.
+ */
+export function applyOpToSections(
+  sections: DocSectionDTO[] | undefined,
+  op: ThesisOp,
+): DocSectionDTO[] | undefined {
+  if (!sections?.length) return sections;
+  const shift = (fn: (start: number) => number) =>
+    sections.map((s) => ({ ...s, startBlockIndex: Math.max(0, fn(s.startBlockIndex)) }));
+  switch (op.type) {
+    case "insertImage": {
+      const at = Math.max(op.afterIndex + 1, 0);
+      return shift((st) => (st >= at ? st + 1 : st));
+    }
+    case "deleteBlocks": {
+      return shift((st) => st - op.indices.filter((i) => i < st).length);
+    }
+    case "move": {
+      if (op.from === op.to) return sections;
+      return shift((st) => {
+        let v = st > op.from ? st - 1 : st;
+        if (v >= op.to) v += 1;
+        return v;
+      });
+    }
+    // editText/format: no positions change. startOnNewPage DOES create a
+    // section server-side, but its chrome is unknown locally — the echo brings it.
+    default:
+      return sections;
+  }
+}
+
+type LiveDocumentDTO = Extract<DocumentDTO, { available: true }>;
+
+/** Apply an op's optimistic effect to the whole doc DTO (blocks + sections). */
+export function applyOpToDoc(doc: LiveDocumentDTO, op: ThesisOp): LiveDocumentDTO {
+  return {
+    ...doc,
+    blocks: applyOpToBlocks(doc.blocks, op),
+    sections: applyOpToSections(doc.sections, op),
+  };
 }
 
 // ── Server execution ─────────────────────────────────────────────────────────
