@@ -99,8 +99,9 @@ export function OutlineHeaderZone({ section, rtl }: { section?: DocSectionDTO; r
   );
 }
 
-// Footer band at the end of the list: footer text and/or a page-number sample
-// built from the real numbering format. Renders nothing when there is none.
+// Footer band at the end of the list: the FIRST section's footer (the
+// document's base footer) — text and/or a page-number sample built from the
+// real numbering format. Renders nothing when there is none.
 export function OutlineFooterZone({ section, rtl }: { section?: DocSectionDTO; rtl: boolean }) {
   const { t } = useTranslation();
   if (!section?.footer) return null;
@@ -111,7 +112,14 @@ export function OutlineFooterZone({ section, rtl }: { section?: DocSectionDTO; r
         <Text style={[styles.tag, rtl ? styles.tagLeft : styles.tagRight]}>
           {t("workspace.hf.footer")}
         </Text>
-        <Text numberOfLines={2} style={[styles.zoneText, styles.footerText]}>
+        <Text
+          numberOfLines={2}
+          style={[
+            styles.zoneText,
+            styles.footerText,
+            { writingDirection: rtl ? "rtl" : "ltr" },
+          ]}
+        >
           {footerSummary(t, section.footer)}
         </Text>
       </View>
@@ -124,7 +132,7 @@ export function OutlineSectionMarker({ label, rtl }: { label: string; rtl: boole
   return (
     <View style={[styles.marker, { flexDirection: rtl ? "row-reverse" : "row" }]}>
       <View style={styles.markerLine} />
-      <Text style={styles.chip} numberOfLines={1}>
+      <Text style={[styles.chip, { writingDirection: rtl ? "rtl" : "ltr" }]} numberOfLines={1}>
         {label}
       </Text>
       <View style={styles.markerLine} />
