@@ -8,7 +8,9 @@
 
 **Tech Stack:** Next.js 16, `@supabase/ssr` (admin + Storage), react-hook-form, lucide-react.
 
-**Depends on:** Plan 2 (foundation, UI kit, i18n, `hasStaffRole`) and Plan 3 (`DataTable`). Plan 1's news write-gate protects the *mobile/API* path; the dashboard writes news directly via Supabase, so News does not depend on Plan 1. Reference: `~/blink-dashboard/src/features/news` (trilingual editor, `LangTabs`, cover upload) and `~/modakerati-server/src/routes/admin.ts` (the providers API this consumes).
+**Depends on:** Plan 2 (foundation, UI kit, i18n, `hasStaffRole`) and Plan 3 (`DataTable` **and the `requirePathAccess` server guard from Plan 3 Task 0**). Plan 1's news write-gate protects the *mobile/API* path; the dashboard writes news directly via Supabase, so News does not depend on Plan 1. Reference: `~/blink-dashboard/src/features/news` (trilingual editor, `LangTabs`, cover upload) and `~/modakerati-server/src/routes/admin.ts` (the providers API this consumes).
+
+> **SECURITY — server-side per-route authZ is mandatory here too.** Every restricted server `page.tsx` below MUST begin with `await requirePathAccess(...)` (from `@/lib/auth/require-path`, Plan 3 Task 0) before any data fetch — News routes call `requirePathAccess("/d/news")`, AI routes call `requirePathAccess("/d/ai")`. The client shell's `{allowed ? children : null}` is UX only and does not stop a wrong-role staff user's server fetch. (This closes the architectural gap flagged in Plan 2's final review.)
 
 **Plan 4 of 4.** Spec: `docs/superpowers/specs/2026-07-17-modakerati-dashboard-phase1-design.md` §5.4–5.5.
 
@@ -216,7 +218,7 @@ git commit -m "feat(news): guarded create/update/delete + cover upload to Storag
 
 - [ ] **Step 3: Routes**
 
-`page.tsx` → `listNews` → `<NewsClient>` (`<PageHeader> + <NewsList>`). `new/page.tsx` → `<NewsEditor mode="create">`. `[id]/page.tsx` → `getNews(id)` (404 if null) → `<NewsEditClient>` → `<NewsEditor mode="edit" news={row}>`.
+Every one of these server pages begins with `await requirePathAccess("/d/news")`. `page.tsx` → `listNews` → `<NewsClient>` (`<PageHeader> + <NewsList>`). `new/page.tsx` → `<NewsEditor mode="create">`. `[id]/page.tsx` → `getNews(id)` (404 if null) → `<NewsEditClient>` → `<NewsEditor mode="edit" news={row}>`.
 
 - [ ] **Step 4: Verify**
 
@@ -269,10 +271,12 @@ Create `providers-view.tsx` (`"use client"`) — shows the active provider (a `S
 ```tsx
 export const dynamic = "force-dynamic";
 import { getProvidersConfig, getProvidersHealth } from "@/lib/api/server";
+import { requirePathAccess } from "@/lib/auth/require-path";
 import AiClient from "./client";
 import type { ProvidersConfig, ProvidersHealth } from "@/features/ai-providers";
 
 export default async function AiProvidersPage() {
+  await requirePathAccess("/d/ai"); // server-side gate before any provider fetch
   const [config, health] = await Promise.all([
     getProvidersConfig<ProvidersConfig>(),
     getProvidersHealth<ProvidersHealth>(),

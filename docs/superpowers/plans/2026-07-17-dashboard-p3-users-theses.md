@@ -6,6 +6,8 @@
 
 **Architecture:** Feature-first modules (`src/features/users`, `src/features/theses`) with the routing triad, on the Plan-2 foundation. All data is plain CRUD → direct Supabase via `createAdminClient` (Hybrid C "rows"). Mutations are Server Actions guarded by `hasStaffRole`. Adds a `DataTable` to the UI kit.
 
+> **SECURITY (from Plan 2's final review) — server-side per-route authZ is mandatory.** In the App Router, a route's server `page.tsx` runs and streams its RSC payload *before* any client shell can hide it. The Plan-2 `DashboardShell` client guard (`{allowed ? children : null}`) is UX only — it does NOT stop a wrong-role staff user's server `data.ts` from executing and returning data. Therefore **every restricted server `page.tsx` in this plan (and Plan 4) MUST call the `requirePathAccess` guard below as its first line** (before any data fetch). This is introduced as Task 0 and used in Tasks 4 & 6.
+
 **Tech Stack:** Next.js 16, `@tanstack/react-table`, `@supabase/ssr` (admin client), lucide-react.
 
 **Depends on:** Plan 2 (foundation), and Plan 1 (`profiles.staff_role`) for the set-staff-role action to persist. Reference: `~/blink-dashboard/src/features/users` and its `DataTable`.
@@ -22,6 +24,48 @@
 - `src/app/d/users/{page.tsx,client.tsx,action.ts,[id]/{page.tsx,client.tsx}}`.
 - `src/app/d/theses/{page.tsx,client.tsx,[id]/{page.tsx,client.tsx}}`.
 - Register both feature bundles in `src/i18n/messages.ts`.
+
+---
+
+## Task 0: `requirePathAccess` server guard
+
+**Files:** `src/lib/auth/require-path.ts`.
+
+- [ ] **Step 1: Add the server-side route guard**
+
+Create `src/lib/auth/require-path.ts`:
+
+```ts
+import "server-only";
+import { redirect } from "next/navigation";
+import { getCurrentStaffRole } from "./staff";
+import { canAccessPath, type StaffRole } from "./access";
+
+/**
+ * Server-side per-route authorization. Call as the FIRST line of every
+ * restricted server page.tsx (before any data fetch). Non-staff → /no-access;
+ * wrong-role staff → their default landing. Returns the role for convenience.
+ */
+export async function requirePathAccess(pathname: string): Promise<StaffRole> {
+  const role = await getCurrentStaffRole();
+  if (!role) redirect("/no-access");
+  if (!canAccessPath(role, pathname)) {
+    const { defaultPathFor } = await import("./access");
+    redirect(defaultPathFor(role));
+  }
+  return role;
+}
+```
+
+- [ ] **Step 2: Verify + commit**
+
+Run `cd ~/modakerati-dashboard && npx tsc --noEmit` → clean.
+```bash
+git add src/lib/auth/require-path.ts
+git commit -m "feat(auth): requirePathAccess server-side route guard"
+```
+
+**Usage rule for the rest of this plan:** every server `page.tsx` under a restricted route begins with `await requirePathAccess("<its route prefix>")` — e.g. `/d/users` and `/d/users/[id]` both call `requirePathAccess("/d/users")`; `/d/theses*` call `requirePathAccess("/d/theses")`. The `/d` overview (open to all staff) does not need it.
 
 ---
 
@@ -231,7 +275,7 @@ Create `src/features/users/locales/{en,fr,ar}.json` with a `users` namespace (ti
 
 - [ ] **Step 3: Routes**
 
-`src/app/d/users/page.tsx` (server) — read `?q`/pagination from `searchParams`, call `listUsers`, render `<UsersClient>`. `client.tsx` — `<PageHeader> + <UsersList>`. `[id]/page.tsx` — `getUserDetail(params.id)`, 404 if null, render `<UserDetailClient>`. `[id]/client.tsx` — `<UserDetail>`.
+`src/app/d/users/page.tsx` (server) — **first line `await requirePathAccess("/d/users")`**, then read `?q`/pagination from `searchParams`, call `listUsers`, render `<UsersClient>`. `client.tsx` — `<PageHeader> + <UsersList>`. `[id]/page.tsx` — **first line `await requirePathAccess("/d/users")`**, then `getUserDetail(params.id)`, 404 if null, render `<UserDetailClient>`. `[id]/client.tsx` — `<UserDetail>`.
 
 - [ ] **Step 4: Verify**
 
@@ -304,7 +348,7 @@ git commit -m "feat(theses): read-only list/detail data via Supabase admin clien
 
 - [ ] **Step 3: Routes**
 
-`src/app/d/theses/page.tsx` → `listTheses` → `<ThesesClient>`; `client.tsx` → `<PageHeader> + <ThesesList>`. `[id]/page.tsx` → `getThesisDetail` (404 if null) → `<ThesisDetailClient>` → `<ThesisDetail>`.
+`src/app/d/theses/page.tsx` → **first line `await requirePathAccess("/d/theses")`**, then `listTheses` → `<ThesesClient>`; `client.tsx` → `<PageHeader> + <ThesesList>`. `[id]/page.tsx` → **first line `await requirePathAccess("/d/theses")`**, then `getThesisDetail` (404 if null) → `<ThesisDetailClient>` → `<ThesisDetail>`.
 
 - [ ] **Step 4: Verify**
 
