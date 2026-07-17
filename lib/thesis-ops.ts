@@ -139,7 +139,7 @@ export function applyOpToSections(
   switch (op.type) {
     case "insertImage": {
       const at = Math.max(op.afterIndex + 1, 0);
-      return shift((st) => (st >= at ? st + 1 : st));
+      return shift((st) => (st > at ? st + 1 : st));
     }
     case "deleteBlocks": {
       return shift((st) => st - op.indices.filter((i) => i < st).length);
@@ -148,7 +148,7 @@ export function applyOpToSections(
       if (op.from === op.to) return sections;
       return shift((st) => {
         let v = st > op.from ? st - 1 : st;
-        if (v >= op.to) v += 1;
+        if (v > op.to) v += 1;
         return v;
       });
     }
@@ -163,10 +163,15 @@ type LiveDocumentDTO = Extract<DocumentDTO, { available: true }>;
 
 /** Apply an op's optimistic effect to the whole doc DTO (blocks + sections). */
 export function applyOpToDoc(doc: LiveDocumentDTO, op: ThesisOp): LiveDocumentDTO {
+  const blocks = applyOpToBlocks(doc.blocks, op);
+  // A move patchMove rejected (out-of-range) must not shift sections either.
+  const rejectedMove =
+    op.type === "move" &&
+    (op.from < 0 || op.to < 0 || op.from >= doc.blocks.length || op.to >= doc.blocks.length);
   return {
     ...doc,
-    blocks: applyOpToBlocks(doc.blocks, op),
-    sections: applyOpToSections(doc.sections, op),
+    blocks,
+    sections: rejectedMove ? doc.sections : applyOpToSections(doc.sections, op),
   };
 }
 
