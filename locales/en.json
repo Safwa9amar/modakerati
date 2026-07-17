@@ -506,6 +506,14 @@
     "importing": "Importing your thesis..."
   },
   "workspace": {
+    "hf": {
+      "header": "Header",
+      "footer": "Footer",
+      "newSection": "New section",
+      "headerIs": "Header: {{text}}",
+      "footerIs": "Footer: {{text}}",
+      "num": { "decimal": "1, 2, 3…", "lowerRoman": "i, ii, iii…", "upperRoman": "I, II, III…", "other": "#" }
+    },
     "open": "Open workspace",
     "emptyChapter": "Tap the chat to ask the AI to draft this.",
     "resume": "Abstract",

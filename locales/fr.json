@@ -506,6 +506,14 @@
     "importing": "Importation de votre memoire..."
   },
   "workspace": {
+    "hf": {
+      "header": "En-tête",
+      "footer": "Pied de page",
+      "newSection": "Nouvelle section",
+      "headerIs": "En-tête : {{text}}",
+      "footerIs": "Pied : {{text}}",
+      "num": { "decimal": "1, 2, 3…", "lowerRoman": "i, ii, iii…", "upperRoman": "I, II, III…", "other": "#" }
+    },
     "open": "Ouvrir l'espace de travail",
     "emptyChapter": "Touchez le chat pour demander à l'IA de rédiger ceci.",
     "resume": "Résumé",

@@ -506,6 +506,14 @@
     "importing": "جاري استيراد مذكرتك..."
   },
   "workspace": {
+    "hf": {
+      "header": "رأس الصفحة",
+      "footer": "تذييل الصفحة",
+      "newSection": "قسم جديد",
+      "headerIs": "الرأس: {{text}}",
+      "footerIs": "التذييل: {{text}}",
+      "num": { "decimal": "١، ٢، ٣…", "lowerRoman": "i، ii، iii…", "upperRoman": "I، II، III…", "other": "#" }
+    },
     "open": "فتح مساحة العمل",
     "emptyChapter": "انقر على المحادثة لتطلب من الذكاء الاصطناعي كتابة هذا.",
     "resume": "ملخص",
