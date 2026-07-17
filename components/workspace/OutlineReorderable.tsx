@@ -7,7 +7,8 @@ import ReorderableList, {
 } from "react-native-reorderable-list";
 import { GripVertical } from "lucide-react-native";
 import { DocBlock } from "./DocBlock";
-import { moveThesisBlock, type DocBlockDTO } from "@/lib/api";
+import { type DocBlockDTO } from "@/lib/api";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
 // One outline row: a drag handle (long-press to lift) + the block. The handle
@@ -39,20 +40,18 @@ function Row({
 
 // The Outline view as a drag-to-reorder list. `blocks` is the server order (a
 // block's `index` equals its position), so a drop's from/to map directly to
-// engine indices. Optimistic reorder for a smooth drop; onAfterMove re-syncs from
-// the server (which renumbers indices).
+// engine indices. Optimistic reorder for a smooth drop; the doc store's op queue
+// persists + flushes the move and re-syncs `blocks` (which renumbers indices).
 export function OutlineReorderable({
   thesisId,
   blocks,
   rtl,
-  onAfterMove,
   paddingBottom,
   version,
 }: {
   thesisId: string;
   blocks: DocBlockDTO[];
   rtl: boolean;
-  onAfterMove: () => void;
   paddingBottom: number;
   // Doc version → busts on-demand figure image caches after an edit.
   version?: number;
@@ -63,9 +62,10 @@ export function OutlineReorderable({
   const onReorder = ({ from, to }: ReorderableListReorderEvent) => {
     if (from === to) return;
     setData((cur) => reorderItems(cur, from, to));
-    void moveThesisBlock(thesisId, from, to)
-      .catch(() => {})
-      .finally(onAfterMove);
+    // Durable op: instant here (the local reorder above), persisted + flushed in
+    // the background by the doc store, which also updates its own block model —
+    // the `blocks` prop then re-syncs `data` via the effect above.
+    void useThesisDocStore.getState().mutate(thesisId, { type: "move", from, to });
   };
 
   return (

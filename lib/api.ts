@@ -37,12 +37,13 @@ async function apiGet<T>(path: string): Promise<T> {
   return response.json();
 }
 
-async function apiPost<T>(path: string, body: any): Promise<T> {
+async function apiPost<T>(path: string, body: any, signal?: AbortSignal): Promise<T> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal,
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
@@ -134,14 +135,19 @@ export interface ComposerSuggestion {
 // returns an empty array on any failure, and callers fall back to static presets.
 export async function getComposerSuggestions(
   thesisId: string,
-  options?: { selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[] }
+  options?: { selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[] },
+  signal?: AbortSignal
 ): Promise<ComposerSuggestion[]> {
-  const res = await apiPost<{ suggestions?: ComposerSuggestion[] }>("/api/chat/suggestions", {
-    thesisId,
-    selection: options?.selection,
-    docBlockIndex: options?.docBlockIndex ?? null,
-    docBlockIndices: options?.docBlockIndices,
-  });
+  const res = await apiPost<{ suggestions?: ComposerSuggestion[] }>(
+    "/api/chat/suggestions",
+    {
+      thesisId,
+      selection: options?.selection,
+      docBlockIndex: options?.docBlockIndex ?? null,
+      docBlockIndices: options?.docBlockIndices,
+    },
+    signal
+  );
   return Array.isArray(res?.suggestions) ? res.suggestions : [];
 }
 
@@ -854,8 +860,8 @@ export async function editThesisParagraph(
   thesisId: string,
   index: number,
   changes: { text?: string; level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr"; clearFormatting?: boolean }
-): Promise<{ ok: true }> {
-  return apiPut<{ ok: true }>(`/api/thesis/${thesisId}/paragraphs/${index}`, changes);
+): Promise<{ ok: true; document?: DocumentDTO }> {
+  return apiPut<{ ok: true; document?: DocumentDTO }>(`/api/thesis/${thesisId}/paragraphs/${index}`, changes);
 }
 
 // Bulk-apply ONE formatting change (level / alignment / direction / clearFormatting —
@@ -866,8 +872,8 @@ export async function editThesisParagraphs(
   thesisId: string,
   indices: number[],
   changes: { level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr"; clearFormatting?: boolean }
-): Promise<{ ok: true; changed: number }> {
-  return apiPost<{ ok: true; changed: number }>(`/api/thesis/${thesisId}/paragraphs/bulk`, { indices, ...changes });
+): Promise<{ ok: true; changed: number; document?: DocumentDTO }> {
+  return apiPost<{ ok: true; changed: number; document?: DocumentDTO }>(`/api/thesis/${thesisId}/paragraphs/bulk`, { indices, ...changes });
 }
 
 // Bulk-delete several live-.docx thesis blocks at once (the workspace multi-select).
@@ -878,8 +884,8 @@ export async function moveThesisBlock(
   thesisId: string,
   from: number,
   to: number
-): Promise<{ ok: true }> {
-  return apiPost<{ ok: true }>(`/api/thesis/${thesisId}/blocks/move`, { from, to });
+): Promise<{ ok: true; document?: DocumentDTO }> {
+  return apiPost<{ ok: true; document?: DocumentDTO }>(`/api/thesis/${thesisId}/blocks/move`, { from, to });
 }
 
 // Insert a base64 image as a new block AFTER `afterIndex` (-1 = top). width/height
@@ -887,8 +893,8 @@ export async function moveThesisBlock(
 export async function insertThesisImage(
   thesisId: string,
   img: { data: string; format: string; width?: number; height?: number; afterIndex: number }
-): Promise<{ ok: true; newIndex: number }> {
-  return apiPost<{ ok: true; newIndex: number }>(`/api/thesis/${thesisId}/blocks/image`, img);
+): Promise<{ ok: true; newIndex: number; document?: DocumentDTO }> {
+  return apiPost<{ ok: true; newIndex: number; document?: DocumentDTO }>(`/api/thesis/${thesisId}/blocks/image`, img);
 }
 
 // Replace the image bytes of an existing figure block (engine block `index`) with
@@ -915,10 +921,10 @@ export async function removeThesisBlockBg(
 export async function deleteThesisBlocks(
   thesisId: string,
   indices: number[]
-): Promise<{ ok: true; deleted: number; skipped: number }> {
+): Promise<{ ok: true; deleted: number; skipped: number; document?: DocumentDTO }> {
   // `skipped` counts protected non-paragraph blocks (cover logo / jury table) the
   // server refused to delete.
-  return apiPost<{ ok: true; deleted: number; skipped: number }>(`/api/thesis/${thesisId}/blocks/delete`, { indices });
+  return apiPost<{ ok: true; deleted: number; skipped: number; document?: DocumentDTO }>(`/api/thesis/${thesisId}/blocks/delete`, { indices });
 }
 
 // Make each selected block start on a new page (a next-page section break), in one
@@ -927,8 +933,8 @@ export async function startThesisBlocksOnNewPage(
   thesisId: string,
   indices: number[],
   breakType?: "nextPage" | "evenPage" | "oddPage"
-): Promise<{ ok: true; changed: number }> {
-  return apiPost<{ ok: true; changed: number }>(`/api/thesis/${thesisId}/blocks/start-on-new-page`, { indices, breakType });
+): Promise<{ ok: true; changed: number; document?: DocumentDTO }> {
+  return apiPost<{ ok: true; changed: number; document?: DocumentDTO }>(`/api/thesis/${thesisId}/blocks/start-on-new-page`, { indices, breakType });
 }
 
 export interface ThesisPageSetup {

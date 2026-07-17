@@ -6,7 +6,9 @@ import {
   Pressable,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
   Linking,
+  Platform,
   ScrollView,
   useWindowDimensions,
 } from "react-native";
@@ -19,6 +21,7 @@ import { Maximize2, PanelBottomOpen, PanelBottomClose } from "lucide-react-nativ
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useRibbonStore } from "@/stores/ribbon-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
@@ -37,11 +40,9 @@ import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import {
-  getThesisDocument,
   getThesisEditorConfig,
   getThesisPdf,
   deleteThesisPdf,
-  type DocumentDTO,
   type DocBlockDTO,
   type EditorConfigDTO,
   type ThesisPdfDTO,
@@ -83,16 +84,27 @@ export default function ThesisWorkspaceScreen() {
   // covers from the bottom, so content always clears the sheet at any position —
   // peek, expanded, mid-drag, or keyboard-resized — with no stale-padding gaps.
   const sheetPosition = useSharedValue(windowHeight - COMPOSER_COLLAPSED_HEIGHT);
+  // Live height of the keyboard-avoiding region hosting the doc area + composer
+  // sheet. The KeyboardAvoidingView shrinks it while the keyboard is up, so the
+  // doc-area reservation below must measure against THIS, not the window height
+  // (which would over-pad by the keyboard height).
+  const containerHeight = useSharedValue(windowHeight);
 
-  // Live-.docx document model. `undefined` while loading; `null` once we know
-  // the thesis is legacy (available:false) → fall back to the section render.
-  const [doc, setDoc] = useState<DocumentDTO | undefined>(undefined);
+  // Live-.docx document model, owned by the thesis-doc store so it can be
+  // hydrated from the on-device cache (instant open) and edited optimistically.
+  // `undefined` while loading; `available:false` once we know the thesis is
+  // legacy → fall back to the section render.
+  const doc = useThesisDocStore((s) => s.byId[thesisId]);
 
-  // Monotonic reload token, bumped on every doc refresh. Appended to the Word
-  // view's URL so the docx-preview WebView reliably re-fetches after an edit —
-  // the signed download URL can be byte-identical across two fetches in the same
-  // second, so relying on it alone leaves a manual edit (style/alignment) invisible.
-  const [docTick, setDocTick] = useState(0);
+  // Monotonic reload token, bumped by the store only when the server .docx bytes
+  // actually change (a real reconcile — never on an optimistic edit). Appended to
+  // the Word view's URL so the docx-preview WebView reliably re-fetches after an
+  // edit — the signed download URL can be byte-identical across two fetches in the
+  // same second, so relying on it alone leaves a manual edit invisible.
+  const docTick = useThesisDocStore((s) => s.tick[thesisId] ?? 0);
+  // Bumped when the durable edit queue fully flushes — the .docx bytes (and thus
+  // the OnlyOffice document.key / PDF render) changed on the server.
+  const drainTick = useThesisDocStore((s) => s.drainTick[thesisId] ?? 0);
 
   // OnlyOffice editor config for the live-docx view. `undefined` while loading;
   // `{ enabled:false }` when the Document Server isn't configured (or the fetch
@@ -141,19 +153,13 @@ export default function ThesisWorkspaceScreen() {
     };
   }, [thesisId]);
 
-  // Fetch the live-.docx block model. Best-effort: on any failure we leave the
-  // legacy section/chapter render in place. `getThesisDocument` now reflects
-  // fresh bytes, so re-calling it surfaces the AI's in-flight block edits.
+  // Revalidate the live-.docx block model from the server (best-effort — the store
+  // keeps the last-known doc on failure). Used after an AI turn and after bulk
+  // edits; the store also revalidates on focus (see below). Manual edits reconcile
+  // themselves via the store's optimistic `mutate`, so they don't call this.
   const refreshDoc = useCallback(async () => {
     if (!thesisId) return;
-    try {
-      const result = await getThesisDocument(thesisId);
-      setDoc(result);
-      setDocTick((n) => n + 1);
-    } catch {
-      // Keep whatever we last had; only fall to legacy if we never loaded a doc.
-      setDoc((prev) => prev ?? { docMode: "legacy-db", available: false });
-    }
+    await useThesisDocStore.getState().revalidate(thesisId);
   }, [thesisId]);
 
   // Fetch the OnlyOffice editor config (only meaningful for live docs). On any
@@ -194,15 +200,24 @@ export default function ThesisWorkspaceScreen() {
     }
   }, []);
 
-  // Load the document model + editor config on focus. Using focus (not mount)
-  // means returning from the block editor re-fetches, so a saved paragraph edit
-  // shows on the pages without a manual refresh.
+  // Load the document model + editor config on focus. `load` paints instantly from
+  // the on-device cache, replays any unsent edit ops, then revalidates from the
+  // server in the background — so reopening a thesis (and returning from the block
+  // editor) shows content with no spinner while the fresh copy loads behind it.
   useFocusEffect(
     useCallback(() => {
-      void refreshDoc();
+      if (thesisId) void useThesisDocStore.getState().load(thesisId);
       void refreshEditorCfg();
-    }, [refreshDoc, refreshEditorCfg]),
+    }, [thesisId, refreshEditorCfg]),
   );
+
+  // When the durable edit queue fully drains, the .docx bytes changed on the
+  // server → re-fetch the editor config so the OnlyOffice layer (document.key)
+  // and the PDF view (keyed on it) reload the fresh bytes. The outline view
+  // already reconciled from the flush response.
+  useEffect(() => {
+    if (drainTick > 0) void refreshEditorCfg();
+  }, [drainTick, refreshEditorCfg]);
 
   const liveDoc = doc?.available ? doc : null;
   const isLiveDoc = !!liveDoc;
@@ -290,11 +305,11 @@ export default function ThesisWorkspaceScreen() {
 
   const title = thesis?.title ?? "";
 
-  // Reserve exactly the height the sheet covers from the bottom = containerHeight
-  // (≈ window) − the sheet's live top-edge Y. Tracks every position continuously,
-  // so there's never a stale gap when the snap point changes.
+  // Reserve exactly the height the sheet covers from the bottom = the live
+  // container height − the sheet's live top-edge Y. Tracks every position
+  // continuously, so there's never a stale gap when the snap point changes.
   const docAreaStyle = useAnimatedStyle(() => ({
-    paddingBottom: Math.max(0, windowHeight - sheetPosition.value),
+    paddingBottom: Math.max(0, containerHeight.value - sheetPosition.value),
   }));
 
   // Loading: no thesis yet (refreshThesis still in flight).
@@ -326,6 +341,20 @@ export default function ThesisWorkspaceScreen() {
       style={[styles.container, { backgroundColor: colors.bgSurface }]}
       edges={[]}
     >
+      {/* Keyboard clearance for the composer: shrink this whole region above the
+          keyboard (RN's maintained measurement — works on Android edge-to-edge,
+          where the window itself never resizes). The composer sheet's container
+          shrinks with it, so its detents always land above the keyboard. */}
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <View
+          style={styles.container}
+          onLayout={(e) => {
+            containerHeight.value = e.nativeEvent.layout.height;
+          }}
+        >
       {/* Top bar */}
       <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
         <BackButton />
@@ -384,8 +413,9 @@ export default function ThesisWorkspaceScreen() {
              behind at opacity 0). Switching views therefore never unmounts a view,
              so each keeps its own scroll position — crucially including the
              OnlyOffice editor, whose in-canvas scroll we can't otherwise read or
-             restore. Each layer reloads after an AI turn on its own (OnlyOffice via
-             a bumped document.key, docx-preview via the signed url, PDF via a
+             restore. Each layer refreshes after an edit on its own (OnlyOffice via
+             a bumped document.key, docx-preview via a silent in-place refresh —
+             double-buffered, keeps scroll, no reload — and PDF via a
              re-convert). The wrapper is a normal flex child so it honours the
              animated paddingBottom (reserved for the composer sheet); the absolute
              layers then fill exactly that reserved box. */
@@ -414,6 +444,7 @@ export default function ThesisWorkspaceScreen() {
               ) : (
                 <WordDocxView
                   url={`${liveDoc.downloadUrl}${liveDoc.downloadUrl.includes("?") ? "&" : "?"}_v=${docTick}`}
+                  thesisId={thesisId}
                   blocks={tapBlocks}
                   selectedIndices={selectedIndices}
                   scrollToIndex={
@@ -447,7 +478,6 @@ export default function ThesisWorkspaceScreen() {
                 thesisId={thesisId}
                 blocks={liveDoc.blocks}
                 rtl={docRtl}
-                onAfterMove={() => void refreshDoc()}
                 paddingBottom={16}
                 version={docTick}
               />
@@ -512,6 +542,8 @@ export default function ThesisWorkspaceScreen() {
           void refreshEditorCfg();
         }}
       />
+        </View>
+      </KeyboardAvoidingView>
 
       {/* Sources sheet — self-hides when closed (conditional unmount). */}
       <SourcesSheet thesisId={thesisId} />
