@@ -23,7 +23,7 @@ Phase 1 delivers a console an operator can actually run the platform with: monit
 
 ## 3. Roles & access model
 
-Admin authority is a **separate axis** from the mobile persona. A new nullable enum column **`profiles.staff_role`** identifies staff:
+Admin authority is a **separate axis** from the mobile persona. A new nullable **`profiles.staff_role`** column (plain `text`, constrained to the role set in application code — matching this repo's no-`pgEnum` convention) identifies staff:
 
 | `staff_role` | Owns |
 |---|---|
@@ -90,7 +90,7 @@ The token-gated HTML page reborn as a gated React UI: active provider, per-provi
 ## 6. Cross-repo changes in `modakerati-server`
 
 This work spans both repos. Server changes (schema is server-owned per the golden rule):
-1. Add **`profiles.staff_role`** nullable enum column — Drizzle schema (`src/db/schema.ts`) + matching `supabase/migrations/NNNNN_*.sql`.
+1. Add **`profiles.staff_role`** nullable `text` column — in the Drizzle schema (`src/db/schema.ts`, source of truth) **and** as an `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS staff_role text;` inside `ensureSchema()` (`src/db/index.ts`), which auto-applies on next server boot (the repo's established additive-column pattern; `npx drizzle-kit push` optional for parity). This sidesteps the `DATABASE_URL`-reachability constraint noted in project memory.
 2. Add **`requireStaffRole(...roles)`** middleware — reads `profiles.staff_role` for the authed Supabase user; `403` if insufficient.
 3. **Gate `/api/news` writes** (`POST`/`PUT`/`DELETE`) behind `requireStaffRole` — the security fix.
 4. **Expose the providers admin ops to staff-JWT** (in addition to the existing `ADMIN_API_TOKEN`) so the dashboard can call them with the signed-in staff session.
@@ -123,4 +123,4 @@ blink-dashboard ships no test framework; Phase 1 verifies by **running the app**
 - **Type drift:** local row types must be updated by hand whenever the server's Drizzle schema changes. Mitigation: keep a short "types mirrored from server" comment header per `types.ts`.
 - **Staff-JWT vs `ADMIN_API_TOKEN`:** the providers ops carry two auth paths during transition; keep the token fallback until the staff-JWT gate is proven.
 - **Service-role key** must be server-only in the dashboard env (never `NEXT_PUBLIC_*`) or writes fail and reads see only RLS-published rows.
-- **Migration ordering:** land the `staff_role` migration on the shared Supabase project before relying on real role gating (the fallback covers the interim).
+- **Migration ordering:** the `staff_role` column lands on the shared Supabase project the next time `modakerati-server` boots (via `ensureSchema()`); the dashboard's super_admin fallback covers any interim before that deploy.
