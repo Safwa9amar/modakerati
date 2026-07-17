@@ -477,6 +477,7 @@ export default function ThesisWorkspaceScreen() {
               <OutlineReorderable
                 thesisId={thesisId}
                 blocks={liveDoc.blocks}
+                sections={liveDoc.sections}
                 rtl={docRtl}
                 paddingBottom={16}
                 version={docTick}
