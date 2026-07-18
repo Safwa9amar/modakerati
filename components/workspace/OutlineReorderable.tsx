@@ -134,7 +134,15 @@ export function OutlineReorderable({
 }
 
 const styles = StyleSheet.create({
-  list: { flex: 1, backgroundColor: "#FFFFFF", marginHorizontal: 16, marginTop: 8, borderRadius: 6 },
+  list: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 6,
+    // Clip the bleed zones' square grey corners to the card's rounding.
+    overflow: "hidden",
+  },
   content: { padding: 12 },
   row: { alignItems: "flex-start", gap: 2 },
   handle: { paddingTop: 12, paddingHorizontal: 2 },

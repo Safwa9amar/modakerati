@@ -147,6 +147,8 @@ export function applyOpToSections(
     case "move": {
       if (op.from === op.to) return sections;
       return shift((st) => {
+        // The dragged block IS the section start: the boundary travels with it.
+        if (st === op.from) return op.to;
         let v = st > op.from ? st - 1 : st;
         if (v > op.to) v += 1;
         return v;
