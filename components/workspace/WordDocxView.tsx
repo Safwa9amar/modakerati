@@ -42,6 +42,10 @@ export function WordDocxView({
   scrollToIndex,
   rtl = false,
   thesisId,
+  editable = true,
+  onEditCommit,
+  onSplit,
+  onMerge,
 }: {
   url: string;
   blocks: DocTapBlock[];
@@ -64,6 +68,18 @@ export function WordDocxView({
   // When set, subscribes to this thesis's optimistic edit ops (thesis-doc-store)
   // and patches the rendered DOM in place for instant feedback.
   thesisId?: string;
+  // When false (an AI turn is generating), a tap never enters inline-edit mode.
+  editable?: boolean;
+  // A live/blur commit of an inline paragraph edit → the parent maps it to an
+  // editText op. Text is the paragraph's current plain text.
+  onEditCommit?: (index: number, text: string) => void;
+  // Enter pressed mid-paragraph: split `index` into `before` (stays) + `after`
+  // (new paragraph inserted right after).
+  onSplit?: (index: number, before: string, after: string) => void;
+  // Backspace at offset 0: merge paragraph `curIndex` into `prevIndex`, with the
+  // already-joined text. The parent emits editText(prevIndex, mergedText) then
+  // deleteBlocks([curIndex]).
+  onMerge?: (prevIndex: number, curIndex: number, mergedText: string) => void;
 }) {
   const colors = useThemeColors();
   const webRef = useRef<WebView>(null);
@@ -75,13 +91,19 @@ export function WordDocxView({
 
   // Latest props, readable from the stable refresh callback: updates flow into
   // the page via injection, not via rebuilding the WebView source.
-  const latestRef = useRef({ url, blocks, selectedIndices });
-  latestRef.current = { url, blocks, selectedIndices };
+  const latestRef = useRef({ url, blocks, selectedIndices, editable });
+  latestRef.current = { url, blocks, selectedIndices, editable };
 
   // The url the page currently shows (or is already fetching) — gates duplicate
   // refresh injections. Injections are only valid once the shell reported ready.
   const shownUrlRef = useRef(url);
   const shellReadyRef = useRef(false);
+  // True while a paragraph in the WebView has an active caret. The post-flush
+  // silent refresh would re-render the doc and destroy the caret, so we defer it
+  // until the edit ends. `pendingRefreshRef` remembers that a refresh was asked
+  // for while editing so we can run it on editEnd.
+  const isEditingRef = useRef(false);
+  const pendingRefreshRef = useRef(false);
   const refreshRetriesRef = useRef(0);
 
   // Built once per shell (i.e. per rtl flip — NOT per url change). Embeds the
@@ -90,9 +112,9 @@ export function WordDocxView({
   // even if the url moved on between render and effect.
   const builtUrlRef = useRef(url);
   const html = useMemo(() => {
-    const { url: u, blocks: b, selectedIndices: s } = latestRef.current;
+    const { url: u, blocks: b, selectedIndices: s, editable: e } = latestRef.current;
     builtUrlRef.current = u;
-    return buildHtml(u, b, s, rtl);
+    return buildHtml(u, b, s, rtl, e);
   }, [rtl]);
 
   // A NEW shell (initial mount or rtl flip) loads from scratch: spinner until its
@@ -107,6 +129,7 @@ export function WordDocxView({
   // Silent in-place refresh: hand the new url (plus the blocks/selection that
   // match those bytes) to the page, which double-buffers the render and swaps.
   const maybeRefresh = useCallback(() => {
+    if (isEditingRef.current) { pendingRefreshRef.current = true; return; }
     if (!shellReadyRef.current) return; // the 'ready' handler will call us again
     const { url: u, blocks: b, selectedIndices: s } = latestRef.current;
     if (shownUrlRef.current === u) return;
@@ -145,6 +168,17 @@ export function WordDocxView({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selKey]);
+
+  // Keep the WebView's edit gate in sync (an AI turn disables inline editing).
+  React.useEffect(() => {
+    webRef.current?.injectJavaScript(
+      `window.__setEditable && window.__setEditable(${editable ? "true" : "false"}); true;`,
+    );
+    // A turn starting mid-edit must commit + release the caret before the AI edits land.
+    if (!editable) {
+      webRef.current?.injectJavaScript(`window.__forceCommitEdit && window.__forceCommitEdit(); true;`);
+    }
+  }, [editable]);
 
   const onMessage = (e: WebViewMessageEvent) => {
     try {
@@ -185,6 +219,26 @@ export function WordDocxView({
         const text = typeof msg.text === "string" ? msg.text : "";
         if (msg.type === "longpress") onLongPress(msg.index, text);
         else onSelect(msg.index, text);
+      } else if (msg.type === "editStart" && typeof msg.index === "number") {
+        isEditingRef.current = true;
+      } else if (msg.type === "editEnd") {
+        isEditingRef.current = false;
+        // Run any refresh that was suppressed while the caret was active.
+        if (pendingRefreshRef.current) { pendingRefreshRef.current = false; maybeRefresh(); }
+      } else if (msg.type === "editCommit" && typeof msg.index === "number") {
+        onEditCommit?.(msg.index, typeof msg.text === "string" ? msg.text : "");
+      } else if (msg.type === "split" && typeof msg.index === "number") {
+        onSplit?.(
+          msg.index,
+          typeof msg.before === "string" ? msg.before : "",
+          typeof msg.after === "string" ? msg.after : "",
+        );
+      } else if (
+        msg.type === "merge" &&
+        typeof msg.prevIndex === "number" &&
+        typeof msg.curIndex === "number"
+      ) {
+        onMerge?.(msg.prevIndex, msg.curIndex, typeof msg.mergedText === "string" ? msg.mergedText : "");
       }
     } catch {
       // ignore malformed bridge messages
@@ -231,10 +285,17 @@ export function WordDocxView({
 // The WebView shell: loads docx-preview, fetches the .docx, renders it, wires
 // tap + long-press selection, and posts lifecycle/selection messages back to RN.
 // Refreshes double-buffer between #bufA/#bufB so the visible pages never blank.
-function buildHtml(url: string, blocks: DocTapBlock[], selectedIndices: number[], rtl: boolean): string {
+function buildHtml(
+  url: string,
+  blocks: DocTapBlock[],
+  selectedIndices: number[],
+  rtl: boolean,
+  editable: boolean,
+): string {
   const blocksJson = JSON.stringify(blocks);
   const urlJson = JSON.stringify(url);
   const selJson = JSON.stringify(selectedIndices);
+  const editableJson = editable ? "true" : "false";
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -265,6 +326,7 @@ function buildHtml(url: string, blocks: DocTapBlock[], selectedIndices: number[]
 <div id="container"><div id="bufA"></div><div id="bufB" class="buf-off"></div></div>
 <script>
   var RN = window.ReactNativeWebView;
+  var EDITABLE = ${editableJson};
   function post(o){ try { RN && RN.postMessage(JSON.stringify(o)); } catch(e){} }
   var norm = function(s){ return (s||"").replace(/\\s+/g," ").trim(); };
 
