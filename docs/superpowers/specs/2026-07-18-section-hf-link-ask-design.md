@@ -44,8 +44,30 @@ definition, `LIVE_DOCX_TOOLS` allowlist in `mcp-bridge.ts`, description in the
   the engine).
 - Edge cases: section 0 → `ok:false` with "the first section has no previous
   section to link to". Section with no distinct part of the requested kind →
-  `ok:true` with an "already linked" note (idempotent). Same live-thesis guard
-  + `withThesisDoc` serialization as the sibling tools.
+  `ok:true` with an "already linked" note (idempotent). A part SHARED by
+  multiple sections (imported docs) → `ok:false` with a clear "shared header —
+  unlinking one section isn't supported yet" error, validated BEFORE any
+  mutation. Same live-thesis guard + `withThesisDoc` serialization as the
+  sibling tools.
+
+### 1b. New doc-tool `unlink_section_from_previous` (user addition)
+
+The symmetric operation, registered in the same three places:
+
+- Params: `userId`, `thesisId`, `index` (heading block index), `which:
+  "header" | "footer" | "both"` (default `"both"`).
+- Behavior (Word's "Link to Previous" toggle-OFF semantics): resolve the
+  section; for each requested kind, if the section already has its own default
+  part → `ok:true` "already unlinked" (idempotent). Otherwise COPY the
+  effective inherited part's XML (nearest previous section's default part)
+  into a NEW distinct part registered on this section — content and formatting
+  preserved, now independently editable. When nothing is inherited anywhere in
+  the chain, create a blank own part (exactly what Word does).
+- Uses the engine's `addHeader/addFooter(text, "default", xml, {
+  registerInSectPr:false })` raw-xml parameter for the clone +
+  `sections.setSectionHeader/Footer(sectionIndex, relId)` for the reference.
+- Section 0 is VALID here (unlike link): it just gets its own (possibly
+  blank) part.
 
 ### 2. Prompt rule (types.ts, live-docx system prompt)
 
@@ -55,9 +77,13 @@ student has not already chosen in their request, call `ask_user` FIRST with
 plain-language options — e.g. "Link with previous section (same header)" /
 "Its own header for this part". On "linked": do not create a part; if a
 distinct part already exists, call `link_section_to_previous`. On "own":
-proceed as today. Wording follows the existing ask_user conventions: thesis
-language, no block numbers, no jargon. Skip the ask entirely when the request
-already specifies the choice.
+proceed as today — and when the student chose "own" but gave no content,
+`unlink_section_from_previous` first (preserves the current look as an
+independent copy), then edit or ask what it should say. The rule also covers
+direct student requests: "unlink"/"make this section's header independent" →
+unlink tool; "same as previous"/"link them" → link tool. Wording follows the
+existing ask_user conventions: thesis language, no block numbers, no jargon.
+Skip the ask entirely when the request already specifies the choice.
 
 ### 3. Tool-description reinforcement (doc-tools.ts)
 
@@ -83,9 +109,12 @@ automatically on the post-turn document refetch. No DTO, store, or UI change.
 
 - Engine (only if the footer analog is added): vitest mirroring the header
   linkToPrevious test.
-- Server: a fixture test on a two-section doc — create a distinct section-1
-  header, run the link tool's core logic, assert `sectionHFDTO` shows section
-  1 inheriting section 0's header again (or null when section 0 has none).
+- Server: fixture tests on a two-section doc — (a) link: create a distinct
+  section-1 header, run the link logic, assert `sectionHFDTO` shows section 1
+  inheriting section 0's again (or null when section 0 has none); (b) unlink:
+  section 1 inheriting section 0's header → unlink → section 1 has its OWN
+  part with the SAME text, and editing it no longer affects section 0;
+  (c) idempotence + section-0 edge for both tools.
 - Prompt/descriptions: read-verified; no runner exercises prompts.
 - Manual chat pass: "add a header for chapter 2" → AI asks; answering
   "linked" leaves no distinct part; answering "own" creates one; an explicit
