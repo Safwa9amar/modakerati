@@ -535,8 +535,12 @@
     "nSelected": "{{count}} selected",
     "deleteSelected": "Delete {{count}}",
     "startOnNewPage": "New page",
+    "undo": "Undo",
+    "redo": "Redo",
+    "historyFailed": "Couldn't restore the document",
+    "undoAiChanges": "Undo AI changes",
     "deleteSelectedTitle": "Delete selected blocks?",
-    "deleteSelectedBody": "Remove {{count}} block(s) from the document? This can't be undone.",
+    "deleteSelectedBody": "Remove {{count}} block(s) from the document? You can undo this from History.",
     "bulkEditError": "Could not apply the change.",
     "removingBg": "Removing background…",
     "updatingImage": "Updating image…",
@@ -546,6 +550,34 @@
     "cropApply": "Apply",
     "pdfFailed": "Couldn't generate the PDF. Please try again.",
     "pdfUnavailable": "PDF preview isn't available for this document."
+  },
+  "history": {
+    "title": "Document history",
+    "empty": "No earlier versions yet — they appear as you edit.",
+    "restore": "Restore",
+    "restoreTitle": "Restore this version?",
+    "restoreBody": "The document will roll back to this state. You can undo the restore afterwards.",
+    "justNow": "just now",
+    "minsAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} h ago",
+    "source": {
+      "ai": "AI edit",
+      "manual": "Manual edit",
+      "onlyoffice": "Editor save",
+      "restore": "Restore point",
+      "import": "Import"
+    }
+  },
+  "confirmAction": {
+    "title": "The AI wants to make a critical change",
+    "deleteBlock": "Delete block {{index}}: «{{snippet}}»",
+    "replaceText": "Replace {{count}} occurrence(s) of «{{find}}» with «{{replace}}»",
+    "overwriteHeader": "Overwrite the page header with «{{next}}»",
+    "overwriteFooter": "Overwrite the page footer with «{{next}}»",
+    "make_thesis_ready": "Apply full RTL/Word normalization across the whole document",
+    "front_matter_numbering": "Renumber the front-matter pages across the document",
+    "approve": "Approve",
+    "undoNote": "You can undo this later from History."
   },
   "ribbon": {
     "soon": "soon",

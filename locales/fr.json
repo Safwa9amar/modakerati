@@ -535,8 +535,12 @@
     "nSelected": "{{count}} sélectionnés",
     "deleteSelected": "Supprimer {{count}}",
     "startOnNewPage": "Nouvelle page",
+    "undo": "Annuler",
+    "redo": "Rétablir",
+    "historyFailed": "Impossible de restaurer le document",
+    "undoAiChanges": "Annuler les modifications de l'IA",
     "deleteSelectedTitle": "Supprimer les blocs sélectionnés ?",
-    "deleteSelectedBody": "Retirer {{count}} bloc(s) du document ? Cette action est irréversible.",
+    "deleteSelectedBody": "Retirer {{count}} bloc(s) du document ? Vous pouvez annuler cette action depuis l'historique.",
     "bulkEditError": "Impossible d'appliquer la modification.",
     "removingBg": "Suppression de l'arrière-plan…",
     "updatingImage": "Mise à jour de l'image…",
@@ -546,6 +550,34 @@
     "cropApply": "Appliquer",
     "pdfFailed": "Impossible de générer le PDF. Veuillez réessayer.",
     "pdfUnavailable": "L'aperçu PDF n'est pas disponible pour ce document."
+  },
+  "history": {
+    "title": "Historique du document",
+    "empty": "Aucune version antérieure pour l'instant — elles apparaîtront au fil de vos modifications.",
+    "restore": "Restaurer",
+    "restoreTitle": "Restaurer cette version ?",
+    "restoreBody": "Le document reviendra à cet état. Vous pourrez annuler la restauration ensuite.",
+    "justNow": "à l'instant",
+    "minsAgo": "il y a {{count}} min",
+    "hoursAgo": "il y a {{count}} h",
+    "source": {
+      "ai": "Modification IA",
+      "manual": "Modification manuelle",
+      "onlyoffice": "Enregistrement éditeur",
+      "restore": "Point de restauration",
+      "import": "Import"
+    }
+  },
+  "confirmAction": {
+    "title": "L'IA souhaite effectuer une modification critique",
+    "deleteBlock": "Supprimer le bloc {{index}} : « {{snippet}} »",
+    "replaceText": "Remplacer {{count}} occurrence(s) de « {{find}} » par « {{replace}} »",
+    "overwriteHeader": "Remplacer l'en-tête de page par « {{next}} »",
+    "overwriteFooter": "Remplacer le pied de page par « {{next}} »",
+    "make_thesis_ready": "Appliquer la normalisation RTL/Word complète à tout le document",
+    "front_matter_numbering": "Renuméroter les pages liminaires dans tout le document",
+    "approve": "Approuver",
+    "undoNote": "Vous pourrez annuler cette action plus tard depuis l'historique."
   },
   "ribbon": {
     "soon": "bientôt",

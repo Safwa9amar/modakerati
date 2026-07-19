@@ -535,8 +535,12 @@
     "nSelected": "{{count}} محدد",
     "deleteSelected": "حذف {{count}}",
     "startOnNewPage": "صفحة جديدة",
+    "undo": "تراجع",
+    "redo": "إعادة",
+    "historyFailed": "تعذّرت استعادة المستند",
+    "undoAiChanges": "تراجع عن تعديلات الذكاء الاصطناعي",
     "deleteSelectedTitle": "حذف الكتل المحددة؟",
-    "deleteSelectedBody": "إزالة {{count}} كتلة من المستند؟ لا يمكن التراجع عن هذا الإجراء.",
+    "deleteSelectedBody": "إزالة {{count}} كتلة من المستند؟ يمكنك التراجع عن هذا من السجل.",
     "bulkEditError": "تعذّر تطبيق التغيير.",
     "removingBg": "جارٍ إزالة الخلفية…",
     "updatingImage": "جارٍ تحديث الصورة…",
@@ -546,6 +550,34 @@
     "cropApply": "تطبيق",
     "pdfFailed": "تعذّر إنشاء ملف PDF. يرجى المحاولة مرة أخرى.",
     "pdfUnavailable": "معاينة PDF غير متاحة لهذا المستند."
+  },
+  "history": {
+    "title": "سجل المستند",
+    "empty": "لا توجد إصدارات سابقة بعد — ستظهر هنا كلما عدّلت المستند.",
+    "restore": "استعادة",
+    "restoreTitle": "استعادة هذا الإصدار؟",
+    "restoreBody": "سيعود المستند إلى هذه الحالة. يمكنك التراجع عن الاستعادة لاحقًا.",
+    "justNow": "الآن",
+    "minsAgo": "قبل {{count}} دقيقة",
+    "hoursAgo": "قبل {{count}} ساعة",
+    "source": {
+      "ai": "تعديل بالذكاء الاصطناعي",
+      "manual": "تعديل يدوي",
+      "onlyoffice": "حفظ من المحرر",
+      "restore": "نقطة استعادة",
+      "import": "استيراد"
+    }
+  },
+  "confirmAction": {
+    "title": "يريد الذكاء الاصطناعي إجراء تعديل حساس",
+    "deleteBlock": "حذف الكتلة {{index}}: «{{snippet}}»",
+    "replaceText": "استبدال {{count}} من تكرارات «{{find}}» بـ «{{replace}}»",
+    "overwriteHeader": "استبدال رأس الصفحة بـ «{{next}}»",
+    "overwriteFooter": "استبدال تذييل الصفحة بـ «{{next}}»",
+    "make_thesis_ready": "تطبيق التنسيق الكامل RTL/Word على المستند بأكمله",
+    "front_matter_numbering": "إعادة ترقيم صفحات البداية في المستند بأكمله",
+    "approve": "موافقة",
+    "undoNote": "يمكنك التراجع عن هذا لاحقًا من السجل."
   },
   "ribbon": {
     "soon": "قريبًا",
