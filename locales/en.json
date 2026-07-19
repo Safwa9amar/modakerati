@@ -1,4 +1,19 @@
 {
+  "blockBar": {
+    "style": "Style",
+    "align": "Align",
+    "direction": "Direction",
+    "list": "List",
+    "color": "Color",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "image": "Insert image",
+    "clear": "Clear formatting",
+    "more": "More tools",
+    "askAi": "Ask AI",
+    "soonTitle": "Coming soon",
+    "soonBody": "Inline text styling arrives in a later update."
+  },
   "common": {
     "continue": "Continue",
     "cancel": "Cancel",

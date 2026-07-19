@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet } from "react-native";
+import type { ComponentType } from "react";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
@@ -15,6 +16,11 @@ interface Props {
   /** Localized idle status line. */
   statusReady: string;
   rtl: boolean;
+  /** Scroll container for the expanded reasoning. Defaults to gorhom's
+   *  BottomSheetScrollView (correct INSIDE a bottom sheet). Callers rendering this
+   *  OUTSIDE a gorhom sheet (e.g. the docked idle AI bar) MUST pass a plain RN
+   *  ScrollView — BottomSheetScrollView throws without a BottomSheet ancestor. */
+  scrollComponent?: ComponentType<any>;
 }
 
 /**
@@ -23,7 +29,7 @@ interface Props {
  * reasoning, then a reviewable "Thought for Xs" chip (through the writing phase
  * and until the next turn).
  */
-export function ComposerThinking({ isGenerating, reasoning, thinking, durationMs, statusReady, rtl }: Props) {
+export function ComposerThinking({ isGenerating, reasoning, thinking, durationMs, statusReady, rtl, scrollComponent }: Props) {
   const colors = useThemeColors();
 
   if (!isGenerating && !thinking) {
@@ -47,7 +53,7 @@ export function ComposerThinking({ isGenerating, reasoning, thinking, durationMs
         durationMs={reasoning ? undefined : durationMs}
         defaultOpen={reasoning}
         rtl={rtl}
-        ScrollComponent={BottomSheetScrollView}
+        ScrollComponent={scrollComponent ?? BottomSheetScrollView}
         surfaceColor={colors.bgSurface}
       />
     </View>

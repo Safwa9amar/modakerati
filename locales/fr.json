@@ -1,4 +1,19 @@
 {
+  "blockBar": {
+    "style": "Style",
+    "align": "Alignement",
+    "direction": "Direction",
+    "list": "Liste",
+    "color": "Couleur",
+    "moveUp": "Monter",
+    "moveDown": "Descendre",
+    "image": "Insérer une image",
+    "clear": "Effacer la mise en forme",
+    "more": "Plus d'outils",
+    "askAi": "Demander à l'IA",
+    "soonTitle": "Bientôt disponible",
+    "soonBody": "La mise en forme du texte arrive dans une prochaine mise à jour."
+  },
   "common": {
     "continue": "Continuer",
     "cancel": "Annuler",

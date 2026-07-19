@@ -10,7 +10,6 @@ import {
   Linking,
   Platform,
   ScrollView,
-  useWindowDimensions,
 } from "react-native";
 import Animated, { useSharedValue, useAnimatedStyle } from "react-native-reanimated";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,10 +31,7 @@ import { PdfView } from "@/components/workspace/PdfView";
 import { DocBlock } from "@/components/workspace/DocBlock";
 import { PaperPage } from "@/components/workspace/PaperPage";
 import { DocSkeleton } from "@/components/workspace/DocSkeleton";
-import {
-  WorkspaceComposerSheet,
-  COMPOSER_COLLAPSED_HEIGHT,
-} from "@/components/workspace/WorkspaceComposerSheet";
+import { BlockComposer, BLOCK_COMPOSER_MIN_INSET } from "@/components/workspace/BlockComposer";
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
 import { HeaderMenuButton } from "@/components/workspace/WorkspaceHeaderMenu";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
@@ -69,7 +65,6 @@ export default function ThesisWorkspaceScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
   const { thesisId, blockIndex } = useLocalSearchParams<{ thesisId: string; blockIndex?: string }>();
 
   const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
@@ -83,16 +78,12 @@ export default function ThesisWorkspaceScreen() {
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
   const isGenerating = useChatStore((s) => s.isGenerating);
   const activePanel = useWorkspaceStore((s) => s.activePanel);
-  // The composer sheet writes its LIVE top-edge Y into this shared value (gorhom's
-  // `animatedPosition`). The document area reserves exactly the height the sheet
-  // covers from the bottom, so content always clears the sheet at any position —
-  // peek, expanded, mid-drag, or keyboard-resized — with no stale-padding gaps.
-  const sheetPosition = useSharedValue(windowHeight - COMPOSER_COLLAPSED_HEIGHT);
-  // Live height of the keyboard-avoiding region hosting the doc area + composer
-  // sheet. The KeyboardAvoidingView shrinks it while the keyboard is up, so the
-  // doc-area reservation below must measure against THIS, not the window height
-  // (which would over-pad by the keyboard height).
-  const containerHeight = useSharedValue(windowHeight);
+  // The composer (BlockComposer) measures itself and writes its rendered height
+  // here; the document area reserves exactly that many px at the bottom so content
+  // always clears whichever composer surface is up — the idle AI bar, the floating
+  // block pill, or the keyboard-docked bar. The parent's KeyboardAvoidingView
+  // already lifts the composer above the keyboard, so this is a plain height.
+  const composerInset = useSharedValue(BLOCK_COMPOSER_MIN_INSET);
 
   // Live-.docx document model, owned by the thesis-doc store so it can be
   // hydrated from the on-device cache (instant open) and edited optimistically.
@@ -347,7 +338,7 @@ export default function ThesisWorkspaceScreen() {
   // container height − the sheet's live top-edge Y. Tracks every position
   // continuously, so there's never a stale gap when the snap point changes.
   const docAreaStyle = useAnimatedStyle(() => ({
-    paddingBottom: Math.max(0, containerHeight.value - sheetPosition.value),
+    paddingBottom: composerInset.value,
   }));
 
   // Loading: no thesis yet (refreshThesis still in flight).
@@ -385,12 +376,7 @@ export default function ThesisWorkspaceScreen() {
         style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <View
-          style={styles.container}
-          onLayout={(e) => {
-            containerHeight.value = e.nativeEvent.layout.height;
-          }}
-        >
+        <View style={styles.container}>
       {/* Top bar */}
       <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
         <BackButton />
@@ -600,25 +586,15 @@ export default function ThesisWorkspaceScreen() {
         )}
       </Animated.View>
 
-      <WorkspaceComposerSheet
+      {/* Context-aware action zone (replaces the old always-present composer sheet):
+          whole-memoir AI input when nothing is selected, a block-anchored formatting
+          + Ask-AI bar when a block is. Sources / Outline / Export live in the header
+          ⋯ menu now, so the composer no longer carries them. */}
+      <BlockComposer
         thesisId={thesisId}
-        isLiveDoc={isLiveDoc}
         rtl={docRtl}
-        animatedPosition={sheetPosition}
+        insetValue={composerInset}
         blocks={liveDoc?.blocks ?? []}
-        downloadUrl={liveDoc?.downloadUrl}
-        documentId={liveDoc?.id}
-        onOpenSources={() => useBottomSheet.getState().openSheet("thesis-sources")}
-        onOpenOutline={handleOutlineToggle}
-        onExport={() => {
-          if (liveDoc?.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
-        }}
-        onAfterBulkEdit={() => {
-          // A bulk delete / start-on-new-page rewrote the .docx — re-fetch so the
-          // view (and OnlyOffice config key) reflect the change immediately.
-          void refreshDoc();
-          void refreshEditorCfg();
-        }}
       />
         </View>
       </KeyboardAvoidingView>
