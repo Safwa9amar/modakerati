@@ -528,6 +528,7 @@
     "emptyChapter": "Tap the chat to ask the AI to draft this.",
     "resume": "Abstract",
     "empty": "No content yet.",
+    "emptyHint": "Ask the AI in the composer to draft your first section ✨",
     "titlePage": "Title page",
     "wholeMemoir": "Whole memoir",
     "showComposer": "Show composer",

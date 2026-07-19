@@ -31,6 +31,7 @@ import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
 import { PdfView } from "@/components/workspace/PdfView";
 import { DocBlock } from "@/components/workspace/DocBlock";
 import { PaperPage } from "@/components/workspace/PaperPage";
+import { DocSkeleton } from "@/components/workspace/DocSkeleton";
 import {
   WorkspaceComposerSheet,
   COMPOSER_COLLAPSED_HEIGHT,
@@ -366,9 +367,7 @@ export default function ThesisWorkspaceScreen() {
           </Text>
           <View style={styles.expandBtn} />
         </View>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.brandPrimary} />
-        </View>
+        <DocSkeleton />
       </SafeAreaView>
     );
   }
@@ -460,10 +459,10 @@ export default function ThesisWorkspaceScreen() {
       <Animated.View style={[{ flex: 1 }, docAreaStyle]}>
         {doc === undefined ? (
           /* Document model not resolved yet — avoid flashing the legacy render
-             (migrated theses can still have section rows) before we know mode. */
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={colors.brandPrimary} />
-          </View>
+             (migrated theses can still have section rows) before we know mode.
+             Show a paper-style skeleton so loading reads as a document, not a
+             blank spinner. */
+          <DocSkeleton />
         ) : liveDoc ? (
           /* All three live-.docx views stay MOUNTED at once, stacked as absolute
              layers; only the active one is on top + interactive (the others sit
@@ -591,6 +590,11 @@ export default function ThesisWorkspaceScreen() {
           <View style={styles.centered}>
             <Text style={styles.emptyText}>
               {t("workspace.empty", { defaultValue: "No content yet." })}
+            </Text>
+            <Text style={styles.emptyHint}>
+              {t("workspace.emptyHint", {
+                defaultValue: "Ask the AI in the composer to draft your first section ✨",
+              })}
             </Text>
           </View>
         )}
@@ -746,5 +750,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_500Medium",
     textAlign: "center",
+  },
+  emptyHint: {
+    color: MUTED,
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    marginTop: 8,
+    paddingHorizontal: 32,
+    lineHeight: 19,
   },
 });
