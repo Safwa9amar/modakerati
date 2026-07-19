@@ -182,7 +182,7 @@ export function applyOpToDoc(doc: LiveDocumentDTO, op: ThesisOp): LiveDocumentDT
 export async function executeOp(
   thesisId: string,
   op: ThesisOp,
-): Promise<{ document?: DocumentDTO }> {
+): Promise<{ document?: DocumentDTO; history?: { canUndo: boolean; canRedo: boolean } }> {
   switch (op.type) {
     case "editText":
       return editThesisParagraph(thesisId, op.index, { text: op.text });

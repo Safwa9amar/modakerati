@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { Alert } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
-import { getThesisDocument, type DocumentDTO } from "@/lib/api";
+import { getThesisDocument, getThesisHistory, type DocumentDTO } from "@/lib/api";
 import { getDocCache, setDocCache } from "@/lib/thesis-doc-cache";
 import { applyOpToDoc, executeOp, isRetryableError, type ThesisOp } from "@/lib/thesis-ops";
 import {
@@ -106,6 +106,8 @@ interface ThesisDocState {
   // layers reload the new bytes (their document.key derives from updatedAt).
   drainTick: Record<string, number>;
   revalidating: Record<string, boolean>;
+  // Server-reported undo/redo availability (from edit echoes + GET /history).
+  history: Record<string, { canUndo: boolean; canRedo: boolean }>;
 
   hydrate: (thesisId: string) => Promise<void>;
   revalidate: (thesisId: string) => Promise<void>;
@@ -115,6 +117,12 @@ interface ThesisDocState {
   // Resolves when the server confirms; rejects only on a permanent (non-network)
   // rejection — never on offline (the op stays queued). Safe to ignore the result.
   mutate: (thesisId: string, op: ThesisOp) => Promise<void>;
+  setHistoryState: (thesisId: string, h: { canUndo: boolean; canRedo: boolean }) => void;
+  refreshHistoryState: (thesisId: string) => Promise<void>;
+  // Replace the doc after a server-side restore (undo/redo/history sheet): full
+  // reconcile — bumps tick (Word view reloads) AND drainTick (editor config/PDF
+  // re-key). Callers must only invoke while pending === 0.
+  applyRestoredDoc: (thesisId: string, doc: DocumentDTO, h: { canUndo: boolean; canRedo: boolean }) => void;
 }
 
 const bump = (map: Record<string, number>, id: string) => ({ ...map, [id]: (map[id] ?? 0) + 1 });
@@ -146,6 +154,7 @@ export const useThesisDocStore = create<ThesisDocState>((set, get) => {
             // mid-queue would wipe the later ops' optimistic patches (flicker).
             if (res && typeof res === "object" && "document" in res && res.document) {
               get().setDoc(thesisId, res.document);
+              if ("history" in res && res.history) get().setHistoryState(thesisId, res.history);
             } else {
               try {
                 const fetched = await getThesisDocument(thesisId);
@@ -228,6 +237,7 @@ export const useThesisDocStore = create<ThesisDocState>((set, get) => {
     pending: {},
     drainTick: {},
     revalidating: {},
+    history: {},
 
     hydrate: async (thesisId) => {
       // A doc already in memory is fresher than disk — don't clobber it.
@@ -269,6 +279,24 @@ export const useThesisDocStore = create<ThesisDocState>((set, get) => {
     setDoc: (thesisId, doc) => {
       set((s) => ({ byId: { ...s.byId, [thesisId]: doc }, tick: bump(s.tick, thesisId) }));
       void setDocCache(thesisId, doc);
+    },
+
+    setHistoryState: (thesisId, h) =>
+      set((s) => ({ history: { ...s.history, [thesisId]: h } })),
+
+    refreshHistoryState: async (thesisId) => {
+      try {
+        const st = await getThesisHistory(thesisId);
+        get().setHistoryState(thesisId, { canUndo: st.canUndo, canRedo: st.canRedo });
+      } catch {
+        // Endpoint missing (old server) or offline — leave buttons as they were.
+      }
+    },
+
+    applyRestoredDoc: (thesisId, doc, h) => {
+      get().setDoc(thesisId, doc);
+      get().setHistoryState(thesisId, h);
+      set((s) => ({ drainTick: bump(s.drainTick, thesisId) }));
     },
 
     mutate: (thesisId, op) => {
