@@ -318,7 +318,8 @@ function buildHtml(
      rendering — display:none would zero those measurements) but never painted,
      and height:0 so it can't extend the scroll area in either direction. */
   .buf-off { visibility: hidden; height: 0; overflow: hidden; }
-  .mk-sel { outline: 2px solid #4c6ef5 !important; outline-offset: 1px; background: rgba(76,110,245,0.08) !important; }
+  .mk-sel { outline: 1.5px solid #9db4f5 !important; outline-offset: 1px; background: rgba(76,110,245,0.05) !important; }
+  .mk-editing { outline: 2px solid #4c6ef5 !important; outline-offset: 1px; background: #fff !important; caret-color: #1a1a1a; }
   .mk-tap { cursor: pointer; }
 </style>
 </head>
@@ -367,6 +368,7 @@ function buildHtml(
     selectedEls = [];
   }
   window.__setSelected = function(indices){
+    window.__SOLE_SEL = (indices && typeof indices !== 'number' && indices.length === 1) ? indices[0] : (typeof indices === 'number' ? indices : null);
     clearHighlights();
     if (indices == null) return;
     var arr = (typeof indices === 'number') ? [indices] : indices;
@@ -572,6 +574,80 @@ function buildHtml(
   // Tap/long-press listeners live ONCE on the stable outer container (delegation
   // via blockEl), so they survive buffer swaps; only the .mk-tap cursor class is
   // re-applied per render.
+  // ── Inline caret editing ───────────────────────────────────────────────────
+  // Second tap on the already-sole-selected paragraph turns it into a native
+  // contentEditable field (caret + keyboard). Commit/guards land in the
+  // debounce + applyOp guards below.
+  var editingIndex = null;      // block index being edited, or null
+  var editBaseline = null;      // normalized text at edit-start (detect real changes)
+  var commitTimer = null;
+  var lastTapX = 0, lastTapY = 0; // last touch point, for caret placement on edit-enter
+
+  window.__setEditable = function(v){ EDITABLE = !!v; };
+
+  function placeCaretFromPoint(x, y){
+    try {
+      if (document.caretRangeFromPoint){
+        var r = document.caretRangeFromPoint(x, y);
+        if (r){ var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+      }
+    } catch(e){}
+  }
+
+  function enterEdit(el, index){
+    if (!EDITABLE || !el || el.tagName !== 'P' || editingIndex != null) return false;
+    editingIndex = index;
+    editBaseline = norm(el.innerText);
+    el.setAttribute('contenteditable', 'true');
+    el.classList.add('mk-editing');
+    el.focus();
+    placeCaretFromPoint(lastTapX, lastTapY);
+    el.addEventListener('input', onEditInput);
+    el.addEventListener('keydown', onEditKeydown);
+    el.addEventListener('blur', onEditBlur);
+    post({ type: 'editStart', index: index });
+    return true;
+  }
+
+  function commitEdit(el){
+    if (editingIndex == null || !el) return;
+    var text = el.innerText;
+    if (norm(text) === editBaseline) return;   // no real change → no op
+    editBaseline = norm(text);
+    post({ type: 'editCommit', index: editingIndex, text: text });
+  }
+
+  function onEditInput(ev){
+    if (commitTimer) clearTimeout(commitTimer);
+    var el = ev.currentTarget;
+    commitTimer = setTimeout(function(){ commitTimer = null; commitEdit(el); }, 900);
+  }
+
+  function onEditKeydown(ev){
+    // Enter handling (split) is added in Phase 2; for now keep edits single-paragraph.
+    if (ev.key === 'Enter'){ ev.preventDefault(); }
+  }
+
+  function onEditBlur(ev){
+    var el = ev.currentTarget;
+    if (commitTimer){ clearTimeout(commitTimer); commitTimer = null; }
+    commitEdit(el);
+    el.removeAttribute('contenteditable');
+    el.classList.remove('mk-editing');
+    el.removeEventListener('input', onEditInput);
+    el.removeEventListener('keydown', onEditKeydown);
+    el.removeEventListener('blur', onEditBlur);
+    var idx = editingIndex;
+    editingIndex = null; editBaseline = null;
+    post({ type: 'editEnd', index: idx });
+  }
+
+  window.__forceCommitEdit = function(){
+    if (editingIndex == null) return;
+    var el = activeBuf.querySelector('.mk-editing');
+    if (el) el.blur();          // triggers onEditBlur → commit + editEnd
+  };
+
   function wireContainerEvents(){
     var container = document.getElementById('container');
     // Touch-timing long-press: WebView delivers no native onLongPress, so we time
@@ -588,6 +664,7 @@ function buildHtml(
     }
     container.addEventListener('touchstart', function(ev){
       startEl = blockEl(ev.target); moved = false; longFired = false;
+      var _t = ev.touches && ev.touches[0]; lastTapX = _t ? _t.clientX : 0; lastTapY = _t ? _t.clientY : 0;
       clearTimer();
       if (!startEl) return;
       timer = setTimeout(function(){ longFired = true; report(startEl, 'longpress'); }, 500);
@@ -598,11 +675,17 @@ function buildHtml(
       clearTimer();
       if (longFired){ longFired = false; return; } // already handled as a long-press
       if (moved) return; // a scroll, not a tap
+      if (startEl && startEl.tagName === 'P' && editingIndex == null &&
+          window.__SOLE_SEL != null && matchIndex(startEl.innerText || "") === window.__SOLE_SEL){
+        if (enterEdit(startEl, window.__SOLE_SEL)) return;
+      }
+      if (editingIndex != null) return; // taps inside the caret field are native
       report(startEl, 'select');
     }, { passive: true });
     // Fallback for environments that fire click without touch; guard against the
     // synthetic click that trails a real touch so we don't double-handle it.
     container.addEventListener('click', function(ev){
+      if (editingIndex != null) return;
       if (Date.now() - lastTouchEnd < 700) return;
       report(blockEl(ev.target), 'select');
     }, true);
