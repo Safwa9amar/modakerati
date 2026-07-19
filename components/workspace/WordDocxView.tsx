@@ -509,8 +509,10 @@ function buildHtml(
   function applyOpNow(op){
     try {
       if (op.type === 'editText'){
-        var el = elForIndex(op.index, false);
-        if (el && el.tagName === 'P') setBlockText(el, op.text);
+        if (op.index !== editingIndex){
+          var el = elForIndex(op.index, false);
+          if (el && el.tagName === 'P') setBlockText(el, op.text);
+        }
         pbEditText(op.index, op.text);
       } else if (op.type === 'format'){
         var ch = op.changes || {};
@@ -748,6 +750,7 @@ function buildHtml(
   // args run after the in-flight render finishes (older pendings are superseded).
   var refreshing = false, pendingRefresh = null;
   window.__refresh = function(url, blocks, sel){
+    if (editingIndex != null){ return; }   // RN also defers; this is the belt-and-braces
     if (refreshing){ pendingRefresh = [url, blocks, sel]; return; }
     refreshing = true;
     var back = activeBuf === bufA ? bufB : bufA;

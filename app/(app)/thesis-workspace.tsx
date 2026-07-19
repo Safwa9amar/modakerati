@@ -534,6 +534,21 @@ export default function ThesisWorkspaceScreen() {
                   onLongPress={(index, text) =>
                     useWorkspaceStore.getState().addToSelection(index, text)
                   }
+                  editable={!isGenerating}
+                  onEditCommit={(index, text) =>
+                    void useThesisDocStore.getState().mutate(thesisId, { type: "editText", index, text })
+                  }
+                  onMerge={(prevIndex, curIndex, mergedText) => {
+                    const store = useThesisDocStore.getState();
+                    void store.mutate(thesisId, { type: "editText", index: prevIndex, text: mergedText });
+                    void store.mutate(thesisId, { type: "deleteBlocks", indices: [curIndex] });
+                  }}
+                  // TODO(Task 5): re-enable once the splitParagraph op exists
+                  // onSplit={(index, before, after) =>
+                  //   void useThesisDocStore
+                  //     .getState()
+                  //     .mutate(thesisId, { type: "splitParagraph", index, before, after })
+                  // }
                 />
               )}
             </View>
