@@ -8,6 +8,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { BottomSheet } from "@/components/BottomSheet";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
+import { useNotificationStore } from "@/stores/notification-store";
 import { suggestThesisTitles } from "@/lib/api";
 import i18n from "@/lib/i18n";
 
@@ -25,12 +26,14 @@ export function NewThesisSheet() {
   const [title, setTitle] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  // The "AI Suggestions" setting gates the suggest-titles feature entirely.
+  const aiSuggestionsEnabled = useNotificationStore((s) => s.preferences.aiSuggestions);
 
   const canSuggest = title.trim().length >= 3;
 
   // On-demand AI autocomplete: only fetch when the user taps "Suggest titles".
   const fetchSuggestions = async () => {
-    if (!canSuggest || loadingSuggestions) return;
+    if (!canSuggest || loadingSuggestions || !aiSuggestionsEnabled) return;
     setLoadingSuggestions(true);
     try {
       setSuggestions(await suggestThesisTitles(title.trim()));
@@ -79,23 +82,25 @@ export function NewThesisSheet() {
         style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.bgCard }]}
       />
 
-      <Pressable
-        onPress={fetchSuggestions}
-        disabled={!canSuggest || loadingSuggestions}
-        style={[
-          styles.suggestBtn,
-          { borderColor: colors.brandPrimary + "55", opacity: !canSuggest || loadingSuggestions ? 0.5 : 1 },
-        ]}
-      >
-        {loadingSuggestions ? (
-          <ActivityIndicator size="small" color={colors.brandPrimary} />
-        ) : (
-          <Sparkles size={15} color={colors.brandPrimary} strokeWidth={2} />
-        )}
-        <Text style={[styles.suggestBtnText, { color: colors.brandPrimary }]}>
-          {t("thesis.suggestTitles")}
-        </Text>
-      </Pressable>
+      {aiSuggestionsEnabled && (
+        <Pressable
+          onPress={fetchSuggestions}
+          disabled={!canSuggest || loadingSuggestions}
+          style={[
+            styles.suggestBtn,
+            { borderColor: colors.brandPrimary + "55", opacity: !canSuggest || loadingSuggestions ? 0.5 : 1 },
+          ]}
+        >
+          {loadingSuggestions ? (
+            <ActivityIndicator size="small" color={colors.brandPrimary} />
+          ) : (
+            <Sparkles size={15} color={colors.brandPrimary} strokeWidth={2} />
+          )}
+          <Text style={[styles.suggestBtnText, { color: colors.brandPrimary }]}>
+            {t("thesis.suggestTitles")}
+          </Text>
+        </Pressable>
+      )}
 
       {suggestions.length > 0 && (
         <View style={styles.suggestWrap}>

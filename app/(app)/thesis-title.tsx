@@ -15,6 +15,7 @@ import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
+import { useNotificationStore } from "@/stores/notification-store";
 import { BackButton } from "@/components/BackButton";
 import { suggestThesisTitles } from "@/lib/api";
 import { ChevronRight } from "lucide-react-native";
@@ -63,6 +64,11 @@ export default function ThesisTitleScreen() {
         return;
       }
       timerRef.current = setTimeout(async () => {
+        // Gated by the "AI Suggestions" setting — skip the request when it's off.
+        if (!useNotificationStore.getState().preferences.aiSuggestions) {
+          setSuggestions([]);
+          return;
+        }
         setLoadingSuggestions(true);
         const results = await suggestThesisTitles(text, language);
         setSuggestions(results);

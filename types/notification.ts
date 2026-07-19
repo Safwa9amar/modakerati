@@ -28,7 +28,9 @@ export interface NotificationPreferences {
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   pushEnabled: true,
-  aiSuggestions: true,
+  // Disabled by default — the user opts in to AI suggestions (in-app chips +
+  // title autocomplete + AI push notifications).
+  aiSuggestions: false,
   exportReminders: false,
   marketing: false,
 };

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "@/stores/chat-store";
+import { useNotificationStore } from "@/stores/notification-store";
 import { getComposerSuggestions, type ComposerSuggestion } from "@/lib/api";
 
 // Wait for rapid changes (tapping through blocks) to settle before hitting the
@@ -27,6 +28,9 @@ interface Options {
  */
 export function useComposerSuggestions(thesisId: string, { enabled, selectedBlocks }: Options) {
   const isGenerating = useChatStore((s) => s.isGenerating);
+  // The "AI Suggestions" setting gates these chips entirely: off → no fetch and
+  // no chips. Subscribed so flipping it clears/restores chips live.
+  const aiSuggestionsEnabled = useNotificationStore((s) => s.preferences.aiSuggestions);
   // Subscribe to the last message id so the effect re-runs when history first
   // loads and after each new turn — driving the "refresh after a reply" trigger.
   const lastMessageId = useChatStore((s) => {
@@ -37,14 +41,24 @@ export function useComposerSuggestions(thesisId: string, { enabled, selectedBloc
   const [suggestions, setSuggestions] = useState<ComposerSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Context signature of the last fetch, so identical context doesn't refetch.
+  // Context signature of the last SUCCESSFUL fetch, so identical context doesn't
+  // refetch (committed on success, not on fire, so aborted/failed runs can retry).
   const lastKeyRef = useRef<string>("");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // In-flight request, aborted when a newer context supersedes it — tapping
+  // through blocks must not stack slow requests behind each other.
+  const abortRef = useRef<AbortController | null>(null);
 
   // Primitive dep for the selection so the effect only re-runs on a real change.
   const selectionKey = (selectedBlocks ?? []).map((b) => b.index).join(",");
 
   useEffect(() => {
+    // Off by user preference → clear any stale chips and never fetch.
+    if (!aiSuggestionsEnabled) {
+      setSuggestions([]);
+      return;
+    }
+
     // Only while visible, and NOT mid-generation (wait for the turn to finish so
     // its reply feeds the chips).
     if (!enabled || !thesisId || isGenerating) return;
@@ -63,20 +77,33 @@ export function useComposerSuggestions(thesisId: string, { enabled, selectedBloc
     let cancelled = false;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
-      lastKeyRef.current = key;
+      // The context moved on — only the newest selection's chips matter, so kill
+      // any still-running request instead of letting slow calls pile up.
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
       setLoading(true);
       try {
         const blocks = selectedBlocks ?? [];
         const combined = blocks.map((b) => b.text).filter(Boolean).join("\n\n");
         const indices = blocks.map((b) => b.index);
-        const result = await getComposerSuggestions(thesisId, {
-          selection: combined || undefined,
-          docBlockIndex: indices.length ? indices[0] : null,
-          docBlockIndices: indices.length > 1 ? indices : undefined,
-        });
-        if (!cancelled) setSuggestions(result);
+        const result = await getComposerSuggestions(
+          thesisId,
+          {
+            selection: combined || undefined,
+            docBlockIndex: indices.length ? indices[0] : null,
+            docBlockIndices: indices.length > 1 ? indices : undefined,
+          },
+          controller.signal
+        );
+        if (!cancelled) {
+          lastKeyRef.current = key;
+          setSuggestions(result);
+        }
       } catch {
-        // Leave the previous chips in place; the caller shows presets when empty.
+        // Aborted or failed: leave the previous chips in place (callers show
+        // presets when empty), and leave the key uncommitted so a return to
+        // this context refetches.
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -85,9 +112,10 @@ export function useComposerSuggestions(thesisId: string, { enabled, selectedBloc
     return () => {
       cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
+      abortRef.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thesisId, enabled, isGenerating, selectionKey, lastMessageId]);
+  }, [thesisId, enabled, aiSuggestionsEnabled, isGenerating, selectionKey, lastMessageId]);
 
   return { suggestions, loading };
 }
