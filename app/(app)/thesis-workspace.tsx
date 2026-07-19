@@ -39,6 +39,7 @@ import { WorkspaceViewSwitcher } from "@/components/workspace/WorkspaceViewSwitc
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
+import { HistorySheet } from "@/components/workspace/HistorySheet";
 import {
   getThesisEditorConfig,
   getThesisPdf,
@@ -186,6 +187,9 @@ export default function ThesisWorkspaceScreen() {
   // (positional indices would replay against the restored doc) and during an AI
   // turn. Applies via the store's full-reconcile path (tick + drainTick).
   const [historyBusy, setHistoryBusy] = useState(false);
+  // Document history sheet — opened via long-press on the header Undo button
+  // (avoids a 6th header button). Conditionally mounted per the app's gorhom rule.
+  const [historyOpen, setHistoryOpen] = useState(false);
   const runHistory = useCallback(
     async (kind: "undo" | "redo") => {
       if (!thesisId || historyBusy) return;
@@ -403,6 +407,8 @@ export default function ThesisWorkspaceScreen() {
           <>
             <Pressable
               onPress={() => void runHistory("undo")}
+              onLongPress={() => setHistoryOpen(true)}
+              delayLongPress={400}
               disabled={!canUndo || pendingOps > 0 || historyBusy || isGenerating}
               hitSlop={8}
               accessibilityRole="button"
@@ -617,6 +623,12 @@ export default function ThesisWorkspaceScreen() {
 
       {/* Outline sheet — mounted only while the outline panel is active. */}
       {activePanel === "outline" && <ThesisStructureSheet />}
+
+      {/* Document history sheet — long-press the header Undo button to open.
+          Conditionally mounted so it self-presents on mount / dismisses on unmount. */}
+      {historyOpen && thesisId && (
+        <HistorySheet thesisId={thesisId} onClose={() => setHistoryOpen(false)} />
+      )}
     </SafeAreaView>
   );
 }
