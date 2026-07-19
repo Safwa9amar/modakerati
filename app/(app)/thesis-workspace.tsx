@@ -17,7 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, useFocusEffect } from "expo-router";
 import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
-import { Maximize2, PanelBottomOpen, PanelBottomClose } from "lucide-react-native";
+import { Maximize2, PanelBottomOpen, PanelBottomClose, Undo2, Redo2 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -43,6 +43,8 @@ import {
   getThesisEditorConfig,
   getThesisPdf,
   deleteThesisPdf,
+  undoThesisHistory,
+  redoThesisHistory,
   type DocBlockDTO,
   type EditorConfigDTO,
   type ThesisPdfDTO,
@@ -105,6 +107,13 @@ export default function ThesisWorkspaceScreen() {
   // Bumped when the durable edit queue fully flushes — the .docx bytes (and thus
   // the OnlyOffice document.key / PDF render) changed on the server.
   const drainTick = useThesisDocStore((s) => s.drainTick[thesisId] ?? 0);
+
+  // Undo/redo availability + queue-pending count, for the header history buttons.
+  // Select primitives individually (never an object literal — see the store note
+  // atop this file's other selectors).
+  const canUndo = useThesisDocStore((s) => s.history[thesisId]?.canUndo ?? false);
+  const canRedo = useThesisDocStore((s) => s.history[thesisId]?.canRedo ?? false);
+  const pendingOps = useThesisDocStore((s) => s.pending[thesisId] ?? 0);
 
   // OnlyOffice editor config for the live-docx view. `undefined` while loading;
   // `{ enabled:false }` when the Document Server isn't configured (or the fetch
@@ -173,6 +182,26 @@ export default function ThesisWorkspaceScreen() {
     }
   }, [thesisId]);
 
+  // Undo/redo are server-side restores. Disabled while queue ops are pending
+  // (positional indices would replay against the restored doc) and during an AI
+  // turn. Applies via the store's full-reconcile path (tick + drainTick).
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const runHistory = useCallback(
+    async (kind: "undo" | "redo") => {
+      if (!thesisId || historyBusy) return;
+      setHistoryBusy(true);
+      try {
+        const res = kind === "undo" ? await undoThesisHistory(thesisId) : await redoThesisHistory(thesisId);
+        useThesisDocStore.getState().applyRestoredDoc(thesisId, res.document, { canUndo: res.canUndo, canRedo: res.canRedo });
+      } catch (e: any) {
+        Alert.alert(t("workspace.historyFailed", { defaultValue: "Couldn't restore the document" }), e?.message ?? "");
+      } finally {
+        setHistoryBusy(false);
+      }
+    },
+    [thesisId, historyBusy, t],
+  );
+
   // Convert + fetch the PDF render. Clears to `undefined` first so the view shows
   // a spinner while the Document Server (re)renders. Only called when the PDF
   // view is open (see the effect below) — conversion is too costly to prefetch.
@@ -208,6 +237,7 @@ export default function ThesisWorkspaceScreen() {
     useCallback(() => {
       if (thesisId) void useThesisDocStore.getState().load(thesisId);
       void refreshEditorCfg();
+      if (thesisId) void useThesisDocStore.getState().refreshHistoryState(thesisId);
     }, [thesisId, refreshEditorCfg]),
   );
 
@@ -216,8 +246,10 @@ export default function ThesisWorkspaceScreen() {
   // and the PDF view (keyed on it) reload the fresh bytes. The outline view
   // already reconciled from the flush response.
   useEffect(() => {
-    if (drainTick > 0) void refreshEditorCfg();
-  }, [drainTick, refreshEditorCfg]);
+    if (drainTick === 0) return;
+    void refreshEditorCfg();
+    if (thesisId) void useThesisDocStore.getState().refreshHistoryState(thesisId);
+  }, [drainTick, refreshEditorCfg, thesisId]);
 
   const liveDoc = doc?.available ? doc : null;
   const isLiveDoc = !!liveDoc;
@@ -277,9 +309,10 @@ export default function ThesisWorkspaceScreen() {
       // New .docx bytes → the server returns a config with a bumped document.key,
       // which remounts the OnlyOffice editor onto the updated document.
       void refreshEditorCfg();
+      if (thesisId) void useThesisDocStore.getState().refreshHistoryState(thesisId);
     }
     prevGenerating.current = isGenerating;
-  }, [isGenerating, isLiveDoc, refreshDoc, refreshEditorCfg]);
+  }, [isGenerating, isLiveDoc, refreshDoc, refreshEditorCfg, thesisId]);
 
   // Document-version token: the OnlyOffice config's document.key bumps only when
   // the .docx actually changes (it's derived from updatedAt). Keying the PDF
@@ -363,6 +396,39 @@ export default function ThesisWorkspaceScreen() {
         </Text>
         {/* One-tap view cycler (Document → Outline → PDF), live docs only. */}
         {liveDoc && <WorkspaceViewSwitcher />}
+        {/* Undo / redo: server-side history restores. Disabled while queue ops are
+            pending (positional indices would replay against the restored doc) or
+            while an AI turn is running. */}
+        {liveDoc && (
+          <>
+            <Pressable
+              onPress={() => void runHistory("undo")}
+              disabled={!canUndo || pendingOps > 0 || historyBusy || isGenerating}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t("workspace.undo", { defaultValue: "Undo" })}
+              style={styles.expandBtn}
+            >
+              <Undo2
+                size={20}
+                color={canUndo && pendingOps === 0 && !historyBusy && !isGenerating ? colors.textPrimary : colors.textPlaceholder}
+              />
+            </Pressable>
+            <Pressable
+              onPress={() => void runHistory("redo")}
+              disabled={!canRedo || pendingOps > 0 || historyBusy || isGenerating}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t("workspace.redo", { defaultValue: "Redo" })}
+              style={styles.expandBtn}
+            >
+              <Redo2
+                size={20}
+                color={canRedo && pendingOps === 0 && !historyBusy && !isGenerating ? colors.textPrimary : colors.textPlaceholder}
+              />
+            </Pressable>
+          </>
+        )}
         {/* Show / hide the AI composer sheet. */}
         {liveDoc && (
           <Pressable
