@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Modal, Pressable } from "react-native";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { X } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
@@ -20,7 +19,6 @@ export default function TemplatePreviewScreen() {
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
   const { templates } = useThesisStore();
   const [generating, setGenerating] = useState(false);
-  const [showPdf, setShowPdf] = useState(false);
 
   const template = templates.find((tpl) => tpl.id === templateId);
 
@@ -95,11 +93,8 @@ export default function TemplatePreviewScreen() {
         <View style={{ width: 30 }} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Info card */}
+      {/* Compact info header, pinned above the preview */}
+      <View style={styles.infoHeader}>
         <Card>
           <Text style={[styles.universityName, { color: colors.textPrimary }]}>
             {template.university}
@@ -116,99 +111,98 @@ export default function TemplatePreviewScreen() {
               </Text>
             </View>
           </View>
-          <View style={styles.specRow}>
-            {specs.map((spec, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.specBadge,
-                  { backgroundColor: colors.brandPrimary + "18" },
-                ]}
-              >
-                <Text
+          {specs.length > 0 ? (
+            <View style={styles.specRow}>
+              {specs.map((spec, i) => (
+                <View
+                  key={i}
                   style={[
-                    styles.specText,
-                    { color: colors.brandPrimary },
+                    styles.specBadge,
+                    { backgroundColor: colors.brandPrimary + "18" },
                   ]}
                 >
-                  {spec}
-                </Text>
-              </View>
-            ))}
-          </View>
+                  <Text style={[styles.specText, { color: colors.brandPrimary }]}>
+                    {spec}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </Card>
+      </View>
 
-        {/* Preview the template's PDF (only when a public URL is available) */}
-        {template.config.pdfUrl ? (
-          <Button
-            title={t("template.previewDocument")}
-            onPress={() => setShowPdf(true)}
-            variant="secondary"
-          />
-        ) : null}
-
-        {/* Paper preview */}
-        <View style={styles.paperWrapper}>
-          <View style={[styles.paper, { borderColor: colors.borderSubtle }]}>
-            <Text style={styles.paperSmall}>
-              REPUBLIQUE ALGERIENNE DEMOCRATIQUE ET POPULAIRE
-            </Text>
-            <Text style={styles.paperSmall}>
-              Ministere de l'Enseignement Superieur{"\n"}et de la Recherche
-              Scientifique
-            </Text>
-            <View style={styles.paperDivider} />
-            <Text style={styles.paperUniversity}>{template.university}</Text>
-            <Text style={styles.paperFaculty}>
-              Faculte des Sciences et Technologies
-            </Text>
-            <Text style={styles.paperDept}>Departement d'Informatique</Text>
-            <View style={styles.paperDivider} />
-            <Text style={styles.paperType}>{template.type.toUpperCase()}</Text>
-            <View style={[styles.titleBox, { borderColor: "#999" }]}>
-              <Text style={styles.titleBoxText}>
-                Titre du memoire
+      {template.config.pdfUrl ? (
+        // Uploaded templates preview their real document (the .docx converted to
+        // PDF) inline, filling the space between the info header and the CTA.
+        <View style={styles.pdfInline}>
+          <PdfView url={template.config.pdfUrl} />
+        </View>
+      ) : (
+        // Norm-profile-style templates have no PDF — show the mock cover and the
+        // chapter structure in a scroll view instead.
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Paper preview */}
+          <View style={styles.paperWrapper}>
+            <View style={[styles.paper, { borderColor: colors.borderSubtle }]}>
+              <Text style={styles.paperSmall}>
+                REPUBLIQUE ALGERIENNE DEMOCRATIQUE ET POPULAIRE
+              </Text>
+              <Text style={styles.paperSmall}>
+                Ministere de l'Enseignement Superieur{"\n"}et de la Recherche
+                Scientifique
+              </Text>
+              <View style={styles.paperDivider} />
+              <Text style={styles.paperUniversity}>{template.university}</Text>
+              <Text style={styles.paperFaculty}>
+                Faculte des Sciences et Technologies
+              </Text>
+              <Text style={styles.paperDept}>Departement d'Informatique</Text>
+              <View style={styles.paperDivider} />
+              <Text style={styles.paperType}>{template.type.toUpperCase()}</Text>
+              <View style={[styles.titleBox, { borderColor: "#999" }]}>
+                <Text style={styles.titleBoxText}>Titre du memoire</Text>
+              </View>
+              <View style={styles.paperDivider} />
+              <Text style={styles.paperSmall}>Presente par : __________</Text>
+              <Text style={styles.paperSmall}>Encadre par : __________</Text>
+              <View style={styles.paperSpacer} />
+              <Text style={styles.paperYear}>
+                Annee universitaire : 2025 / 2026
               </Text>
             </View>
-            <View style={styles.paperDivider} />
-            <Text style={styles.paperSmall}>
-              Presente par : __________
-            </Text>
-            <Text style={styles.paperSmall}>
-              Encadre par : __________
-            </Text>
-            <View style={styles.paperSpacer} />
-            <Text style={styles.paperYear}>
-              Annee universitaire : 2025 / 2026
-            </Text>
           </View>
-        </View>
 
-        {/* Chapter structure preview — only for templates that define one
-            (uploaded templates may have none). */}
-        {(template.chapterStructure?.length ?? 0) > 0 && (
-          <Card>
-            <Text style={[styles.chaptersLabel, { color: colors.textSecondary }]}>
-              {t("thesis.sections")} ({template.chapterStructure!.length})
-            </Text>
-            {template.chapterStructure!.map((ch, i) => (
-              <View key={i} style={styles.chapterRow}>
-                <View
-                  style={[
-                    styles.chapterDot,
-                    { backgroundColor: colors.brandPrimary },
-                  ]}
-                />
-                <Text
-                  style={[styles.chapterText, { color: colors.textPrimary }]}
-                >
-                  {ch}
-                </Text>
-              </View>
-            ))}
-          </Card>
-        )}
-      </ScrollView>
+          {/* Chapter structure preview — only for templates that define one
+              (uploaded templates may have none). */}
+          {(template.chapterStructure?.length ?? 0) > 0 && (
+            <Card>
+              <Text
+                style={[styles.chaptersLabel, { color: colors.textSecondary }]}
+              >
+                {t("thesis.sections")} ({template.chapterStructure!.length})
+              </Text>
+              {template.chapterStructure!.map((ch, i) => (
+                <View key={i} style={styles.chapterRow}>
+                  <View
+                    style={[
+                      styles.chapterDot,
+                      { backgroundColor: colors.brandPrimary },
+                    ]}
+                  />
+                  <Text
+                    style={[styles.chapterText, { color: colors.textPrimary }]}
+                  >
+                    {ch}
+                  </Text>
+                </View>
+              ))}
+            </Card>
+          )}
+        </ScrollView>
+      )}
 
       {/* Bottom button */}
       <View style={styles.bottomBar}>
@@ -224,38 +218,21 @@ export default function TemplatePreviewScreen() {
           disabled={generating}
         />
       </View>
-
-      {/* Full-screen PDF preview of the template document */}
-      <Modal
-        visible={showPdf}
-        animationType="slide"
-        onRequestClose={() => setShowPdf(false)}
-      >
-        <SafeAreaView
-          style={[styles.container, { backgroundColor: colors.bgPrimary }]}
-          edges={["top"]}
-        >
-          <View style={styles.topBar}>
-            <Pressable onPress={() => setShowPdf(false)} style={styles.closeButton}>
-              <X size={22} color={colors.textPrimary} strokeWidth={2} />
-            </Pressable>
-            <Text style={[styles.title, { color: colors.textPrimary }]}>
-              {t("template.documentPreview")}
-            </Text>
-            <View style={{ width: 30 }} />
-          </View>
-          {template.config.pdfUrl ? (
-            <PdfView url={template.config.pdfUrl} />
-          ) : null}
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  closeButton: { padding: 4 },
+  infoHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  pdfInline: {
+    flex: 1,
+    marginTop: 4,
+  },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
