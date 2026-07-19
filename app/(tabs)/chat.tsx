@@ -8,7 +8,8 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useChatHead } from "@/stores/chat-head-store";
-import { sendMessageToAI, loadInitialMessages, regenerateLastResponse } from "@/lib/ai-service";
+import { sendMessageToAI, loadInitialMessages, regenerateLastResponse, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
+import { ComposerConfirm } from "@/components/workspace/ComposerConfirm";
 import { Send, Plus, Home, List, Paperclip, Image as ImageIcon, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
@@ -195,7 +196,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [inputText, setInputText] = useState("");
   // Explicit height once onContentSizeChange measures it; undefined = let the
   // intrinsic (min/maxHeight-bounded) sizing govern. See INPUT_*_HEIGHT.
@@ -205,6 +206,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   const [viewerContent, setViewerContent] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
+  const pendingConfirm = useChatStore((s) => s.pendingConfirm);
   const setPendingAsk = useChatStore((s) => s.setPendingAsk);
   // This UI exists in two places at once (the Chat TAB and the floating chat-head
   // OVERLAY). Only the visible one is "active" and may drive the GLOBAL sheets
@@ -638,6 +640,24 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
         />
       )}
 
+      {/* Gated destructive AI action → Approve/Cancel card pinned above the input.
+          The doc isn't visible on this screen, so there's no "undo AI changes" chip here. */}
+      {active && pendingConfirm && (
+        <View
+          style={[
+            styles.confirmOverlay,
+            { backgroundColor: colors.bgCard, borderColor: colors.borderDefault, paddingBottom: Math.max(insets.bottom, 12) },
+          ]}
+        >
+          <ComposerConfirm
+            confirm={pendingConfirm}
+            onApprove={() => void approvePendingAction(thesisId, pendingConfirm.actionId)}
+            onCancel={() => void declinePendingAction(thesisId, pendingConfirm.actionId)}
+            rtl={i18n.language === "ar"}
+          />
+        </View>
+      )}
+
       <MessageViewer
         visible={viewerContent !== null}
         content={viewerContent}
@@ -714,6 +734,15 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   inputContainer: { paddingHorizontal: 12, paddingTop: 8 },
+  confirmOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   suggestionsRow: { marginBottom: 10, marginHorizontal: 2 },
   attachmentChip: {
     flexDirection: "row",
