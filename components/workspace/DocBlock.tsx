@@ -1,8 +1,10 @@
-import React, { useState } from "react";
-import { View, Text, Pressable, Image, StyleSheet, Platform } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { View, Text, Pressable, Image, StyleSheet, Platform, TextInput, type TextStyle } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthHeader } from "@/hooks/useAuthHeader";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useChatStore } from "@/stores/chat-store";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { thesisBlockImageUrl, type DocBlockDTO } from "@/lib/api";
 
 // Dark ink / muted ink for text rendered on the always-white PaperPage.
@@ -42,6 +44,9 @@ export function DocBlock({
   // Membership test against the multi-selection set — a boolean primitive, so this
   // selector is stable for zustand's Object.is comparison (no fresh-object loop).
   const isSelected = useWorkspaceStore((s) => s.selectedBlocks.some((b) => b.index === block.index));
+  // Colocated with isSelected (not inside the paragraph branch below) so this hook
+  // still runs unconditionally across the other/image/table early returns.
+  const isEditing = useWorkspaceStore((s) => s.editingBlockIndex === block.index);
   const hi = colors.brandPrimary;
 
   if (block.kind === "other") {
@@ -186,29 +191,161 @@ export function DocBlock({
   const androidJustify = Platform.OS === "android" && textAlign === "justify";
   return (
     <Pressable
-      onPress={() => pickBlock(block.index, block.text)}
+      onPress={() => enterOrSelect(block.index, block.text)}
       onLongPress={() => longPickBlock(block.index, block.text)}
       style={[
         styles.paraWrap,
         isSelected && { backgroundColor: hi + "18", borderColor: hi },
       ]}
     >
-      <Text
-        {...(androidJustify ? { textBreakStrategy: "simple" as const } : null)}
-        style={[
-          isHeading
-            ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
-            : styles.body,
-          {
-            textAlign,
-            ...(androidJustify ? null : { writingDirection: dir }),
-          },
-          empty && styles.emptyPara,
-        ]}
-      >
-        {empty ? "·" : block.text}
-      </Text>
+      {isEditing ? (
+        <EditableParagraph
+          block={block}
+          rtl={rtl}
+          thesisId={thesisId}
+          textStyle={
+            isHeading
+              ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
+              : styles.body
+          }
+          textAlign={textAlign}
+        />
+      ) : (
+        <Text
+          {...(androidJustify ? { textBreakStrategy: "simple" as const } : null)}
+          style={[
+            isHeading
+              ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
+              : styles.body,
+            {
+              textAlign,
+              ...(androidJustify ? null : { writingDirection: dir }),
+            },
+            empty && styles.emptyPara,
+          ]}
+        >
+          {empty ? "·" : block.text}
+        </Text>
+      )}
     </Pressable>
+  );
+}
+
+// The paragraph body when it's being edited inline (outline view): a multiline
+// TextInput seeded ONCE from the block text, committing live (debounced) + on blur
+// via the editText op. Enter splits, Backspace-at-start merges. Local state owns
+// the value so store/prop re-syncs can't reset the caret mid-edit.
+function EditableParagraph({
+  block,
+  rtl,
+  thesisId,
+  textStyle,
+  textAlign,
+}: {
+  block: Extract<DocBlockDTO, { kind: "paragraph" }>;
+  rtl: boolean;
+  thesisId: string;
+  textStyle: TextStyle;
+  textAlign: "left" | "right" | "center" | "justify";
+}) {
+  const isGenerating = useChatStore((s) => s.isGenerating);
+  const dir = block.direction ?? detectDir(block.text, rtl);
+
+  const [value, setValue] = useState(block.text);
+  const baselineRef = useRef(block.text);
+  const selRef = useRef({ start: block.text.length, end: block.text.length });
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<TextInput>(null);
+
+  const pending = useWorkspaceStore.getState().pendingCaret;
+  const [selection, setSelection] = useState<{ start: number; end: number } | undefined>(
+    pending?.index === block.index ? { start: pending.pos, end: pending.pos } : undefined,
+  );
+  useEffect(() => {
+    const pc = useWorkspaceStore.getState().pendingCaret;
+    if (pc?.index === block.index) {
+      setSelection({ start: pc.pos, end: pc.pos });
+      useWorkspaceStore.getState().clearPendingCaret();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const commit = (text: string) => {
+    if (text === baselineRef.current) return;
+    baselineRef.current = text;
+    void useThesisDocStore.getState().mutate(thesisId, { type: "editText", index: block.index, text });
+  };
+  const scheduleCommit = (text: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      commit(text);
+    }, 900);
+  };
+
+  const doSplit = (before: string, after: string) => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    baselineRef.current = before;
+    setValue(before);
+    void useThesisDocStore.getState().mutate(thesisId, {
+      type: "splitParagraph", index: block.index, before, after,
+    });
+    useWorkspaceStore.getState().setEditingBlock(block.index + 1, 0);
+  };
+
+  const onChangeText = (next: string) => {
+    const nl = next.indexOf("\n");
+    if (nl >= 0) {
+      doSplit(next.slice(0, nl), next.slice(nl + 1));
+      return;
+    }
+    setValue(next);
+    scheduleCommit(next);
+  };
+
+  const onKeyPress = (e: { nativeEvent: { key: string } }) => {
+    if (e.nativeEvent.key !== "Backspace") return;
+    if (selRef.current.start !== 0 || selRef.current.end !== 0) return;
+    if (block.index === 0) return;
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    const store = useThesisDocStore.getState();
+    const doc = store.byId[thesisId];
+    const prev = doc?.available ? doc.blocks.find((b) => b.index === block.index - 1) : undefined;
+    if (!prev || prev.kind !== "paragraph") return;
+    const prevText = prev.text;
+    const merged = prevText + value;
+    baselineRef.current = value;
+    void store.mutate(thesisId, { type: "editText", index: block.index - 1, text: merged });
+    void store.mutate(thesisId, { type: "deleteBlocks", indices: [block.index] });
+    useWorkspaceStore.getState().setEditingBlock(block.index - 1, prevText.length);
+  };
+
+  const onBlur = () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    commit(value);
+    const ws = useWorkspaceStore.getState();
+    if (ws.editingBlockIndex === block.index) ws.setEditingBlock(null);
+  };
+
+  return (
+    <TextInput
+      ref={inputRef}
+      value={value}
+      onChangeText={onChangeText}
+      onKeyPress={onKeyPress}
+      onSelectionChange={(e) => { selRef.current = e.nativeEvent.selection; }}
+      onBlur={onBlur}
+      selection={selection}
+      autoFocus
+      multiline
+      editable={!isGenerating}
+      scrollEnabled={false}
+      textAlignVertical="top"
+      style={[
+        textStyle,
+        { textAlign, padding: 0, ...(Platform.OS === "android" ? null : { writingDirection: dir }) },
+      ]}
+    />
   );
 }
 
@@ -324,6 +461,19 @@ function pickBlock(index: number, text: string): void {
 // Long-press: enter multi-select mode and add this block (keeping any current one).
 function longPickBlock(index: number, text: string): void {
   useWorkspaceStore.getState().addToSelection(index, text);
+}
+
+// Tap: if this block is already the sole selection, promote to inline editing;
+// otherwise select it (single or multi per the store mode).
+function enterOrSelect(index: number, text: string): void {
+  const ws = useWorkspaceStore.getState();
+  const sole = ws.selectedBlocks.length === 1 && ws.selectedBlocks[0].index === index;
+  if (sole && !ws.multiSelect && ws.editingBlockIndex == null) {
+    ws.setEditingBlock(index);
+  } else {
+    if (ws.multiSelect) ws.toggleBlock(index, text);
+    else ws.selectBlock(index, text);
+  }
 }
 
 // RTL scripts: Hebrew, Arabic (+ supplements), Syriac, Thaana, Arabic presentation forms.
