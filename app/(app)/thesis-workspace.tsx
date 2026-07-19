@@ -538,7 +538,7 @@ export default function ThesisWorkspaceScreen() {
                   onEditCommit={(index, text) =>
                     void useThesisDocStore.getState().mutate(thesisId, { type: "editText", index, text })
                   }
-                  // Backspace-at-offset-0 merge; the WebView trigger lands in Task 6.
+                  // Backspace-at-offset-0 merge (dispatched by the WebView Backspace handler).
                   onMerge={(prevIndex, curIndex, mergedText) => {
                     const store = useThesisDocStore.getState();
                     void store.mutate(thesisId, { type: "editText", index: prevIndex, text: mergedText });

@@ -223,8 +223,14 @@ export function WordDocxView({
         isEditingRef.current = true;
       } else if (msg.type === "editEnd") {
         isEditingRef.current = false;
-        // Run any refresh that was suppressed while the caret was active.
-        if (pendingRefreshRef.current) { pendingRefreshRef.current = false; maybeRefresh(); }
+        // Run any refresh suppressed while the caret was active — EXCEPT for a
+        // structural editEnd (Enter-split / Backspace-merge): that op's own drain
+        // will refresh with correct post-op bytes; refreshing now would fetch stale
+        // pre-op bytes and revert the optimistic split/merge.
+        if (pendingRefreshRef.current) {
+          pendingRefreshRef.current = false;
+          if (!msg.structural) maybeRefresh();
+        }
       } else if (msg.type === "editCommit" && typeof msg.index === "number") {
         onEditCommit?.(msg.index, typeof msg.text === "string" ? msg.text : "");
       } else if (msg.type === "split" && typeof msg.index === "number") {
@@ -599,6 +605,7 @@ function buildHtml(
   var editingIndex = null;      // block index being edited, or null
   var editBaseline = null;      // normalized text at edit-start (detect real changes)
   var commitTimer = null;
+  var suppressEditEndRefresh = false; // set by Enter-split / Backspace-merge
   var lastTapX = 0, lastTapY = 0; // last touch point, for caret placement on edit-enter
 
   window.__setEditable = function(v){ EDITABLE = !!v; };
@@ -677,6 +684,7 @@ function buildHtml(
       // End editing on the old paragraph (no redundant editCommit — the split op is
       // authoritative for \`before\`), then dispatch the split.
       editBaseline = norm(el.innerText);
+      suppressEditEndRefresh = true;
       onEditBlur({ currentTarget: el });
       post({ type: 'split', index: idx, before: before, after: after });
       return;
@@ -700,6 +708,7 @@ function buildHtml(
     var mergedText = (prev.innerText || "") + (el.innerText || "");
     setBlockText(prev, mergedText);          // optimistic DOM merge
     editBaseline = norm(el.innerText);
+    suppressEditEndRefresh = true;
     onEditBlur({ currentTarget: el });        // end edit (no redundant editCommit)
     if (el.parentNode) el.parentNode.removeChild(el);
     post({ type: 'merge', prevIndex: prevIdx, curIndex: curIdx, mergedText: mergedText });
@@ -716,7 +725,8 @@ function buildHtml(
     el.removeEventListener('blur', onEditBlur);
     var idx = editingIndex;
     editingIndex = null; editBaseline = null;
-    post({ type: 'editEnd', index: idx });
+    post({ type: 'editEnd', index: idx, structural: suppressEditEndRefresh });
+    suppressEditEndRefresh = false;
     if (editPendingRefresh){ var _epr = editPendingRefresh; editPendingRefresh = null; window.__refresh(_epr[0], _epr[1], _epr[2]); }
   }
 
