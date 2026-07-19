@@ -417,7 +417,11 @@
     "kindIntroduction": "Introduction",
     "kindSection": "Part",
     "kindConclusion": "Conclusion",
-    "titleRequired": "Please enter a title for your thesis."
+    "titleRequired": "Please enter a title for your thesis.",
+    "orFormattingProfile": "No template fits? Start with a formatting profile",
+    "backToTemplates": "← Back to templates",
+    "noTemplatesMatch": "No templates match these filters.",
+    "noProfilesMatch": "No profiles match these filters."
   },
   "notifications": {
     "title": "Notifications",

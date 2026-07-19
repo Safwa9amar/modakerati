@@ -417,7 +417,11 @@
     "kindIntroduction": "مقدمة",
     "kindSection": "قسم",
     "kindConclusion": "خاتمة",
-    "titleRequired": "يرجى إدخال عنوان لمذكرتك."
+    "titleRequired": "يرجى إدخال عنوان لمذكرتك.",
+    "orFormattingProfile": "لا يوجد قالب مناسب؟ ابدأ بملف تنسيق",
+    "backToTemplates": "← العودة إلى القوالب",
+    "noTemplatesMatch": "لا توجد قوالب تطابق هذه المرشحات.",
+    "noProfilesMatch": "لا توجد ملفات تطابق هذه المرشحات."
   },
   "notifications": {
     "title": "الإشعارات",

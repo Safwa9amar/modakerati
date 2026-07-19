@@ -23,7 +23,7 @@ import {
   ChevronDown,
   X,
 } from "lucide-react-native";
-import type { NormProfile } from "@/types/thesis";
+import type { Template, NormProfile } from "@/types/thesis";
 
 // ---------------------------------------------------------------------------
 // Filter chip component
@@ -85,7 +85,7 @@ function FilterRow({
   colors,
   t,
 }: {
-  profiles: NormProfile[];
+  profiles: Array<{ university: string | null }>;
   universityFilter: string | null;
   disciplineFilter: string | null;
   languageFilter: string | null;
@@ -270,8 +270,14 @@ export default function TemplatePickerScreen() {
   const colors = useThemeColors();
   const router = useRouter();
 
+  const templates = useThesisStore((s) => s.templates);
   const normProfiles = useThesisStore((s) => s.normProfiles);
   const [loading, setLoading] = useState(true);
+
+  // Norm profiles are a fallback: shown when the user opts in via the bottom
+  // link, or automatically when there are no uploaded templates at all.
+  const [showProfiles, setShowProfiles] = useState(false);
+  const profilesMode = showProfiles || (!loading && templates.length === 0);
 
   const [universityFilter, setUniversityFilter] = useState<string | null>(null);
   const [disciplineFilter, setDisciplineFilter] = useState<string | null>(null);
@@ -279,20 +285,33 @@ export default function TemplatePickerScreen() {
 
   useEffect(() => {
     setLoading(true);
-    useThesisStore
-      .getState()
-      .loadNormProfiles()
-      .finally(() => setLoading(false));
+    const store = useThesisStore.getState();
+    Promise.all([store.loadTemplates(), store.loadNormProfiles()]).finally(() =>
+      setLoading(false),
+    );
   }, []);
 
-  const filtered = useMemo(() => {
-    return normProfiles.filter((p) => {
-      if (universityFilter && p.university !== universityFilter) return false;
-      if (disciplineFilter && p.discipline !== disciplineFilter) return false;
-      if (languageFilter && p.language !== languageFilter) return false;
-      return true;
-    });
-  }, [normProfiles, universityFilter, disciplineFilter, languageFilter]);
+  const filteredTemplates = useMemo(
+    () =>
+      templates.filter((tpl) => {
+        if (universityFilter && tpl.university !== universityFilter) return false;
+        if (disciplineFilter && tpl.discipline !== disciplineFilter) return false;
+        if (languageFilter && tpl.language !== languageFilter) return false;
+        return true;
+      }),
+    [templates, universityFilter, disciplineFilter, languageFilter],
+  );
+
+  const filteredProfiles = useMemo(
+    () =>
+      normProfiles.filter((p) => {
+        if (universityFilter && p.university !== universityFilter) return false;
+        if (disciplineFilter && p.discipline !== disciplineFilter) return false;
+        if (languageFilter && p.language !== languageFilter) return false;
+        return true;
+      }),
+    [normProfiles, universityFilter, disciplineFilter, languageFilter],
+  );
 
   // -- handlers --
 
@@ -311,6 +330,10 @@ export default function TemplatePickerScreen() {
       step: "title",
     });
     router.push("/(app)/thesis-title" as any);
+  };
+
+  const handleSelectTemplate = (tpl: Template) => {
+    router.push(`/(app)/template-preview?templateId=${tpl.id}` as any);
   };
 
   // -- discipline display --
@@ -388,9 +411,9 @@ export default function TemplatePickerScreen() {
           <ChevronRight size={20} color={colors.textSecondary} strokeWidth={2} />
         </Pressable>
 
-        {/* Filters */}
+        {/* Filters (options derived from the active list) */}
         <FilterRow
-          profiles={normProfiles}
+          profiles={profilesMode ? normProfiles : templates}
           universityFilter={universityFilter}
           disciplineFilter={disciplineFilter}
           languageFilter={languageFilter}
@@ -408,37 +431,58 @@ export default function TemplatePickerScreen() {
           </View>
         )}
 
-        {/* Norm profile cards */}
+        {/* Template cards (primary choice) */}
         {!loading &&
-          filtered.map((profile) => (
+          !profilesMode &&
+          filteredTemplates.map((tpl) => (
             <Pressable
-              key={profile.id}
-              onPress={() => handleSelect(profile)}
+              key={tpl.id}
+              onPress={() => handleSelectTemplate(tpl)}
               style={[
                 styles.profileCard,
                 {
                   backgroundColor: colors.bgCard,
-                  borderColor: colors.borderSubtle,
+                  borderColor: colors.brandPrimary + "33",
                 },
               ]}
             >
+              <View style={styles.docThumb} />
               <View style={styles.profileContent}>
-                <Text
-                  style={[styles.profileName, { color: colors.textPrimary }]}
-                  numberOfLines={2}
-                >
-                  {profile.name}
-                </Text>
+                <View style={styles.nameRow}>
+                  <Text
+                    style={[styles.profileName, { color: colors.textPrimary }]}
+                    numberOfLines={2}
+                  >
+                    {tpl.name}
+                  </Text>
+                  {tpl.config.pdfUrl ? (
+                    <View
+                      style={[
+                        styles.pdfTag,
+                        { backgroundColor: colors.semanticSuccess + "22" },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.pdfTagText,
+                          { color: colors.semanticSuccess },
+                        ]}
+                      >
+                        PDF
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
 
                 <View style={styles.badgeRow}>
                   <Badge
                     icon={GraduationCap}
-                    label={profile.university ?? t("wizard.allUniversities")}
+                    label={tpl.university ?? t("wizard.allUniversities")}
                     colors={colors}
                   />
                   <Badge
                     icon={BookOpen}
-                    label={disciplineLabel(profile.discipline)}
+                    label={disciplineLabel(tpl.discipline)}
                     colors={colors}
                   />
                 </View>
@@ -446,12 +490,12 @@ export default function TemplatePickerScreen() {
                 <View style={styles.badgeRow}>
                   <Badge
                     icon={Globe}
-                    label={languageLabel(profile.language)}
+                    label={languageLabel(tpl.language)}
                     colors={colors}
                   />
                   <Badge
                     icon={FileText}
-                    label={citationLabel(profile.citationStyle)}
+                    label={citationLabel(tpl.citationStyle)}
                     colors={colors}
                   />
                 </View>
@@ -466,11 +510,116 @@ export default function TemplatePickerScreen() {
             </Pressable>
           ))}
 
-        {/* Empty state */}
-        {!loading && filtered.length === 0 && normProfiles.length > 0 && (
-          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-            No profiles match these filters.
-          </Text>
+        {/* Templates mode: filters match nothing */}
+        {!loading &&
+          !profilesMode &&
+          filteredTemplates.length === 0 &&
+          templates.length > 0 && (
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+              {t("wizard.noTemplatesMatch")}
+            </Text>
+          )}
+
+        {/* Templates mode: link down to the norm-profile fallback */}
+        {!loading && !profilesMode && (
+          <Pressable
+            onPress={() => setShowProfiles(true)}
+            style={styles.fallbackLink}
+          >
+            <Text
+              style={[styles.fallbackLinkText, { color: colors.textSecondary }]}
+            >
+              {t("wizard.orFormattingProfile")}
+            </Text>
+          </Pressable>
+        )}
+
+        {/* Norm-profile fallback list */}
+        {!loading && profilesMode && (
+          <>
+            {templates.length > 0 && (
+              <Pressable
+                onPress={() => setShowProfiles(false)}
+                style={styles.fallbackLink}
+              >
+                <ChevronRight
+                  size={14}
+                  color={colors.brandPrimary}
+                  style={{ transform: [{ rotate: "180deg" }] }}
+                />
+                <Text
+                  style={[
+                    styles.fallbackLinkText,
+                    { color: colors.brandPrimary },
+                  ]}
+                >
+                  {t("wizard.backToTemplates")}
+                </Text>
+              </Pressable>
+            )}
+
+            {filteredProfiles.map((profile) => (
+              <Pressable
+                key={profile.id}
+                onPress={() => handleSelect(profile)}
+                style={[
+                  styles.profileCard,
+                  {
+                    backgroundColor: colors.bgCard,
+                    borderColor: colors.borderSubtle,
+                  },
+                ]}
+              >
+                <View style={styles.profileContent}>
+                  <Text
+                    style={[styles.profileName, { color: colors.textPrimary }]}
+                    numberOfLines={2}
+                  >
+                    {profile.name}
+                  </Text>
+
+                  <View style={styles.badgeRow}>
+                    <Badge
+                      icon={GraduationCap}
+                      label={profile.university ?? t("wizard.allUniversities")}
+                      colors={colors}
+                    />
+                    <Badge
+                      icon={BookOpen}
+                      label={disciplineLabel(profile.discipline)}
+                      colors={colors}
+                    />
+                  </View>
+
+                  <View style={styles.badgeRow}>
+                    <Badge
+                      icon={Globe}
+                      label={languageLabel(profile.language)}
+                      colors={colors}
+                    />
+                    <Badge
+                      icon={FileText}
+                      label={citationLabel(profile.citationStyle)}
+                      colors={colors}
+                    />
+                  </View>
+                </View>
+
+                <ChevronRight
+                  size={18}
+                  color={colors.textSecondary}
+                  strokeWidth={2}
+                  style={styles.profileChevron}
+                />
+              </Pressable>
+            ))}
+
+            {filteredProfiles.length === 0 && normProfiles.length > 0 && (
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                {t("wizard.noProfilesMatch")}
+              </Text>
+            )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -584,6 +733,33 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 8,
   },
+  docThumb: {
+    width: 34,
+    height: 44,
+    borderRadius: 5,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  pdfTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  pdfTagText: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.4,
+  },
   profileName: {
     fontSize: 15,
     fontFamily: "Inter_600SemiBold",
@@ -615,5 +791,18 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     textAlign: "center",
     paddingVertical: 24,
+  },
+
+  // Norm-profile fallback link
+  fallbackLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 14,
+  },
+  fallbackLinkText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
   },
 });

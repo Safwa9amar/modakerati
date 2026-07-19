@@ -417,7 +417,11 @@
     "kindIntroduction": "Introduction",
     "kindSection": "Partie",
     "kindConclusion": "Conclusion",
-    "titleRequired": "Veuillez entrer un titre pour votre memoire."
+    "titleRequired": "Veuillez entrer un titre pour votre memoire.",
+    "orFormattingProfile": "Aucun modèle ne convient ? Commencer avec un profil de mise en forme",
+    "backToTemplates": "← Retour aux modèles",
+    "noTemplatesMatch": "Aucun modèle ne correspond à ces filtres.",
+    "noProfilesMatch": "Aucun profil ne correspond à ces filtres."
   },
   "notifications": {
     "title": "Notifications",
