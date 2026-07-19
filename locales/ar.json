@@ -521,6 +521,10 @@
       "num": { "decimal": "١، ٢، ٣…", "lowerRoman": "i، ii، iii…", "upperRoman": "I، II، III…", "other": "#" }
     },
     "open": "فتح مساحة العمل",
+    "preview": "معاينة",
+    "previewWord": "Word",
+    "previewPdf": "PDF",
+    "closePreview": "إغلاق المعاينة",
     "emptyChapter": "انقر على المحادثة لتطلب من الذكاء الاصطناعي كتابة هذا.",
     "resume": "ملخص",
     "empty": "لا يوجد محتوى بعد.",

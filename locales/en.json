@@ -521,6 +521,10 @@
       "num": { "decimal": "1, 2, 3…", "lowerRoman": "i, ii, iii…", "upperRoman": "I, II, III…", "other": "#" }
     },
     "open": "Open workspace",
+    "preview": "Preview",
+    "previewWord": "Word",
+    "previewPdf": "PDF",
+    "closePreview": "Close preview",
     "emptyChapter": "Tap the chat to ask the AI to draft this.",
     "resume": "Abstract",
     "empty": "No content yet.",
