@@ -35,7 +35,7 @@ import {
   WorkspaceComposerSheet,
   COMPOSER_COLLAPSED_HEIGHT,
 } from "@/components/workspace/WorkspaceComposerSheet";
-import { WorkspaceViewSwitcher } from "@/components/workspace/WorkspaceViewSwitcher";
+import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
@@ -127,7 +127,7 @@ export default function ThesisWorkspaceScreen() {
   // `available:false` carries why (no Document Server / conversion failed).
   const [pdfDoc, setPdfDoc] = useState<ThesisPdfDTO | undefined>(undefined);
 
-  const viewMode = useWorkspaceStore((s) => s.viewMode);
+  const previewMode = useWorkspaceStore((s) => s.previewMode);
 
   // The three live-.docx views stay mounted at once (see the layered doc area), so
   // switching keeps each view's scroll. The PDF is the exception: its render is a
@@ -147,9 +147,9 @@ export default function ThesisWorkspaceScreen() {
     useWorkspaceStore.getState().setThesis(thesisId);
     return () => {
       // Leaving the workspace → drop the transient PDF render if it was ever
-      // converted this session (its layer now stays mounted across view switches,
-      // so keying on the current viewMode would leak it when leaving from another
-      // view).
+      // converted this session (its layer now stays mounted across preview switches,
+      // so keying on the current previewMode would leak it when leaving from another
+      // preview).
       if (pdfMountedRef.current) {
         void deleteThesisPdf(thesisId).catch(() => {});
       }
@@ -329,7 +329,7 @@ export default function ThesisWorkspaceScreen() {
   // never on a mere re-entry, which would reload the WebView and lose the scroll.
   // The render is dropped on screen-leave (cleanup above), not on view switch.
   useEffect(() => {
-    if (viewMode !== "pdf" || !isLiveDoc) return;
+    if (previewMode !== "pdf" || !isLiveDoc) return;
     if (!pdfMountedRef.current) {
       pdfMountedRef.current = true;
       setPdfMounted(true);
@@ -338,7 +338,7 @@ export default function ThesisWorkspaceScreen() {
     pdfConvertedRef.current = true;
     pdfVersionRef.current = docVersionKey;
     void refreshPdf();
-  }, [viewMode, isLiveDoc, docVersionKey, refreshPdf]);
+  }, [previewMode, isLiveDoc, docVersionKey, refreshPdf]);
 
   const title = thesis?.title ?? "";
 
@@ -398,8 +398,8 @@ export default function ThesisWorkspaceScreen() {
         <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
           {title}
         </Text>
-        {/* One-tap view cycler (Document → Outline → PDF), live docs only. */}
-        {liveDoc && <WorkspaceViewSwitcher />}
+        {/* Read-only preview (Word / PDF), live docs only — editing is the Writer. */}
+        {liveDoc && <PreviewButton />}
         {/* Undo / redo: server-side history restores. Disabled while queue ops are
             pending (positional indices would replay against the restored doc) or
             while an AI turn is running. */}
@@ -472,6 +472,9 @@ export default function ThesisWorkspaceScreen() {
         )}
       </View>
 
+      {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}
+      {liveDoc && <PreviewBar />}
+
       <Animated.View style={[{ flex: 1 }, docAreaStyle]}>
         {doc === undefined ? (
           /* Document model not resolved yet — avoid flashing the legacy render
@@ -501,8 +504,8 @@ export default function ThesisWorkspaceScreen() {
                 crashes the iOS Simulator's WebContent process (and is unreliable in
                 emulators), so simulators/emulators fall back to docx-preview. */}
             <View
-              style={[styles.docLayer, viewMode === "docx" ? styles.layerActive : styles.layerHidden]}
-              pointerEvents={viewMode === "docx" ? "auto" : "none"}
+              style={[styles.docLayer, previewMode === "docx" ? styles.layerActive : styles.layerHidden]}
+              pointerEvents={previewMode === "docx" ? "auto" : "none"}
             >
               {editorCfg === undefined ? (
                 <View style={styles.centered}>
@@ -534,7 +537,7 @@ export default function ThesisWorkspaceScreen() {
                   onLongPress={(index, text) =>
                     useWorkspaceStore.getState().addToSelection(index, text)
                   }
-                  editable={!isGenerating}
+                  editable={false}
                   onEditCommit={(index, text) =>
                     void useThesisDocStore.getState().mutate(thesisId, { type: "editText", index, text })
                   }
@@ -559,8 +562,8 @@ export default function ThesisWorkspaceScreen() {
                 for the AI; long-press the grip handle to drag-reorder it. Reads
                 liveDoc.blocks (already in the DTO), so no extra fetch. */}
             <View
-              style={[styles.docLayer, viewMode === "outline" ? styles.layerActive : styles.layerHidden]}
-              pointerEvents={viewMode === "outline" ? "auto" : "none"}
+              style={[styles.docLayer, previewMode === null ? styles.layerActive : styles.layerHidden]}
+              pointerEvents={previewMode === null ? "auto" : "none"}
             >
               <OutlineReorderable
                 thesisId={thesisId}
@@ -577,10 +580,10 @@ export default function ThesisWorkspaceScreen() {
                 (conversion is server-side). Mounted lazily on first open, then kept
                 warm so returning preserves its scroll; re-converts only after a real
                 edit (see the effect above). */}
-            {(pdfMounted || viewMode === "pdf") && (
+            {(pdfMounted || previewMode === "pdf") && (
               <View
-                style={[styles.docLayer, viewMode === "pdf" ? styles.layerActive : styles.layerHidden]}
-                pointerEvents={viewMode === "pdf" ? "auto" : "none"}
+                style={[styles.docLayer, previewMode === "pdf" ? styles.layerActive : styles.layerHidden]}
+                pointerEvents={previewMode === "pdf" ? "auto" : "none"}
               >
                 {pdfDoc === undefined ? (
                   <View style={styles.centered}>

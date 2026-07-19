@@ -1,10 +1,11 @@
 import { create } from "zustand";
 
 export type ActivePanel = "sources" | "outline" | null;
-// "docx" = Word-fidelity editor (OnlyOffice / docx-preview), "outline" = native
-// block render, "pdf" = OnlyOffice-rendered PDF in a WebView (PDF.js). The PDF
-// tool sets this directly; toggleViewMode only swaps the docx↔outline pair.
-export type DocViewMode = "docx" | "outline" | "pdf";
+// The native outline ("the Writer") is the single editing surface. A read-only
+// preview overlay may sit on top of it: "docx" = Word-fidelity pages (OnlyOffice /
+// docx-preview), "pdf" = the OnlyOffice-converted PDF (PDF.js). null = writing
+// (the Writer is active, no preview).
+export type PreviewMode = "docx" | "pdf" | null;
 
 /** One selected document block: its engine index + a snippet of its text. */
 export interface SelectedBlock {
@@ -34,7 +35,7 @@ interface WorkspaceState {
   inlineEditing: boolean;
   activePanel: ActivePanel;
   isFormatting: boolean;
-  viewMode: DocViewMode;
+  previewMode: PreviewMode;
   thinkingEnabled: boolean;
   // Composer bottom-sheet mode: "ai" = chat/generation, "edit" = manual
   // block-level style/alignment tools. Only meaningful on a live-.docx thesis.
@@ -65,8 +66,9 @@ interface WorkspaceState {
   setActivePanel: (panel: ActivePanel) => void;
   togglePanel: (panel: "sources" | "outline") => void;
   setFormatting: (v: boolean) => void;
-  setViewMode: (mode: DocViewMode) => void;
-  toggleViewMode: () => void;
+  openPreview: (mode: "docx" | "pdf") => void;
+  setPreviewMode: (mode: PreviewMode) => void;
+  closePreview: () => void;
   setThinkingEnabled: (v: boolean) => void;
   setComposerMode: (m: "ai" | "edit") => void;
   setComposerOpen: (open: boolean) => void;
@@ -84,7 +86,7 @@ const INITIAL = {
   inlineEditing: false,
   activePanel: null as ActivePanel,
   isFormatting: false,
-  viewMode: "docx" as DocViewMode,
+  previewMode: null as PreviewMode,
   thinkingEnabled: true,
   composerMode: "ai" as "ai" | "edit",
   composerOpen: true,
@@ -147,9 +149,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setFormatting: (v) => set({ isFormatting: v }),
 
-  setViewMode: (mode) => set({ viewMode: mode }),
+  openPreview: (mode) => set({ previewMode: mode }),
 
-  toggleViewMode: () => set({ viewMode: get().viewMode === "docx" ? "outline" : "docx" }),
+  setPreviewMode: (mode) => set({ previewMode: mode }),
+
+  closePreview: () => set({ previewMode: null }),
 
   setThinkingEnabled: (v) => set({ thinkingEnabled: v }),
 
