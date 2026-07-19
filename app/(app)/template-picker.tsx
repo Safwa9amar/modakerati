@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
+  Image,
   Pressable,
   ScrollView,
   ActivityIndicator,
@@ -446,7 +447,17 @@ export default function TemplatePickerScreen() {
                 },
               ]}
             >
-              <View style={styles.docThumb} />
+              <View style={styles.docThumb}>
+                {tpl.config.thumbUrl ? (
+                  <Image
+                    source={{ uri: tpl.config.thumbUrl }}
+                    style={StyleSheet.absoluteFill}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <FileText size={18} color={colors.textSecondary} strokeWidth={1.6} />
+                )}
+              </View>
               <View style={styles.profileContent}>
                 <View style={styles.nameRow}>
                   <Text
@@ -738,6 +749,9 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 5,
     backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.25,

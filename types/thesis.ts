@@ -51,6 +51,7 @@ export interface Template {
     margins: { top: string; bottom: string; left: string; right: string };
     bodyFont: string; bodySize: string; headingFont: string; lineSpacing: string; paperSize: string;
     pdfUrl?: string; // optional public URL to the template's PDF version
+    thumbUrl?: string; // optional public URL to the template's preview image / thumbnail
   };
   frontMatter: {
     pageDeGarde: string[];
