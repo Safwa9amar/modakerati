@@ -48,6 +48,10 @@ interface WorkspaceState {
   // composer's keyboard docking: other inputs on the screen (e.g. the Sources
   // sheet search) also raise the keyboard, and the composer must not react.
   composerInputFocused: boolean;
+  // Focus / typewriter mode: pure-styling toggle that dims every block EXCEPT the
+  // one being worked on (the inline-edited block, else the single selected block)
+  // to reduce distraction while writing. Does not touch the data model.
+  focusMode: boolean;
 
   setThesis: (id: string) => void;
   // Single-select: replace the whole selection with just this block and exit
@@ -74,6 +78,8 @@ interface WorkspaceState {
   setComposerOpen: (open: boolean) => void;
   toggleComposer: () => void;
   setComposerInputFocused: (v: boolean) => void;
+  setFocusMode: (v: boolean) => void;
+  toggleFocusMode: () => void;
   reset: () => void;
 }
 
@@ -91,6 +97,7 @@ const INITIAL = {
   composerMode: "ai" as "ai" | "edit",
   composerOpen: true,
   composerInputFocused: false,
+  focusMode: false,
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -164,6 +171,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   toggleComposer: () => set((s) => ({ composerOpen: !s.composerOpen })),
 
   setComposerInputFocused: (v) => set({ composerInputFocused: v }),
+
+  setFocusMode: (v) => set({ focusMode: v }),
+
+  toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
 
   reset: () => set(INITIAL),
 }));

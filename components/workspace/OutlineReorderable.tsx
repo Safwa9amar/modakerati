@@ -16,6 +16,7 @@ import {
 } from "./OutlineChrome";
 import { type DocBlockDTO, type DocSectionDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
 // One outline row: a drag handle (long-press to lift) + the block. The handle
@@ -37,10 +38,19 @@ function Row({
 }) {
   const colors = useThemeColors();
   const drag = useReorderableDrag();
+  // Focus / typewriter mode: dim every block except the one being worked on.
+  // Select primitives individually (store convention — an object/array literal
+  // selector would loop). The "active" block is the inline-edited one, else the
+  // sole selected block; when nothing is active, no block is dimmed.
+  const focusMode = useWorkspaceStore((s) => s.focusMode);
+  const activeIndex = useWorkspaceStore((s) =>
+    s.editingBlockIndex ?? (s.selectedBlocks.length === 1 ? s.selectedBlocks[0].index : null),
+  );
+  const dimmed = focusMode && activeIndex != null && activeIndex !== block.index;
   return (
     <View>
       {markerLabel != null && <OutlineSectionMarker label={markerLabel} rtl={rtl} />}
-      <View style={[styles.row, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+      <View style={[styles.row, { flexDirection: rtl ? "row-reverse" : "row" }, dimmed && styles.dimmed]}>
         <Pressable onLongPress={drag} delayLongPress={180} hitSlop={6} style={styles.handle}>
           <GripVertical size={18} color={colors.textPlaceholder} />
         </Pressable>
@@ -145,6 +155,8 @@ const styles = StyleSheet.create({
   },
   content: { padding: 12 },
   row: { alignItems: "flex-start", gap: 2 },
+  // Focus-mode dim for non-active blocks (pure styling; no data change).
+  dimmed: { opacity: 0.35 },
   handle: { paddingTop: 12, paddingHorizontal: 2 },
   // Zones bleed to the card edges through the content's 12px padding.
   bleedTop: { marginHorizontal: -12, marginTop: -12, marginBottom: 10 },

@@ -17,7 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, useFocusEffect } from "expo-router";
 import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
-import { Maximize2, PanelBottomOpen, PanelBottomClose, Undo2, Redo2 } from "lucide-react-native";
+import { Maximize2, PanelBottomOpen, PanelBottomClose, Undo2, Redo2, Focus, ListTree } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -82,6 +82,8 @@ export default function ThesisWorkspaceScreen() {
   const isGenerating = useChatStore((s) => s.isGenerating);
   const activePanel = useWorkspaceStore((s) => s.activePanel);
   const composerOpen = useWorkspaceStore((s) => s.composerOpen);
+  // Focus / typewriter mode toggle state (drives the header icon tint).
+  const focusMode = useWorkspaceStore((s) => s.focusMode);
   // The composer sheet writes its LIVE top-edge Y into this shared value (gorhom's
   // `animatedPosition`). The document area reserves exactly the height the sheet
   // covers from the bottom, so content always clears the sheet at any position —
@@ -400,6 +402,18 @@ export default function ThesisWorkspaceScreen() {
         </Text>
         {/* Read-only preview (Word / PDF), live docs only — editing is the Writer. */}
         {liveDoc && <PreviewButton />}
+        {/* Navigator: open the heading-tree sheet to jump around a long thesis. */}
+        {liveDoc && (
+          <Pressable
+            onPress={handleOutlineToggle}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t("workspace.navigator", { defaultValue: "Navigator" })}
+            style={styles.expandBtn}
+          >
+            <ListTree size={20} color={colors.textPrimary} />
+          </Pressable>
+        )}
         {/* Undo / redo: server-side history restores. Disabled while queue ops are
             pending (positional indices would replay against the restored doc) or
             while an AI turn is running. */}
@@ -434,6 +448,18 @@ export default function ThesisWorkspaceScreen() {
               />
             </Pressable>
           </>
+        )}
+        {/* Focus / typewriter mode: dim every block except the one being worked on. */}
+        {liveDoc && (
+          <Pressable
+            onPress={() => useWorkspaceStore.getState().toggleFocusMode()}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t("workspace.focusMode", { defaultValue: "Focus mode" })}
+            style={styles.expandBtn}
+          >
+            <Focus size={20} color={focusMode ? colors.brandPrimary : colors.textPrimary} />
+          </Pressable>
         )}
         {/* Show / hide the AI composer sheet. */}
         {liveDoc && (

@@ -532,6 +532,8 @@
     "wholeMemoir": "كامل المذكرة",
     "showComposer": "إظهار المُنشئ",
     "hideComposer": "إخفاء المُنشئ",
+    "focusMode": "وضع التركيز",
+    "navigator": "التنقل",
     "askPlaceholder": "اطلب من الذكاء الاصطناعي الكتابة أو التعديل…",
     "formatThesis": "تنسيق المذكرة",
     "formatting": "جاري التنسيق...",

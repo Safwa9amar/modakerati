@@ -532,6 +532,8 @@
     "wholeMemoir": "Mémoire entier",
     "showComposer": "Afficher le compositeur",
     "hideComposer": "Masquer le compositeur",
+    "focusMode": "Mode focus",
+    "navigator": "Navigation",
     "askPlaceholder": "Demandez à l'IA d'écrire ou de modifier…",
     "formatThesis": "Formater le memoire",
     "formatting": "Formatage en cours...",

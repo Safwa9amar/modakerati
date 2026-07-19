@@ -532,6 +532,8 @@
     "wholeMemoir": "Whole memoir",
     "showComposer": "Show composer",
     "hideComposer": "Hide composer",
+    "focusMode": "Focus mode",
+    "navigator": "Navigator",
     "askPlaceholder": "Ask the AI to write or edit…",
     "formatThesis": "Format thesis",
     "formatting": "Formatting...",
