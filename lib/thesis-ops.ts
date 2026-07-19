@@ -187,10 +187,15 @@ export function applyOpToDoc(doc: LiveDocumentDTO, op: ThesisOp): LiveDocumentDT
   const rejectedMove =
     op.type === "move" &&
     (op.from < 0 || op.to < 0 || op.from >= doc.blocks.length || op.to >= doc.blocks.length);
+  // A splitParagraph whose target isn't a real paragraph block is a no-op on
+  // blocks (applyOpToBlocks skips it) — don't shift sections as if one were inserted.
+  const rejectedSplit =
+    op.type === "splitParagraph" &&
+    !doc.blocks.some((b) => b.index === op.index && b.kind === "paragraph");
   return {
     ...doc,
     blocks,
-    sections: rejectedMove ? doc.sections : applyOpToSections(doc.sections, op),
+    sections: rejectedMove || rejectedSplit ? doc.sections : applyOpToSections(doc.sections, op),
   };
 }
 
