@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, StyleSheet, Alert, Keyboard, Text, Pressable } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, StyleSheet, Alert, Keyboard, Platform, Text, Pressable } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 import GorhomBottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { router } from "expo-router";
@@ -14,12 +14,14 @@ import {
   Trash2,
   FileStack,
   X,
+  Undo2,
 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
-import { sendMessageToAI, regenerateLastResponse } from "@/lib/ai-service";
-import { deleteThesisBlocks, startThesisBlocksOnNewPage, type DocBlockDTO } from "@/lib/api";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { sendMessageToAI, regenerateLastResponse, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
+import { type DocBlockDTO, restoreThesisHistory } from "@/lib/api";
 import { ComposerThinking } from "./ComposerThinking";
 import { deriveThinkingMs } from "@/lib/thinking";
 import { ComposerInput } from "./ComposerInput";
@@ -27,15 +29,19 @@ import { ComposerQuickActions } from "./ComposerQuickActions";
 import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { ComposerToolsTray, type ToolItem } from "./ComposerToolsTray";
 import { ComposerAsk } from "./ComposerAsk";
+import { ComposerConfirm } from "./ComposerConfirm";
 import { ComposerModeToggle } from "./ComposerModeToggle";
 import { ComposerEditTools } from "./ComposerEditTools";
 import { ComposerRibbon } from "./ribbon/ComposerRibbon";
 
 /** Height of the collapsed peek (the doc area pads its bottom by this). */
-export const COMPOSER_COLLAPSED_HEIGHT = 210;
+export const COMPOSER_COLLAPSED_HEIGHT = 250;
 /** Expanded snap point as a fraction of the container height. Shared with the
  *  workspace screen so the document's bottom spacing tracks the sheet height. */
 export const COMPOSER_EXPANDED_FRACTION = 0.62;
+/** gorhom's default handle above the content (4px indicator + 2×10px padding);
+ *  the keyboard-docked position must include it so the content clears the keyboard. */
+const SHEET_HANDLE_HEIGHT = 24;
 
 interface Props {
   thesisId: string;
@@ -124,6 +130,8 @@ export function WorkspaceComposerSheet({
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
+  const pendingConfirm = useChatStore((s) => s.pendingConfirm);
+  const aiDocChanges = useChatStore((s) => s.docChanges[thesisId] ?? null);
   // Reasoning to surface: the live streaming message once tokens arrive, else the
   // most recent assistant message that produced reasoning (kept reviewable until
   // the next turn). During a new turn's pre-stream gap (generating, but no stream
@@ -161,6 +169,58 @@ export function WorkspaceComposerSheet({
 
   const [inputText, setInputText] = useState("");
 
+  // ——— Keyboard docking ———
+  // Keyboard CLEARANCE is owned by the workspace screen's KeyboardAvoidingView:
+  // it shrinks the sheet's whole container above the keyboard, so the container
+  // bottom is always the keyboard's top edge. This sheet only handles the
+  // COMPACT presentation: while one of its own inputs has the keyboard up,
+  // everything except that input surface is hidden and the detents collapse to
+  // [handle + compact content], docking the input right on the keyboard.
+  // gorhom's own keyboard handling is deliberately inert (it would fight this):
+  // none of the composer's inputs are registered BottomSheetTextInputs (gorhom
+  // ignores keyboard events from unregistered inputs) and keyboardBlurBehavior
+  // is "none".
+  const inputFocused = useWorkspaceStore((s) => s.composerInputFocused);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  // Sheet content height from onLayout. Reset on the keyboard's FIRST show event
+  // so the docking waits for the COMPACT layout pass instead of docking at the
+  // stale full-composer height. Follow-up show events (keyboard height changes,
+  // emoji panel) keep the measured compact height so re-docking works.
+  const [contentHeight, setContentHeight] = useState(0);
+  const keyboardVisibleRef = useRef(false);
+  const docked = keyboardVisible && inputFocused;
+
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => {
+        if (!keyboardVisibleRef.current) setContentHeight(0);
+        keyboardVisibleRef.current = true;
+        setKeyboardVisible(true);
+      },
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        keyboardVisibleRef.current = false;
+        setKeyboardVisible(false);
+      },
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  const markInputFocused = useCallback(
+    () => useWorkspaceStore.getState().setComposerInputFocused(true),
+    [],
+  );
+  const markInputBlurred = useCallback(
+    () => useWorkspaceStore.getState().setComposerInputFocused(false),
+    [],
+  );
+
   // AI-generated quick-action chips — only while the AI-mode composer is showing
   // them (open, not in Edit mode, and not while an ask sheet is open). Falls back to
   // the static presets whenever the list is empty (offline / fresh thesis / failure).
@@ -169,10 +229,23 @@ export function WorkspaceComposerSheet({
     selectedBlocks,
   });
 
-  const snapPoints = useMemo(
-    () => [COMPOSER_COLLAPSED_HEIGHT, `${COMPOSER_EXPANDED_FRACTION * 100}%`],
-    [],
-  );
+  // The sheet's detents. While docked, detent 0 becomes [handle + compact
+  // content] — the input sitting right on the keyboard, whose top edge IS the
+  // container bottom thanks to the screen's KeyboardAvoidingView. The dock must
+  // be a real detent (a raw snapToPosition records nextIndex -1 — "closed" — and
+  // the completion callbacks made the accidental-close guard yank the sheet
+  // back behind the keyboard). Detent 1 stays the expanded point in BOTH lists
+  // so the list NEVER changes length: gorhom keeps its detents in a UI-thread
+  // derived value that lags this prop by a frame, and a snapToIndex(1) issued in
+  // the same commit the list shrank to one entry throws the out-of-range
+  // invariant (crashed on send: blur → undock → expand-while-generating snap).
+  const snapPoints = useMemo(() => {
+    const expanded = `${COMPOSER_EXPANDED_FRACTION * 100}%`;
+    if (docked && contentHeight > 0) {
+      return [SHEET_HANDLE_HEIGHT + contentHeight, expanded];
+    }
+    return [COMPOSER_COLLAPSED_HEIGHT, expanded];
+  }, [docked, contentHeight]);
 
   // AI activity forces the composer visible so its progress/question is seen even
   // if the user had closed the sheet via the header toggle.
@@ -180,19 +253,34 @@ export function WorkspaceComposerSheet({
     if (isGenerating || pendingAsk) useWorkspaceStore.getState().setComposerOpen(true);
   }, [isGenerating, pendingAsk]);
 
-  // Single source of truth for the sheet's position: closed when toggled off;
+  // Single source of truth for the sheet's detent: closed when toggled off;
   // otherwise expanded while the AI works / asks, and collapsed to the peek when
   // idle so the updated document is visible again. Driving it off `composerOpen`
   // (not just the generation flags) means a view-mode switch can't strand it.
+  // While docked the keyboard effect below owns the position; when docking ends
+  // this re-runs (docked is a dep) and restores the proper detent.
   useEffect(() => {
     if (!composerOpen) {
       sheetRef.current?.close();
+    } else if (docked) {
+      return;
     } else if (isGenerating || pendingAsk) {
       sheetRef.current?.snapToIndex(1);
     } else {
       sheetRef.current?.snapToIndex(0);
     }
-  }, [composerOpen, isGenerating, pendingAsk]);
+  }, [composerOpen, isGenerating, pendingAsk, docked]);
+
+  // Keyboard docking: detent 0 above becomes the docked position; gorhom's
+  // snap-point-change reaction animates onto it by itself when the sheet was at
+  // index 0. The explicit snap covers docking that starts from index 1
+  // (expanded, e.g. answering an ask) — the reaction would keep the sheet at the
+  // unchanged detent 1. Re-runs when the compact content resizes (multiline
+  // growth) to keep the input hugging the keyboard.
+  useEffect(() => {
+    if (!docked || contentHeight === 0) return;
+    sheetRef.current?.snapToIndex(0);
+  }, [docked, contentHeight]);
 
   // A legacy (non-live) doc has no editable blocks — never let it get stuck in
   // Edit mode (the toggle is hidden there, so the user couldn't switch back).
@@ -231,6 +319,26 @@ export function WorkspaceComposerSheet({
     void sendMessageToAI(thesisId, answer, focusOpts);
   };
 
+  // Approve / decline a gated destructive AI action. These call dedicated
+  // endpoints (NOT a chat message) that run — or discard — the server-stored args.
+  const handleApprove = () => {
+    if (pendingConfirm) void approvePendingAction(thesisId, pendingConfirm.actionId);
+  };
+  const handleDecline = () => {
+    if (pendingConfirm) void declinePendingAction(thesisId, pendingConfirm.actionId);
+  };
+
+  // One-tap revert of everything the last AI turn changed (its checkpoint snapshot).
+  const handleUndoAiChanges = () => {
+    if (!aiDocChanges) return;
+    useChatStore.getState().setDocChanges(thesisId, null);
+    void restoreThesisHistory(thesisId, aiDocChanges.checkpointSeq)
+      .then((res) =>
+        useThesisDocStore.getState().applyRestoredDoc(thesisId, res.document, { canUndo: res.canUndo, canRedo: res.canRedo }),
+      )
+      .catch(() => useChatStore.getState().setDocChanges(thesisId, aiDocChanges)); // restore the chip on failure
+  };
+
   // AI-bridge target: fill the composer input with the instruction and switch to AI
   // mode + expand, matching the quick-action "fill, don't send" behavior.
   const handleRibbonAiAction = (instruction: string) => {
@@ -241,40 +349,32 @@ export function WorkspaceComposerSheet({
   };
 
   // Bulk actions on the multi-selection. Delete is destructive → confirm first.
-  // Both rewrite the .docx, so clear the selection and ask the screen to refresh.
+  // Both go through the durable op queue: the blocks update instantly (optimistic),
+  // the op is persisted and flushed in the background, and the store reconciles /
+  // surfaces a rejection centrally — no spinner, no wait.
   const handleBulkDelete = () => {
     if (!indices.length) return;
     Alert.alert(
       t("workspace.deleteSelectedTitle", { defaultValue: "Delete selected blocks?" }),
-      t("workspace.deleteSelectedBody", { count, defaultValue: `Remove ${count} block(s) from the document? This can't be undone.` }),
+      t("workspace.deleteSelectedBody", { count, defaultValue: `Remove ${count} block(s) from the document? You can undo this from History.` }),
       [
         { text: t("common.cancel", { defaultValue: "Cancel" }), style: "cancel" },
         {
           text: t("common.delete", { defaultValue: "Delete" }),
           style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteThesisBlocks(thesisId, indices);
-              useWorkspaceStore.getState().clearSelection();
-              onAfterBulkEdit();
-            } catch {
-              Alert.alert(t("common.error", { defaultValue: "Error" }), t("workspace.bulkEditError", { defaultValue: "Could not apply the change." }));
-            }
+          onPress: () => {
+            void useThesisDocStore.getState().mutate(thesisId, { type: "deleteBlocks", indices });
+            useWorkspaceStore.getState().clearSelection();
           },
         },
       ],
     );
   };
 
-  const handleBulkNewPage = async () => {
+  const handleBulkNewPage = () => {
     if (!indices.length) return;
-    try {
-      await startThesisBlocksOnNewPage(thesisId, indices);
-      useWorkspaceStore.getState().clearSelection();
-      onAfterBulkEdit();
-    } catch {
-      Alert.alert(t("common.error", { defaultValue: "Error" }), t("workspace.bulkEditError", { defaultValue: "Could not apply the change." }));
-    }
+    void useThesisDocStore.getState().mutate(thesisId, { type: "startOnNewPage", indices });
+    useWorkspaceStore.getState().clearSelection();
   };
 
   const tools: ToolItem[] = [
@@ -305,6 +405,13 @@ export function WorkspaceComposerSheet({
       ref={sheetRef}
       index={0}
       snapPoints={snapPoints}
+      // MUST stay false (gorhom defaults it to true): dynamic sizing injects an
+      // extra content-height detent and re-sorts the detent list on every content
+      // change. Going compact for keyboard docking would then shrink that detent
+      // to ~120px and gorhom's snap-point-change reaction would re-target the
+      // sheet onto it — dropping the whole composer behind the keyboard. It also
+      // silently shifts what snapToIndex(0/1) means.
+      enableDynamicSizing={false}
       animatedPosition={animatedPosition}
       enablePanDownToClose={false}
       onChange={(index) => {
@@ -317,15 +424,27 @@ export function WorkspaceComposerSheet({
           requestAnimationFrame(() => sheetRef.current?.snapToIndex(0));
         }
       }}
-      keyboardBehavior="interactive"
-      keyboardBlurBehavior="restore"
+      // Keyboard handling is manual (see the docking effect above): gorhom's show
+      // reaction only fires for registered BottomSheetTextInputs (the composer
+      // deliberately has none) and blur restore is off — otherwise both would
+      // fight the docked position.
+      keyboardBlurBehavior="none"
       android_keyboardInputMode="adjustResize"
       backgroundStyle={{ backgroundColor: colors.bgPrimary }}
       handleIndicatorStyle={{ backgroundColor: colors.textPlaceholder }}
       style={styles.sheetShadow}
     >
-      <BottomSheetView style={styles.content}>
+      <BottomSheetView>
+        {/* Measured for keyboard docking: while docked only the active input
+            surface stays visible, and the sheet is positioned so exactly this
+            content (plus the handle) shows above the keyboard. The padding lives
+            on this View so the measurement includes it. */}
+        <View
+          style={styles.content}
+          onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)}
+        >
         {/* Focus chip */}
+        {!docked && (
         <View style={[styles.chipRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
           <View style={[styles.chip, { backgroundColor: colors.brandPrimaryLight + "22" }]}>
             <Text style={[styles.chipText, { color: colors.brandPrimary }]} numberOfLines={1}>
@@ -343,9 +462,10 @@ export function WorkspaceComposerSheet({
             )}
           </View>
         </View>
+        )}
 
         {/* AI ⇄ Edit mode toggle — only meaningful on a live .docx. */}
-        {isLiveDoc && (
+        {!docked && isLiveDoc && (
           <ComposerModeToggle
             mode={composerMode}
             onChange={(m) => useWorkspaceStore.getState().setComposerMode(m)}
@@ -356,7 +476,7 @@ export function WorkspaceComposerSheet({
         )}
 
         {/* Bulk actions — only while building a multi-selection on a live .docx. */}
-        {isLiveDoc && multiSelect && count > 0 && (
+        {!docked && isLiveDoc && multiSelect && count > 0 && (
           <View style={[styles.bulkRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
             <Pressable
               onPress={handleBulkNewPage}
@@ -381,8 +501,42 @@ export function WorkspaceComposerSheet({
           </View>
         )}
 
-        {pendingAsk ? (
-          <ComposerAsk ask={pendingAsk} onAnswer={handleAnswer} rtl={rtl} />
+        {/* One-tap revert of everything the last AI turn changed to the doc. */}
+        {!docked && aiDocChanges && !isGenerating && !pendingConfirm && (
+          <Pressable
+            onPress={handleUndoAiChanges}
+            style={[
+              styles.bulkBtn,
+              { borderColor: colors.brandPrimary + "55", backgroundColor: colors.brandPrimary + "12", alignSelf: rtl ? "flex-end" : "flex-start" },
+            ]}
+            accessibilityRole="button"
+          >
+            <Undo2 size={15} color={colors.brandPrimary} strokeWidth={2} />
+            <Text style={[styles.bulkText, { color: colors.brandPrimary }]} numberOfLines={1}>
+              {t("workspace.undoAiChanges", { defaultValue: "Undo AI changes" })}
+            </Text>
+          </Pressable>
+        )}
+
+        {pendingConfirm ? (
+          /* A destructive AI action is waiting for approval — it replaces the
+             input surface (Approve/Cancel), like the ask does. */
+          <ComposerConfirm
+            confirm={pendingConfirm}
+            onApprove={handleApprove}
+            onCancel={handleDecline}
+            rtl={rtl}
+          />
+        ) : pendingAsk ? (
+          /* The ask IS the input surface — it stays whole while docked (the
+             student needs the question + options while typing an answer). */
+          <ComposerAsk
+            ask={pendingAsk}
+            onAnswer={handleAnswer}
+            rtl={rtl}
+            onInputFocus={markInputFocused}
+            onInputBlur={markInputBlurred}
+          />
         ) : (
           <>
             {composerMode === "edit" && isLiveDoc ? (
@@ -399,48 +553,57 @@ export function WorkspaceComposerSheet({
                     blockCount={blocks.length}
                     hint={t("composer.edit.selectHint", { defaultValue: "Select a paragraph to edit." })}
                     styleLabels={{ normal: t("composer.edit.normal", { defaultValue: "Normal" }) }}
-                    onAfterEdit={onAfterBulkEdit}
                     rtl={rtl}
                   />
                 }
               />
             ) : (
               <>
-                <ComposerThinking
-                  isGenerating={isGenerating}
-                  reasoning={isGenerating && generatingPhase === "thinking"}
-                  thinking={thinking}
-                  durationMs={thinkingMs}
-                  statusReady={t("composer.status.ready")}
-                  rtl={rtl}
-                />
-                <View style={styles.inputSpacer} />
+                {!docked && (
+                  <>
+                    <ComposerThinking
+                      isGenerating={isGenerating}
+                      reasoning={isGenerating && generatingPhase === "thinking"}
+                      thinking={thinking}
+                      durationMs={thinkingMs}
+                      statusReady={t("composer.status.ready")}
+                      rtl={rtl}
+                    />
+                    <View style={styles.inputSpacer} />
+                  </>
+                )}
                 <ComposerInput
                   value={inputText}
                   onChangeText={setInputText}
                   onSend={handleSend}
                   onStop={() => useChatStore.getState().stopGenerating()}
                   onMicPress={() => Alert.alert(t("composer.voiceComingSoon"))}
-                  onFocus={() => sheetRef.current?.snapToIndex(1)}
+                  onFocus={markInputFocused}
+                  onBlur={markInputBlurred}
                   isGenerating={isGenerating}
                   placeholder={t("workspace.askPlaceholder", { defaultValue: "Ask the AI to write or edit…" })}
                   sendLabel={t("chat.send", { defaultValue: "Send" })}
                   stopLabel={t("chat.stop", { defaultValue: "Stop" })}
                   micLabel={t("composer.micLabel", { defaultValue: "Voice input" })}
                 />
-                <View style={styles.quickActionsSpacer} />
-                <ComposerQuickActions
-                  suggestions={suggestions}
-                  onPreset={(prompt) => {
-                    setInputText(prompt);
-                    sheetRef.current?.snapToIndex(1);
-                  }}
-                />
+                {!docked && (
+                  <>
+                    <View style={styles.quickActionsSpacer} />
+                    <ComposerQuickActions
+                      suggestions={suggestions}
+                      onPreset={(prompt) => {
+                        setInputText(prompt);
+                        sheetRef.current?.snapToIndex(1);
+                      }}
+                    />
+                  </>
+                )}
               </>
             )}
-            <ComposerToolsTray label={t("composer.toolsLabel")} tools={tools} />
+            {!docked && <ComposerToolsTray label={t("composer.toolsLabel")} tools={tools} />}
           </>
         )}
+        </View>
       </BottomSheetView>
     </GorhomBottomSheet>
   );
