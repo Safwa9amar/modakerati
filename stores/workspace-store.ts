@@ -21,6 +21,14 @@ interface WorkspaceState {
   // long-press). Drives whether a subsequent tap REPLACES the selection (single)
   // or TOGGLES the tapped block in/out of the set.
   multiSelect: boolean;
+  // The engine block index whose paragraph is being edited inline in the OUTLINE
+  // view (null = none). Distinct from selection: a block is first selected, then a
+  // second tap promotes it to editing.
+  editingBlockIndex: number | null;
+  // After a split/merge moves editing to a different block, the caret position the
+  // newly-editing block should open at (start of the new paragraph / the join
+  // point). Consumed once by that block's TextInput, then cleared.
+  pendingCaret: { index: number; pos: number } | null;
   activePanel: ActivePanel;
   isFormatting: boolean;
   viewMode: DocViewMode;
@@ -48,6 +56,8 @@ interface WorkspaceState {
   // Removing the last block drops back out of multi mode.
   toggleBlock: (index: number, text: string | null) => void;
   clearSelection: () => void;
+  setEditingBlock: (index: number | null, caretPos?: number) => void;
+  clearPendingCaret: () => void;
   setActivePanel: (panel: ActivePanel) => void;
   togglePanel: (panel: "sources" | "outline") => void;
   setFormatting: (v: boolean) => void;
@@ -65,6 +75,8 @@ const INITIAL = {
   thesisId: null as string | null,
   selectedBlocks: [] as SelectedBlock[],
   multiSelect: false,
+  editingBlockIndex: null as number | null,
+  pendingCaret: null as { index: number; pos: number } | null,
   activePanel: null as ActivePanel,
   isFormatting: false,
   viewMode: "docx" as DocViewMode,
@@ -101,7 +113,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       return { selectedBlocks: next, multiSelect: next.length > 0 };
     }),
 
-  clearSelection: () => set({ selectedBlocks: [], multiSelect: false }),
+  clearSelection: () => set({ selectedBlocks: [], multiSelect: false, editingBlockIndex: null, pendingCaret: null }),
+
+  setEditingBlock: (index, caretPos) =>
+    set({
+      editingBlockIndex: index,
+      pendingCaret: index != null && caretPos != null ? { index, pos: caretPos } : null,
+    }),
+
+  clearPendingCaret: () => set({ pendingCaret: null }),
 
   setActivePanel: (panel) => set({ activePanel: panel }),
 
