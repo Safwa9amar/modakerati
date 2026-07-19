@@ -42,17 +42,6 @@ export default function TemplatePreviewScreen() {
     );
   }
 
-  // Uploaded templates carry a minimal config ({ paperSize, pdfUrl }); norm-profile-
-  // style templates have the full formatting shape. Guard every field so an
-  // uploaded template (no margins/fonts) doesn't crash the preview.
-  const cfg = (template.config ?? {}) as Partial<typeof template.config>;
-  const specs = [
-    cfg.paperSize,
-    cfg.bodyFont && cfg.bodySize ? `${cfg.bodyFont} ${cfg.bodySize}` : null,
-    cfg.lineSpacing ? `${cfg.lineSpacing} spacing` : null,
-    cfg.margins?.left ? `${cfg.margins.left} binding` : null,
-  ].filter((s): s is string => !!s);
-
   // Record the chosen template on the wizard, generate an AI plan for the
   // captured title, then advance to the plan-review step. The thesis is not
   // created until the user confirms the plan.
@@ -93,47 +82,9 @@ export default function TemplatePreviewScreen() {
         <View style={{ width: 30 }} />
       </View>
 
-      {/* Compact info header, pinned above the preview */}
-      <View style={styles.infoHeader}>
-        <Card>
-          <Text style={[styles.universityName, { color: colors.textPrimary }]}>
-            {template.university}
-          </Text>
-          <View style={styles.infoRow}>
-            <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-              {template.type}
-            </Text>
-            <View
-              style={[styles.langBadge, { backgroundColor: colors.bgSurface }]}
-            >
-              <Text style={[styles.langText, { color: colors.textSecondary }]}>
-                {template.language}
-              </Text>
-            </View>
-          </View>
-          {specs.length > 0 ? (
-            <View style={styles.specRow}>
-              {specs.map((spec, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.specBadge,
-                    { backgroundColor: colors.brandPrimary + "18" },
-                  ]}
-                >
-                  <Text style={[styles.specText, { color: colors.brandPrimary }]}>
-                    {spec}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-        </Card>
-      </View>
-
       {template.config.pdfUrl ? (
         // Uploaded templates preview their real document (the .docx converted to
-        // PDF) inline, filling the space between the info header and the CTA.
+        // PDF) inline, filling the space between the top bar and the CTA.
         <View style={styles.pdfInline}>
           <PdfView url={template.config.pdfUrl} />
         </View>
@@ -224,14 +175,8 @@ export default function TemplatePreviewScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  infoHeader: {
-    paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 8,
-  },
   pdfInline: {
     flex: 1,
-    marginTop: 4,
   },
   topBar: {
     flexDirection: "row",
@@ -255,44 +200,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-  },
-  universityName: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 6,
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 14,
-  },
-  infoText: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-  },
-  langBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  langText: {
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-  },
-  specRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  specBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  specText: {
-    fontSize: 11,
-    fontFamily: "Inter_500Medium",
   },
   paperWrapper: {
     alignItems: "center",
