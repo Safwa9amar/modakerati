@@ -1,5 +1,6 @@
 import {
   editThesisParagraph,
+  splitThesisParagraph,
   editThesisParagraphs,
   moveThesisBlock,
   insertThesisImage,
@@ -39,6 +40,7 @@ export interface FormatChange {
 
 export type ThesisOp =
   | { type: "editText"; index: number; text: string }
+  | { type: "splitParagraph"; index: number; before: string; after: string }
   | { type: "format"; indices: number[]; changes: FormatChange }
   | { type: "move"; from: number; to: number }
   | {
@@ -109,6 +111,19 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
   switch (op.type) {
     case "editText":
       return blocks.map((b) => (b.index === op.index && b.kind === "paragraph" ? { ...b, text: op.text } : b));
+    case "splitParagraph": {
+      const arr: DocBlockDTO[] = [];
+      for (const b of blocks) {
+        if (b.index === op.index && b.kind === "paragraph") {
+          arr.push({ ...b, text: op.before });
+          // New paragraph inherits the source's style/level/alignment/direction.
+          arr.push({ ...b, text: op.after });
+        } else {
+          arr.push(b);
+        }
+      }
+      return reindex(arr);
+    }
     case "format":
       return patchFormat(blocks, op.indices, op.changes);
     case "move":
@@ -139,6 +154,10 @@ export function applyOpToSections(
   switch (op.type) {
     case "insertImage": {
       const at = Math.max(op.afterIndex + 1, 0);
+      return shift((st) => (st > at ? st + 1 : st));
+    }
+    case "splitParagraph": {
+      const at = op.index + 1;
       return shift((st) => (st > at ? st + 1 : st));
     }
     case "deleteBlocks": {
@@ -186,6 +205,8 @@ export async function executeOp(
   switch (op.type) {
     case "editText":
       return editThesisParagraph(thesisId, op.index, { text: op.text });
+    case "splitParagraph":
+      return splitThesisParagraph(thesisId, op.index, { before: op.before, after: op.after });
     case "format":
       return editThesisParagraphs(thesisId, op.indices, op.changes);
     case "move":

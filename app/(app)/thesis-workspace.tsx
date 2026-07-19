@@ -544,12 +544,11 @@ export default function ThesisWorkspaceScreen() {
                     void store.mutate(thesisId, { type: "editText", index: prevIndex, text: mergedText });
                     void store.mutate(thesisId, { type: "deleteBlocks", indices: [curIndex] });
                   }}
-                  // TODO(Task 5): re-enable once the splitParagraph op exists
-                  // onSplit={(index, before, after) =>
-                  //   void useThesisDocStore
-                  //     .getState()
-                  //     .mutate(thesisId, { type: "splitParagraph", index, before, after })
-                  // }
+                  onSplit={(index, before, after) =>
+                    void useThesisDocStore
+                      .getState()
+                      .mutate(thesisId, { type: "splitParagraph", index, before, after })
+                  }
                 />
               )}
             </View>

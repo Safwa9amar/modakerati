@@ -934,6 +934,17 @@ export async function editThesisParagraph(
   return apiPut<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/paragraphs/${index}`, changes);
 }
 
+// Split a live-.docx paragraph at the caret: block `index` keeps `before`, and a
+// NEW paragraph holding `after` is inserted right after it (inheriting the source's
+// style + direction/alignment). Engine block index. Shares the AI's thesis lock.
+export async function splitThesisParagraph(
+  thesisId: string,
+  index: number,
+  body: { before: string; after: string }
+): Promise<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/paragraphs/${index}/split`, body);
+}
+
 // Bulk-apply ONE formatting change (level / alignment / direction / clearFormatting —
 // text is per-paragraph, so it's excluded) to several live-.docx paragraph blocks at
 // once: the workspace multi-select edit tools. Non-paragraph blocks in `indices` are
