@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Modal, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
+import { X } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
@@ -10,6 +11,7 @@ import { generateThesisPlan } from "@/lib/api";
 import { BackButton } from "@/components/BackButton";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PdfView } from "@/components/workspace/PdfView";
 
 export default function TemplatePreviewScreen() {
   const { t } = useTranslation();
@@ -18,6 +20,7 @@ export default function TemplatePreviewScreen() {
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
   const { templates } = useThesisStore();
   const [generating, setGenerating] = useState(false);
+  const [showPdf, setShowPdf] = useState(false);
 
   const template = templates.find((tpl) => tpl.id === templateId);
 
@@ -131,6 +134,15 @@ export default function TemplatePreviewScreen() {
           </View>
         </Card>
 
+        {/* Preview the template's PDF (only when a public URL is available) */}
+        {template.config.pdfUrl ? (
+          <Button
+            title={t("template.previewDocument")}
+            onPress={() => setShowPdf(true)}
+            variant="secondary"
+          />
+        ) : null}
+
         {/* Paper preview */}
         <View style={styles.paperWrapper}>
           <View style={[styles.paper, { borderColor: colors.borderSubtle }]}>
@@ -205,12 +217,38 @@ export default function TemplatePreviewScreen() {
           disabled={generating}
         />
       </View>
+
+      {/* Full-screen PDF preview of the template document */}
+      <Modal
+        visible={showPdf}
+        animationType="slide"
+        onRequestClose={() => setShowPdf(false)}
+      >
+        <SafeAreaView
+          style={[styles.container, { backgroundColor: colors.bgPrimary }]}
+          edges={["top"]}
+        >
+          <View style={styles.topBar}>
+            <Pressable onPress={() => setShowPdf(false)} style={styles.closeButton}>
+              <X size={22} color={colors.textPrimary} strokeWidth={2} />
+            </Pressable>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>
+              {t("template.documentPreview")}
+            </Text>
+            <View style={{ width: 30 }} />
+          </View>
+          {template.config.pdfUrl ? (
+            <PdfView url={template.config.pdfUrl} />
+          ) : null}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  closeButton: { padding: 4 },
   topBar: {
     flexDirection: "row",
     alignItems: "center",

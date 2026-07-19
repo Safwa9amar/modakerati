@@ -374,7 +374,9 @@
     "docxFile": "ملف .docx",
     "universityTemplates": "قوالب الجامعات",
     "templatePreview": "معاينة القالب",
-    "useTemplate": "استخدام هذا القالب"
+    "useTemplate": "استخدام هذا القالب",
+    "previewDocument": "معاينة المستند",
+    "documentPreview": "معاينة المستند"
   },
   "wizard": {
     "pickTemplate": "اختر قالبا",

@@ -374,7 +374,9 @@
     "docxFile": "Fichier .docx",
     "universityTemplates": "Modèles universitaires",
     "templatePreview": "Aperçu du modèle",
-    "useTemplate": "Utiliser ce modèle"
+    "useTemplate": "Utiliser ce modèle",
+    "previewDocument": "Aperçu du document",
+    "documentPreview": "Aperçu du document"
   },
   "wizard": {
     "pickTemplate": "Choisir un modele",
