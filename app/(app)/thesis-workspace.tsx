@@ -17,7 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, useFocusEffect } from "expo-router";
 import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
-import { Maximize2, PanelBottomOpen, PanelBottomClose, Undo2, Redo2, Focus, ListTree } from "lucide-react-native";
+import { Undo2, Redo2 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -36,6 +36,7 @@ import {
   COMPOSER_COLLAPSED_HEIGHT,
 } from "@/components/workspace/WorkspaceComposerSheet";
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
+import { HeaderMenuButton } from "@/components/workspace/WorkspaceHeaderMenu";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
@@ -81,9 +82,6 @@ export default function ThesisWorkspaceScreen() {
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
   const isGenerating = useChatStore((s) => s.isGenerating);
   const activePanel = useWorkspaceStore((s) => s.activePanel);
-  const composerOpen = useWorkspaceStore((s) => s.composerOpen);
-  // Focus / typewriter mode toggle state (drives the header icon tint).
-  const focusMode = useWorkspaceStore((s) => s.focusMode);
   // The composer sheet writes its LIVE top-edge Y into this shared value (gorhom's
   // `animatedPosition`). The document area reserves exactly the height the sheet
   // covers from the bottom, so content always clears the sheet at any position —
@@ -400,20 +398,6 @@ export default function ThesisWorkspaceScreen() {
         <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
           {title}
         </Text>
-        {/* Read-only preview (Word / PDF), live docs only — editing is the Writer. */}
-        {liveDoc && <PreviewButton />}
-        {/* Navigator: open the heading-tree sheet to jump around a long thesis. */}
-        {liveDoc && (
-          <Pressable
-            onPress={handleOutlineToggle}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t("workspace.navigator", { defaultValue: "Navigator" })}
-            style={styles.expandBtn}
-          >
-            <ListTree size={20} color={colors.textPrimary} />
-          </Pressable>
-        )}
         {/* Undo / redo: server-side history restores. Disabled while queue ops are
             pending (positional indices would replay against the restored doc) or
             while an AI turn is running. */}
@@ -449,50 +433,22 @@ export default function ThesisWorkspaceScreen() {
             </Pressable>
           </>
         )}
-        {/* Focus / typewriter mode: dim every block except the one being worked on. */}
-        {liveDoc && (
-          <Pressable
-            onPress={() => useWorkspaceStore.getState().toggleFocusMode()}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t("workspace.focusMode", { defaultValue: "Focus mode" })}
-            style={styles.expandBtn}
-          >
-            <Focus size={20} color={focusMode ? colors.brandPrimary : colors.textPrimary} />
-          </Pressable>
-        )}
-        {/* Show / hide the AI composer sheet. */}
-        {liveDoc && (
-          <Pressable
-            onPress={() => useWorkspaceStore.getState().toggleComposer()}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={
-              composerOpen
-                ? t("workspace.hideComposer", { defaultValue: "Hide composer" })
-                : t("workspace.showComposer", { defaultValue: "Show composer" })
-            }
-            style={styles.expandBtn}
-          >
-            {composerOpen ? (
-              <PanelBottomClose size={20} color={colors.brandPrimary} />
-            ) : (
-              <PanelBottomOpen size={20} color={colors.textPrimary} />
-            )}
-          </Pressable>
-        )}
+        {/* Read-only preview (Word / PDF), live docs only — editing is the Writer. */}
+        {liveDoc && <PreviewButton />}
+        {/* Secondary actions (Navigator, Focus, Sources, Export, Composer show/hide,
+            Maximize) collapsed into a single ⋯ overflow menu to declutter the header. */}
         {liveDoc ? (
-          <Pressable
-            onPress={() => {
+          <HeaderMenuButton
+            onOpenOutline={handleOutlineToggle}
+            onOpenSources={() => useBottomSheet.getState().openSheet("thesis-sources")}
+            onExport={() => {
               if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
             }}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t("preview.a4Title", { defaultValue: "A4 preview" })}
-            style={styles.expandBtn}
-          >
-            <Maximize2 size={20} color={colors.textPrimary} />
-          </Pressable>
+            onMaximize={() => {
+              if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
+            }}
+            downloadUrl={liveDoc.downloadUrl}
+          />
         ) : (
           <View style={styles.expandBtn} />
         )}
