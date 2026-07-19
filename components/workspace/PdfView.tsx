@@ -54,6 +54,13 @@ export function PdfView({ url }: { url: string }) {
         onMessage={onMessage}
         javaScriptEnabled
         domStorageEnabled
+        // The inline HTML runs from an opaque (about:blank) origin, so the in-page
+        // fetch of the signed PDF url is cross-origin. Android WebView defaults
+        // mixedContentMode to "never", which blocks the cleartext http:// fetch in
+        // dev (LAN Supabase) → "Failed to fetch". "always" permits it; a no-op on
+        // iOS and in production (https). Cleartext at the app level is already
+        // enabled by the dev build (the doc DTO loads over http fine).
+        mixedContentMode="always"
         style={styles.fill}
         onError={() => {
           setLoading(false);

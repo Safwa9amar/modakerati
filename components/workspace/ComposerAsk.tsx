@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { BottomSheetTextInput } from "@gorhom/bottom-sheet";
+// Plain (unregistered) input on purpose — a BottomSheetTextInput would wake
+// gorhom's own keyboard handling, which fights the composer sheet's manual
+// keyboard docking (see WorkspaceComposerSheet).
+import { TextInput } from "react-native-gesture-handler";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import type { AskPayload } from "@/types/chat";
@@ -9,6 +12,9 @@ interface Props {
   ask: AskPayload;
   onAnswer: (answer: string) => void;
   rtl: boolean;
+  /** Focus tracking for the sheet's keyboard docking. */
+  onInputFocus?: () => void;
+  onInputBlur?: () => void;
 }
 
 /**
@@ -16,7 +22,7 @@ interface Props {
  * (replaces the standalone AskBottomSheet). Tapping an option answers
  * immediately; the free-text row (when allowed) submits typed answers.
  */
-export function ComposerAsk({ ask, onAnswer, rtl }: Props) {
+export function ComposerAsk({ ask, onAnswer, rtl, onInputFocus, onInputBlur }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const [text, setText] = useState("");
@@ -46,13 +52,15 @@ export function ComposerAsk({ ask, onAnswer, rtl }: Props) {
 
       {ask.allowFreeText && (
         <View style={styles.inputRow}>
-          <BottomSheetTextInput
+          <TextInput
             value={text}
             onChangeText={setText}
             placeholder={t("chat.typeYourOwn", { defaultValue: "Type your own…" })}
             placeholderTextColor={colors.textPlaceholder}
             style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.bgCard }]}
             onSubmitEditing={() => submit(text)}
+            onFocus={onInputFocus}
+            onBlur={onInputBlur}
             returnKeyType="send"
           />
           <Pressable onPress={() => submit(text)} style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}>

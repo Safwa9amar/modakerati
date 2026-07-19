@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, Pressable, Image, StyleSheet } from "react-native";
+import { View, Text, Pressable, Image, StyleSheet, Platform } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthHeader } from "@/hooks/useAuthHeader";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -174,6 +174,16 @@ export function DocBlock({
     | "right"
     | "center"
     | "justify";
+  // Android/Fabric silently drops `textAlign: "justify"` for RTL text — Arabic body
+  // paragraphs fall back to a ragged right edge while iOS justifies fine. Two
+  // Android-only levers make the inter-word justification actually apply:
+  //   1. `textBreakStrategy: "simple"` — the default high-quality line optimizer
+  //      suppresses justification; the greedy strategy lets it through.
+  //   2. omit `writingDirection` — pinning it to "rtl" disables justify on Fabric;
+  //      dropping it lets Android's first-strong bidi derive RTL from the Arabic
+  //      content, which keeps justify enabled. iOS and non-justified blocks keep the
+  //      explicit direction (needed for correct bidi on mixed-script lines).
+  const androidJustify = Platform.OS === "android" && textAlign === "justify";
   return (
     <Pressable
       onPress={() => pickBlock(block.index, block.text)}
@@ -184,13 +194,14 @@ export function DocBlock({
       ]}
     >
       <Text
+        {...(androidJustify ? { textBreakStrategy: "simple" as const } : null)}
         style={[
           isHeading
             ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
             : styles.body,
           {
             textAlign,
-            writingDirection: dir,
+            ...(androidJustify ? null : { writingDirection: dir }),
           },
           empty && styles.emptyPara,
         ]}

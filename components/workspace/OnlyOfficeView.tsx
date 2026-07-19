@@ -71,6 +71,10 @@ export function OnlyOfficeView({
         onMessage={onMessage}
         javaScriptEnabled
         domStorageEnabled
+        // Permit cleartext (http) subresource loads on Android in dev — the local
+        // Document Server / signed docx url is http; the default "never" blocks it.
+        // No-op on iOS and in production (https).
+        mixedContentMode="always"
         // Oversize the WebView past the container's right + bottom edges; the parent
         // clips the overflow, so the editor's bottom toolbar (footer) and right
         // scrollbar fall outside the visible area → pages only. Origin-independent

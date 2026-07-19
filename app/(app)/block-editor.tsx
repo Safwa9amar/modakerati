@@ -17,8 +17,9 @@ import { useTranslation } from "react-i18next";
 import { Send, Square } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useChatStore } from "@/stores/chat-store";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { sendMessageToAI } from "@/lib/ai-service";
-import { getThesisDocument, editThesisParagraph } from "@/lib/api";
+import { getThesisDocument } from "@/lib/api";
 import { BackButton } from "@/components/BackButton";
 
 // RTL when right-to-left characters dominate (thesis content is often Arabic and
@@ -49,16 +50,26 @@ export default function BlockEditorScreen() {
 
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
 
-  // Load the paragraph's current text fresh from the document model.
+  // Load the paragraph's current text. Prefer the doc store (already loaded by the
+  // workspace) so the editor opens instantly with no fetch; fall back to the server
+  // only if the store has nothing cached for this thesis.
   const load = useCallback(async () => {
     if (!thesisId || !Number.isFinite(index)) {
       setNotFound(true);
       setLoading(false);
       return;
+    }
+    const cached = useThesisDocStore.getState().byId[thesisId];
+    if (cached?.available) {
+      const block = cached.blocks.find((b) => b.index === index);
+      if (block && block.kind === "paragraph") {
+        setText(block.text);
+        setLoading(false);
+        return;
+      }
     }
     try {
       const doc = await getThesisDocument(thesisId);
@@ -90,27 +101,26 @@ export default function BlockEditorScreen() {
 
   const rtl = isRtl(text);
 
-  const handleSave = async () => {
-    if (saving || !thesisId || !Number.isFinite(index)) return;
-    setSaving(true);
-    try {
-      await editThesisParagraph(thesisId, index, { text });
-      router.back();
-    } catch {
-      Alert.alert(t("blockEditor.saveError", { defaultValue: "Couldn't save. Please try again." }));
-    } finally {
-      setSaving(false);
-    }
+  // Optimistic + durable save: the edited text applies to the doc store instantly
+  // and returns to the workspace — the op is persisted and flushes in the
+  // background (retrying offline, surviving an app kill). A server rejection is
+  // surfaced by the store centrally.
+  const handleSave = () => {
+    if (!thesisId || !Number.isFinite(index)) return;
+    void useThesisDocStore.getState().mutate(thesisId, { type: "editText", index, text });
+    router.back();
   };
 
   const handleAskAi = async () => {
     const prompt = aiPrompt.trim();
     if (!prompt || isGenerating || !thesisId) return;
     Keyboard.dismiss();
-    // Persist the current manual text first so the AI edits on top of it and the
-    // post-turn reload doesn't discard unsaved changes.
+    // Persist the current manual text first (through the store, so the workspace
+    // reflects it) so the AI edits on top of it and the post-turn reload doesn't
+    // discard unsaved changes. Awaited here so the save lands before the AI turn
+    // (offline it waits — the AI call needs the network anyway).
     try {
-      await editThesisParagraph(thesisId, index, { text });
+      await useThesisDocStore.getState().mutate(thesisId, { type: "editText", index, text });
     } catch {
       Alert.alert(t("blockEditor.saveError", { defaultValue: "Couldn't save. Please try again." }));
       return;
@@ -120,7 +130,7 @@ export default function BlockEditorScreen() {
   };
 
   const hasAiText = aiPrompt.trim().length > 0;
-  const saveDisabled = saving || loading || notFound;
+  const saveDisabled = loading || notFound;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bgSurface }]} edges={[]}>
@@ -131,13 +141,9 @@ export default function BlockEditorScreen() {
           {t("blockEditor.title", { defaultValue: "Edit paragraph" })}
         </Text>
         <Pressable onPress={handleSave} disabled={saveDisabled} hitSlop={8} style={styles.saveBtn}>
-          {saving ? (
-            <ActivityIndicator size="small" color={colors.brandPrimary} />
-          ) : (
-            <Text style={[styles.saveText, { color: colors.brandPrimary, opacity: saveDisabled ? 0.4 : 1 }]}>
-              {t("blockEditor.save", { defaultValue: "Save" })}
-            </Text>
-          )}
+          <Text style={[styles.saveText, { color: colors.brandPrimary, opacity: saveDisabled ? 0.4 : 1 }]}>
+            {t("blockEditor.save", { defaultValue: "Save" })}
+          </Text>
         </Pressable>
       </View>
 

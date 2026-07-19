@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
 import { View, Pressable, StyleSheet } from "react-native";
-import { BottomSheetTextInput } from "@gorhom/bottom-sheet";
+// Deliberately NOT BottomSheetTextInput: registering the input activates gorhom's
+// own keyboard repositioning, which fights the sheet's manual keyboard docking
+// (see WorkspaceComposerSheet). A plain gesture-handler TextInput keeps gorhom's
+// keyboard machinery inert while still cooperating with the sheet's pan gesture.
+import { TextInput } from "react-native-gesture-handler";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Send, Square, Mic } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -22,6 +26,7 @@ interface Props {
   onStop: () => void;
   onMicPress: () => void;
   onFocus: () => void;
+  onBlur: () => void;
   isGenerating: boolean;
   placeholder: string;
   sendLabel: string;
@@ -40,6 +45,7 @@ export function ComposerInput({
   onStop,
   onMicPress,
   onFocus,
+  onBlur,
   isGenerating,
   placeholder,
   sendLabel,
@@ -56,7 +62,7 @@ export function ComposerInput({
 
   return (
     <View style={[styles.wrapper, { backgroundColor: colors.bgInput }]}>
-      <BottomSheetTextInput
+      <TextInput
         style={[styles.input, { color: colors.textPrimary }, inputHeight != null && { height: inputHeight }]}
         placeholder={placeholder}
         placeholderTextColor={colors.textPlaceholder}
@@ -68,6 +74,7 @@ export function ComposerInput({
           )
         }
         onFocus={onFocus}
+        onBlur={onBlur}
         editable={!isGenerating}
         multiline
         maxLength={2000}

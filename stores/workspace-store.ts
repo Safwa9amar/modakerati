@@ -32,6 +32,10 @@ interface WorkspaceState {
   // forced open when the AI starts working. When false the document reclaims the
   // full height (no reserved peek spacing).
   composerOpen: boolean;
+  // True while one of the composer's OWN text inputs has focus. Gates the
+  // composer's keyboard docking: other inputs on the screen (e.g. the Sources
+  // sheet search) also raise the keyboard, and the composer must not react.
+  composerInputFocused: boolean;
 
   setThesis: (id: string) => void;
   // Single-select: replace the whole selection with just this block and exit
@@ -53,6 +57,7 @@ interface WorkspaceState {
   setComposerMode: (m: "ai" | "edit") => void;
   setComposerOpen: (open: boolean) => void;
   toggleComposer: () => void;
+  setComposerInputFocused: (v: boolean) => void;
   reset: () => void;
 }
 
@@ -66,6 +71,7 @@ const INITIAL = {
   thinkingEnabled: true,
   composerMode: "ai" as "ai" | "edit",
   composerOpen: true,
+  composerInputFocused: false,
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -117,6 +123,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setComposerOpen: (open) => set({ composerOpen: open }),
 
   toggleComposer: () => set((s) => ({ composerOpen: !s.composerOpen })),
+
+  setComposerInputFocused: (v) => set({ composerInputFocused: v }),
 
   reset: () => set(INITIAL),
 }));

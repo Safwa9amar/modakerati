@@ -1,11 +1,12 @@
-import React, { useState } from "react";
+import React, { useRef } from "react";
 import { View, ScrollView, Pressable, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { AlignLeft, AlignCenter, AlignRight, AlignJustify, PilcrowLeft, PilcrowRight, ChevronUp, ChevronDown, ImagePlus, Eraser } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { editThesisParagraphs, moveThesisBlock, insertThesisImage } from "@/lib/api";
 import type { DocBlockDTO } from "@/lib/api";
+import type { FormatChange } from "@/lib/thesis-ops";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
@@ -19,7 +20,6 @@ interface Props {
   blockCount: number;           // total blocks — to disable move at the edges
   hint: string;                 // "Select a paragraph to edit."
   styleLabels: { normal: string };
-  onAfterEdit: () => void;      // refreshDoc
   rtl: boolean;
 }
 
@@ -42,9 +42,13 @@ const DIRECTION_OPTIONS: Array<{ value: "rtl" | "ltr"; Icon: typeof PilcrowLeft 
   { value: "ltr", Icon: PilcrowRight },
 ];
 
-export function ComposerEditTools({ thesisId, selection, blockCount, hint, styleLabels, onAfterEdit, rtl }: Props) {
+export function ComposerEditTools({ thesisId, selection, blockCount, hint, styleLabels, rtl }: Props) {
   const colors = useThemeColors();
-  const [busy, setBusy] = useState(false);
+  // A subtle "saving…" hint while background flushes are in flight — the UI never
+  // blocks on them (edits apply optimistically and the store reconciles behind).
+  const saving = useThesisDocStore((s) => (s.pending[thesisId] ?? 0) > 0);
+  // Guard the image picker against a double-launch (its own modal, not a doc edit).
+  const pickingRef = useRef(false);
 
   if (selection.length === 0) {
     return <Text style={[styles.hint, { color: colors.textSecondary }]}>{hint}</Text>;
@@ -55,71 +59,54 @@ export function ComposerEditTools({ thesisId, selection, blockCount, hint, style
   // Move / image insert operate on ONE block — only offered for a lone selection.
   const single = multi ? null : selection[0];
 
-  // Apply one formatting change to every selected paragraph in a single locked pass
-  // (the bulk endpoint handles a lone index just as well, so one path covers both).
-  const apply = async (changes: Parameters<typeof editThesisParagraphs>[2]) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await editThesisParagraphs(thesisId, indices, changes);
-      onAfterEdit();
-    } catch {
-      Alert.alert("Error");
-    } finally {
-      setBusy(false);
-    }
+  // Apply one formatting change to every selected paragraph. Optimistic + durable:
+  // the local blocks update instantly, the op is persisted, and the store's pump
+  // flushes it in the background (retrying offline; alerting on a rejection).
+  const apply = (changes: FormatChange) => {
+    void useThesisDocStore.getState().mutate(thesisId, { type: "format", indices, changes });
   };
 
-  // Nudge the lone block one position up/down. Keep the selection on the moved block
-  // by re-selecting its new index (splice lands it exactly at `to`).
-  const move = async (dir: "up" | "down") => {
-    if (busy || !single) return;
-    const to = dir === "up" ? single.index - 1 : single.index + 1;
+  // Nudge the lone block one position up/down. Reselect its new index immediately
+  // (optimistic), then flush the move in the background.
+  const move = (dir: "up" | "down") => {
+    if (!single) return;
+    const from = single.index;
+    const to = dir === "up" ? from - 1 : from + 1;
     if (to < 0 || to >= blockCount) return;
-    setBusy(true);
-    try {
-      await moveThesisBlock(thesisId, single.index, to);
-      useWorkspaceStore.getState().selectBlock(to, single.text);
-      onAfterEdit();
-    } catch {
-      Alert.alert("Error");
-    } finally {
-      setBusy(false);
-    }
+    useWorkspaceStore.getState().selectBlock(to, single.text);
+    void useThesisDocStore.getState().mutate(thesisId, { type: "move", from, to });
   };
   const canUp = !!single && single.index > 0;
   const canDown = !!single && single.index < blockCount - 1;
 
   // Pick an image from the library and insert it as a new block right after the
-  // lone selected block. iOS's system picker needs no explicit permission.
+  // lone selected block. iOS's system picker needs no explicit permission. The
+  // picked bytes render instantly as an optimistic image block while the server
+  // embeds them into the .docx in the background.
   const pickImage = async () => {
-    if (busy || !single) return;
+    if (!single || pickingRef.current) return;
+    pickingRef.current = true;
     let res: ImagePicker.ImagePickerResult;
     try {
       res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], base64: true, quality: 0.7 });
     } catch {
       Alert.alert("Error");
       return;
+    } finally {
+      pickingRef.current = false;
     }
     const asset = res.canceled ? null : res.assets[0];
     if (!asset?.base64) return;
     const mime = asset.mimeType ?? "";
     const format = mime.includes("png") ? "png" : mime.includes("gif") ? "gif" : "jpeg";
-    setBusy(true);
-    try {
-      await insertThesisImage(thesisId, {
-        data: asset.base64,
-        format,
-        width: asset.width,
-        height: asset.height,
-        afterIndex: single.index,
-      });
-      onAfterEdit();
-    } catch {
-      Alert.alert("Error");
-    } finally {
-      setBusy(false);
-    }
+    void useThesisDocStore.getState().mutate(thesisId, {
+      type: "insertImage",
+      afterIndex: single.index,
+      data: asset.base64,
+      format,
+      width: asset.width,
+      height: asset.height,
+    });
   };
 
   // A pill is "active" only when EVERY selected block already has that value — a
@@ -137,7 +124,7 @@ export function ComposerEditTools({ thesisId, selection, blockCount, hint, style
         {STYLE_OPTIONS.map((o) => {
           const active = allLevel(o.level);
           return (
-            <Pressable key={o.level} disabled={busy} onPress={() => apply({ level: o.level })} style={pill(active)}>
+            <Pressable key={o.level} onPress={() => apply({ level: o.level })} style={pill(active)}>
               <Text style={pillText(active)}>{o.level === 0 ? styleLabels.normal : o.label}</Text>
             </Pressable>
           );
@@ -151,10 +138,10 @@ export function ComposerEditTools({ thesisId, selection, blockCount, hint, style
         {/* Move the block up / down one position — single selection only. */}
         {single && (
           <>
-            <Pressable disabled={busy || !canUp} onPress={() => move("up")} style={[styles.pill, { borderColor: colors.borderDefault }, (busy || !canUp) && styles.disabled]}>
+            <Pressable disabled={!canUp} onPress={() => move("up")} style={[styles.pill, { borderColor: colors.borderDefault }, !canUp && styles.disabled]}>
               <ChevronUp size={16} color={colors.textPrimary} strokeWidth={2} />
             </Pressable>
-            <Pressable disabled={busy || !canDown} onPress={() => move("down")} style={[styles.pill, { borderColor: colors.borderDefault }, (busy || !canDown) && styles.disabled]}>
+            <Pressable disabled={!canDown} onPress={() => move("down")} style={[styles.pill, { borderColor: colors.borderDefault }, !canDown && styles.disabled]}>
               <ChevronDown size={16} color={colors.textPrimary} strokeWidth={2} />
             </Pressable>
             <View style={styles.divider} />
@@ -163,7 +150,7 @@ export function ComposerEditTools({ thesisId, selection, blockCount, hint, style
         {ALIGN_OPTIONS.map(({ value, Icon }) => {
           const active = allAlign(value);
           return (
-            <Pressable key={value} disabled={busy} onPress={() => apply({ alignment: value })} style={pill(active)}>
+            <Pressable key={value} onPress={() => apply({ alignment: value })} style={pill(active)}>
               <Icon size={16} color={active ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
             </Pressable>
           );
@@ -172,25 +159,25 @@ export function ComposerEditTools({ thesisId, selection, blockCount, hint, style
         {DIRECTION_OPTIONS.map(({ value, Icon }) => {
           const active = allDirection(value);
           return (
-            <Pressable key={value} disabled={busy} onPress={() => apply({ direction: value })} style={pill(active)}>
+            <Pressable key={value} onPress={() => apply({ direction: value })} style={pill(active)}>
               <Icon size={16} color={active ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
             </Pressable>
           );
         })}
-        <Pressable disabled={busy} onPress={() => apply({ clearFormatting: true })} style={[styles.pill, { borderColor: colors.borderDefault }]}>
+        <Pressable onPress={() => apply({ clearFormatting: true })} style={[styles.pill, { borderColor: colors.borderDefault }]}>
           <Eraser size={16} color={colors.textPrimary} strokeWidth={2} />
         </Pressable>
         {/* Insert an image after this block — single selection only. */}
         {single && (
           <>
             <View style={styles.divider} />
-            <Pressable disabled={busy} onPress={pickImage} style={[styles.pill, { borderColor: colors.brandPrimary }]}>
+            <Pressable onPress={pickImage} style={[styles.pill, { borderColor: colors.brandPrimary }]}>
               <ImagePlus size={16} color={colors.brandPrimary} strokeWidth={2} />
             </Pressable>
           </>
         )}
       </ScrollView>
-      {busy && <ActivityIndicator size="small" color={colors.brandPrimary} style={{ marginTop: 2 }} />}
+      {saving && <ActivityIndicator size="small" color={colors.brandPrimary} style={{ marginTop: 2 }} />}
     </View>
   );
 }

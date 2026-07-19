@@ -170,10 +170,6 @@ export default function ThesisDetailScreen() {
 
           <ThesisStatStrip sections={sectionCount} chapters={chapterCount} words={wordCount} />
 
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-            {t("home.sections")} ({sectionCount})
-          </Text>
-
           {sectionCount === 0 ? (
             <View style={[styles.emptyChapters, { backgroundColor: colors.bgSurface }]}>
               <Text style={[styles.emptyChaptersText, { color: colors.textSecondary }]}>

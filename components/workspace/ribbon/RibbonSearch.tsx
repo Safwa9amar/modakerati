@@ -1,9 +1,13 @@
 // components/workspace/ribbon/RibbonSearch.tsx
 import { useMemo, useState } from "react";
-import { View, Text, Pressable, TextInput, StyleSheet } from "react-native";
-import { ScrollView } from "react-native-gesture-handler";
+import { View, Text, Pressable, StyleSheet } from "react-native";
+// Plain (unregistered) input on purpose — a BottomSheetTextInput would wake
+// gorhom's own keyboard handling, which fights the composer sheet's manual
+// keyboard docking (see WorkspaceComposerSheet).
+import { ScrollView, TextInput } from "react-native-gesture-handler";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import { RIBBON_TABS, type RibbonTool } from "./ribbon-config";
 
 const ALL_TOOLS: RibbonTool[] = RIBBON_TABS.flatMap((t) => t.tools);
@@ -33,6 +37,8 @@ export function RibbonSearch({ onRun }: { onRun: (tool: RibbonTool) => void }) {
           placeholder={t("ribbon.searchPlaceholder", { defaultValue: "Tell me what you want to do…" })}
           placeholderTextColor={colors.textPlaceholder}
           style={[styles.input, { color: colors.textPrimary }]}
+          onFocus={() => useWorkspaceStore.getState().setComposerInputFocused(true)}
+          onBlur={() => useWorkspaceStore.getState().setComposerInputFocused(false)}
         />
       </View>
       {results.length > 0 && (
