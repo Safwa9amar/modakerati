@@ -47,3 +47,26 @@ export interface AskPayload {
   options: string[];
   allowFreeText: boolean;
 }
+
+// A destructive tool the model requested; parked server-side until the student
+// approves. Sent inside a [[MODK_CONFIRM]] frame; rendered as Approve/Cancel
+// chips. Approval calls /api/chat/confirm-action — NOT a chat message.
+export interface ConfirmPayload {
+  kind: "confirmAction";
+  actionId: string;
+  toolName: string;
+  preview: {
+    kind: string; // tool name — maps to a localized template
+    data: Record<string, unknown>;
+    text: string; // server-built English fallback
+  };
+}
+
+// End-of-turn frame: this AI turn changed the .docx. checkpointSeq is the
+// history snapshot to restore for one-tap "Undo AI changes".
+export interface DocChangesPayload {
+  kind: "docChanges";
+  turnId: string;
+  checkpointSeq: number;
+  tools: string[];
+}

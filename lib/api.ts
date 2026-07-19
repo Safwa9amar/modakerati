@@ -5,7 +5,7 @@ import type {
   AppNotification,
   NotificationPreferences,
 } from "@/types/notification";
-import type { AskPayload, FilePayload } from "@/types/chat";
+import type { AskPayload, FilePayload, ConfirmPayload, DocChangesPayload } from "@/types/chat";
 import type { NewsArticle, NewsCopy, NewsPagination, NewsRow } from "@/types/news";
 import type {
   Align,
@@ -102,6 +102,10 @@ export interface ChatSendResponse {
   ask?: AskPayload;
   // Downloadable artifacts produced this turn (e.g. an export), rendered as cards.
   files?: FilePayload[];
+  // Set when the turn requested a destructive tool that's parked pending approval.
+  confirmAction?: ConfirmPayload;
+  // Set when this turn changed the .docx (drives the "Undo AI changes" affordance).
+  docChanges?: DocChangesPayload;
 }
 
 export async function chatSend(
@@ -163,6 +167,8 @@ export interface ChatStreamHandlers {
   onAsk?: (ask: AskPayload) => void;
   onThinking?: (chunk: string) => void;
   onFile?: (file: FilePayload) => void;
+  onConfirm?: (confirm: ConfirmPayload) => void;
+  onDocChanges?: (changes: DocChangesPayload) => void;
 }
 
 // The streaming endpoint escapes emoji (astral chars) to \uXXXX because RN's
@@ -181,36 +187,26 @@ function safeEscapeBoundary(s: string): number {
 }
 
 /**
- * Streams the AI response from `/api/chat/stream`, invoking `onDelta` for each
- * text chunk as it arrives. Uses `expo/fetch`, whose Response exposes a real
- * `ReadableStream` body (the standard RN fetch buffers the whole response).
- * Bytes are decoded with a streaming TextDecoder so multi-byte UTF-8 (Arabic)
- * isn't corrupted when a character is split across chunks.
+ * Streams an AI response from a chat-protocol POST endpoint, invoking
+ * `onDelta` for each text chunk as it arrives. Uses `expo/fetch`, whose
+ * Response exposes a real `ReadableStream` body (the standard RN fetch
+ * buffers the whole response). Bytes are decoded with a streaming TextDecoder
+ * so multi-byte UTF-8 (Arabic) isn't corrupted when a character is split
+ * across chunks. Shared by `/api/chat/stream`, `/api/chat/confirm-action`, and
+ * `/api/chat/cancel-action` — they all speak the same frame protocol.
  */
-export async function chatSendStream(
-  thesisId: string,
-  message: string,
+async function postChatStream(
+  path: string,
+  body: Record<string, unknown>,
   handlers: ChatStreamHandlers,
-  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; signal?: AbortSignal }
+  signal?: AbortSignal
 ): Promise<void> {
   const headers = await getAuthHeaders();
-  const response = await expoFetch(`${API_URL}/api/chat/stream`, {
+  const response = await expoFetch(`${API_URL}${path}`, {
     method: "POST",
     headers,
-    // `docBlockIndex` (live-.docx, L2): the selected engine block index → the AI
-    // edits that paragraph. `docBlockIndices` carries a multi-select set so the AI
-    // acts on all of them. Legacy fields (chapterId/sectionId/selection) stay so
-    // the server's legacy chapter/section path keeps working unchanged.
-    body: JSON.stringify({
-      thesisId,
-      message,
-      chapterId: options?.chapterId,
-      sectionId: options?.sectionId,
-      selection: options?.selection,
-      docBlockIndex: options?.docBlockIndex ?? null,
-      docBlockIndices: options?.docBlockIndices,
-    }),
-    signal: options?.signal,
+    body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok || !response.body) {
@@ -233,6 +229,10 @@ export async function chatSendStream(
   const ASK_CLOSE = "[[/MODK_ASK]]";
   const FILE_OPEN = "[[MODK_FILE]]";
   const FILE_CLOSE = "[[/MODK_FILE]]";
+  const CONFIRM_OPEN = "[[MODK_CONFIRM]]";
+  const CONFIRM_CLOSE = "[[/MODK_CONFIRM]]";
+  const DC_OPEN = "[[MODK_DOCCHANGES]]";
+  const DC_CLOSE = "[[/MODK_DOCCHANGES]]";
 
   let mode: "answer" | "think" = "answer";
   let buf = ""; // unescaped text awaiting routing
@@ -256,9 +256,11 @@ export async function chatSendStream(
         const ti = buf.indexOf(THINK_OPEN);
         const ai = buf.indexOf(ASK_OPEN);
         const fi = buf.indexOf(FILE_OPEN);
-        const first = [ti, ai, fi].filter((i) => i !== -1).sort((a, b) => a - b)[0];
+        const ci = buf.indexOf(CONFIRM_OPEN);
+        const di = buf.indexOf(DC_OPEN);
+        const first = [ti, ai, fi, ci, di].filter((i) => i !== -1).sort((a, b) => a - b)[0];
         if (first === undefined) {
-          const hold = isFinal ? 0 : heldLen(buf, [THINK_OPEN, ASK_OPEN, FILE_OPEN]);
+          const hold = isFinal ? 0 : heldLen(buf, [THINK_OPEN, ASK_OPEN, FILE_OPEN, CONFIRM_OPEN, DC_OPEN]);
           const out = buf.slice(0, buf.length - hold);
           if (out) handlers.onDelta(out);
           buf = buf.slice(buf.length - hold);
@@ -278,6 +280,24 @@ export async function chatSendStream(
           if (closeAt === -1) { buf = buf.slice(first); break; }
           try { handlers.onFile?.(JSON.parse(buf.slice(first + FILE_OPEN.length, closeAt))); } catch {}
           buf = buf.slice(closeAt + FILE_CLOSE.length);
+          continue;
+        }
+        if (first === ci) {
+          // CONFIRM frame: need the closing marker before we can parse the JSON.
+          // The frame never reaches onDelta, so the raw JSON is never shown as text.
+          const closeAt = buf.indexOf(CONFIRM_CLOSE, first + CONFIRM_OPEN.length);
+          if (closeAt === -1) { buf = buf.slice(first); break; }
+          try { handlers.onConfirm?.(JSON.parse(buf.slice(first + CONFIRM_OPEN.length, closeAt))); } catch {}
+          buf = buf.slice(closeAt + CONFIRM_CLOSE.length);
+          continue;
+        }
+        if (first === di) {
+          // DOCCHANGES frame: need the closing marker before we can parse the JSON.
+          // The frame never reaches onDelta, so the raw JSON is never shown as text.
+          const closeAt = buf.indexOf(DC_CLOSE, first + DC_OPEN.length);
+          if (closeAt === -1) { buf = buf.slice(first); break; }
+          try { handlers.onDocChanges?.(JSON.parse(buf.slice(first + DC_OPEN.length, closeAt))); } catch {}
+          buf = buf.slice(closeAt + DC_CLOSE.length);
           continue;
         }
         // ASK frame: need the closing marker before we can parse the JSON.
@@ -319,6 +339,44 @@ export async function chatSendStream(
   } finally {
     reader.releaseLock();
   }
+}
+
+/**
+ * Streams the AI response from `/api/chat/stream` for a new user message. Thin
+ * wrapper over `postChatStream` — see its doc comment for the streaming
+ * protocol details.
+ */
+export async function chatSendStream(
+  thesisId: string,
+  message: string,
+  handlers: ChatStreamHandlers,
+  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; signal?: AbortSignal }
+): Promise<void> {
+  // `docBlockIndex` (live-.docx, L2): the selected engine block index → the AI
+  // edits that paragraph. `docBlockIndices` carries a multi-select set so the AI
+  // acts on all of them. Legacy fields (chapterId/sectionId/selection) stay so
+  // the server's legacy chapter/section path keeps working unchanged.
+  const body = {
+    thesisId,
+    message,
+    chapterId: options?.chapterId,
+    sectionId: options?.sectionId,
+    selection: options?.selection,
+    docBlockIndex: options?.docBlockIndex ?? null,
+    docBlockIndices: options?.docBlockIndices,
+  };
+  return postChatStream("/api/chat/stream", body, handlers, options?.signal);
+}
+
+// Approve / decline a parked destructive AI action. The server executes (or
+// discards) the STORED args and streams a follow-up assistant reply through
+// the same frame protocol as /api/chat/stream.
+export async function chatConfirmAction(actionId: string, handlers: ChatStreamHandlers, signal?: AbortSignal): Promise<void> {
+  return postChatStream("/api/chat/confirm-action", { actionId }, handlers, signal);
+}
+
+export async function chatCancelAction(actionId: string, handlers: ChatStreamHandlers, signal?: AbortSignal): Promise<void> {
+  return postChatStream("/api/chat/cancel-action", { actionId }, handlers, signal);
 }
 
 // ============================================================
@@ -872,8 +930,8 @@ export async function editThesisParagraph(
   thesisId: string,
   index: number,
   changes: { text?: string; level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr"; clearFormatting?: boolean }
-): Promise<{ ok: true; document?: DocumentDTO }> {
-  return apiPut<{ ok: true; document?: DocumentDTO }>(`/api/thesis/${thesisId}/paragraphs/${index}`, changes);
+): Promise<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPut<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/paragraphs/${index}`, changes);
 }
 
 // Bulk-apply ONE formatting change (level / alignment / direction / clearFormatting —
@@ -884,8 +942,8 @@ export async function editThesisParagraphs(
   thesisId: string,
   indices: number[],
   changes: { level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr"; clearFormatting?: boolean }
-): Promise<{ ok: true; changed: number; document?: DocumentDTO }> {
-  return apiPost<{ ok: true; changed: number; document?: DocumentDTO }>(`/api/thesis/${thesisId}/paragraphs/bulk`, { indices, ...changes });
+): Promise<{ ok: true; changed: number; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost<{ ok: true; changed: number; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/paragraphs/bulk`, { indices, ...changes });
 }
 
 // Bulk-delete several live-.docx thesis blocks at once (the workspace multi-select).
@@ -896,8 +954,8 @@ export async function moveThesisBlock(
   thesisId: string,
   from: number,
   to: number
-): Promise<{ ok: true; document?: DocumentDTO }> {
-  return apiPost<{ ok: true; document?: DocumentDTO }>(`/api/thesis/${thesisId}/blocks/move`, { from, to });
+): Promise<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/blocks/move`, { from, to });
 }
 
 // Insert a base64 image as a new block AFTER `afterIndex` (-1 = top). width/height
@@ -905,8 +963,8 @@ export async function moveThesisBlock(
 export async function insertThesisImage(
   thesisId: string,
   img: { data: string; format: string; width?: number; height?: number; afterIndex: number }
-): Promise<{ ok: true; newIndex: number; document?: DocumentDTO }> {
-  return apiPost<{ ok: true; newIndex: number; document?: DocumentDTO }>(`/api/thesis/${thesisId}/blocks/image`, img);
+): Promise<{ ok: true; newIndex: number; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost<{ ok: true; newIndex: number; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/blocks/image`, img);
 }
 
 // Replace the image bytes of an existing figure block (engine block `index`) with
@@ -917,8 +975,8 @@ export async function replaceThesisBlockImage(
   thesisId: string,
   index: number,
   img: { data: string; format: string; width?: number; height?: number }
-): Promise<{ ok: true }> {
-  return apiPost<{ ok: true }>(`/api/thesis/${thesisId}/blocks/${index}/image`, img);
+): Promise<{ ok: true; history?: HistoryStateDTO }> {
+  return apiPost<{ ok: true; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/blocks/${index}/image`, img);
 }
 
 // Remove the background from a figure block's image (server-side via the rembg
@@ -926,17 +984,17 @@ export async function replaceThesisBlockImage(
 export async function removeThesisBlockBg(
   thesisId: string,
   index: number
-): Promise<{ ok: true }> {
-  return apiPost<{ ok: true }>(`/api/thesis/${thesisId}/blocks/${index}/remove-bg`, {});
+): Promise<{ ok: true; history?: HistoryStateDTO }> {
+  return apiPost<{ ok: true; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/blocks/${index}/remove-bg`, {});
 }
 
 export async function deleteThesisBlocks(
   thesisId: string,
   indices: number[]
-): Promise<{ ok: true; deleted: number; skipped: number; document?: DocumentDTO }> {
+): Promise<{ ok: true; deleted: number; skipped: number; document?: DocumentDTO; history?: HistoryStateDTO }> {
   // `skipped` counts protected non-paragraph blocks (cover logo / jury table) the
   // server refused to delete.
-  return apiPost<{ ok: true; deleted: number; skipped: number; document?: DocumentDTO }>(`/api/thesis/${thesisId}/blocks/delete`, { indices });
+  return apiPost<{ ok: true; deleted: number; skipped: number; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/blocks/delete`, { indices });
 }
 
 // Make each selected block start on a new page (a next-page section break), in one
@@ -945,8 +1003,43 @@ export async function startThesisBlocksOnNewPage(
   thesisId: string,
   indices: number[],
   breakType?: "nextPage" | "evenPage" | "oddPage"
-): Promise<{ ok: true; changed: number; document?: DocumentDTO }> {
-  return apiPost<{ ok: true; changed: number; document?: DocumentDTO }>(`/api/thesis/${thesisId}/blocks/start-on-new-page`, { indices, breakType });
+): Promise<{ ok: true; changed: number; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost<{ ok: true; changed: number; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/blocks/start-on-new-page`, { indices, breakType });
+}
+
+// ── Doc history (undo/redo snapshot ring buffer) ─────────────────────────────
+
+export interface HistoryEntryDTO {
+  seq: number;
+  label: string;
+  source: "ai" | "manual" | "onlyoffice" | "restore" | "import";
+  turnId: string | null;
+  createdAt: string | null;
+}
+
+export interface HistoryStateDTO {
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+export async function getThesisHistory(thesisId: string) {
+  return apiGet<{ entries: HistoryEntryDTO[]; cursorSeq: number | null } & HistoryStateDTO>(
+    `/api/thesis/${thesisId}/history`,
+  );
+}
+
+export type HistoryRestoreResponse = { ok: true; document: DocumentDTO } & HistoryStateDTO;
+
+export async function undoThesisHistory(thesisId: string) {
+  return apiPost<HistoryRestoreResponse>(`/api/thesis/${thesisId}/history/undo`, {});
+}
+
+export async function redoThesisHistory(thesisId: string) {
+  return apiPost<HistoryRestoreResponse>(`/api/thesis/${thesisId}/history/redo`, {});
+}
+
+export async function restoreThesisHistory(thesisId: string, seq: number) {
+  return apiPost<HistoryRestoreResponse>(`/api/thesis/${thesisId}/history/restore`, { seq });
 }
 
 export interface ThesisPageSetup {
