@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ChatMessage, AskPayload, FilePayload } from "@/types/chat";
+import type { ChatMessage, AskPayload, FilePayload, ConfirmPayload, DocChangesPayload } from "@/types/chat";
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
@@ -24,6 +24,9 @@ interface ChatState {
   streamingId: string | null; // id of the assistant message currently streaming
   abortController: AbortController | null; // aborts the in-flight AI turn when the user taps Stop
   pendingAsk: AskPayload | null; // active model question → drives the AskBottomSheet
+  pendingConfirm: ConfirmPayload | null; // parked destructive action → Approve/Cancel chips
+  // Last AI turn's doc changes per thesis → drives the "Undo AI changes" chip.
+  docChanges: Record<string, DocChangesPayload | null>;
 
   getMessages: (thesisId: string) => ChatMessage[];
   setMessages: (thesisId: string, messages: ChatMessage[]) => void;
@@ -38,6 +41,8 @@ interface ChatState {
   setStreamingId: (id: string | null) => void;
   setAbortController: (controller: AbortController | null) => void;
   setPendingAsk: (ask: AskPayload | null) => void;
+  setPendingConfirm: (confirm: ConfirmPayload | null) => void;
+  setDocChanges: (thesisId: string, changes: DocChangesPayload | null) => void;
   stopGenerating: () => void;
   clearMessages: (thesisId: string) => void;
 }
@@ -50,6 +55,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streamingId: null,
   abortController: null,
   pendingAsk: null,
+  pendingConfirm: null,
+  docChanges: {},
 
   getMessages: (thesisId) => get().messages[thesisId] ?? EMPTY_MESSAGES,
 
@@ -127,6 +134,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setStreamingId: (id) => set({ streamingId: id }),
   setAbortController: (controller) => set({ abortController: controller }),
   setPendingAsk: (ask) => set({ pendingAsk: ask }),
+  setPendingConfirm: (confirm) => set({ pendingConfirm: confirm }),
+  setDocChanges: (thesisId, changes) =>
+    set((s) => ({ docChanges: { ...s.docChanges, [thesisId]: changes } })),
   // Stamp when reasoning ended. Idempotent: only stamps if thinking actually
   // started and the end isn't already set. Called at the first answer token and
   // again in ai-service's finally (covers tool-only turns and aborts).

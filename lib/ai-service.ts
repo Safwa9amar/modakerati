@@ -1,5 +1,5 @@
 import { useChatStore } from "@/stores/chat-store";
-import { chatSend, chatSendStream, getChatHistory } from "./api";
+import { chatSend, chatSendStream, chatConfirmAction, chatCancelAction, getChatHistory } from "./api";
 import { getCache, setCache } from "./chat-cache";
 import type { ChatMessage } from "@/types/chat";
 
@@ -49,6 +49,8 @@ async function runAssistantTurn(
   opts?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[] }
 ): Promise<void> {
   const store = useChatStore.getState();
+  store.setPendingConfirm(null);
+  store.setDocChanges(thesisId, null);
 
   // Lets the user cancel this turn from the UI (chat-store.stopGenerating).
   const controller = new AbortController();
@@ -84,6 +86,12 @@ async function runAssistantTurn(
         },
         onAsk: (ask) => {
           useChatStore.getState().setPendingAsk(ask);
+        },
+        onConfirm: (confirm) => {
+          useChatStore.getState().setPendingConfirm(confirm);
+        },
+        onDocChanges: (changes) => {
+          useChatStore.getState().setDocChanges(thesisId, changes);
         },
         onThinking: (chunk) => {
           const s = useChatStore.getState();
@@ -130,6 +138,8 @@ async function runAssistantTurn(
         // Mirror the streaming path: surface any file cards and open the ask sheet.
         result.files?.forEach((f) => store.addFileToMessage(thesisId, id, f));
         if (result.ask) store.setPendingAsk(result.ask);
+        if (result.confirmAction) store.setPendingConfirm(result.confirmAction);
+        if (result.docChanges) store.setDocChanges(thesisId, result.docChanges);
         return;
       } catch (fallbackError: any) {
         error = fallbackError;
@@ -230,4 +240,72 @@ async function persistCache(thesisId: string): Promise<void> {
     messages: store.getMessages(thesisId),
     lastSyncedAt: prev?.lastSyncedAt ?? null,
   });
+}
+
+// Approve or decline a parked destructive action. The continuation streams into
+// a fresh assistant bubble through the same handlers as a normal turn, so the
+// workspace's after-turn refresh (isGenerating true→false) fires as usual.
+async function runActionContinuation(
+  thesisId: string,
+  actionId: string,
+  call: typeof chatConfirmAction,
+): Promise<void> {
+  const store = useChatStore.getState();
+  store.setPendingConfirm(null);
+  store.setGenerating(true);
+  store.setGeneratingPhase("thinking");
+  const controller = new AbortController();
+  store.setAbortController(controller);
+  let assistantId: string | null = null;
+  const ensureBubble = () => {
+    const s = useChatStore.getState();
+    if (!assistantId) {
+      assistantId = s.addMessage(thesisId, "assistant", "", { pending: true });
+      s.setStreamingId(assistantId);
+    }
+    return s;
+  };
+  try {
+    await call(actionId, {
+      onDelta: (chunk) => {
+        const s = ensureBubble();
+        s.setGeneratingPhase("writing");
+        s.appendToMessage(thesisId, assistantId!, chunk);
+      },
+      onThinking: (chunk) => {
+        const s = ensureBubble();
+        s.setGeneratingPhase("thinking");
+        s.appendToThinking(thesisId, assistantId!, chunk);
+      },
+      onAsk: (ask) => useChatStore.getState().setPendingAsk(ask),
+      onConfirm: (confirm) => useChatStore.getState().setPendingConfirm(confirm),
+      onDocChanges: (changes) => useChatStore.getState().setDocChanges(thesisId, changes),
+      onFile: (file) => {
+        const s = ensureBubble();
+        s.addFileToMessage(thesisId, assistantId!, file);
+      },
+    }, controller.signal);
+  } catch (error: any) {
+    if (!controller.signal.aborted) {
+      const note = `Sorry, I couldn't process the action. ${error?.message || "Please try again."}`;
+      const s = ensureBubble();
+      s.appendToMessage(thesisId, assistantId!, `\n\n_${note}_`);
+    }
+  } finally {
+    const s = useChatStore.getState();
+    if (assistantId) s.markThinkingEnded(thesisId, assistantId);
+    s.setGenerating(false);
+    s.setGeneratingPhase("idle");
+    s.setStreamingId(null);
+    s.setAbortController(null);
+    await persistCache(thesisId);
+  }
+}
+
+export function approvePendingAction(thesisId: string, actionId: string): Promise<void> {
+  return runActionContinuation(thesisId, actionId, chatConfirmAction);
+}
+
+export function declinePendingAction(thesisId: string, actionId: string): Promise<void> {
+  return runActionContinuation(thesisId, actionId, chatCancelAction);
 }
