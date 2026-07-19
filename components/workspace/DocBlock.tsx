@@ -255,7 +255,7 @@ function EditableParagraph({
   const baselineRef = useRef(block.text);
   const selRef = useRef({ start: block.text.length, end: block.text.length });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inputRef = useRef<TextInput>(null);
+  const handedOffRef = useRef(false); // true once editing was handed to a sibling (split/merge)
 
   const pending = useWorkspaceStore.getState().pendingCaret;
   const [selection, setSelection] = useState<{ start: number; end: number } | undefined>(
@@ -271,6 +271,7 @@ function EditableParagraph({
   }, []);
 
   const commit = (text: string) => {
+    if (handedOffRef.current) return; // editing moved to a sibling — the split/merge ops own this block's text
     if (text === baselineRef.current) return;
     baselineRef.current = text;
     void useThesisDocStore.getState().mutate(thesisId, { type: "editText", index: block.index, text });
@@ -290,12 +291,13 @@ function EditableParagraph({
     void useThesisDocStore.getState().mutate(thesisId, {
       type: "splitParagraph", index: block.index, before, after,
     });
+    handedOffRef.current = true;
     useWorkspaceStore.getState().setEditingBlock(block.index + 1, 0);
   };
 
   const onChangeText = (next: string) => {
-    const nl = next.indexOf("\n");
-    if (nl >= 0) {
+    if (next.includes("\n") && !value.includes("\n")) {
+      const nl = next.indexOf("\n");
       doSplit(next.slice(0, nl), next.slice(nl + 1));
       return;
     }
@@ -317,6 +319,7 @@ function EditableParagraph({
     baselineRef.current = value;
     void store.mutate(thesisId, { type: "editText", index: block.index - 1, text: merged });
     void store.mutate(thesisId, { type: "deleteBlocks", indices: [block.index] });
+    handedOffRef.current = true;
     useWorkspaceStore.getState().setEditingBlock(block.index - 1, prevText.length);
   };
 
@@ -329,11 +332,16 @@ function EditableParagraph({
 
   return (
     <TextInput
-      ref={inputRef}
       value={value}
       onChangeText={onChangeText}
       onKeyPress={onKeyPress}
-      onSelectionChange={(e) => { selRef.current = e.nativeEvent.selection; }}
+      onSelectionChange={(e) => {
+        selRef.current = e.nativeEvent.selection;
+        // Release the controlled selection after its first report so the user
+        // regains free caret control (a permanently-controlled `selection` pins
+        // the caret at the split/merge hand-off offset).
+        if (selection !== undefined) setSelection(undefined);
+      }}
       onBlur={onBlur}
       selection={selection}
       autoFocus
@@ -468,7 +476,7 @@ function longPickBlock(index: number, text: string): void {
 function enterOrSelect(index: number, text: string): void {
   const ws = useWorkspaceStore.getState();
   const sole = ws.selectedBlocks.length === 1 && ws.selectedBlocks[0].index === index;
-  if (sole && !ws.multiSelect && ws.editingBlockIndex == null) {
+  if (sole && !ws.multiSelect && ws.editingBlockIndex == null && !useChatStore.getState().isGenerating) {
     ws.setEditingBlock(index);
   } else {
     if (ws.multiSelect) ws.toggleBlock(index, text);
