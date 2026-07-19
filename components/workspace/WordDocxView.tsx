@@ -642,6 +642,7 @@ function buildHtml(
     var idx = editingIndex;
     editingIndex = null; editBaseline = null;
     post({ type: 'editEnd', index: idx });
+    if (editPendingRefresh){ var _epr = editPendingRefresh; editPendingRefresh = null; window.__refresh(_epr[0], _epr[1], _epr[2]); }
   }
 
   window.__forceCommitEdit = function(){
@@ -748,15 +749,16 @@ function buildHtml(
   // pages stay on screen, then swap buffers and restore the scroll offset — the
   // reader never sees a blank/reloading view. Overlapping calls chain: the newest
   // args run after the in-flight render finishes (older pendings are superseded).
-  var refreshing = false, pendingRefresh = null;
+  var refreshing = false, pendingRefresh = null, editPendingRefresh = null;
   window.__refresh = function(url, blocks, sel){
-    if (editingIndex != null){ return; }   // RN also defers; this is the belt-and-braces
+    if (editingIndex != null){ editPendingRefresh = [url, blocks, sel]; return; } // replay after editEnd
     if (refreshing){ pendingRefresh = [url, blocks, sel]; return; }
     refreshing = true;
     var back = activeBuf === bufA ? bufB : bufA;
     fetchDocx(url)
       .then(function(blob){ back.innerHTML = ''; return window.docx.renderAsync(blob, back, null, RENDER_OPTS); })
       .then(function(){
+        if (editingIndex != null){ editPendingRefresh = [url, blocks, sel]; return; } // caret appeared mid-refresh — defer the swap
         if (blocks) setBlocks(blocks);
         clearHighlights(); // they point into the buffer we're about to retire
         var y = window.scrollY || 0;
