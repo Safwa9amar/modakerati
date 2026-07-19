@@ -667,6 +667,7 @@ function buildHtml(
       var _t = ev.touches && ev.touches[0]; lastTapX = _t ? _t.clientX : 0; lastTapY = _t ? _t.clientY : 0;
       clearTimer();
       if (!startEl) return;
+      if (editingIndex != null) return; // caret active — don't arm long-press/multi-select
       timer = setTimeout(function(){ longFired = true; report(startEl, 'longpress'); }, 500);
     }, { passive: true });
     container.addEventListener('touchmove', function(){ moved = true; clearTimer(); }, { passive: true });
