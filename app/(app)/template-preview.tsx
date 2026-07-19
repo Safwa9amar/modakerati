@@ -44,12 +44,16 @@ export default function TemplatePreviewScreen() {
     );
   }
 
+  // Uploaded templates carry a minimal config ({ paperSize, pdfUrl }); norm-profile-
+  // style templates have the full formatting shape. Guard every field so an
+  // uploaded template (no margins/fonts) doesn't crash the preview.
+  const cfg = (template.config ?? {}) as Partial<typeof template.config>;
   const specs = [
-    template.config.paperSize,
-    `${template.config.bodyFont} ${template.config.bodySize}`,
-    `${template.config.lineSpacing} spacing`,
-    `${template.config.margins.left} binding`,
-  ];
+    cfg.paperSize,
+    cfg.bodyFont && cfg.bodySize ? `${cfg.bodyFont} ${cfg.bodySize}` : null,
+    cfg.lineSpacing ? `${cfg.lineSpacing} spacing` : null,
+    cfg.margins?.left ? `${cfg.margins.left} binding` : null,
+  ].filter((s): s is string => !!s);
 
   // Record the chosen template on the wizard, generate an AI plan for the
   // captured title, then advance to the plan-review step. The thesis is not
@@ -180,27 +184,30 @@ export default function TemplatePreviewScreen() {
           </View>
         </View>
 
-        {/* Chapter structure preview */}
-        <Card>
-          <Text style={[styles.chaptersLabel, { color: colors.textSecondary }]}>
-            {t("thesis.sections")} ({template.chapterStructure.length})
-          </Text>
-          {template.chapterStructure.map((ch, i) => (
-            <View key={i} style={styles.chapterRow}>
-              <View
-                style={[
-                  styles.chapterDot,
-                  { backgroundColor: colors.brandPrimary },
-                ]}
-              />
-              <Text
-                style={[styles.chapterText, { color: colors.textPrimary }]}
-              >
-                {ch}
-              </Text>
-            </View>
-          ))}
-        </Card>
+        {/* Chapter structure preview — only for templates that define one
+            (uploaded templates may have none). */}
+        {(template.chapterStructure?.length ?? 0) > 0 && (
+          <Card>
+            <Text style={[styles.chaptersLabel, { color: colors.textSecondary }]}>
+              {t("thesis.sections")} ({template.chapterStructure!.length})
+            </Text>
+            {template.chapterStructure!.map((ch, i) => (
+              <View key={i} style={styles.chapterRow}>
+                <View
+                  style={[
+                    styles.chapterDot,
+                    { backgroundColor: colors.brandPrimary },
+                  ]}
+                />
+                <Text
+                  style={[styles.chapterText, { color: colors.textPrimary }]}
+                >
+                  {ch}
+                </Text>
+              </View>
+            ))}
+          </Card>
+        )}
       </ScrollView>
 
       {/* Bottom button */}
