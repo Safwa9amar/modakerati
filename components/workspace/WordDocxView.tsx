@@ -505,6 +505,19 @@ function buildHtml(
     out.sort(function(a,b){ return a.index - b.index; });
     setBlocks(out);
   }
+  // BLOCKS-mirror of a paragraph split: block \`index\` keeps \`before\`, a new block
+  // holding \`after\` is inserted right after it, later blocks shift +1. Keeps the
+  // tap→index model in step (the DOM split is done in the Enter handler).
+  function pbSplit(index, before, after){
+    var at = index + 1;
+    var out = BLOCKS.map(function(b){
+      if (b.index === index) return { index: index, text: before };
+      return { index: b.index >= at ? b.index + 1 : b.index, text: b.text };
+    });
+    out.push({ index: at, text: after });
+    out.sort(function(a,b){ return a.index - b.index; });
+    setBlocks(out);
+  }
 
   function applyOpNow(op){
     try {
@@ -557,6 +570,9 @@ function buildHtml(
           anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
         }
         pbInsertAfter(op.afterIndex);
+      } else if (op.type === 'splitParagraph'){
+        // The Enter handler already split the DOM; only sync the BLOCKS model.
+        pbSplit(op.index, op.before, op.after);
       }
       // startOnNewPage: pagination-only — nothing to patch; the refresh shows it.
     } catch(err){}
@@ -596,6 +612,26 @@ function buildHtml(
     } catch(e){}
   }
 
+  // Split the editing paragraph's text at the caret into { before, after }.
+  function caretSplitText(el){
+    var sel = window.getSelection();
+    var full = el.innerText;
+    if (!sel || sel.rangeCount === 0) return { before: full, after: "" };
+    var range = sel.getRangeAt(0).cloneRange();
+    range.selectNodeContents(el);
+    range.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
+    var beforeLen = range.toString().length;
+    return { before: full.slice(0, beforeLen), after: full.slice(beforeLen) };
+  }
+  function caretAtStart(el){
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return false;
+    var range = sel.getRangeAt(0).cloneRange();
+    range.selectNodeContents(el);
+    range.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
+    return range.toString().length === 0;
+  }
+
   function enterEdit(el, index){
     if (!EDITABLE || !el || el.tagName !== 'P' || editingIndex != null) return false;
     editingIndex = index;
@@ -626,8 +662,49 @@ function buildHtml(
   }
 
   function onEditKeydown(ev){
-    // Enter handling (split) is added in Phase 2; for now keep edits single-paragraph.
-    if (ev.key === 'Enter'){ ev.preventDefault(); }
+    var el = ev.currentTarget;
+    if (ev.key === 'Enter'){
+      ev.preventDefault();
+      var parts = caretSplitText(el);
+      var idx = editingIndex;
+      if (commitTimer){ clearTimeout(commitTimer); commitTimer = null; }
+      // Optimistic DOM split: the current <p> keeps \`before\`; a clone after it
+      // holds \`after\`. The split op re-renders precisely at the server echo.
+      setBlockText(el, parts.before);
+      var clone = el.cloneNode(true);
+      setBlockText(clone, parts.after);
+      clone.classList.remove('mk-editing');
+      clone.removeAttribute('contenteditable');
+      if (el.parentNode) el.parentNode.insertBefore(clone, el.nextSibling);
+      // End editing on the old paragraph (no redundant editCommit — the split op is
+      // authoritative for \`before\`), then dispatch the split.
+      editBaseline = norm(el.innerText);
+      onEditBlur({ currentTarget: el });
+      post({ type: 'split', index: idx, before: parts.before, after: parts.after });
+      return;
+    }
+    if (ev.key === 'Backspace' && caretAtStart(el)){
+      handleBackspaceMerge(ev, el);
+    }
+  }
+
+  // Backspace at offset 0: merge this paragraph into the previous one. Uses the
+  // parent's onMerge (editText(prev, merged) + deleteBlocks([cur])) — no new op.
+  function handleBackspaceMerge(ev, el){
+    var prev = el.previousElementSibling;
+    while (prev && prev.tagName !== 'P') prev = prev.previousElementSibling;
+    if (!prev) return; // first paragraph — nothing to merge into
+    var prevIdx = matchIndex(prev.innerText || "");
+    var curIdx = editingIndex;
+    if (prevIdx == null || curIdx == null || prevIdx !== curIdx - 1) return;
+    ev.preventDefault();
+    if (commitTimer){ clearTimeout(commitTimer); commitTimer = null; }
+    var mergedText = (prev.innerText || "") + (el.innerText || "");
+    setBlockText(prev, mergedText);          // optimistic DOM merge
+    editBaseline = norm(el.innerText);
+    onEditBlur({ currentTarget: el });        // end edit (no redundant editCommit)
+    if (el.parentNode) el.parentNode.removeChild(el);
+    post({ type: 'merge', prevIndex: prevIdx, curIndex: curIdx, mergedText: mergedText });
   }
 
   function onEditBlur(ev){
