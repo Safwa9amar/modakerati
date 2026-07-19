@@ -184,7 +184,7 @@ with:
       var _t = ev.touches && ev.touches[0]; lastTapX = _t ? _t.clientX : 0; lastTapY = _t ? _t.clientY : 0;
 ```
 
-and declare the vars: change the existing `var timer = null, startEl = null, moved = false, longFired = false, lastTouchEnd = 0;` to append `, lastTapX = 0, lastTapY = 0`.
+`lastTapX`/`lastTapY` are declared in the SHARED outer scope in Step 3 (NOT as `wireContainerEvents` locals) — `enterEdit` is a sibling function of `wireContainerEvents` and must be able to read them. Leave the `wireContainerEvents` locals line (`var timer = null, startEl = null, moved = false, longFired = false, lastTouchEnd = 0;`) unchanged; the `touchstart` assignment above writes to the outer vars.
 
 - [ ] **Step 3: Add the edit-mode engine (new functions)**
 
@@ -198,6 +198,7 @@ Immediately BEFORE the `function wireContainerEvents(){` declaration, paste this
   var editingIndex = null;      // block index being edited, or null
   var editBaseline = null;      // normalized text at edit-start (detect real changes)
   var commitTimer = null;
+  var lastTapX = 0, lastTapY = 0; // last touch point (shared with wireContainerEvents' touchstart)
 
   window.__setEditable = function(v){ EDITABLE = !!v; };
 
