@@ -46,6 +46,7 @@ export function WordDocxView({
   onEditCommit,
   onSplit,
   onMerge,
+  onEditActiveChange,
 }: {
   url: string;
   blocks: DocTapBlock[];
@@ -80,6 +81,9 @@ export function WordDocxView({
   // already-joined text. The parent emits editText(prevIndex, mergedText) then
   // deleteBlocks([curIndex]).
   onMerge?: (prevIndex: number, curIndex: number, mergedText: string) => void;
+  // Fired true when a paragraph in the WebView gains an inline caret, false when it
+  // blurs — lets the workspace hide the composer while editing.
+  onEditActiveChange?: (active: boolean) => void;
 }) {
   const colors = useThemeColors();
   const webRef = useRef<WebView>(null);
@@ -221,8 +225,10 @@ export function WordDocxView({
         else onSelect(msg.index, text);
       } else if (msg.type === "editStart" && typeof msg.index === "number") {
         isEditingRef.current = true;
+        onEditActiveChange?.(true);
       } else if (msg.type === "editEnd") {
         isEditingRef.current = false;
+        onEditActiveChange?.(false);
         // Run any refresh suppressed while the caret was active — EXCEPT for a
         // structural editEnd (Enter-split / Backspace-merge): that op's own drain
         // will refresh with correct post-op bytes; refreshing now would fetch stale

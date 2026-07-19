@@ -549,6 +549,7 @@ export default function ThesisWorkspaceScreen() {
                       .getState()
                       .mutate(thesisId, { type: "splitParagraph", index, before, after })
                   }
+                  onEditActiveChange={(active) => useWorkspaceStore.getState().setInlineEditing(active)}
                 />
               )}
             </View>

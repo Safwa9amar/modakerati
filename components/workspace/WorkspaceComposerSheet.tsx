@@ -87,6 +87,7 @@ export function WorkspaceComposerSheet({
   const thinkingEnabled = useWorkspaceStore((s) => s.thinkingEnabled);
   const composerMode = useWorkspaceStore((s) => s.composerMode);
   const composerOpen = useWorkspaceStore((s) => s.composerOpen);
+  const inlineEditing = useWorkspaceStore((s) => s.inlineEditing);
 
   // Derived selection in document order: indices to act on, and the combined text
   // of the selected blocks (used as the AI focus and the chip preview).
@@ -260,7 +261,10 @@ export function WorkspaceComposerSheet({
   // While docked the keyboard effect below owns the position; when docking ends
   // this re-runs (docked is a dep) and restores the proper detent.
   useEffect(() => {
-    if (!composerOpen) {
+    if (inlineEditing) {
+      // A paragraph is being inline-edited — get the sheet out of the editor's way.
+      sheetRef.current?.close();
+    } else if (!composerOpen) {
       sheetRef.current?.close();
     } else if (docked) {
       return;
@@ -269,7 +273,7 @@ export function WorkspaceComposerSheet({
     } else {
       sheetRef.current?.snapToIndex(0);
     }
-  }, [composerOpen, isGenerating, pendingAsk, docked]);
+  }, [composerOpen, isGenerating, pendingAsk, docked, inlineEditing]);
 
   // Keyboard docking: detent 0 above becomes the docked position; gorhom's
   // snap-point-change reaction animates onto it by itself when the sheet was at
@@ -420,7 +424,11 @@ export function WorkspaceComposerSheet({
         // collapsed to closed while we still intend it open, restore the peek.
         // An intentional toggle-close sets composerOpen=false FIRST, so this
         // won't fight it.
-        if (index === -1 && useWorkspaceStore.getState().composerOpen) {
+        if (
+          index === -1 &&
+          useWorkspaceStore.getState().composerOpen &&
+          !useWorkspaceStore.getState().inlineEditing
+        ) {
           requestAnimationFrame(() => sheetRef.current?.snapToIndex(0));
         }
       }}

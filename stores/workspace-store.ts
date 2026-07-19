@@ -29,6 +29,9 @@ interface WorkspaceState {
   // newly-editing block should open at (start of the new paragraph / the join
   // point). Consumed once by that block's TextInput, then cleared.
   pendingCaret: { index: number; pos: number } | null;
+  // True while a paragraph is being edited inline in EITHER doc view — the composer
+  // sheet closes so it doesn't squeeze the editor + keyboard.
+  inlineEditing: boolean;
   activePanel: ActivePanel;
   isFormatting: boolean;
   viewMode: DocViewMode;
@@ -57,6 +60,7 @@ interface WorkspaceState {
   toggleBlock: (index: number, text: string | null) => void;
   clearSelection: () => void;
   setEditingBlock: (index: number | null, caretPos?: number) => void;
+  setInlineEditing: (v: boolean) => void;
   clearPendingCaret: () => void;
   setActivePanel: (panel: ActivePanel) => void;
   togglePanel: (panel: "sources" | "outline") => void;
@@ -77,6 +81,7 @@ const INITIAL = {
   multiSelect: false,
   editingBlockIndex: null as number | null,
   pendingCaret: null as { index: number; pos: number } | null,
+  inlineEditing: false,
   activePanel: null as ActivePanel,
   isFormatting: false,
   viewMode: "docx" as DocViewMode,
@@ -113,13 +118,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       return { selectedBlocks: next, multiSelect: next.length > 0 };
     }),
 
-  clearSelection: () => set({ selectedBlocks: [], multiSelect: false, editingBlockIndex: null, pendingCaret: null }),
+  clearSelection: () =>
+    set({
+      selectedBlocks: [],
+      multiSelect: false,
+      editingBlockIndex: null,
+      pendingCaret: null,
+      inlineEditing: false,
+    }),
 
   setEditingBlock: (index, caretPos) =>
     set({
       editingBlockIndex: index,
+      inlineEditing: index != null,
       pendingCaret: index != null && caretPos != null ? { index, pos: caretPos } : null,
     }),
+
+  setInlineEditing: (v) => set({ inlineEditing: v }),
 
   clearPendingCaret: () => set({ pendingCaret: null }),
 
