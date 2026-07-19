@@ -612,24 +612,16 @@ function buildHtml(
     } catch(e){}
   }
 
-  // Split the editing paragraph's text at the caret into { before, after }.
-  function caretSplitText(el){
-    var sel = window.getSelection();
-    var full = el.innerText;
-    if (!sel || sel.rangeCount === 0) return { before: full, after: "" };
-    var range = sel.getRangeAt(0).cloneRange();
-    range.selectNodeContents(el);
-    range.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
-    var beforeLen = range.toString().length;
-    return { before: full.slice(0, beforeLen), after: full.slice(beforeLen) };
-  }
   function caretAtStart(el){
     var sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return false;
-    var range = sel.getRangeAt(0).cloneRange();
-    range.selectNodeContents(el);
-    range.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
-    return range.toString().length === 0;
+    var caret = sel.getRangeAt(0);
+    var head = document.createRange();
+    head.selectNodeContents(el);
+    head.setEnd(caret.startContainer, caret.startOffset);
+    var frag = head.cloneContents();
+    // True paragraph start = nothing before the caret: no text AND no <br>.
+    return (frag.textContent || "").length === 0 && !frag.querySelector('br');
   }
 
   function enterEdit(el, index){
@@ -665,22 +657,28 @@ function buildHtml(
     var el = ev.currentTarget;
     if (ev.key === 'Enter'){
       ev.preventDefault();
-      var parts = caretSplitText(el);
       var idx = editingIndex;
       if (commitTimer){ clearTimeout(commitTimer); commitTimer = null; }
-      // Optimistic DOM split: the current <p> keeps \`before\`; a clone after it
-      // holds \`after\`. The split op re-renders precisely at the server echo.
-      setBlockText(el, parts.before);
-      var clone = el.cloneNode(true);
-      setBlockText(clone, parts.after);
+      // DOM-accurate split: move everything after the caret into a new sibling
+      // paragraph (a shallow clone of this <p>, so it keeps the same style/attrs).
+      var sel = window.getSelection();
+      var caret = (sel && sel.rangeCount) ? sel.getRangeAt(0) : null;
+      var clone = el.cloneNode(false);
+      if (caret && el.lastChild){
+        var tail = document.createRange();
+        tail.setStart(caret.endContainer, caret.endOffset);
+        tail.setEndAfter(el.lastChild);
+        clone.appendChild(tail.extractContents());
+      }
       clone.classList.remove('mk-editing');
       clone.removeAttribute('contenteditable');
       if (el.parentNode) el.parentNode.insertBefore(clone, el.nextSibling);
+      var before = el.innerText, after = clone.innerText;
       // End editing on the old paragraph (no redundant editCommit — the split op is
       // authoritative for \`before\`), then dispatch the split.
       editBaseline = norm(el.innerText);
       onEditBlur({ currentTarget: el });
-      post({ type: 'split', index: idx, before: parts.before, after: parts.after });
+      post({ type: 'split', index: idx, before: before, after: after });
       return;
     }
     if (ev.key === 'Backspace' && caretAtStart(el)){
