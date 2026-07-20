@@ -246,8 +246,7 @@ export function BlockContextBar({
   // The curated pill tool set (keyboard closed, not expanded).
   const pillTools = (
     <>
-      {chip({ keyProp: "p-bold", Icon: Bold, accessibilityLabel: "Bold", dim: true, onPress: soon })}
-      {chip({ keyProp: "p-italic", Icon: Italic, accessibilityLabel: "Italic", dim: true, onPress: soon })}
+      {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }))}
       {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }))}
       {categoryChip("direction", PilcrowLeft, t("blockBar.direction", { defaultValue: "Direction" }))}
       {chip({ keyProp: "p-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), onPress: () => setPillExpanded(true) })}
@@ -356,11 +355,12 @@ export function BlockContextBar({
   return (
     <View
       style={[
-        styles.fullWrap,
+        keyboardOpen ? styles.fullWrap : styles.fullCard,
         {
           backgroundColor: colors.bgPrimary,
+          borderColor: colors.borderSubtle,
           borderTopColor: colors.borderSubtle,
-          paddingBottom: keyboardOpen ? 6 : bottomInset + 8,
+          paddingBottom: keyboardOpen ? 6 : 8,
         },
       ]}
     >
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
   pillScroll: { flexShrink: 1 },
   pillToolsRow: { alignItems: "center", gap: 6 },
 
-  // Full-width docked bar
+  // Full-width docked bar (keyboard open) — sits flush on the keyboard.
   fullWrap: {
     paddingHorizontal: 10,
     paddingTop: 8,
@@ -419,6 +419,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 10,
     elevation: 10,
+  },
+  // Expanded pill inline (keyboard closed) — a rounded floating card on the paper.
+  fullCard: {
+    marginHorizontal: 8,
+    marginTop: 2,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
   },
   fullRow: { alignItems: "center", gap: 8 },
   fullScroll: { flex: 1 },
