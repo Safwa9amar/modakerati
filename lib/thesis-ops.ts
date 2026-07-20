@@ -66,6 +66,42 @@ export type ThesisOp =
   | { type: "deleteBlocks"; indices: number[] }
   | { type: "startOnNewPage"; indices: number[] };
 
+// ── Edit coalescing (fold rapid same-block typing into one op) ────────────────
+//
+// Debounced typing commits one `editText` per pause; a burst enqueues several
+// editTexts for the SAME block, each superseding the last (latest text wins).
+// Collapsing trailing same-index editTexts into one cuts server round-trips.
+//
+// SAFETY: only the QUEUE TAIL is inspected. `editText` is positional-safe (same
+// indices before and after), so replacing the last editText with a newer one for
+// the same index is a pure text swap. We NEVER fold across a structural op
+// (split/move/delete/insertImage/startOnNewPage) because such an op would be the
+// tail (or would sit after the last editText), so the tail is no longer an
+// editText for our index and the predicate returns false — positional indices
+// can't desync. Callers must also refuse to fold an op that is already in flight
+// (see the pump's head-of-line handling in thesis-doc-store).
+
+/** True iff `next` should REPLACE `prev` in the queue: both are `editText` for
+ *  the same block index (a rapid re-edit of one paragraph). Any structural (or
+ *  differently-indexed) `prev` returns false, so folding never crosses an op
+ *  that reindexes blocks. */
+export function editTextCoalesces(prev: ThesisOp | undefined, next: ThesisOp): boolean {
+  return (
+    prev != null &&
+    prev.type === "editText" &&
+    next.type === "editText" &&
+    prev.index === next.index
+  );
+}
+
+/** Pure fold at enqueue time: if the queue's LAST op is an `editText` for the
+ *  same index as `op`, drop it and keep `op` (latest text wins); otherwise
+ *  append. Returns a new array — never mutates `queue`. */
+export function coalesceEditText(queue: ThesisOp[], op: ThesisOp): ThesisOp[] {
+  const tail = queue[queue.length - 1];
+  return editTextCoalesces(tail, op) ? [...queue.slice(0, -1), op] : [...queue, op];
+}
+
 // ── Optimistic patches (DTO-level mirror of the server's effect) ─────────────
 
 // Reindex after a structural change — the DTO `index` is a block's position.

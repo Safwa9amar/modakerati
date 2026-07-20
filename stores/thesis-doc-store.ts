@@ -3,7 +3,7 @@ import { Alert } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 import { getThesisDocument, getThesisHistory, type DocumentDTO } from "@/lib/api";
 import { getDocCache, setDocCache } from "@/lib/thesis-doc-cache";
-import { applyOpToDoc, executeOp, isRetryableError, type ThesisOp } from "@/lib/thesis-ops";
+import { applyOpToDoc, editTextCoalesces, executeOp, isRetryableError, type ThesisOp } from "@/lib/thesis-ops";
 import {
   newOpId,
   enqueueOp,
@@ -311,8 +311,43 @@ export const useThesisDocStore = create<ThesisDocState>((set, get) => {
       }
       for (const l of opListeners) l(thesisId, op);
 
-      const id = newOpId();
       const p = pumpFor(thesisId);
+
+      // Coalesce rapid same-block typing: if the pending TAIL is an editText for
+      // the same index as this one, replace its op in place (latest text wins)
+      // instead of appending a second round-trip. The pump only ever executes
+      // p.queue[0]; while it's running that head op is IN FLIGHT (being sent) and
+      // must not be mutated, so we refuse to fold onto it. Any op after the head
+      // is pending-not-started and safe. Reusing the tail's durable row (same id)
+      // + promise slot keeps SQLite and the pending count consistent — the
+      // optimistic patch above already painted the newest text.
+      const tail = p.queue[p.queue.length - 1];
+      const tailInFlight = p.running && tail === p.queue[0];
+      if (tail && !tailInFlight && editTextCoalesces(tail.op, op)) {
+        tail.op = op;
+        tail.attempts = 0; // pending-not-started; discarded text was never sent
+        const prevResolve = tail.resolve;
+        const prevReject = tail.reject;
+        const promise = new Promise<void>((resolve, reject) => {
+          tail.resolve = () => {
+            prevResolve?.();
+            resolve();
+          };
+          tail.reject = (e) => {
+            prevReject?.(e);
+            reject(e);
+          };
+        });
+        promise.catch(() => {});
+        // Persist the replacement (INSERT OR REPLACE on the same id) then flush.
+        void Promise.all([enqueueOp(tail.id, thesisId, op), ensureRestored(thesisId)]).finally(() => {
+          if (p.wake) p.wake();
+          void runPump(thesisId);
+        });
+        return promise;
+      }
+
+      const id = newOpId();
       const promise = new Promise<void>((resolve, reject) => {
         p.queue.push({ id, op, attempts: 0, resolve, reject });
       });
