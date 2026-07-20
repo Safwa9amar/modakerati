@@ -1,353 +1,488 @@
-import React, { useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, I18nManager } from "react-native";
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+  I18nManager,
+  Platform,
+  type LayoutChangeEvent,
+} from "react-native";
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  LinearTransition,
+  interpolateColor,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
+import { LinearGradient } from "expo-linear-gradient";
 import { useTranslation } from "react-i18next";
 import { Sparkles, Check, Pencil, X, RotateCw } from "lucide-react-native";
-import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSuggestionStore } from "@/stores/suggestion-store";
-import { useWorkspaceStore } from "@/stores/workspace-store";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
+import { paragraphTextStyle, detectDir } from "@/components/workspace/DocBlock";
 import { hSuccess } from "@/lib/haptics";
+import { diffWords, type DiffSegment } from "@/lib/word-diff";
+import type { DocBlockDTO } from "@/lib/api";
 
-// The ready card sits on the WHITE document paper (a pale mint success tint over
-// white), so its controls use FIXED on-white ink — theme textPrimary/bgCard are
-// light in dark mode and vanish here (same reason `proposed`/`original` below are
-// hardcoded). These keep Approve/Edit/Again/Reject legible in both themes.
-const CARD_INK = "#16311F"; // dark green ink for secondary labels/icons
-const CARD_INK_BORDER = "rgba(22,49,31,0.20)";
-const CARD_CHIP_BG = "#FFFFFF"; // white chip on the mint card
-// Approve is the primary action — a SOLID dark-green fill with white ink stands
-// out clearly on the pale-mint card (dark-green is dark enough that white never
-// washes out).
+// ---------------------------------------------------------------------------
+// Fixed on-white palette — this surface sits on the WHITE document paper, so
+// theme tokens (light ink in dark mode) would vanish. Same convention as the
+// old card and DocBlock's INK.
+// ---------------------------------------------------------------------------
+const EDGE_GREEN = "#22C07A"; // logical-start bar on the proposed text
+const ADD_TINT = "rgba(34,192,122,0.18)"; // settled highlight on added words
+const ADD_FLASH = "rgba(34,192,122,0.45)"; // brief entrance flash
+const DEL_BG = "#FDECEC";
+const DEL_INK = "#B3564A";
+const SLIP_BG = "#F6F8FA"; // the original's teaser slip
+const SLIP_EDGE = "#D4DAE1";
+const MUTED_INK = "#8A94A4";
+const CHIP_BG = "rgba(14,122,70,0.08)";
+const CHIP_INK = "#0E5C36";
+const CHIP_BORDER = "rgba(14,122,70,0.18)";
 const APPROVE_BG = "#0E7A46";
 const APPROVE_INK = "#FFFFFF";
-const REJECT_INK = "#C0392B"; // red that reads on white
-const REJECT_BORDER = "rgba(192,57,43,0.22)";
-
-/** A ✦ that spins while the AI drafts the suggestion. */
-function Spinner({ color }: { color: string }) {
-  const rot = useSharedValue(0);
-  useEffect(() => {
-    rot.value = withRepeat(withTiming(360, { duration: 1000, easing: Easing.linear }), -1);
-  }, []);
-  const st = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }));
-  return (
-    <Animated.View style={st}>
-      <Sparkles size={14} color={color} />
-    </Animated.View>
-  );
-}
-
-/**
- * The AI's reasoning for this suggestion, in the shared collapsible ThinkingTrace.
- * Rendered on a THEME surface (bgCard) — ThinkingTrace styles its text with theme
- * colors, which would be illegible on the white/mint document cards below. The
- * chrome follows the APP language (I18nManager.isRTL); the reasoning text itself
- * stays LTR (ThinkingTrace handles that). A plain RN ScrollView is passed because
- * this card is NOT inside a bottom sheet — ThinkingTrace's default
- * BottomSheetScrollView throws outside one. Renders nothing when the model emitted
- * no reasoning (a short rewrite often does), so the card keeps its simple spinner.
- */
-function SuggestionTrace({
-  reasoning,
-  streaming,
-  reasoningMs,
-  colors,
-}: {
-  reasoning: string;
-  streaming: boolean;
-  reasoningMs?: number;
-  colors: ReturnType<typeof useThemeColors>;
-}) {
-  if (!reasoning.trim()) return null;
-  return (
-    <View style={[styles.traceCard, { backgroundColor: colors.bgCard, borderColor: colors.borderSubtle }]}>
-      <ThinkingTrace
-        text={reasoning}
-        streaming={streaming}
-        durationMs={reasoningMs}
-        defaultOpen={false}
-        rtl={I18nManager.isRTL}
-        ScrollComponent={ScrollView}
-        surfaceColor={colors.bgCard}
-      />
-    </View>
-  );
-}
+const ICON_INK = "#3C4654";
+const REJECT_INK = "#C0392B";
+const ERR_BG = "#FDF0EF";
+const ERR_BORDER = "rgba(192,57,43,0.25)";
+const PAPER = "#FFFFFF";
+// Collapsed teaser height ≈ one line of the slip text (12.5px / 19 line-height
+// + slip padding).
+const TEASER_COLLAPSED = 30;
 
 interface Props {
   thesisId: string;
-  index: number;
+  // The full block — the suggestion takes over the block's rendering, so it
+  // needs the level (typography) and text (thinking/error states).
+  block: Extract<DocBlockDTO, { kind: "paragraph" }>;
   rtl: boolean;
 }
 
 /**
- * The inline AI-suggestion card, rendered directly under its block in the outline.
- * Reads only ITS OWN pending suggestion via a stable-ref selector (the stored
- * PendingSuggestion object, or undefined → renders nothing). Three states:
- *   • loading → a subtle "✦ Thinking…" row.
- *   • error   → a message + Again / Reject.
- *   • ready   → the proposed rewrite in a green box (original dimmed + struck-through
- *               above it) with Approve / Edit / Again / Reject.
- * "Edit" applies the proposal (approve) then opens the block's inline editor.
+ * In-place AI suggestion: rendered by OutlineReorderable's Row INSTEAD of
+ * DocBlock while this block has a pending suggestion. The proposed rewrite IS
+ * the paragraph (doc typography + green edge bar); the original's first line
+ * peeks below (tap → full original with word-level diff marks); actions live
+ * in a floating pill. Nothing touches the document until Approve.
  */
-export function InlineSuggestion({ thesisId, index, rtl }: Props) {
+export function InlineSuggestion({ thesisId, block, rtl }: Props) {
   const { t } = useTranslation();
-  const colors = useThemeColors();
-  // Stable ref: the stored object (or undefined). Never a fresh object/array
-  // literal → safe against zustand's Object.is selector loop.
-  const sug = useSuggestionStore((s) => s.byIndex[index]);
+  const reduce = useReducedMotion();
+  // Stable-ref selector (never a fresh object) — zustand Object.is rule.
+  const sug = useSuggestionStore((s) => s.byIndex[block.index]);
+  const [peekOpen, setPeekOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  // Word diff, only when ready and both sides exist. `same`+`add` renders the
+  // proposal; `same`+`del` renders the original in the teaser.
+  const segs = useMemo<DiffSegment[]>(
+    () => (sug?.status === "ready" ? diffWords(sug.original, sug.proposed) : []),
+    [sug?.status, sug?.original, sug?.proposed],
+  );
+
   if (!sug) return null;
 
-  const rowDir = rtl ? "row-reverse" : "row";
-  // The "Thinking…" chrome follows the APP language (not the document's), per the
-  // app-lang alignment rule; the proposed/original TEXT keeps the doc direction.
-  const appRowDir = I18nManager.isRTL ? "row-reverse" : "row";
-  const textStyle = {
-    writingDirection: rtl ? ("rtl" as const) : ("ltr" as const),
-    textAlign: rtl ? ("right" as const) : ("left" as const),
+  // Content direction follows the TEXT (per-block, like DocBlock); chrome rows
+  // follow the app language.
+  const contentDir = detectDir(sug.proposed || sug.original || block.text, rtl);
+  const appRow = I18nManager.isRTL ? ("row-reverse" as const) : ("row" as const);
+  const baseTextStyle = paragraphTextStyle(block.level);
+  const contentTextStyle = {
+    textAlign: contentDir === "rtl" ? ("right" as const) : ("left" as const),
+    ...(Platform.OS === "android" ? null : { writingDirection: contentDir }),
   };
+  // The green "in review" bar sits at the paragraph's logical start.
+  const edgeSide =
+    contentDir === "rtl"
+      ? { borderRightWidth: 3, borderRightColor: EDGE_GREEN, paddingRight: 8 }
+      : { borderLeftWidth: 3, borderLeftColor: EDGE_GREEN, paddingLeft: 8 };
 
-  if (sug.status === "loading") {
-    // Once reasoning tokens arrive, the ThinkingTrace's own animated header IS the
-    // loading indicator (expandable to watch the thinking stream live); before any
-    // reasoning has streamed, keep the simple spinner row.
-    if (sug.reasoning.trim()) {
-      return <SuggestionTrace reasoning={sug.reasoning} streaming reasoningMs={sug.reasoningMs} colors={colors} />;
-    }
-    return (
-      <View
-        style={[
-          styles.card,
-          styles.thinkingCard,
-          { backgroundColor: colors.bgCard, borderColor: colors.borderSubtle, flexDirection: appRowDir },
-        ]}
-      >
-        <Spinner color={colors.brandPrimary} />
-        <Text style={[styles.thinking, { color: colors.textSecondary }]}>
-          {t("composer.thinking", { defaultValue: "Thinking…" })}
+  const layout = reduce ? undefined : LinearTransition.springify().damping(18).stiffness(180);
+  const enter = reduce ? FadeIn.duration(120) : FadeInDown.springify().damping(16);
+
+  // ----- header: instruction chip (+ live thinking trace when it exists) -----
+  const header = (
+    <View style={[styles.headerRow, { flexDirection: appRow }]}>
+      <View style={[styles.chip, { flexDirection: appRow }]}>
+        <Sparkles size={12} color={CHIP_INK} />
+        <Text numberOfLines={1} style={styles.chipText}>
+          {sug.instruction}
         </Text>
       </View>
+    </View>
+  );
+  const trace = sug.reasoning.trim() ? (
+    <View style={styles.traceSlip}>
+      <ThinkingTrace
+        text={sug.reasoning}
+        streaming={sug.status === "loading"}
+        durationMs={sug.reasoningMs}
+        defaultOpen={false}
+        rtl={I18nManager.isRTL}
+        ScrollComponent={ScrollView}
+        surfaceColor={PAPER}
+      />
+    </View>
+  ) : null;
+
+  // ------------------------------- loading --------------------------------
+  if (sug.status === "loading") {
+    return (
+      <Animated.View layout={layout} entering={enter} exiting={FadeOut.duration(150)}>
+        {header}
+        {trace}
+        <View style={styles.thinkingWrap}>
+          <Text style={[baseTextStyle, contentTextStyle, styles.thinkingText]}>{block.text || sug.original}</Text>
+          {!reduce && <SweepBand />}
+        </View>
+      </Animated.View>
     );
   }
 
+  // -------------------------------- error ---------------------------------
   if (sug.status === "error") {
     return (
-      <View
-        style={[
-          styles.card,
-          {
-            backgroundColor: colors.bgCard,
-            borderColor: colors.semanticError + "55",
-            flexDirection: rowDir,
-            justifyContent: "space-between",
-            alignItems: "center",
-          },
-        ]}
-      >
-        <Text style={[styles.errText, { color: colors.semanticError }]} numberOfLines={2}>
-          {t("suggestion.failed", { defaultValue: "Couldn't generate a suggestion." })}
-        </Text>
-        <View style={[styles.actions, { flexDirection: rowDir }]}>
-          <Btn
-            colors={colors}
-            icon={<RotateCw size={15} color={colors.brandPrimary} />}
+      <Animated.View layout={layout} entering={enter} exiting={FadeOut.duration(150)}>
+        {header}
+        {trace}
+        <Text style={[baseTextStyle, contentTextStyle, styles.plainPara]}>{block.text || sug.original}</Text>
+        <View style={[styles.errSlip, { flexDirection: appRow }]}>
+          <Text style={styles.errText} numberOfLines={2}>
+            {t("suggestion.failed", { defaultValue: "Couldn't generate a suggestion." })}
+          </Text>
+        </View>
+        <View style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+          <PillPrimary
+            icon={<RotateCw size={15} color={APPROVE_INK} />}
             label={t("suggestion.again", { defaultValue: "Again" })}
-            onPress={() => void useSuggestionStore.getState().again(thesisId, index)}
-            fg={colors.brandPrimary}
+            onPress={() => void useSuggestionStore.getState().again(thesisId, block.index)}
           />
-          <Btn
-            colors={colors}
-            icon={<X size={15} color={colors.textSecondary} />}
+          <PillIcon
+            icon={<X size={16} color={REJECT_INK} />}
             label={t("suggestion.reject", { defaultValue: "Reject" })}
-            onPress={() => useSuggestionStore.getState().reject(index)}
+            onPress={() => useSuggestionStore.getState().reject(block.index)}
           />
         </View>
-      </View>
+      </Animated.View>
     );
   }
 
-  // status === "ready"
-  const onApprove = () => {
-    hSuccess();
-    useSuggestionStore.getState().approve(thesisId, index);
-  };
-  const onEdit = () => {
-    // Apply the proposal, then drop straight into the block's inline editor at the
-    // start of the paragraph so the student can tweak it further.
-    useSuggestionStore.getState().approve(thesisId, index);
-    useWorkspaceStore.getState().setEditingBlock(index, 0);
-  };
-  const onReject = () => useSuggestionStore.getState().reject(index);
-  const onAgain = () => void useSuggestionStore.getState().again(thesisId, index);
-
-  return (
-    <>
-      {/* Collapsed "Thought for Xs" above the diff — the user can expand it to read
-          how the AI approached the rewrite. Self-hides when there was no reasoning. */}
-      <SuggestionTrace reasoning={sug.reasoning} streaming={false} reasoningMs={sug.reasoningMs} colors={colors} />
-      <View
-        style={[
-          styles.readyCard,
-          { backgroundColor: colors.semanticSuccess + "14", borderColor: colors.semanticSuccess + "66" },
-        ]}
-      >
-        {!!sug.original && sug.original !== sug.proposed && (
-          <Text style={[styles.original, textStyle, { color: "rgba(20,40,26,0.45)" }]} numberOfLines={3}>
-            {sug.original}
-          </Text>
-        )}
-        {/* The card sits on the WHITE document, so text must be dark ink (theme
-            textPrimary is light in dark mode → invisible here). */}
-        <Text style={[styles.proposed, textStyle, { color: "#16311F" }]}>{sug.proposed}</Text>
-        <View style={[styles.actions, styles.readyActions, { flexDirection: rowDir }]}>
-          <Btn
-            colors={colors}
-            flex
-            icon={<Check size={15} color={APPROVE_INK} />}
-            label={t("suggestion.approve", { defaultValue: "Approve" })}
-            onPress={onApprove}
-            bg={APPROVE_BG}
-            fg={APPROVE_INK}
-          />
-          <Btn
-            colors={colors}
-            flex
-            icon={<Pencil size={14} color={CARD_INK} />}
-            label={t("suggestion.edit", { defaultValue: "Edit" })}
-            onPress={onEdit}
-            bg={CARD_CHIP_BG}
-            fg={CARD_INK}
-            border={CARD_INK_BORDER}
-          />
-          <Btn
-            colors={colors}
-            flex
-            icon={<RotateCw size={14} color={CARD_INK} />}
-            label={t("suggestion.again", { defaultValue: "Again" })}
-            onPress={onAgain}
-            bg={CARD_CHIP_BG}
-            fg={CARD_INK}
-            border={CARD_INK_BORDER}
-          />
-          <Btn
-            colors={colors}
-            flex
-            icon={<X size={14} color={REJECT_INK} />}
-            label={t("suggestion.reject", { defaultValue: "Reject" })}
-            onPress={onReject}
-            bg={CARD_CHIP_BG}
-            fg={REJECT_INK}
-            border={REJECT_BORDER}
+  // ----------------------------- edit-in-place ----------------------------
+  if (editing) {
+    const done = () => {
+      const text = draft.trim();
+      if (text) useSuggestionStore.getState().setProposed(block.index, text);
+      setEditing(false);
+    };
+    return (
+      <Animated.View layout={layout} entering={FadeIn.duration(120)} exiting={FadeOut.duration(120)}>
+        {header}
+        <View style={[styles.paraWrap, edgeSide]}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            autoFocus
+            multiline
+            scrollEnabled={false}
+            textAlignVertical="top"
+            style={[baseTextStyle, contentTextStyle, styles.editInput]}
           />
         </View>
+        <View style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+          <PillPrimary
+            icon={<Check size={15} color={APPROVE_INK} />}
+            label={t("suggestion.done", { defaultValue: "Done" })}
+            onPress={done}
+          />
+          <PillIcon
+            icon={<X size={16} color={ICON_INK} />}
+            label={t("suggestion.cancel", { defaultValue: "Cancel" })}
+            onPress={() => setEditing(false)}
+          />
+        </View>
+      </Animated.View>
+    );
+  }
+
+  // -------------------------------- ready ---------------------------------
+  const onApprove = () => {
+    // Success haptic on approve — carried over from the previous card UI
+    // (user-added); fire-and-forget, never throws.
+    hSuccess();
+    useSuggestionStore.getState().approve(thesisId, block.index);
+  };
+  const onReject = () => useSuggestionStore.getState().reject(block.index);
+  const onAgain = () => {
+    // Reset local UI state — without this, a rerun that comes back "ready"
+    // would resurrect a stale edit draft / open peek from the previous round.
+    setPeekOpen(false);
+    setEditing(false);
+    void useSuggestionStore.getState().again(thesisId, block.index);
+  };
+  const onEdit = () => {
+    setDraft(sug.proposed);
+    setEditing(true);
+  };
+
+  return (
+    <Animated.View layout={layout} entering={enter} exiting={FadeOut.duration(180)}>
+      {header}
+      {trace}
+
+      {/* The proposed rewrite IS the paragraph. Added words tint green while
+          the compare view is open (brief brighter flash on expand). */}
+      <View style={[styles.paraWrap, edgeSide]}>
+        <Text style={[baseTextStyle, contentTextStyle]}>
+          {segs
+            .filter((s) => s.kind !== "del")
+            .map((s, k) =>
+              s.kind === "add" ? (
+                <AddSpan key={k} text={s.text + " "} active={peekOpen} reduce={reduce} />
+              ) : (
+                <Text key={k}>{s.text + " "}</Text>
+              ),
+            )}
+        </Text>
       </View>
-    </>
+
+      {/* Peek teaser: the original's first line, always visible under a fade
+          gradient; tap to unfold the full original with del-words struck. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t(peekOpen ? "suggestion.hideOriginal" : "suggestion.showOriginal", {
+          defaultValue: peekOpen ? "Hide original text" : "Show original text",
+        })}
+        onPress={() => setPeekOpen((v) => !v)}
+        style={styles.teaser}
+      >
+        {/* Animated.View with its own layout transition so the expand/collapse
+            height change springs instead of snapping. */}
+        <Animated.View layout={layout} style={peekOpen ? undefined : { maxHeight: TEASER_COLLAPSED, overflow: "hidden" }}>
+          <Text style={[styles.teaserText, contentTextStyle]}>
+            {peekOpen
+              ? segs
+                  .filter((s) => s.kind !== "add")
+                  .map((s, k) =>
+                    s.kind === "del" ? (
+                      <Text key={k} style={styles.delSpan}>
+                        {s.text + " "}
+                      </Text>
+                    ) : (
+                      <Text key={k}>{s.text + " "}</Text>
+                    ),
+                  )
+              : sug.original}
+          </Text>
+        </Animated.View>
+        {!peekOpen && (
+          <LinearGradient
+            colors={["rgba(246,248,250,0)", SLIP_BG]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+        )}
+      </Pressable>
+
+      {/* Floating action pill: Approve dominates; the rest are icons. */}
+      <View style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+        <PillPrimary
+          icon={<Check size={15} color={APPROVE_INK} />}
+          label={t("suggestion.approve", { defaultValue: "Approve" })}
+          onPress={onApprove}
+        />
+        <PillIcon icon={<Pencil size={15} color={ICON_INK} />} label={t("suggestion.edit", { defaultValue: "Edit" })} onPress={onEdit} />
+        <PillIcon icon={<RotateCw size={15} color={ICON_INK} />} label={t("suggestion.again", { defaultValue: "Again" })} onPress={onAgain} />
+        <PillIcon icon={<X size={16} color={REJECT_INK} />} label={t("suggestion.reject", { defaultValue: "Reject" })} onPress={onReject} />
+      </View>
+    </Animated.View>
   );
 }
 
-// A compact icon+label action button. A `bg` with no `border` reads as a filled
-// primary (Approve); pass `border` for an outlined chip on any surface. `fg` tints
-// the label (defaults to textPrimary). Callers on the white document card pass
-// FIXED on-white colors (theme colors flip light-on-dark and vanish there).
-function Btn({
-  colors,
-  icon,
-  label,
-  onPress,
-  bg,
-  fg,
-  border,
-  flex,
-}: {
-  colors: ReturnType<typeof useThemeColors>;
-  icon: React.ReactNode;
-  label: string;
-  onPress: () => void;
-  bg?: string;
-  fg?: string;
-  border?: string;
-  flex?: boolean;
-}) {
-  // Filled = a background with no explicit border (the primary CTA). Everything
-  // else is an outlined chip so it stays visible on light surfaces.
-  const filled = !!bg && !border;
+// An added word-run in the proposal: soft green tint while the compare view is
+// open, with a brief brighter flash as it opens. Reduce-motion → static tint.
+function AddSpan({ text, active, reduce }: { text: string; active: boolean; reduce: boolean }) {
+  const v = useSharedValue(0);
+  useEffect(() => {
+    if (!active || reduce) return;
+    v.value = withSequence(withTiming(1, { duration: 180 }), withTiming(0, { duration: 520 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+  const st = useAnimatedStyle(() => ({
+    backgroundColor: active
+      ? interpolateColor(v.value, [0, 1], [ADD_TINT, ADD_FLASH])
+      : "transparent",
+  }));
+  return (
+    <Animated.Text style={st}>
+      {text}
+    </Animated.Text>
+  );
+}
+
+// The light band sweeping across the dimmed original while the AI drafts —
+// "this paragraph is being rewritten". Width-aware via onLayout.
+function SweepBand() {
+  const [w, setW] = useState(0);
+  const x = useSharedValue(0);
+  useEffect(() => {
+    if (!w) return;
+    x.value = 0;
+    x.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.linear }), -1);
+  }, [w, x]);
+  const st = useAnimatedStyle(() => ({
+    transform: [{ translateX: -140 + x.value * (w + 280) }],
+  }));
+  return (
+    <View
+      style={StyleSheet.absoluteFill}
+      pointerEvents="none"
+      onLayout={(e: LayoutChangeEvent) => setW(e.nativeEvent.layout.width)}
+    >
+      {w > 0 && (
+        <Animated.View style={[styles.band, st]}>
+          <LinearGradient
+            colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.85)", "rgba(255,255,255,0)"]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={styles.bandFill}
+          />
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+// Solid primary pill action (Approve / Done / Again-on-error).
+function PillPrimary({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
       hitSlop={6}
-      style={({ pressed }) => [
-        styles.btn,
-        flex && styles.btnFlex,
-        {
-          backgroundColor: bg ?? colors.bgCard,
-          borderColor: border ?? (filled ? "transparent" : colors.borderDefault),
-          borderWidth: filled ? 0 : StyleSheet.hairlineWidth,
-          opacity: pressed ? 0.7 : 1,
-        },
-      ]}
+      style={({ pressed }) => [styles.primaryBtn, { opacity: pressed ? 0.75 : 1 }]}
     >
       {icon}
-      <Text numberOfLines={1} style={[styles.btnLabel, { color: fg ?? colors.textPrimary }]}>
+      <Text numberOfLines={1} style={styles.primaryLabel}>
         {label}
       </Text>
     </Pressable>
   );
 }
 
+// Icon-only pill action (Edit / Again / Reject / Cancel) — 44pt effective
+// target via hitSlop, localized accessibilityLabel.
+function PillIcon({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={10}
+      style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.6 : 1 }]}
+    >
+      {icon}
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  card: {
-    marginTop: 4,
-    marginBottom: 2,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: 8,
-  },
-  thinkingCard: { alignItems: "center" },
-  thinking: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  // The reasoning trace card — a theme surface (bgCard) so ThinkingTrace's
-  // theme-colored text stays legible (the diff card below is white/mint).
-  traceCard: {
-    marginTop: 4,
-    marginBottom: 2,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  errText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
-  readyCard: {
-    marginTop: 4,
-    marginBottom: 2,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+  headerRow: { alignItems: "center", marginTop: 4, marginBottom: 6, paddingHorizontal: 6 },
+  chip: {
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: CHIP_BG,
+    borderColor: CHIP_BORDER,
     borderWidth: 1,
-    gap: 8,
+    borderRadius: 999,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+    maxWidth: "92%",
   },
-  original: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontFamily: "Inter_400Regular",
-    textDecorationLine: "line-through",
+  chipText: { color: CHIP_INK, fontSize: 11, fontFamily: "Inter_500Medium", flexShrink: 1 },
+  // ThinkingTrace on a light on-paper slip (replaces the old dark bgCard card).
+  traceSlip: {
+    marginBottom: 6,
+    marginHorizontal: 6,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: SLIP_EDGE,
+    backgroundColor: PAPER,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
   },
-  proposed: { fontSize: 14, lineHeight: 21, fontFamily: "Inter_500Medium" },
-  actions: { alignItems: "center", gap: 8 },
-  readyActions: { marginTop: 4 },
-  btn: {
+  thinkingWrap: { paddingHorizontal: 6, paddingVertical: 3, overflow: "hidden", borderRadius: 6 },
+  thinkingText: { opacity: 0.35 },
+  plainPara: { paddingHorizontal: 6, paddingVertical: 3 },
+  paraWrap: { marginHorizontal: 6, marginVertical: 2, borderRadius: 2 },
+  teaser: {
+    marginTop: 8,
+    marginHorizontal: 6,
+    backgroundColor: SLIP_BG,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 9,
+    overflow: "hidden",
+  },
+  teaserText: { color: MUTED_INK, fontSize: 12.5, lineHeight: 19, fontFamily: "Inter_400Regular" },
+  delSpan: { backgroundColor: DEL_BG, color: DEL_INK, textDecorationLine: "line-through" },
+  errSlip: {
+    marginTop: 8,
+    marginHorizontal: 6,
+    backgroundColor: ERR_BG,
+    borderColor: ERR_BORDER,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: "center",
+  },
+  errText: { flex: 1, color: REJECT_INK, fontSize: 12.5, fontFamily: "Inter_500Medium" },
+  pill: {
+    alignItems: "center",
+    gap: 2,
+    backgroundColor: PAPER,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E8ECEF",
+    padding: 4,
+  },
+  // Floating look: centered, soft shadow (iOS) / elevation (Android).
+  pillFloat: {
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 4,
+    shadowColor: "#0A1E14",
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+  },
+  primaryBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
+    backgroundColor: APPROVE_BG,
+    borderRadius: 999,
     paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 9,
+    paddingHorizontal: 18,
   },
-  // Equal-width action buttons in a single row (icon + label centered together).
-  btnFlex: { flex: 1 },
-  btnLabel: { fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
+  primaryLabel: { color: APPROVE_INK, fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
+  iconBtn: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 999 },
+  editInput: { padding: 0 },
+  band: { position: "absolute", top: 0, bottom: 0, width: 140 },
+  bandFill: { flex: 1 },
 });
