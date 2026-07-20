@@ -44,7 +44,7 @@ import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit
 import { hWarn } from "@/lib/haptics";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
-import { layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff } from "@/lib/motion";
+import { chipOut, layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff } from "@/lib/motion";
 import { isPillHandoff } from "@/lib/pill-handoff";
 import type { FormatChange } from "@/lib/thesis-ops";
 
@@ -133,6 +133,9 @@ export function BlockContextBar({
   // paragraph (text) tools for anything that isn't a single image / table.
   const isImage = selectedBlock?.kind === "image";
   const isTable = selectedBlock?.kind === "table";
+  // Keyed remount of the tool row per block kind → old chips fade out (chipOut on
+  // the row), new chips stagger in (per-chip chipIn) = the smart-pill morph.
+  const toolsetKind = isImage ? "image" : isTable ? "table" : "para";
 
   // A generic sole-block anchor (any kind) for move/replace/delete — the old
   // `single` only covered paragraphs, so image/table move needs this.
@@ -326,11 +329,12 @@ export function BlockContextBar({
     );
   };
 
-  const categoryChip = (c: Category, Icon: LucideIcon, label: string) =>
+  const categoryChip = (c: Category, Icon: LucideIcon, label: string, enterIndex?: number) =>
     chip({
       keyProp: "cat-" + c,
       Icon,
       accessibilityLabel: label,
+      enterIndex,
       active: activeCategory === c,
       disabled: (c === "style" || c === "align" || c === "direction") && !canFormat,
       onPress: () => toggleCategory(c),
@@ -341,49 +345,49 @@ export function BlockContextBar({
   // The complete tool set for the full-width bar / expanded pill.
   const fullTools = (
     <>
-      {chip({ keyProp: "bold", Icon: Bold, accessibilityLabel: "Bold", dim: true, onPress: soon })}
-      {chip({ keyProp: "italic", Icon: Italic, accessibilityLabel: "Italic", dim: true, onPress: soon })}
+      {chip({ keyProp: "bold", Icon: Bold, accessibilityLabel: "Bold", dim: true, enterIndex: 0, onPress: soon })}
+      {chip({ keyProp: "italic", Icon: Italic, accessibilityLabel: "Italic", dim: true, enterIndex: 1, onPress: soon })}
       {sep("s1")}
-      {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }))}
-      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }))}
-      {categoryChip("direction", PilcrowLeft, t("blockBar.direction", { defaultValue: "Direction" }))}
-      {categoryChip("list", List, t("blockBar.list", { defaultValue: "List" }))}
-      {categoryChip("color", Palette, t("blockBar.color", { defaultValue: "Color" }))}
+      {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }), 2)}
+      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 3)}
+      {categoryChip("direction", PilcrowLeft, t("blockBar.direction", { defaultValue: "Direction" }), 4)}
+      {categoryChip("list", List, t("blockBar.list", { defaultValue: "List" }), 5)}
+      {categoryChip("color", Palette, t("blockBar.color", { defaultValue: "Color" }), 6)}
       {sep("s2")}
       {single
         ? [
-            chip({ keyProp: "up", Icon: ChevronUp, accessibilityLabel: t("blockBar.moveUp", { defaultValue: "Move up" }), disabled: !canUp, onPress: () => move("up") }),
-            chip({ keyProp: "down", Icon: ChevronDown, accessibilityLabel: t("blockBar.moveDown", { defaultValue: "Move down" }), disabled: !canDown, onPress: () => move("down") }),
-            chip({ keyProp: "img", Icon: ImagePlus, accessibilityLabel: t("blockBar.image", { defaultValue: "Insert image" }), onPress: () => void pickImage() }),
+            chip({ keyProp: "up", Icon: ChevronUp, accessibilityLabel: t("blockBar.moveUp", { defaultValue: "Move up" }), disabled: !canUp, enterIndex: 7, onPress: () => move("up") }),
+            chip({ keyProp: "down", Icon: ChevronDown, accessibilityLabel: t("blockBar.moveDown", { defaultValue: "Move down" }), disabled: !canDown, enterIndex: 8, onPress: () => move("down") }),
+            chip({ keyProp: "img", Icon: ImagePlus, accessibilityLabel: t("blockBar.image", { defaultValue: "Insert image" }), enterIndex: 9, onPress: () => void pickImage() }),
           ]
         : null}
-      {chip({ keyProp: "clear", Icon: Eraser, accessibilityLabel: t("blockBar.clear", { defaultValue: "Clear formatting" }), disabled: !canFormat, onPress: () => apply({ clearFormatting: true }) })}
-      {chip({ keyProp: "del", Icon: Trash2, accessibilityLabel: t("common.delete", { defaultValue: "Delete" }), onPress: del })}
+      {chip({ keyProp: "clear", Icon: Eraser, accessibilityLabel: t("blockBar.clear", { defaultValue: "Clear formatting" }), disabled: !canFormat, enterIndex: 10, onPress: () => apply({ clearFormatting: true }) })}
+      {chip({ keyProp: "del", Icon: Trash2, accessibilityLabel: t("common.delete", { defaultValue: "Delete" }), enterIndex: 11, onPress: del })}
     </>
   );
 
   // The curated pill tool set (keyboard closed, not expanded).
   const pillTools = (
     <>
-      {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }))}
-      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }))}
-      {categoryChip("direction", PilcrowLeft, t("blockBar.direction", { defaultValue: "Direction" }))}
-      {chip({ keyProp: "p-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), onPress: () => setPillExpanded(true) })}
+      {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }), 0)}
+      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 1)}
+      {categoryChip("direction", PilcrowLeft, t("blockBar.direction", { defaultValue: "Direction" }), 2)}
+      {chip({ keyProp: "p-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), enterIndex: 3, onPress: () => setPillExpanded(true) })}
     </>
   );
 
   // ── IMAGE block: image tools are PRIMARY (no Style/Align/Direction) ──
-  const imageMoveDeleteChips = [
-    chip({ keyProp: "img-up", Icon: ChevronUp, accessibilityLabel: t("blockBar.moveUp", { defaultValue: "Move up" }), disabled: !canUp, onPress: () => move("up") }),
-    chip({ keyProp: "img-down", Icon: ChevronDown, accessibilityLabel: t("blockBar.moveDown", { defaultValue: "Move down" }), disabled: !canDown, onPress: () => move("down") }),
-    chip({ keyProp: "img-del", Icon: Trash2, accessibilityLabel: t("common.delete", { defaultValue: "Delete" }), onPress: del }),
+  const imageMoveDeleteChips = (base: number) => [
+    chip({ keyProp: "img-up", Icon: ChevronUp, accessibilityLabel: t("blockBar.moveUp", { defaultValue: "Move up" }), disabled: !canUp, enterIndex: base, onPress: () => move("up") }),
+    chip({ keyProp: "img-down", Icon: ChevronDown, accessibilityLabel: t("blockBar.moveDown", { defaultValue: "Move down" }), disabled: !canDown, enterIndex: base + 1, onPress: () => move("down") }),
+    chip({ keyProp: "img-del", Icon: Trash2, accessibilityLabel: t("common.delete", { defaultValue: "Delete" }), enterIndex: base + 2, onPress: del }),
   ];
   // Compact pill: Replace / Move up / Move down / Delete / (+).
   const imagePillTools = (
     <>
-      {chip({ keyProp: "img-replace", Icon: RefreshCw, accessibilityLabel: t("blockBar.replaceImage", { defaultValue: "Replace image" }), onPress: () => void replaceImage() })}
-      {imageMoveDeleteChips}
-      {chip({ keyProp: "img-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), onPress: () => setPillExpanded(true) })}
+      {chip({ keyProp: "img-replace", Icon: RefreshCw, accessibilityLabel: t("blockBar.replaceImage", { defaultValue: "Replace image" }), enterIndex: 0, onPress: () => void replaceImage() })}
+      {imageMoveDeleteChips(1)}
+      {chip({ keyProp: "img-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), enterIndex: 4, onPress: () => setPillExpanded(true) })}
     </>
   );
   // Expanded / keyboard-docked: the same primaries + the advanced picture ops, now
@@ -391,18 +395,18 @@ export function BlockContextBar({
   // remove-bg). Disabled while an async op is running.
   const imageFullTools = (
     <>
-      {chip({ keyProp: "img-replace", Icon: RefreshCw, accessibilityLabel: t("blockBar.replaceImage", { defaultValue: "Replace image" }), onPress: () => void replaceImage() })}
-      {imageMoveDeleteChips}
+      {chip({ keyProp: "img-replace", Icon: RefreshCw, accessibilityLabel: t("blockBar.replaceImage", { defaultValue: "Replace image" }), enterIndex: 0, onPress: () => void replaceImage() })}
+      {imageMoveDeleteChips(1)}
       {sep("is1")}
-      {chip({ keyProp: "img-rotate", Icon: RotateCw, accessibilityLabel: t("blockBar.rotate", { defaultValue: "Rotate" }), disabled: busy, onPress: () => void rotateFlip("rotateRight") })}
-      {chip({ keyProp: "img-flip", Icon: FlipHorizontal2, accessibilityLabel: t("blockBar.flip", { defaultValue: "Flip" }), disabled: busy, onPress: () => void rotateFlip("flipH") })}
-      {chip({ keyProp: "img-crop", Icon: Crop, accessibilityLabel: t("blockBar.crop", { defaultValue: "Crop" }), disabled: busy, onPress: () => { if (soleIndex != null) setCropIndex(soleIndex); } })}
-      {chip({ keyProp: "img-bg", Icon: WandSparkles, accessibilityLabel: t("blockBar.removeBg", { defaultValue: "Remove background" }), disabled: busy, onPress: () => void removeBg() })}
+      {chip({ keyProp: "img-rotate", Icon: RotateCw, accessibilityLabel: t("blockBar.rotate", { defaultValue: "Rotate" }), disabled: busy, enterIndex: 4, onPress: () => void rotateFlip("rotateRight") })}
+      {chip({ keyProp: "img-flip", Icon: FlipHorizontal2, accessibilityLabel: t("blockBar.flip", { defaultValue: "Flip" }), disabled: busy, enterIndex: 5, onPress: () => void rotateFlip("flipH") })}
+      {chip({ keyProp: "img-crop", Icon: Crop, accessibilityLabel: t("blockBar.crop", { defaultValue: "Crop" }), disabled: busy, enterIndex: 6, onPress: () => { if (soleIndex != null) setCropIndex(soleIndex); } })}
+      {chip({ keyProp: "img-bg", Icon: WandSparkles, accessibilityLabel: t("blockBar.removeBg", { defaultValue: "Remove background" }), disabled: busy, enterIndex: 7, onPress: () => void removeBg() })}
     </>
   );
 
   // ── TABLE block: minimal set (Move / Delete). No text/format tools apply. ──
-  const tableTools = <>{imageMoveDeleteChips}</>;
+  const tableTools = <>{imageMoveDeleteChips(0)}</>;
 
   // Resolve the toolset for the current block kind + form.
   const compactTools = isImage ? imagePillTools : isTable ? tableTools : pillTools;
@@ -593,10 +597,15 @@ export function BlockContextBar({
             horizontal
             showsHorizontalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
-            contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
             style={styles.fullScroll}
           >
-            {expandedTools}
+            <Animated.View
+              key={"dock-" + toolsetKind}
+              exiting={chipOut}
+              style={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
+            >
+              {expandedTools}
+            </Animated.View>
           </ScrollView>
           {AskAI}
           {OutlineBtn}
@@ -640,12 +649,17 @@ export function BlockContextBar({
               horizontal
               showsHorizontalScrollIndicator={false}
               keyboardShouldPersistTaps="always"
-              contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
               style={styles.fullScroll}
             >
-              {expandedTools}
-              {/* Collapse back to the compact pill. */}
-              {chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), onPress: () => setPillExpanded(false) })}
+              <Animated.View
+                key={"full-" + toolsetKind}
+                exiting={chipOut}
+                style={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
+              >
+                {expandedTools}
+                {/* Collapse back to the compact pill. */}
+                {chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), onPress: () => setPillExpanded(false) })}
+              </Animated.View>
             </ScrollView>
             {AskAI}
             {OutlineBtn}
@@ -657,9 +671,14 @@ export function BlockContextBar({
               showsHorizontalScrollIndicator={false}
               keyboardShouldPersistTaps="always"
               style={styles.pillScroll}
-              contentContainerStyle={[styles.pillToolsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
             >
-              {compactTools}
+              <Animated.View
+                key={"tools-" + toolsetKind}
+                exiting={chipOut}
+                style={[styles.pillToolsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+              >
+                {compactTools}
+              </Animated.View>
             </ScrollView>
             <View style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />
             {AskAI}
