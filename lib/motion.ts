@@ -18,6 +18,7 @@ const STAGGER_MAX_MS = 240;
 export const PRESS_SCALE = 0.85;
 
 const OUT_TIMING = { duration: 180, easing: Easing.in(Easing.quad) };
+const ROW_OUT_TIMING = { duration: 150, easing: Easing.in(Easing.quad) };
 
 /** Compact pill entrance: springs up from under the block with slight overshoot. */
 export const pillIn: EntryExitAnimationFunction = () => {
@@ -67,10 +68,10 @@ export const rowOut: EntryExitAnimationFunction = () => {
   return {
     initialValues: { opacity: 1, transform: [{ translateY: 0 }, { scale: 1 }] },
     animations: {
-      opacity: withTiming(0, { duration: 150, easing: Easing.in(Easing.quad) }),
+      opacity: withTiming(0, ROW_OUT_TIMING),
       transform: [
-        { translateY: withTiming(10, { duration: 150 }) },
-        { scale: withTiming(0.92, { duration: 150 }) },
+        { translateY: withTiming(10, ROW_OUT_TIMING) },
+        { scale: withTiming(0.92, ROW_OUT_TIMING) },
       ],
     },
   };
@@ -95,4 +96,6 @@ export const chipIn = (i = 0): EntryExitAnimationFunction => {
 export const chipOut = FadeOut.duration(120);
 
 /** Springy size/position morph for the pill ⇄ full-card container. */
-export const layoutSpring = LinearTransition.springify().damping(18).stiffness(250);
+export const layoutSpring = LinearTransition.springify()
+  .damping(SPRING.damping)
+  .stiffness(SPRING.stiffness);
