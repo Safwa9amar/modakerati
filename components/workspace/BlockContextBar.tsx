@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, Alert, Keyboard } from "react-native";
+import Animated from "react-native-reanimated";
 // Horizontal tool rows use gesture-handler's ScrollView so they scroll even when
 // nested inside the reorderable list (RN's ScrollView loses the horizontal pan to
 // the list's gesture handler).
@@ -43,6 +44,7 @@ import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit
 import { hWarn } from "@/lib/haptics";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
+import { rowIn, rowOut } from "@/lib/motion";
 import type { FormatChange } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
@@ -461,55 +463,89 @@ export function BlockContextBar({
     if (!activeCategory) return null;
     let body: React.ReactNode = null;
     if (activeCategory === "style") {
-      body = STYLE_LEVELS.map((l) => {
+      body = STYLE_LEVELS.map((l, i) => {
         const active = allLevel(l);
         return (
-          <Pressable key={l} onPress={() => apply({ level: l })} disabled={!canFormat} style={optPill(active, !canFormat)}>
+          <AnimatedChip
+            key={l}
+            enterIndex={i}
+            onPress={() => apply({ level: l })}
+            disabled={!canFormat}
+            active={active}
+            accessibilityLabel={l === 0 ? t("composer.edit.normal", { defaultValue: "Normal" }) : `H${l}`}
+            style={optPill(active, !canFormat)}
+          >
             <Text style={[styles.optText, { color: active ? colors.bgPrimary : colors.textPrimary }]}>
               {l === 0 ? t("composer.edit.normal", { defaultValue: "Normal" }) : `H${l}`}
             </Text>
-          </Pressable>
+          </AnimatedChip>
         );
       });
     } else if (activeCategory === "align") {
-      body = ALIGN_OPTIONS.map(({ value, Icon }) => {
+      body = ALIGN_OPTIONS.map(({ value, Icon }, i) => {
         const active = allAlign(value);
         return (
-          <Pressable key={value} onPress={() => apply({ alignment: value })} disabled={!canFormat} style={optPill(active, !canFormat)}>
+          <AnimatedChip
+            key={value}
+            enterIndex={i}
+            onPress={() => apply({ alignment: value })}
+            disabled={!canFormat}
+            active={active}
+            accessibilityLabel={value}
+            style={optPill(active, !canFormat)}
+          >
             <Icon size={16} color={active ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
-          </Pressable>
+          </AnimatedChip>
         );
       });
     } else if (activeCategory === "direction") {
-      body = DIRECTION_OPTIONS.map(({ value, Icon }) => {
+      body = DIRECTION_OPTIONS.map(({ value, Icon }, i) => {
         const active = allDirection(value);
         return (
-          <Pressable key={value} onPress={() => apply({ direction: value })} disabled={!canFormat} style={optPill(active, !canFormat)}>
+          <AnimatedChip
+            key={value}
+            enterIndex={i}
+            onPress={() => apply({ direction: value })}
+            disabled={!canFormat}
+            active={active}
+            accessibilityLabel={value}
+            style={optPill(active, !canFormat)}
+          >
             <Icon size={16} color={active ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
-          </Pressable>
+          </AnimatedChip>
         );
       });
     } else {
-      // list / color — Phase 2 (DTO can't carry these yet): show the options
-      // disabled with a "coming soon" caption so the expansion mechanism is real.
+      // list / color — Phase 2 (DTO can't carry these yet): dimmed options + caption.
       const items = activeCategory === "list" ? ["•", "1.", "☑"] : ["A", "A", "A"];
       body = (
         <>
           {items.map((label, i) => (
-            <Pressable key={i} onPress={soon} style={optPill(false, true)}>
+            <AnimatedChip key={i} enterIndex={i} onPress={soon} accessibilityLabel={label} style={optPill(false, true)}>
               <Text style={[styles.optText, { color: colors.textPlaceholder }]}>{label}</Text>
-            </Pressable>
+            </AnimatedChip>
           ))}
-          <Text style={[styles.soonCaption, { color: colors.textPlaceholder }]}>{t("blockBar.soonTitle", { defaultValue: "Coming soon" })}</Text>
+          <Text style={[styles.soonCaption, { color: colors.textPlaceholder }]}>
+            {t("blockBar.soonTitle", { defaultValue: "Coming soon" })}
+          </Text>
         </>
       );
     }
     return (
-      <View style={[styles.expansion, { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.expansionRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+      <Animated.View
+        key={"exp-" + activeCategory}
+        entering={rowIn}
+        exiting={rowOut}
+        style={[styles.expansion, { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle }]}
+      >
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[styles.expansionRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+        >
           {body}
         </ScrollView>
-      </View>
+      </Animated.View>
     );
   };
 
