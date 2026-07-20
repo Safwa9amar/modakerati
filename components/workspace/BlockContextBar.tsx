@@ -53,7 +53,7 @@ import { hWarn } from "@/lib/haptics";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
 import { chipOut, layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff, SPRING_SOFT } from "@/lib/motion";
-import { isPillHandoff } from "@/lib/pill-handoff";
+import { isPillHandoff, shouldGlow } from "@/lib/pill-handoff";
 import type { FormatChange } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
@@ -77,15 +77,18 @@ const DIRECTION_OPTIONS: { value: "rtl" | "ltr"; Icon: LucideIcon }[] = [
 
 const CHIP = 40;
 
-/** One-shot ring pulse behind ✦ Ask AI when the selection changes — deliberately
- *  not an infinite loop (battery). `trigger` = the selection identity string. */
+/** One-shot ring pulse behind ✦ Ask AI — once per NEW selection target, deduped
+ *  across pill remounts (handoffs, keyboard open/close) via shouldGlow.
+ *  Deliberately not an infinite loop (battery). `trigger` = the selection
+ *  identity string. */
 function AskAIGlow({ trigger, color }: { trigger: string; color: string }) {
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0);
   useEffect(() => {
+    if (!shouldGlow(trigger)) return;
     scale.value = 1;
     opacity.value = 0.5;
-    scale.value = withSpring(1.5, SPRING_SOFT);
+    scale.value = withSpring(1.3, SPRING_SOFT);
     opacity.value = withTiming(0, { duration: 500 });
   }, [trigger, scale, opacity]);
   const style = useAnimatedStyle(() => ({
