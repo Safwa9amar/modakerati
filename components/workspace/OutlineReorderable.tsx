@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { View, StyleSheet } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { View, StyleSheet, type FlatList } from "react-native";
 import ReorderableList, {
   useReorderableDrag,
   reorderItems,
@@ -95,6 +95,7 @@ export function OutlineReorderable({
   rtl,
   paddingBottom,
   version,
+  scrollTarget,
 }: {
   thesisId: string;
   blocks: DocBlockDTO[];
@@ -103,10 +104,31 @@ export function OutlineReorderable({
   paddingBottom: number;
   // Doc version → busts on-demand figure image caches after an edit.
   version?: number;
+  // Pending "scroll to this block" request from the outline navigator (nonce
+  // bumps per request so the same heading re-scrolls).
+  scrollTarget?: { index: number; nonce: number } | null;
 }) {
   const { t } = useTranslation();
   const [data, setData] = useState(blocks);
   useEffect(() => setData(blocks), [blocks]);
+
+  // ReorderableList forwards its ref to the underlying FlatList → scrollToIndex.
+  const listRef = useRef<FlatList<DocBlockDTO>>(null);
+
+  // Bring the requested block into view. `scrollTarget.index` is an engine block
+  // index; the list position can differ, so resolve it against the current data.
+  // Runs on nonce change (and on mount, catching a request set before navigation).
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const pos = data.findIndex((b) => b.index === scrollTarget.index);
+    if (pos < 0) return;
+    // Defer a frame so a just-mounted list is laid out before we scroll.
+    const id = requestAnimationFrame(() => {
+      listRef.current?.scrollToIndex({ index: pos, animated: true, viewPosition: 0 });
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollTarget?.nonce]);
 
   const markers = useMemo(() => computeSectionMarkers(t, sections), [t, sections]);
 
@@ -142,9 +164,18 @@ export function OutlineReorderable({
 
   return (
     <ReorderableList
+      ref={listRef}
       data={data}
       onReorder={onReorder}
       keyExtractor={(b) => String(b.index)}
+      // Rows have variable, unmeasured heights → scrollToIndex can miss before the
+      // target is laid out. Jump to an estimated offset, then correct once settled.
+      onScrollToIndexFailed={({ index, averageItemLength }) => {
+        listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false });
+        setTimeout(() => {
+          listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+        }, 120);
+      }}
       renderItem={({ item }) => (
         <Row
           block={item}
@@ -160,6 +191,9 @@ export function OutlineReorderable({
       style={styles.list}
       contentContainerStyle={[styles.content, { paddingBottom }]}
       showsVerticalScrollIndicator={false}
+      // Keep the keyboard up when tapping straight from one editing block to
+      // another (or onto a toolbar button); a tap on empty space dismisses it.
+      keyboardShouldPersistTaps="handled"
     />
   );
 }

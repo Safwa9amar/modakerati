@@ -334,7 +334,17 @@ function EditableParagraph({
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     commit(value);
     const ws = useWorkspaceStore.getState();
-    if (ws.editingBlockIndex === block.index) ws.setEditingBlock(null);
+    // Only act if THIS block is still the one being edited — tapping straight into
+    // another block already moved editing there; don't clobber it.
+    if (ws.editingBlockIndex !== block.index) return;
+    if (ws.askAiOpen) {
+      // Blur because ✦ Ask AI opened its input — leave editing but KEEP the
+      // selection so the AI still targets this block.
+      ws.setEditingBlock(null);
+    } else {
+      // Keyboard dismissed → back to the plain document: no lingering box or pill.
+      ws.clearSelection();
+    }
   };
 
   return (
@@ -485,17 +495,18 @@ function longPickBlock(index: number, text: string): void {
   useWorkspaceStore.getState().addToSelection(index, text);
 }
 
-// Tap: if this block is already the sole selection, promote to inline editing;
-// otherwise select it (single or multi per the store mode).
+// Tap a paragraph → go STRAIGHT to inline editing: caret in the block, keyboard
+// up, the docked toolbar — no intermediate selection-box state. (Select it too so
+// the toolbar / ✦ Ask AI target this block.) Multi-select mode still just toggles
+// membership; during an AI turn we only select (don't open the editor).
 function enterOrSelect(index: number, text: string): void {
   const ws = useWorkspaceStore.getState();
-  const sole = ws.selectedBlocks.length === 1 && ws.selectedBlocks[0].index === index;
-  if (sole && !ws.multiSelect && ws.editingBlockIndex == null && !useChatStore.getState().isGenerating) {
-    ws.setEditingBlock(index);
-  } else {
-    if (ws.multiSelect) ws.toggleBlock(index, text);
-    else ws.selectBlock(index, text);
+  if (ws.multiSelect) {
+    ws.toggleBlock(index, text);
+    return;
   }
+  ws.selectBlock(index, text);
+  if (!useChatStore.getState().isGenerating) ws.setEditingBlock(index);
 }
 
 // RTL scripts: Hebrew, Arabic (+ supplements), Syriac, Thaana, Arabic presentation forms.
