@@ -7,7 +7,6 @@ import {
   StyleSheet,
   ScrollView,
   I18nManager,
-  Platform,
   type LayoutChangeEvent,
 } from "react-native";
 import Animated, {
@@ -16,6 +15,7 @@ import Animated, {
   FadeInDown,
   FadeOut,
   LinearTransition,
+  cancelAnimation,
   interpolateColor,
   useAnimatedStyle,
   useReducedMotion,
@@ -98,13 +98,21 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
   if (!sug) return null;
 
   // Content direction follows the TEXT (per-block, like DocBlock); chrome rows
-  // follow the app language.
-  const contentDir = detectDir(sug.proposed || sug.original || block.text, rtl);
+  // follow the app language. While editing, the LIVE draft drives the direction
+  // so switching script mid-edit re-aligns immediately (the stored proposal is
+  // stale until Done).
+  const contentDir = detectDir(
+    editing && draft ? draft : sug.proposed || sug.original || block.text,
+    rtl,
+  );
   const appRow = I18nManager.isRTL ? ("row-reverse" as const) : ("row" as const);
   const baseTextStyle = paragraphTextStyle(block.level);
+  // writingDirection unconditionally: DocBlock omits it on Android only for
+  // JUSTIFIED text (a Fabric justify quirk) — this component never justifies,
+  // so RTL bidi needs the explicit direction on both platforms.
   const contentTextStyle = {
     textAlign: contentDir === "rtl" ? ("right" as const) : ("left" as const),
-    ...(Platform.OS === "android" ? null : { writingDirection: contentDir }),
+    writingDirection: contentDir,
   };
   // The green "in review" bar sits at the paragraph's logical start.
   const edgeSide =
@@ -319,6 +327,7 @@ function AddSpan({ text, active, reduce }: { text: string; active: boolean; redu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
   const st = useAnimatedStyle(() => ({
+    top: 0, // no-op layout prop — forces Fabric to commit backgroundColor on nested Text (reanimated#1455)
     backgroundColor: active
       ? interpolateColor(v.value, [0, 1], [ADD_TINT, ADD_FLASH])
       : "transparent",
@@ -339,6 +348,9 @@ function SweepBand() {
     if (!w) return;
     x.value = 0;
     x.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.linear }), -1);
+    // Stop the infinite repeat when the band unmounts / width changes — an
+    // orphaned UI-thread loop otherwise keeps ticking.
+    return () => cancelAnimation(x);
   }, [w, x]);
   const st = useAnimatedStyle(() => ({
     transform: [{ translateX: -140 + x.value * (w + 280) }],
