@@ -310,6 +310,7 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         suggestions={suggestions}
         onPreset={(prompt) => setInputText(prompt)}
         keyboardVisible={keyboardVisible}
+        focused={composerInputFocused}
         bottomInset={insets.bottom}
       />
     );
@@ -339,6 +340,7 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         suggestions={suggestions}
         onPreset={(prompt) => setInputText(prompt)}
         keyboardVisible={keyboardVisible}
+        focused={composerInputFocused}
         bottomInset={insets.bottom}
       />
     );

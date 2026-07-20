@@ -42,8 +42,12 @@ interface Props {
   suggestions: ComposerSuggestion[];
   onPreset: (prompt: string) => void;
 
-  /** Keyboard up → collapse to just the scope pill + input (drop chips/status). */
+  /** Keyboard up → tighten the bottom padding (safe area is covered by the keyboard). */
   keyboardVisible: boolean;
+  /** Input focused → reveal the quick-action chips (compose helpers). When idle and
+   *  unfocused the bar stays compact (just scope + input) so it doesn't reserve a
+   *  tall footprint under the document. */
+  focused: boolean;
   /** Safe-area bottom inset, applied only while the keyboard is down. */
   bottomInset: number;
 }
@@ -79,12 +83,16 @@ export function IdleAIBar({
   suggestions,
   onPreset,
   keyboardVisible,
+  focused,
   bottomInset,
 }: Props) {
   const colors = useThemeColors();
-  // Compact when the keyboard is up: drop the status line + chips so the input
-  // hugs the keyboard (mirrors the old sheet's docked presentation).
-  const compact = keyboardVisible;
+  // The reasoning trace shows only while actually generating/thinking (the idle
+  // "Ready…" placeholder is redundant with the input's own placeholder). The chips
+  // show only while composing (focused). So idle+unfocused = just scope + input —
+  // a minimal footprint that doesn't reserve tall padding under the document.
+  const showStatus = isGenerating || thinking.trim().length > 0;
+  const showChips = focused && suggestions.length > 0;
 
   return (
     <View
@@ -93,7 +101,7 @@ export function IdleAIBar({
         {
           backgroundColor: colors.bgPrimary,
           borderTopColor: colors.borderSubtle,
-          paddingBottom: compact ? 8 : bottomInset + 10,
+          paddingBottom: keyboardVisible ? 8 : bottomInset + 10,
         },
       ]}
     >
@@ -111,7 +119,7 @@ export function IdleAIBar({
         </View>
       </View>
 
-      {!compact ? (
+      {showStatus ? (
         <ComposerThinking
           isGenerating={isGenerating}
           reasoning={isGenerating && generatingPhase === "thinking"}
@@ -123,7 +131,7 @@ export function IdleAIBar({
         />
       ) : null}
 
-      {!compact ? (
+      {showChips ? (
         <>
           <View style={styles.chipsSpacer} />
           <ComposerQuickActions suggestions={suggestions} onPreset={onPreset} />
