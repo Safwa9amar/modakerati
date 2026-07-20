@@ -54,8 +54,36 @@ export function DocBlock({
   const hi = colors.brandPrimary;
 
   if (block.kind === "other") {
-    // Structural/unsupported block — render nothing (a tiny marker is noise).
-    return null;
+    // Structural / unsupported top-level block (e.g. a content control `<w:sdt>`
+    // wrapping an appendix or TOC section). Rendering nothing here made a run of
+    // these read as "document ended" — trailing sections (appendices) vanished
+    // from the outline while the docx/PDF preview still showed them. Render a
+    // visible marker: the server's best-effort text preview when present (so the
+    // appendix heading + content stays legible), else a subtle divider. Non-
+    // interactive — these aren't editable paragraphs, so no select/edit/drag.
+    const otherText = (block as { text?: string }).text?.trim();
+    if (otherText) {
+      const oDir = detectDir(otherText, rtl);
+      return (
+        <View style={styles.otherBlock}>
+          <Text
+            style={[
+              styles.otherText,
+              { textAlign: oDir === "rtl" ? "right" : "left", writingDirection: oDir },
+            ]}
+          >
+            {otherText}
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.otherDivider}>
+        <View style={styles.otherDividerLine} />
+        <Text style={styles.otherDividerText}>⋯</Text>
+        <View style={styles.otherDividerLine} />
+      </View>
+    );
   }
 
   if (block.kind === "image") {
@@ -544,6 +572,33 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   emptyPara: { color: MUTED },
+
+  // Structural/embedded (`other`) block with a text preview — a muted card set
+  // slightly apart from body paragraphs so it reads as embedded content, not a
+  // regular editable paragraph.
+  otherBlock: {
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginVertical: 4,
+    backgroundColor: "#F5F5F8",
+  },
+  otherText: {
+    color: MUTED,
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    lineHeight: 20,
+  },
+  // Text-less structural block (bookmark, empty content control): a thin divider
+  // so a run of them signals "content continues", never "document ended".
+  otherDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 8,
+    paddingHorizontal: 4,
+  },
+  otherDividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: BORDER },
+  otherDividerText: { color: MUTED, fontSize: 12, paddingHorizontal: 8 },
 
   figureCard: {
     borderRadius: 6,
