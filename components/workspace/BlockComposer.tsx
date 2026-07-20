@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, Alert, Keyboard, Platform } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -114,6 +114,17 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
       .filter((b): b is Extract<DocBlockDTO, { kind: "paragraph" }> => !!b && b.kind === "paragraph");
   }, [ordered, blocks]);
 
+  // The selected IMAGE blocks (Ask-AI on a lone figure → caption suggestion).
+  // paragraphSelection never includes an image, so we resolve the image DTOs
+  // separately to route a single-figure Ask-AI to the caption action.
+  const imageSelection = useMemo(() => {
+    if (!ordered.length) return [] as Extract<DocBlockDTO, { kind: "image" }>[];
+    const byIndex = new Map(blocks.map((b) => [b.index, b]));
+    return ordered
+      .map((s) => byIndex.get(s.index))
+      .filter((b): b is Extract<DocBlockDTO, { kind: "image" }> => !!b && b.kind === "image");
+  }, [ordered, blocks]);
+
   // ——— Keyboard tracking ———
   useEffect(() => {
     const show = Keyboard.addListener(
@@ -149,11 +160,30 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     if (count === 0 && askAiOpen) useWorkspaceStore.getState().setAskAiOpen(false);
   }, [count, askAiOpen]);
 
-  // Hidden via the header toggle → collapse the reserved inset so the doc reclaims
-  // the full height (no bar is rendered to drive onLayout).
+  // Whether ANY bottom surface renders (mirrors the surface chain in the render
+  // below: confirm > ask > idle bar > block Ask-AI > keyboard-docked block bar).
+  // A block selected with the keyboard down renders nothing here — its pill
+  // floats inline on the block in the outline.
+  const blockKeyboardOpen = keyboardVisible && (inlineEditing || composerInputFocused);
+  const hasSurface =
+    !!pendingConfirm || !!pendingAsk || count === 0 || askAiOpen || blockKeyboardOpen;
+
+  // Collapse the reserved inset imperatively whenever nothing renders at the
+  // bottom (hidden via the header ⋯ toggle, or the floating-pill state above).
+  // Relying on the host's onLayout(0) alone is not enough: the outgoing surface
+  // contains `exiting` animations (send button, category expansion row), so
+  // Reanimated keeps the removed subtree alive — and if its removal callback is
+  // dropped (flaky on the New Architecture) the 0-height layout never arrives,
+  // stranding a tall white paddingBottom under the document.
   useEffect(() => {
-    if (!composerOpen) insetValue.value = 0;
-  }, [composerOpen, insetValue]);
+    if (!composerOpen || !hasSurface) insetValue.value = 0;
+  }, [composerOpen, hasSurface, insetValue]);
+
+  // Mirror for onLayout: measurements that arrive while no surface should be up
+  // come from a lingering exiting subtree — ignore them so they can't re-inflate
+  // the inset after the effect above zeroed it.
+  const hasSurfaceRef = useRef(false);
+  hasSurfaceRef.current = composerOpen && hasSurface;
 
   // AI quick-action chips — grounded in the conversation + current selection.
   const { suggestions } = useComposerSuggestions(thesisId, {
@@ -177,10 +207,7 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     const text = inputText.trim();
     if (!text || isGenerating) return;
     // Block-scoped "✦ Ask AI" on exactly one PARAGRAPH → propose an inline rewrite
-    // of that paragraph (approve/edit/reject inline on the block). Only paragraphs:
-    // a figure/table has no text to rewrite, so those (and whole-memoir / multi-
-    // block) go through the tool-based chat flow, which can act on them directly
-    // (e.g. set a figure caption) rather than producing a bogus "rewrite".
+    // of that paragraph (approve/edit/reject inline on the block).
     if (askAiOpen && count === 1 && paragraphSelection.length === 1) {
       const idx = paragraphSelection[0].index;
       const original = paragraphSelection[0].text;
@@ -188,6 +215,20 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
       Keyboard.dismiss();
       useWorkspaceStore.getState().setAskAiOpen(false);
       void useSuggestionStore.getState().request(thesisId, idx, original, text);
+      return;
+    }
+    // Block-scoped "✦ Ask AI" on exactly one IMAGE → propose a figure caption
+    // (kind:"image" → the server returns a setCaption action; Approve applies it
+    // via the setCaption op). The proposal renders inline BELOW the figure. A
+    // table still has no inline action, so it (and whole-memoir / multi-block)
+    // falls through to the tool-based chat flow.
+    if (askAiOpen && count === 1 && imageSelection.length === 1) {
+      const idx = imageSelection[0].index;
+      const originalCaption = imageSelection[0].caption ?? "";
+      setInputText("");
+      Keyboard.dismiss();
+      useWorkspaceStore.getState().setAskAiOpen(false);
+      void useSuggestionStore.getState().request(thesisId, idx, originalCaption, text, "image");
       return;
     }
     setInputText("");
@@ -212,6 +253,7 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
 
   // Measure whatever surface renders → reserve exactly its height at the doc bottom.
   const onLayout = (h: number) => {
+    if (!hasSurfaceRef.current) return;
     insetValue.value = h;
   };
 
@@ -222,9 +264,8 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
 
   // Which surface: confirm > ask > (block Ask-AI | keyboard-open block bar | idle).
   // Default null: a block selected with the keyboard DOWN docks nothing here — its
-  // formatting pill floats inline on the block in the outline instead.
-  const blockKeyboardOpen = keyboardVisible && (inlineEditing || composerInputFocused);
-
+  // formatting pill floats inline on the block in the outline instead. Keep this
+  // chain in sync with `hasSurface` above.
   let surface: React.ReactNode = null;
   if (pendingConfirm) {
     surface = (

@@ -69,9 +69,14 @@ const PAPER = "#FFFFFF";
 
 interface Props {
   thesisId: string;
-  // The full block — the suggestion takes over the block's rendering, so it
-  // needs the level (typography) and text (thinking/error states).
-  block: Extract<DocBlockDTO, { kind: "paragraph" }>;
+  // The block under review. A PARAGRAPH suggestion (rewrite) takes over the
+  // block's rendering, so it needs the level (typography) and text (thinking /
+  // error states). An IMAGE suggestion (figure caption) renders beneath the
+  // still-visible figure and only needs the proposed caption from the store, so
+  // the paragraph-only reads (block.text / block.level / word-diff) are guarded.
+  block:
+    | Extract<DocBlockDTO, { kind: "paragraph" }>
+    | Extract<DocBlockDTO, { kind: "image" }>;
   rtl: boolean;
 }
 
@@ -134,18 +139,25 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
 
   if (!sug) return null;
 
+  // An image block carries no paragraph text/level — its action is a figure
+  // caption, so the visible content is the proposed caption from the store. Guard
+  // the paragraph-only reads (block.text / block.level) behind these.
+  const isImage = block.kind === "image";
+  const blockText = block.kind === "paragraph" ? block.text : "";
+
   // Content direction follows the TEXT (per-block, like DocBlock); chrome rows
   // follow the app language. While editing, the LIVE draft drives the direction
   // so switching script mid-edit re-aligns immediately (the stored proposal is
-  // stale until Done).
+  // stale until Done). For an image, sug.proposed (the caption) drives it.
   const contentDir = detectDir(
-    editing && draft ? draft : sug.proposed || sug.original || block.text,
+    editing && draft ? draft : sug.proposed || sug.original || blockText,
     rtl,
   );
   const appRow = I18nManager.isRTL
     ? ("row-reverse" as const)
     : ("row" as const);
-  const baseTextStyle = paragraphTextStyle(block.level);
+  // Images have no heading level → render the caption in body typography.
+  const baseTextStyle = paragraphTextStyle(block.kind === "paragraph" ? block.level : 0);
   // writingDirection unconditionally: DocBlock omits it on Android only for
   // JUSTIFIED text (a Fabric justify quirk) — this component never justifies,
   // so RTL bidi needs the explicit direction on both platforms.
@@ -210,7 +222,7 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
         {trace}
         <View style={styles.thinkingWrap}>
           <Text style={[baseTextStyle, contentTextStyle, styles.thinkingText]}>
-            {block.text || sug.original}
+            {blockText || sug.original}
           </Text>
           {!reduce && <SweepBand />}
         </View>
@@ -253,7 +265,7 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
         {header}
         {trace}
         <Text style={[baseTextStyle, contentTextStyle, styles.plainPara]}>
-          {block.text || sug.original}
+          {blockText || sug.original}
         </Text>
         <View style={[styles.errSlip, { flexDirection: appRow }]}>
           <Text style={styles.errText} numberOfLines={2}>
@@ -416,14 +428,27 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
       {header}
       {trace}
 
-      {/* The proposed rewrite IS the paragraph. Added words tint green while
-          the compare view is open (brief brighter flash on expand). When the
-          diff carries no common words — the >400-token perf cap, or a total
-          rewrite — word marks are noise (they'd tint/strike ENTIRE paragraphs),
-          so both sides render as plain text instead. */}
+      {/* Image (caption action): a small action label ("Add caption") over the
+          proposed caption, rendered as plain text — a caption is short and there
+          is no paragraph to diff against, so the word-marks / peek teaser below
+          are skipped for images. */}
+      {isImage && (
+        <View style={[styles.captionLabelRow, { flexDirection: appRow }]}>
+          <Sparkles size={12} color={CHIP_INK} />
+          <Text numberOfLines={1} style={styles.captionLabel}>
+            {sug.label}
+          </Text>
+        </View>
+      )}
+
+      {/* The proposed rewrite IS the paragraph (image → the proposed caption).
+          Added words tint green while the compare view is open (brief brighter
+          flash on expand). When the diff carries no common words — the >400-token
+          perf cap, or a total rewrite — word marks are noise (they'd tint/strike
+          ENTIRE paragraphs), so both sides render as plain text instead. */}
       <View style={[styles.paraWrap, edgeSide]}>
         <Text style={[baseTextStyle, contentTextStyle]}>
-          {hasMarks
+          {!isImage && hasMarks
             ? segs
                 .filter((s) => s.kind !== "del")
                 .map((s, k) =>
@@ -445,9 +470,10 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
       {/* Peek teaser: the original's first line, always visible; tap to unfold
           the full original with del-words struck. Hidden entirely when the
           original is empty (a suggestion on a blank paragraph — nothing to
-          compare). Toggling is locked during the leaving choreography so the
-          layout can't reflow under the flying ✓. */}
-      {!!sug.original.trim() && (
+          compare) or for an image (a caption has nothing to diff). Toggling is
+          locked during the leaving choreography so the layout can't reflow under
+          the flying ✓. */}
+      {!isImage && !!sug.original.trim() && (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t(
@@ -800,6 +826,20 @@ const styles = StyleSheet.create({
   },
   thinkingText: { opacity: 0.35 },
   plainPara: { paddingHorizontal: 6, paddingVertical: 3 },
+  // Image caption action label ("Add caption") shown above the proposed caption.
+  captionLabelRow: {
+    alignItems: "center",
+    gap: 5,
+    marginTop: 2,
+    marginBottom: 2,
+    paddingHorizontal: 6,
+  },
+  captionLabel: {
+    color: CHIP_INK,
+    fontSize: 11.5,
+    fontFamily: "Inter_600SemiBold",
+    flexShrink: 1,
+  },
   paraWrap: { marginHorizontal: 6, marginVertical: 2, borderRadius: 2 },
   teaser: {
     marginTop: 8,

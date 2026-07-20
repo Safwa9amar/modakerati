@@ -68,6 +68,15 @@ function Row({
   const hasSuggestion = useSuggestionStore(
     (s) => block.kind === "paragraph" && s.byIndex[block.index]?.original === block.text,
   );
+  // A pending suggestion on an IMAGE block is a figure-caption action: unlike a
+  // paragraph rewrite it does NOT replace the block — the figure stays visible and
+  // the caption card renders BENEATH it. Presence-only gate (boolean primitive →
+  // no zustand Object.is loop); the caption's "original" is the old caption, so
+  // there's no text-match staleness gate as paragraphs have (drag is withheld
+  // below while in review, keeping the index-keyed entry from desyncing).
+  const imgSuggestion = useSuggestionStore(
+    (s) => block.kind === "image" && !!s.byIndex[block.index],
+  );
 
   // Post-navigation flash: when the jump lands on THIS block, pulse a brand tint so
   // the eye finds the heading. Selector returns the nonce only for the target block
@@ -91,10 +100,19 @@ function Row({
       <Animated.View style={[styles.row, dimmed && styles.dimmed, flashStyle]}>
         {/* kind narrowing: hasSuggestion is only ever true for paragraphs. */}
         {hasSuggestion && block.kind === "paragraph" ? (
-          // The suggestion takes over the block's rendering entirely (proposed
-          // text in doc typography + peek + pill). Drag/select intentionally
-          // unavailable while the block is "in review".
+          // Paragraph rewrite: the suggestion takes over the block's rendering
+          // entirely (proposed text in doc typography + peek + pill). Drag/select
+          // intentionally unavailable while the block is "in review".
           <InlineSuggestion thesisId={thesisId} block={block} rtl={rtl} />
+        ) : imgSuggestion && block.kind === "image" ? (
+          // Image caption: keep the figure visible and render the caption card
+          // BELOW it (the student needs to see the figure the caption describes,
+          // so we don't replace the block). Drag is withheld while in review so a
+          // reorder can't renumber indices out from under the index-keyed entry.
+          <>
+            <DocBlock block={block} rtl={rtl} thesisId={thesisId} version={version} />
+            <InlineSuggestion thesisId={thesisId} block={block} rtl={rtl} />
+          </>
         ) : (
           <DocBlock block={block} rtl={rtl} thesisId={thesisId} version={version} onLongPressDrag={drag} />
         )}
