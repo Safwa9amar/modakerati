@@ -122,7 +122,15 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     );
     const hide = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      () => setKeyboardVisible(false),
+      () => {
+        setKeyboardVisible(false);
+        // Keyboard dismissed → exit inline editing (keep the selection) so the
+        // block's floating pill appears — the smart keyboard⇄pill switch. On
+        // Android, hiding the keyboard does NOT blur the TextInput, so the block's
+        // onBlur wouldn't fire on its own; this makes the switch reliable.
+        const ws = useWorkspaceStore.getState();
+        if (ws.editingBlockIndex != null) ws.setEditingBlock(null);
+      },
     );
     return () => {
       show.remove();
