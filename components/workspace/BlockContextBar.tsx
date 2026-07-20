@@ -1,5 +1,6 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, Alert, Keyboard } from "react-native";
+import type { ScrollView as RNScrollView } from "react-native";
 import Animated from "react-native-reanimated";
 // Horizontal tool rows use gesture-handler's ScrollView so they scroll even when
 // nested inside the reorderable list (RN's ScrollView loses the horizontal pan to
@@ -136,6 +137,15 @@ export function BlockContextBar({
   // Keyed remount of the tool row per block kind → old chips fade out (chipOut on
   // the row), new chips stagger in (per-chip chipIn) = the smart-pill morph.
   const toolsetKind = isImage ? "image" : isTable ? "table" : "para";
+
+  // Morphing toolsets keeps the ScrollView instance alive — snap back to the start
+  // so a long paragraph toolset scrolled right can't leave a short image/table row
+  // stranded past its own content (blank pill). Only one of the three tool
+  // ScrollViews is mounted at a time, so they share one ref.
+  const toolsScrollRef = useRef<RNScrollView>(null);
+  useEffect(() => {
+    toolsScrollRef.current?.scrollTo({ x: 0, animated: false });
+  }, [toolsetKind]);
 
   // A generic sole-block anchor (any kind) for move/replace/delete — the old
   // `single` only covered paragraphs, so image/table move needs this.
@@ -598,11 +608,13 @@ export function BlockContextBar({
             showsHorizontalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
             style={styles.fullScroll}
+            ref={toolsScrollRef}
+            contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
           >
             <Animated.View
               key={"dock-" + toolsetKind}
               exiting={chipOut}
-              style={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
+              style={[styles.toolsRowInner, { flexDirection: rtl ? "row-reverse" : "row" }]}
             >
               {expandedTools}
             </Animated.View>
@@ -651,16 +663,18 @@ export function BlockContextBar({
               showsHorizontalScrollIndicator={false}
               keyboardShouldPersistTaps="always"
               style={styles.fullScroll}
+              ref={toolsScrollRef}
+              contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
             >
               <Animated.View
                 key={"full-" + toolsetKind}
                 exiting={chipOut}
-                style={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
+                style={[styles.toolsRowInner, { flexDirection: rtl ? "row-reverse" : "row" }]}
               >
                 {expandedTools}
-                {/* Collapse back to the compact pill. */}
-                {chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), onPress: () => setPillExpanded(false) })}
               </Animated.View>
+              {/* Static collapse control — outside the keyed row so toolset morphs don't tear it down. */}
+              {chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), onPress: () => setPillExpanded(false) })}
             </ScrollView>
             {AskAI}
             {OutlineBtn}
@@ -672,11 +686,13 @@ export function BlockContextBar({
               showsHorizontalScrollIndicator={false}
               keyboardShouldPersistTaps="always"
               style={styles.pillScroll}
+              ref={toolsScrollRef}
+              contentContainerStyle={[styles.pillToolsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
             >
               <Animated.View
                 key={"tools-" + toolsetKind}
                 exiting={chipOut}
-                style={[styles.pillToolsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+                style={[styles.toolsRowInner, { flexDirection: rtl ? "row-reverse" : "row" }]}
               >
                 {compactTools}
               </Animated.View>
@@ -747,6 +763,9 @@ const styles = StyleSheet.create({
   fullRow: { alignItems: "center", gap: 8 },
   fullScroll: { flex: 1 },
   fullTools: { alignItems: "center", gap: 6, paddingHorizontal: 2 },
+  // Keyed morphing tool row inside the ScrollViews (row styles live on the
+  // contentContainerStyle; this only lays out the chips within the keyed view).
+  toolsRowInner: { alignItems: "center", gap: 6 },
 
   chip: {
     width: CHIP,
