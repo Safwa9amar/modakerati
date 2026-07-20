@@ -1,5 +1,9 @@
 import React, { useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, Alert } from "react-native";
+import { View, Text, Pressable, StyleSheet, Alert } from "react-native";
+// Horizontal tool rows use gesture-handler's ScrollView so they scroll even when
+// nested inside the reorderable list (RN's ScrollView loses the horizontal pan to
+// the list's gesture handler).
+import { ScrollView } from "react-native-gesture-handler";
 import {
   Bold,
   Italic,
