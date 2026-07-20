@@ -197,13 +197,9 @@ export function DocBlock({
     <Pressable
       onPress={() => enterOrSelect(block.index, block.text)}
       onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, block.text))}
-      style={[
-        styles.paraWrap,
-        // While this paragraph is being inline-edited the keyboard is up and the
-        // caret is the focus — suppress the selection box/highlight so only the
-        // caret shows. A selected-but-not-editing block keeps its highlight.
-        isSelected && !isEditing && { backgroundColor: hi + "18", borderColor: hi },
-      ]}
+      // No selection box on paragraphs — the caret (while editing) or the floating
+      // pill (when the keyboard is dismissed) is the selection indicator.
+      style={styles.paraWrap}
     >
       {isEditing ? (
         <EditableParagraph
@@ -337,14 +333,10 @@ function EditableParagraph({
     // Only act if THIS block is still the one being edited — tapping straight into
     // another block already moved editing there; don't clobber it.
     if (ws.editingBlockIndex !== block.index) return;
-    if (ws.askAiOpen) {
-      // Blur because ✦ Ask AI opened its input — leave editing but KEEP the
-      // selection so the AI still targets this block.
-      ws.setEditingBlock(null);
-    } else {
-      // Keyboard dismissed → back to the plain document: no lingering box or pill.
-      ws.clearSelection();
-    }
+    // Dismiss the keyboard → leave editing but KEEP the block selected, so its
+    // floating pill (formatting + ✦ Ask AI) appears. Tapping the block again brings
+    // the keyboard + docked toolbar back — a smart switch between the two forms.
+    ws.setEditingBlock(null);
   };
 
   return (
