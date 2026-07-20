@@ -94,7 +94,8 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
   // Word diff, only when ready and both sides exist. `same`+`add` renders the
   // proposal; `same`+`del` renders the original in the teaser.
   const segs = useMemo<DiffSegment[]>(
-    () => (sug?.status === "ready" ? diffWords(sug.original, sug.proposed) : []),
+    () =>
+      sug?.status === "ready" ? diffWords(sug.original, sug.proposed) : [],
     [sug?.status, sug?.original, sug?.proposed],
   );
 
@@ -137,7 +138,9 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
     editing && draft ? draft : sug.proposed || sug.original || block.text,
     rtl,
   );
-  const appRow = I18nManager.isRTL ? ("row-reverse" as const) : ("row" as const);
+  const appRow = I18nManager.isRTL
+    ? ("row-reverse" as const)
+    : ("row" as const);
   const baseTextStyle = paragraphTextStyle(block.level);
   // writingDirection unconditionally: DocBlock omits it on Android only for
   // JUSTIFIED text (a Fabric justify quirk) — this component never justifies,
@@ -152,7 +155,9 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
       ? { borderRightWidth: 3, borderRightColor: EDGE_GREEN, paddingRight: 8 }
       : { borderLeftWidth: 3, borderLeftColor: EDGE_GREEN, paddingLeft: 8 };
 
-  const layout = reduce ? undefined : LinearTransition.springify().damping(18).stiffness(180);
+  const layout = reduce
+    ? undefined
+    : LinearTransition.springify().damping(18).stiffness(180);
   // Entrance is a calm ease-out fade+rise, NOT a spring — the spring's
   // overshoot read as an annoying bounce when the thinking state appeared
   // (user feedback on device).
@@ -188,11 +193,17 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
   // ------------------------------- loading --------------------------------
   if (sug.status === "loading") {
     return (
-      <Animated.View layout={layout} entering={enter} exiting={FadeOut.duration(150)}>
+      <Animated.View
+        layout={layout}
+        entering={enter}
+        exiting={FadeOut.duration(150)}
+      >
         {header}
         {trace}
         <View style={styles.thinkingWrap}>
-          <Text style={[baseTextStyle, contentTextStyle, styles.thinkingText]}>{block.text || sug.original}</Text>
+          <Text style={[baseTextStyle, contentTextStyle, styles.thinkingText]}>
+            {block.text || sug.original}
+          </Text>
           {!reduce && <SweepBand />}
         </View>
         {/* Thinking capsule in the SHARED pill anchor — the same key="pill-anchor"
@@ -202,7 +213,11 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             review finding). The anchor's layout spring morphs the box between
             pill and capsule; the keyed INNER content carries the crossfade.
             Plain eased fades — springs bounced annoyingly (device feedback). */}
-        <Animated.View key="pill-anchor" layout={layout} style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+        <Animated.View
+          key="pill-anchor"
+          layout={layout}
+          style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}
+        >
           <Animated.View
             key="acts-thinking"
             entering={FadeIn.duration(150).easing(Easing.out(Easing.quad))}
@@ -210,7 +225,9 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             style={[styles.thinkCapsule, { flexDirection: appRow }]}
           >
             <SpinSparkle color={CHIP_INK} reduce={reduce} />
-            <Text style={styles.thinkLabel}>{t("suggestion.thinking", { defaultValue: "Thinking…" })}</Text>
+            <Text style={styles.thinkLabel}>
+              {t("suggestion.thinking", { defaultValue: "Thinking…" })}
+            </Text>
           </Animated.View>
         </Animated.View>
       </Animated.View>
@@ -220,16 +237,28 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
   // -------------------------------- error ---------------------------------
   if (sug.status === "error") {
     return (
-      <Animated.View layout={layout} entering={enter} exiting={FadeOut.duration(150)}>
+      <Animated.View
+        layout={layout}
+        entering={enter}
+        exiting={FadeOut.duration(150)}
+      >
         {header}
         {trace}
-        <Text style={[baseTextStyle, contentTextStyle, styles.plainPara]}>{block.text || sug.original}</Text>
+        <Text style={[baseTextStyle, contentTextStyle, styles.plainPara]}>
+          {block.text || sug.original}
+        </Text>
         <View style={[styles.errSlip, { flexDirection: appRow }]}>
           <Text style={styles.errText} numberOfLines={2}>
-            {t("suggestion.failed", { defaultValue: "Couldn't generate a suggestion." })}
+            {t("suggestion.failed", {
+              defaultValue: "Couldn't generate a suggestion.",
+            })}
           </Text>
         </View>
-        <Animated.View key="pill-anchor" layout={layout} style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+        <Animated.View
+          key="pill-anchor"
+          layout={layout}
+          style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}
+        >
           <Animated.View
             key="acts-error"
             entering={FadeIn.duration(120)}
@@ -239,7 +268,9 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             <PillPrimary
               icon={<RotateCw size={15} color={APPROVE_INK} />}
               label={t("suggestion.again", { defaultValue: "Again" })}
-              onPress={() => void useSuggestionStore.getState().again(thesisId, block.index)}
+              onPress={() =>
+                void useSuggestionStore.getState().again(thesisId, block.index)
+              }
               reduce={reduce}
             />
             <PillIcon
@@ -262,7 +293,11 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
       setEditing(false);
     };
     return (
-      <Animated.View layout={layout} entering={FadeIn.duration(120)} exiting={FadeOut.duration(120)}>
+      <Animated.View
+        layout={layout}
+        entering={FadeIn.duration(120)}
+        exiting={FadeOut.duration(120)}
+      >
         {header}
         <View style={[styles.paraWrap, edgeSide]}>
           <TextInput
@@ -278,7 +313,11 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
         {/* Shared pill anchor (persists across branches by key); the keyed inner
             row crossfades ready's 4 actions ↔ Done/Cancel while the paragraph
             area stays put. */}
-        <Animated.View key="pill-anchor" layout={layout} style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+        <Animated.View
+          key="pill-anchor"
+          layout={layout}
+          style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}
+        >
           <Animated.View
             key="acts-editing"
             entering={FadeIn.duration(120)}
@@ -377,7 +416,12 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             .filter((s) => s.kind !== "del")
             .map((s, k) =>
               s.kind === "add" ? (
-                <AddSpan key={k} text={s.text + " "} active={peekOpen} reduce={reduce} />
+                <AddSpan
+                  key={k}
+                  text={s.text + " "}
+                  active={peekOpen}
+                  reduce={reduce}
+                />
               ) : (
                 <Text key={k}>{s.text + " "}</Text>
               ),
@@ -389,9 +433,14 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
           gradient; tap to unfold the full original with del-words struck. */}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={t(peekOpen ? "suggestion.hideOriginal" : "suggestion.showOriginal", {
-          defaultValue: peekOpen ? "Hide original text" : "Show original text",
-        })}
+        accessibilityLabel={t(
+          peekOpen ? "suggestion.hideOriginal" : "suggestion.showOriginal",
+          {
+            defaultValue: peekOpen
+              ? "Hide original text"
+              : "Show original text",
+          },
+        )}
         onPress={() => setPeekOpen((v) => !v)}
         style={styles.teaser}
       >
@@ -402,7 +451,10 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             overflow clip can leave the window showing the BOTTOM of the
             text. The root's layout transition still springs the container
             height when this toggles. */}
-        <Text numberOfLines={peekOpen ? undefined : 1} style={[styles.teaserText, contentTextStyle]}>
+        <Text
+          numberOfLines={peekOpen ? undefined : 1}
+          style={[styles.teaserText, contentTextStyle]}
+        >
           {peekOpen
             ? segs
                 .filter((s) => s.kind !== "add")
@@ -427,7 +479,12 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
       <Animated.View
         key="pill-anchor"
         layout={layout}
-        style={[styles.pill, styles.pillFloat, { flexDirection: appRow }, pillFx]}
+        style={[
+          styles.pill,
+          styles.pillFloat,
+          { flexDirection: appRow },
+          pillFx,
+        ]}
       >
         <Animated.View
           key="acts-ready"
@@ -436,33 +493,33 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
           style={[styles.pillRow, { flexDirection: appRow }]}
         >
           <PillPrimary
-          icon={<Check size={15} color={APPROVE_INK} />}
-          label={t("suggestion.approve", { defaultValue: "Approve" })}
-          onPress={onApprove}
-          reduce={reduce}
-          disabled={!!leaving}
-        />
-        <PillIcon
-          icon={<Pencil size={15} color={ICON_INK} />}
-          label={t("suggestion.edit", { defaultValue: "Edit" })}
-          onPress={onEdit}
-          reduce={reduce}
-          disabled={!!leaving}
-        />
-        <PillIcon
-          icon={<RotateCw size={15} color={ICON_INK} />}
-          label={t("suggestion.again", { defaultValue: "Again" })}
-          onPress={onAgain}
-          reduce={reduce}
-          disabled={!!leaving}
-        />
-        <PillIcon
-          icon={<X size={16} color={REJECT_INK} />}
-          label={t("suggestion.reject", { defaultValue: "Reject" })}
-          onPress={onReject}
-          reduce={reduce}
-          disabled={!!leaving}
-        />
+            icon={<Check size={15} color={APPROVE_INK} />}
+            label={t("suggestion.approve", { defaultValue: "Approve" })}
+            onPress={onApprove}
+            reduce={reduce}
+            disabled={!!leaving}
+          />
+          <PillIcon
+            icon={<Pencil size={15} color={ICON_INK} />}
+            label={t("suggestion.edit", { defaultValue: "Edit" })}
+            onPress={onEdit}
+            reduce={reduce}
+            disabled={!!leaving}
+          />
+          <PillIcon
+            icon={<RotateCw size={15} color={ICON_INK} />}
+            label={t("suggestion.again", { defaultValue: "Again" })}
+            onPress={onAgain}
+            reduce={reduce}
+            disabled={!!leaving}
+          />
+          <PillIcon
+            icon={<X size={16} color={REJECT_INK} />}
+            label={t("suggestion.reject", { defaultValue: "Reject" })}
+            onPress={onReject}
+            reduce={reduce}
+            disabled={!!leaving}
+          />
         </Animated.View>
       </Animated.View>
       {/* The flying ✓ badge — absolute overlay, springs from the pill up into
@@ -478,11 +535,22 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
 
 // An added word-run in the proposal: soft green tint while the compare view is
 // open, with a brief brighter flash as it opens. Reduce-motion → static tint.
-function AddSpan({ text, active, reduce }: { text: string; active: boolean; reduce: boolean }) {
+function AddSpan({
+  text,
+  active,
+  reduce,
+}: {
+  text: string;
+  active: boolean;
+  reduce: boolean;
+}) {
   const v = useSharedValue(0);
   useEffect(() => {
     if (!active || reduce) return;
-    v.value = withSequence(withTiming(1, { duration: 180 }), withTiming(0, { duration: 520 }));
+    v.value = withSequence(
+      withTiming(1, { duration: 180 }),
+      withTiming(0, { duration: 520 }),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
   const st = useAnimatedStyle(() => ({
@@ -491,11 +559,7 @@ function AddSpan({ text, active, reduce }: { text: string; active: boolean; redu
       ? interpolateColor(v.value, [0, 1], [ADD_TINT, ADD_FLASH])
       : "transparent",
   }));
-  return (
-    <Animated.Text style={st}>
-      {text}
-    </Animated.Text>
-  );
+  return <Animated.Text style={st}>{text}</Animated.Text>;
 }
 
 // The light band sweeping across the dimmed original while the AI drafts —
@@ -506,7 +570,10 @@ function SweepBand() {
   useEffect(() => {
     if (!w) return;
     x.value = 0;
-    x.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.linear }), -1);
+    x.value = withRepeat(
+      withTiming(1, { duration: 1400, easing: Easing.linear }),
+      -1,
+    );
     // Stop the infinite repeat when the band unmounts / width changes — an
     // orphaned UI-thread loop otherwise keeps ticking.
     return () => cancelAnimation(x);
@@ -523,7 +590,11 @@ function SweepBand() {
       {w > 0 && (
         <Animated.View style={[styles.band, st]}>
           <LinearGradient
-            colors={["rgba(255,255,255,0)", "rgba(255,255,255,0.85)", "rgba(255,255,255,0)"]}
+            colors={[
+              "rgba(255,255,255,0)",
+              "rgba(255,255,255,0.85)",
+              "rgba(255,255,255,0)",
+            ]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={styles.bandFill}
@@ -539,12 +610,17 @@ function SpinSparkle({ color, reduce }: { color: string; reduce: boolean }) {
   const rot = useSharedValue(0);
   useEffect(() => {
     if (reduce) return;
-    rot.value = withRepeat(withTiming(360, { duration: 1000, easing: Easing.linear }), -1);
+    rot.value = withRepeat(
+      withTiming(360, { duration: 1000, easing: Easing.linear }),
+      -1,
+    );
     // Stop the infinite repeat on unmount — an orphaned UI-thread loop keeps
     // ticking otherwise (same fix as SweepBand).
     return () => cancelAnimation(rot);
   }, [reduce, rot]);
-  const st = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }));
+  const st = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rot.value}deg` }],
+  }));
   return (
     <Animated.View style={st}>
       <Sparkles size={13} color={color} />
@@ -580,12 +656,26 @@ function usePressFx(reduce: boolean) {
 // Primary pill action (Approve / Done / Again-on-error): tinted, bordered,
 // labeled — must always dominate and never vanish.
 function PillPrimary({
-  icon, label, onPress, reduce, disabled,
-}: { icon: React.ReactNode; label: string; onPress: () => void; reduce: boolean; disabled?: boolean }) {
+  icon,
+  label,
+  onPress,
+  reduce,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onPress: () => void;
+  reduce: boolean;
+  disabled?: boolean;
+}) {
   const { p, onPressIn, onPressOut } = usePressFx(reduce);
   const fx = useAnimatedStyle(() => ({
     transform: [{ scale: reduce ? 1 : 1 - 0.07 * p.value }],
-    backgroundColor: interpolateColor(p.value, [0, 1], [APPROVE_BG, "rgba(14,122,70,0.28)"]),
+    backgroundColor: interpolateColor(
+      p.value,
+      [0, 1],
+      [APPROVE_BG, "rgba(14,122,70,0.28)"],
+    ),
   }));
   return (
     <Pressable
@@ -610,12 +700,26 @@ function PillPrimary({
 // Icon-only pill action (Edit / Again / Reject / Cancel) — 44pt effective
 // target via hitSlop, localized accessibilityLabel.
 function PillIcon({
-  icon, label, onPress, reduce, disabled,
-}: { icon: React.ReactNode; label: string; onPress: () => void; reduce: boolean; disabled?: boolean }) {
+  icon,
+  label,
+  onPress,
+  reduce,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onPress: () => void;
+  reduce: boolean;
+  disabled?: boolean;
+}) {
   const { p, onPressIn, onPressOut } = usePressFx(reduce);
   const fx = useAnimatedStyle(() => ({
     transform: [{ scale: reduce ? 1 : 1 - 0.07 * p.value }],
-    backgroundColor: interpolateColor(p.value, [0, 1], ["rgba(60,70,84,0)", "rgba(60,70,84,0.10)"]),
+    backgroundColor: interpolateColor(
+      p.value,
+      [0, 1],
+      ["rgba(60,70,84,0)", "rgba(60,70,84,0.10)"],
+    ),
   }));
   return (
     <Pressable
@@ -633,7 +737,12 @@ function PillIcon({
 }
 
 const styles = StyleSheet.create({
-  headerRow: { alignItems: "center", marginTop: 4, marginBottom: 6, paddingHorizontal: 6 },
+  headerRow: {
+    alignItems: "center",
+    marginTop: 4,
+    marginBottom: 6,
+    paddingHorizontal: 6,
+  },
   chip: {
     alignItems: "center",
     gap: 4,
@@ -645,7 +754,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     maxWidth: "92%",
   },
-  chipText: { color: CHIP_INK, fontSize: 11, fontFamily: "Inter_500Medium", flexShrink: 1 },
+  chipText: {
+    color: CHIP_INK,
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    flexShrink: 1,
+  },
   // ThinkingTrace on a light on-paper slip (replaces the old dark bgCard card).
   traceSlip: {
     marginBottom: 6,
@@ -657,7 +771,12 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 8,
   },
-  thinkingWrap: { paddingHorizontal: 6, paddingVertical: 3, overflow: "hidden", borderRadius: 6 },
+  thinkingWrap: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    overflow: "hidden",
+    borderRadius: 6,
+  },
   thinkingText: { opacity: 0.35 },
   plainPara: { paddingHorizontal: 6, paddingVertical: 3 },
   paraWrap: { marginHorizontal: 6, marginVertical: 2, borderRadius: 2 },
@@ -670,8 +789,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     overflow: "hidden",
   },
-  teaserText: { color: MUTED_INK, fontSize: 12.5, lineHeight: 19, fontFamily: "Inter_400Regular" },
-  delSpan: { backgroundColor: DEL_BG, color: DEL_INK, textDecorationLine: "line-through" },
+  teaserText: {
+    color: MUTED_INK,
+    fontSize: 12.5,
+    lineHeight: 19,
+    fontFamily: "Inter_400Regular",
+  },
+  delSpan: {
+    backgroundColor: DEL_BG,
+    color: DEL_INK,
+    textDecorationLine: "line-through",
+  },
   errSlip: {
     marginTop: 8,
     marginHorizontal: 6,
@@ -683,7 +811,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     alignItems: "center",
   },
-  errText: { flex: 1, color: REJECT_INK, fontSize: 12.5, fontFamily: "Inter_500Medium" },
+  errText: {
+    flex: 1,
+    color: REJECT_INK,
+    fontSize: 12.5,
+    fontFamily: "Inter_500Medium",
+  },
   pill: {
     alignItems: "center",
     gap: 2,
@@ -720,7 +853,11 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     minWidth: 96,
   },
-  primaryLabel: { color: APPROVE_INK, fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
+  primaryLabel: {
+    color: APPROVE_INK,
+    fontSize: 12.5,
+    fontFamily: "Inter_600SemiBold",
+  },
   iconBtn: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 999 },
   // Inner content row inside the shared pill anchor — carries the per-branch
   // crossfade (the anchor itself persists by key across branches).
@@ -743,6 +880,11 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   // Again's "thinking" capsule content (rendered inside the pill shell).
-  thinkCapsule: { alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 14 },
+  thinkCapsule: {
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+  },
   thinkLabel: { color: CHIP_INK, fontSize: 12, fontFamily: "Inter_500Medium" },
 });
