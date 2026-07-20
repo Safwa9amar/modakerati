@@ -7,6 +7,21 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 
+// The ready card sits on the WHITE document paper (a pale mint success tint over
+// white), so its controls use FIXED on-white ink — theme textPrimary/bgCard are
+// light in dark mode and vanish here (same reason `proposed`/`original` below are
+// hardcoded). These keep Approve/Edit/Again/Reject legible in both themes.
+const CARD_INK = "#16311F"; // dark green ink for secondary labels/icons
+const CARD_INK_BORDER = "rgba(22,49,31,0.20)";
+const CARD_CHIP_BG = "#FFFFFF"; // white chip on the mint card
+// Approve is the primary action — a SOLID dark-green fill with white ink stands
+// out clearly on the pale-mint card (dark-green is dark enough that white never
+// washes out).
+const APPROVE_BG = "#0E7A46";
+const APPROVE_INK = "#FFFFFF";
+const REJECT_INK = "#C0392B"; // red that reads on white
+const REJECT_BORDER = "rgba(192,57,43,0.22)";
+
 /** A ✦ that spins while the AI drafts the suggestion. */
 function Spinner({ color }: { color: string }) {
   const rot = useSharedValue(0);
@@ -136,38 +151,52 @@ export function InlineSuggestion({ thesisId, index, rtl }: Props) {
       <View style={[styles.actions, styles.readyActions, { flexDirection: rowDir }]}>
         <Btn
           colors={colors}
-          icon={<Check size={15} color="#fff" />}
+          flex
+          icon={<Check size={15} color={APPROVE_INK} />}
           label={t("suggestion.approve", { defaultValue: "Approve" })}
           onPress={onApprove}
-          bg={colors.semanticSuccess}
-          fg="#fff"
+          bg={APPROVE_BG}
+          fg={APPROVE_INK}
         />
         <Btn
           colors={colors}
-          icon={<Pencil size={14} color={colors.textPrimary} />}
+          flex
+          icon={<Pencil size={14} color={CARD_INK} />}
           label={t("suggestion.edit", { defaultValue: "Edit" })}
           onPress={onEdit}
+          bg={CARD_CHIP_BG}
+          fg={CARD_INK}
+          border={CARD_INK_BORDER}
         />
         <Btn
           colors={colors}
-          icon={<RotateCw size={14} color={colors.textPrimary} />}
+          flex
+          icon={<RotateCw size={14} color={CARD_INK} />}
           label={t("suggestion.again", { defaultValue: "Again" })}
           onPress={onAgain}
+          bg={CARD_CHIP_BG}
+          fg={CARD_INK}
+          border={CARD_INK_BORDER}
         />
         <Btn
           colors={colors}
-          icon={<X size={14} color={colors.semanticError} />}
+          flex
+          icon={<X size={14} color={REJECT_INK} />}
           label={t("suggestion.reject", { defaultValue: "Reject" })}
           onPress={onReject}
-          fg={colors.semanticError}
+          bg={CARD_CHIP_BG}
+          fg={REJECT_INK}
+          border={REJECT_BORDER}
         />
       </View>
     </View>
   );
 }
 
-// A compact icon+label action button. `bg` fills it (primary Approve); otherwise
-// it's a subtle bordered chip. `fg` tints the label (defaults to textPrimary).
+// A compact icon+label action button. A `bg` with no `border` reads as a filled
+// primary (Approve); pass `border` for an outlined chip on any surface. `fg` tints
+// the label (defaults to textPrimary). Callers on the white document card pass
+// FIXED on-white colors (theme colors flip light-on-dark and vanish there).
 function Btn({
   colors,
   icon,
@@ -175,6 +204,8 @@ function Btn({
   onPress,
   bg,
   fg,
+  border,
+  flex,
 }: {
   colors: ReturnType<typeof useThemeColors>;
   icon: React.ReactNode;
@@ -182,7 +213,12 @@ function Btn({
   onPress: () => void;
   bg?: string;
   fg?: string;
+  border?: string;
+  flex?: boolean;
 }) {
+  // Filled = a background with no explicit border (the primary CTA). Everything
+  // else is an outlined chip so it stays visible on light surfaces.
+  const filled = !!bg && !border;
   return (
     <Pressable
       onPress={onPress}
@@ -191,16 +227,19 @@ function Btn({
       hitSlop={6}
       style={({ pressed }) => [
         styles.btn,
+        flex && styles.btnFlex,
         {
           backgroundColor: bg ?? colors.bgCard,
-          borderColor: bg ? "transparent" : colors.borderDefault,
-          borderWidth: bg ? 0 : StyleSheet.hairlineWidth,
+          borderColor: border ?? (filled ? "transparent" : colors.borderDefault),
+          borderWidth: filled ? 0 : StyleSheet.hairlineWidth,
           opacity: pressed ? 0.7 : 1,
         },
       ]}
     >
       {icon}
-      <Text style={[styles.btnLabel, { color: fg ?? colors.textPrimary }]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.btnLabel, { color: fg ?? colors.textPrimary }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -235,14 +274,17 @@ const styles = StyleSheet.create({
   },
   proposed: { fontSize: 14, lineHeight: 21, fontFamily: "Inter_500Medium" },
   actions: { alignItems: "center", gap: 8 },
-  readyActions: { flexWrap: "wrap", marginTop: 2 },
+  readyActions: { marginTop: 4 },
   btn: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 5,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     borderRadius: 9,
   },
-  btnLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  // Equal-width action buttons in a single row (icon + label centered together).
+  btnFlex: { flex: 1 },
+  btnLabel: { fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
 });
