@@ -57,9 +57,6 @@ const REJECT_INK = "#C0392B";
 const ERR_BG = "#FDF0EF";
 const ERR_BORDER = "rgba(192,57,43,0.25)";
 const PAPER = "#FFFFFF";
-// Collapsed teaser height ≈ one line of the slip text (12.5px / 19 line-height
-// + slip padding).
-const TEASER_COLLAPSED = 30;
 
 interface Props {
   thesisId: string;
@@ -267,32 +264,28 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
         onPress={() => setPeekOpen((v) => !v)}
         style={styles.teaser}
       >
-        {/* Animated.View with its own layout transition so the expand/collapse
-            height change springs instead of snapping. */}
-        <Animated.View layout={layout} style={peekOpen ? undefined : { maxHeight: TEASER_COLLAPSED, overflow: "hidden" }}>
-          <Text style={[styles.teaserText, contentTextStyle]}>
-            {peekOpen
-              ? segs
-                  .filter((s) => s.kind !== "add")
-                  .map((s, k) =>
-                    s.kind === "del" ? (
-                      <Text key={k} style={styles.delSpan}>
-                        {s.text + " "}
-                      </Text>
-                    ) : (
-                      <Text key={k}>{s.text + " "}</Text>
-                    ),
-                  )
-              : sug.original}
-          </Text>
-        </Animated.View>
-        {!peekOpen && (
-          <LinearGradient
-            colors={["rgba(246,248,250,0)", SLIP_BG]}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
-        )}
+        {/* Collapsed = the original's FIRST line via native numberOfLines
+            truncation (the ellipsis is the "there's more" affordance). A
+            maxHeight clip + layout transition is NOT used here: Reanimated
+            animates layout via size/transform, which combined with an
+            overflow clip can leave the window showing the BOTTOM of the
+            text. The root's layout transition still springs the container
+            height when this toggles. */}
+        <Text numberOfLines={peekOpen ? undefined : 1} style={[styles.teaserText, contentTextStyle]}>
+          {peekOpen
+            ? segs
+                .filter((s) => s.kind !== "add")
+                .map((s, k) =>
+                  s.kind === "del" ? (
+                    <Text key={k} style={styles.delSpan}>
+                      {s.text + " "}
+                    </Text>
+                  ) : (
+                    <Text key={k}>{s.text + " "}</Text>
+                  ),
+                )
+            : sug.original}
+        </Text>
       </Pressable>
 
       {/* Floating action pill: Approve dominates; the rest are icons. */}
@@ -479,6 +472,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingVertical: 8,
     paddingHorizontal: 18,
+    // Never let the row crush the primary action (white icon/label on the
+    // white pill would read as a missing button).
+    flexShrink: 0,
+    minWidth: 96,
   },
   primaryLabel: { color: APPROVE_INK, fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
   iconBtn: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 999 },
