@@ -38,6 +38,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
+import { hWarn } from "@/lib/haptics";
 import { PictureCropModal } from "./PictureCropModal";
 import type { FormatChange } from "@/lib/thesis-ops";
 
@@ -266,6 +267,7 @@ export function BlockContextBar({
           text: t("common.delete", { defaultValue: "Delete" }),
           style: "destructive",
           onPress: () => {
+            hWarn();
             void useThesisDocStore.getState().mutate(thesisId, { type: "deleteBlocks", indices: selectedIndices });
             useWorkspaceStore.getState().clearSelection();
           },

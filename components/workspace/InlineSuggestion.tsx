@@ -7,6 +7,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
+import { hSuccess } from "@/lib/haptics";
 
 // The ready card sits on the WHITE document paper (a pale mint success tint over
 // white), so its controls use FIXED on-white ink — theme textPrimary/bgCard are
@@ -167,7 +168,10 @@ export function InlineSuggestion({ thesisId, index, rtl }: Props) {
   }
 
   // status === "ready"
-  const onApprove = () => useSuggestionStore.getState().approve(thesisId, index);
+  const onApprove = () => {
+    hSuccess();
+    useSuggestionStore.getState().approve(thesisId, index);
+  };
   const onEdit = () => {
     // Apply the proposal, then drop straight into the block's inline editor at the
     // start of the paragraph so the student can tweak it further.

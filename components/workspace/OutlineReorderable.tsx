@@ -20,6 +20,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
+import { hLight, hMedium } from "@/lib/haptics";
 
 // One outline row: a drag handle (long-press to lift) + the block. The handle
 // owns the drag so DocBlock keeps its tap-to-select / long-press-multi-select.
@@ -41,7 +42,12 @@ function Row({
   version?: number;
   markerLabel?: string;
 }) {
-  const drag = useReorderableDrag();
+  const rawDrag = useReorderableDrag();
+  // Light tick on lift, then start the drag (the drop fires hMedium in onReorder).
+  const drag = () => {
+    hLight();
+    rawDrag();
+  };
   // Focus / typewriter mode: dim every block except the one being worked on.
   // Select primitives individually (store convention — an object/array literal
   // selector would loop). The "active" block is the inline-edited one, else the
@@ -155,6 +161,7 @@ export function OutlineReorderable({
 
   const onReorder = ({ from, to }: ReorderableListReorderEvent) => {
     if (from === to) return;
+    hMedium();
     setData((cur) => reorderItems(cur, from, to));
     // Durable op: instant here (the local reorder above), persisted + flushed in
     // the background by the doc store, which also updates its own block model —

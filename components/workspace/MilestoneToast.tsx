@@ -11,6 +11,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { hSuccess } from "@/lib/haptics";
 
 // A brief, non-blocking celebratory pill fired when the word count crosses a
 // round milestone. Fades up, holds ~2.2s, fades out, then calls onDone so the
@@ -23,6 +24,7 @@ export function MilestoneToast({ count, onDone }: { count: number; onDone: () =>
   const translateY = useSharedValue(12);
 
   useEffect(() => {
+    hSuccess();
     translateY.value = withTiming(0, { duration: 260, easing: Easing.out(Easing.quad) });
     opacity.value = withSequence(
       withTiming(1, { duration: 220, easing: Easing.out(Easing.quad) }),

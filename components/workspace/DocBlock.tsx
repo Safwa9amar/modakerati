@@ -16,6 +16,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { thesisBlockImageUrl, type DocBlockDTO } from "@/lib/api";
+import { hSelection, hMedium } from "@/lib/haptics";
 
 // Dark ink / muted ink for text rendered on the always-white PaperPage.
 const INK = "#1A1A1A";
@@ -533,6 +534,7 @@ function tableToText(rows: string[][]): string {
 // single-select (replace). Read mode at press time via getState() so the press
 // handlers don't need to subscribe.
 function pickBlock(index: number, text: string): void {
+  hSelection();
   const ws = useWorkspaceStore.getState();
   if (ws.multiSelect) ws.toggleBlock(index, text);
   else ws.selectBlock(index, text);
@@ -540,6 +542,7 @@ function pickBlock(index: number, text: string): void {
 
 // Long-press: enter multi-select mode and add this block (keeping any current one).
 function longPickBlock(index: number, text: string): void {
+  hMedium();
   useWorkspaceStore.getState().addToSelection(index, text);
 }
 
