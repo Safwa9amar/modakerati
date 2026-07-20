@@ -24,6 +24,10 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useRibbonStore } from "@/stores/ribbon-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
+import { useOutlineStore } from "@/stores/outline-store";
+import { useNavDrawerStore } from "@/stores/nav-drawer-store";
+import { useSuggestionStore } from "@/stores/suggestion-store";
+import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { BackButton } from "@/components/BackButton";
 import { WordDocxView, type DocTapBlock } from "@/components/workspace/WordDocxView";
 import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
@@ -38,8 +42,8 @@ import { SyncStatusChip } from "@/components/workspace/SyncStatusChip";
 import { DocProgress, countWords } from "@/components/workspace/DocProgress";
 import { MilestoneToast } from "@/components/workspace/MilestoneToast";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
+import { NavOverlay } from "@/components/workspace/NavOverlay";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
-import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
 import { HistorySheet } from "@/components/workspace/HistorySheet";
 import {
   getThesisEditorConfig,
@@ -83,7 +87,6 @@ export default function ThesisWorkspaceScreen() {
   // Drives the live block refresh below: while a turn is generating the AI
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
   const isGenerating = useChatStore((s) => s.isGenerating);
-  const activePanel = useWorkspaceStore((s) => s.activePanel);
   // Pending "scroll the active doc view to this block" request (set by the outline
   // navigator / a cold deep-link). Passed to whichever doc layer is on top.
   const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
@@ -155,12 +158,16 @@ export default function ThesisWorkspaceScreen() {
         void deleteThesisPdf(thesisId).catch(() => {});
       }
       useWorkspaceStore.getState().reset();
+      useFloatingPillStore.getState().reset();
       useRibbonStore.getState().reset();
-      // The chat tab shares `pendingAsk` and the "structure" sheet key, so clear
-      // an unanswered question and close the outline panel on leave — otherwise
-      // either can ghost open on the chat screen.
+      // Drop every pending inline suggestion: byIndex is keyed by BARE block
+      // index (no thesis scoping), so a stale entry would overlay — and its
+      // Approve would OVERWRITE — the same-index paragraph of the NEXT thesis.
+      useSuggestionStore.getState().clear();
+      // Clear an unanswered ask and make sure the outline push-drawer is closed on
+      // leave, so neither ghosts open on the chat screen (both are app-global).
       useChatStore.getState().setPendingAsk(null);
-      useBottomSheet.getState().closeSheet("structure");
+      useNavDrawerStore.getState().closeDrawer();
     };
   }, [thesisId]);
 
@@ -220,18 +227,9 @@ export default function ThesisWorkspaceScreen() {
     }
   }, [thesisId]);
 
-  // Toggle the outline panel. The ThesisStructureSheet gates on the bottom-sheet
-  // store's "structure" key for its open state, so we sync both stores.
+  // Toggle the Thesis Structure outline — now the root push-drawer.
   const handleOutlineToggle = useCallback(() => {
-    const ws = useWorkspaceStore.getState();
-    const bs = useBottomSheet.getState();
-    if (ws.activePanel === "outline") {
-      ws.togglePanel("outline");
-      bs.closeSheet("structure");
-    } else {
-      ws.togglePanel("outline");
-      bs.openSheet("structure");
-    }
+    useNavDrawerStore.getState().toggleDrawer();
   }, []);
 
   // Load the document model + editor config on focus. `load` paints instantly from
@@ -254,6 +252,9 @@ export default function ThesisWorkspaceScreen() {
     if (drainTick === 0) return;
     void refreshEditorCfg();
     if (thesisId) void useThesisDocStore.getState().refreshHistoryState(thesisId);
+    // A manual edit changed the .docx → the headings may have too. Re-sync the
+    // outline cache so the navigator sheet stays accurate without fetching on open.
+    if (thesisId) void useOutlineStore.getState().sync(thesisId);
   }, [drainTick, refreshEditorCfg, thesisId]);
 
   const liveDoc = doc?.available ? doc : null;
@@ -296,6 +297,35 @@ export default function ThesisWorkspaceScreen() {
     coldScrolledRef.current = blockIndex;
     useWorkspaceStore.getState().requestScrollToBlock(idx);
   }, [blockIndex, isLiveDoc]);
+
+  // A navigation jump raises `navigating` (the NavOverlay covers the doc). Once the
+  // instant scroll + layout settle, drop the cover and flash the landed heading so
+  // the reader's eye finds it. Keyed on the scroll nonce → one run per jump.
+  useEffect(() => {
+    if (!scrollTarget) return;
+    const id = setTimeout(() => {
+      const ws = useWorkspaceStore.getState();
+      ws.setNavigating(false);
+      ws.flashBlock(scrollTarget.index);
+    }, 480);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollTarget?.nonce]);
+
+  // Entering the thesis → sync the Thesis Structure outline into the cache once the
+  // live doc is loaded and idle, so the navigator sheet later opens INSTANTLY from
+  // cache (no fetch on open). Once per thesis; heading changes re-sync below.
+  const outlineWarmedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isLiveDoc || !thesisId) return;
+    if (isGenerating || pendingOps > 0) return;
+    if (outlineWarmedRef.current === thesisId) return;
+    const id = setTimeout(() => {
+      outlineWarmedRef.current = thesisId;
+      void useOutlineStore.getState().sync(thesisId);
+    }, 1500);
+    return () => clearTimeout(id);
+  }, [isLiveDoc, thesisId, isGenerating, pendingOps]);
 
   // Base text direction for rendering. The thesis `language` field is unreliable
   // (imports default to "fr" even for Arabic docs), so detect from the actual
@@ -365,6 +395,9 @@ export default function ThesisWorkspaceScreen() {
       // which remounts the OnlyOffice editor onto the updated document.
       void refreshEditorCfg();
       if (thesisId) void useThesisDocStore.getState().refreshHistoryState(thesisId);
+      // The AI likely changed headings/structure → re-sync the outline cache so the
+      // navigator sheet reflects the turn without fetching on open.
+      if (thesisId) void useOutlineStore.getState().sync(thesisId);
     }
     prevGenerating.current = isGenerating;
   }, [isGenerating, isLiveDoc, refreshDoc, refreshEditorCfg, thesisId]);
@@ -673,6 +706,9 @@ export default function ThesisWorkspaceScreen() {
             </Text>
           </View>
         )}
+        {/* Masks a heading-navigation jump: covers the doc while it scrolls
+            instantly to the target, then fades out to reveal it (which flashes). */}
+        <NavOverlay />
       </Animated.View>
 
       {/* Context-aware action zone (replaces the old always-present composer sheet):
@@ -698,9 +734,6 @@ export default function ThesisWorkspaceScreen() {
 
       {/* Sources sheet — self-hides when closed (conditional unmount). */}
       <SourcesSheet thesisId={thesisId} />
-
-      {/* Outline sheet — mounted only while the outline panel is active. */}
-      {activePanel === "outline" && <ThesisStructureSheet />}
 
       {/* Document history sheet — long-press the header Undo button to open.
           Conditionally mounted so it self-presents on mount / dismisses on unmount. */}
