@@ -38,7 +38,28 @@ export interface FormatChange {
   alignment?: UiAlign;
   direction?: "rtl" | "ltr";
   clearFormatting?: boolean;
+  // Whole-paragraph inline character marks (the pill's Bold/Italic/Underline/Color).
+  // A boolean is the TARGET toggle state (bold:true sets it on every run, false
+  // clears it); `color` is a 6-hex RRGGBB (with or without '#') to set, or null to
+  // CLEAR the colour. Absent = leave unchanged. The server sets/unsets the matching
+  // <w:rPr> child on every run (see thesis-inline-format.ts).
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  color?: string | null;
 }
+
+// One visible run of a paragraph with its inline marks — mirrors the server's
+// ParaRun (lib/thesis-doc.ts) that the paragraph DTO carries as `runs?`. Kept local
+// because the app's DocBlockDTO (lib/api.ts, do-not-touch) doesn't yet declare it;
+// we read/write it via a defensive cast in the optimistic patch below.
+export type ParaRun = {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  color?: string;
+};
 
 export type ThesisOp =
   | { type: "editText"; index: number; text: string }
@@ -114,8 +135,32 @@ export function coalesceEditText(queue: ThesisOp[], op: ThesisOp): ThesisOp[] {
 // Reindex after a structural change — the DTO `index` is a block's position.
 const reindex = (blocks: DocBlockDTO[]): DocBlockDTO[] => blocks.map((b, i) => ({ ...b, index: i }));
 
+// Whether a format change carries any inline character mark (the pill's Bold/
+// Italic/Underline/Color) — those need the block's `runs` repainted optimistically.
+const hasInlineMarks = (ch: FormatChange): boolean =>
+  ch.bold !== undefined || ch.italic !== undefined || ch.underline !== undefined || ch.color !== undefined;
+
+// Apply the whole-paragraph inline marks to an optimistic `runs` list (mirror of the
+// server's per-run <w:rPr> transform). Absent runs → one run from the flat text so
+// the outline repaints instantly formatted. `color` normalizes to uppercase 6-hex
+// (no '#'), matching the server-emitted `runs`.
+function patchRuns(runs: ParaRun[], ch: FormatChange): ParaRun[] {
+  return runs.map((r) => {
+    const nr: ParaRun = { ...r };
+    if (ch.bold !== undefined) { if (ch.bold) nr.bold = true; else delete nr.bold; }
+    if (ch.italic !== undefined) { if (ch.italic) nr.italic = true; else delete nr.italic; }
+    if (ch.underline !== undefined) { if (ch.underline) nr.underline = true; else delete nr.underline; }
+    if (ch.color !== undefined) {
+      if (ch.color == null) delete nr.color;
+      else nr.color = ch.color.replace(/^#/, "").toUpperCase();
+    }
+    return nr;
+  });
+}
+
 function patchFormat(blocks: DocBlockDTO[], indices: number[], ch: FormatChange): DocBlockDTO[] {
   const set = new Set(indices);
+  const marksPresent = hasInlineMarks(ch);
   return blocks.map((b) => {
     if (b.kind !== "paragraph" || !set.has(b.index)) return b;
     let nb: ParagraphBlock = { ...b };
@@ -126,6 +171,13 @@ function patchFormat(blocks: DocBlockDTO[], indices: number[], ch: FormatChange)
     }
     if (ch.alignment != null) nb.alignment = ch.alignment === "justify" ? "both" : ch.alignment;
     if (ch.direction != null) nb.direction = ch.direction;
+    if (marksPresent) {
+      // `runs` isn't in the app's DocBlockDTO type (lib/api.ts is do-not-touch); read/
+      // write it via cast. Seed a single run from the flat text when the paragraph
+      // carried no marks yet, so bolding a plain paragraph paints immediately.
+      const current = ((b as { runs?: ParaRun[] }).runs) ?? [{ text: b.text }];
+      (nb as { runs?: ParaRun[] }).runs = patchRuns(current, ch);
+    }
     return nb;
   });
 }

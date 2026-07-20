@@ -16,6 +16,7 @@ import { ScrollView } from "react-native-gesture-handler";
 import {
   Bold,
   Italic,
+  Underline,
   Type,
   AlignLeft,
   AlignCenter,
@@ -54,7 +55,7 @@ import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
 import { chipOut, layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff, SPRING_SOFT } from "@/lib/motion";
 import { isPillHandoff, shouldGlow } from "@/lib/pill-handoff";
-import type { FormatChange } from "@/lib/thesis-ops";
+import type { FormatChange, ParaRun } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
@@ -76,6 +77,10 @@ const DIRECTION_OPTIONS: { value: "rtl" | "ltr"; Icon: LucideIcon }[] = [
 ];
 
 const CHIP = 40;
+
+// Text-colour palette for the Color category (6-hex RRGGBB, no '#'). A curated set
+// that reads on both light/dark paper; the trailing "clear" swatch sends color:null.
+const TEXT_COLORS = ["111827", "C0392B", "E67E22", "F1C40F", "27AE60", "2980B9", "8E44AD"] as const;
 
 /** One-shot ring pulse behind ✦ Ask AI — once per NEW selection target, deduped
  *  across pill remounts (handoffs, keyboard open/close) via shouldGlow.
@@ -150,8 +155,9 @@ interface Props {
  *   • Keyboard open → a full-width BAR docked on the keyboard: the complete tool set in a
  *     horizontal scroll with ✦ Ask AI pinned outside it, plus a scope pill.
  * Category tools (Style/Align/Direction/List/Color) expand a contextual options row above
- * the bar; simple tools act immediately. Run-level tools (Bold/Italic) and List/Color are
- * Phase-2 (the DTO can't carry them yet) — shown but marked "coming soon".
+ * the bar; simple tools act immediately. Run-level marks (Bold/Italic/Underline) and the
+ * Color palette apply WHOLE-PARAGRAPH inline formatting via the same `format` op (the DTO
+ * carries `runs?` now). List stays Phase-2 (structural — the DTO can't carry it yet).
  */
 export function BlockContextBar({
   thesisId,
@@ -354,6 +360,23 @@ export function BlockContextBar({
   const allAlign = (v: Align) => canFormat && paragraphSelection.every((b) => alignFromDoc(b.alignment) === v);
   const allDirection = (v: "rtl" | "ltr") => canFormat && paragraphSelection.every((b) => b.direction === v);
 
+  // Inline-mark active state (Bold/Italic/Underline/Color). The paragraph DTO carries
+  // `runs?` (server-emitted) but the app's DocBlockDTO type doesn't declare it — read
+  // it defensively via cast. A mark is "on" only when EVERY run of EVERY selected
+  // paragraph carries it (so a partially-marked selection reads off → the toggle sets
+  // it on all runs). A plain paragraph has no `runs`, so it reads off.
+  const runsOf = (b: ParagraphBlock): ParaRun[] | undefined => (b as { runs?: ParaRun[] }).runs;
+  const allMark = (on: (r: ParaRun) => boolean) =>
+    canFormat &&
+    paragraphSelection.every((b) => {
+      const runs = runsOf(b);
+      return !!runs && runs.length > 0 && runs.every(on);
+    });
+  const allBold = allMark((r) => !!r.bold);
+  const allItalic = allMark((r) => !!r.italic);
+  const allUnderline = allMark((r) => !!r.underline);
+  const colorActive = (hex: string) => allMark((r) => (r.color ?? "").toUpperCase() === hex.toUpperCase());
+
   const toggleCategory = (c: Category) => setActiveCategory((cur) => (cur === c ? null : c));
 
   // ── Small building blocks ──
@@ -407,24 +430,25 @@ export function BlockContextBar({
   // The complete tool set for the full-width bar / expanded pill.
   const fullTools = (
     <>
-      {chip({ keyProp: "bold", Icon: Bold, accessibilityLabel: "Bold", dim: true, enterIndex: 0, onPress: soon })}
-      {chip({ keyProp: "italic", Icon: Italic, accessibilityLabel: "Italic", dim: true, enterIndex: 1, onPress: soon })}
+      {chip({ keyProp: "bold", Icon: Bold, accessibilityLabel: t("blockBar.bold", { defaultValue: "Bold" }), active: allBold, disabled: !canFormat, enterIndex: 0, onPress: () => apply({ bold: !allBold }) })}
+      {chip({ keyProp: "italic", Icon: Italic, accessibilityLabel: t("blockBar.italic", { defaultValue: "Italic" }), active: allItalic, disabled: !canFormat, enterIndex: 1, onPress: () => apply({ italic: !allItalic }) })}
+      {chip({ keyProp: "underline", Icon: Underline, accessibilityLabel: t("blockBar.underline", { defaultValue: "Underline" }), active: allUnderline, disabled: !canFormat, enterIndex: 2, onPress: () => apply({ underline: !allUnderline }) })}
       {sep("s1")}
-      {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }), 2)}
-      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 3)}
-      {categoryChip("direction", PilcrowLeft, t("blockBar.direction", { defaultValue: "Direction" }), 4)}
-      {categoryChip("list", List, t("blockBar.list", { defaultValue: "List" }), 5)}
-      {categoryChip("color", Palette, t("blockBar.color", { defaultValue: "Color" }), 6)}
+      {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }), 3)}
+      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 4)}
+      {categoryChip("direction", PilcrowLeft, t("blockBar.direction", { defaultValue: "Direction" }), 5)}
+      {categoryChip("list", List, t("blockBar.list", { defaultValue: "List" }), 6)}
+      {categoryChip("color", Palette, t("blockBar.color", { defaultValue: "Color" }), 7)}
       {sep("s2")}
       {single
         ? [
-            chip({ keyProp: "up", Icon: ChevronUp, accessibilityLabel: t("blockBar.moveUp", { defaultValue: "Move up" }), disabled: !canUp, enterIndex: 7, onPress: () => move("up") }),
-            chip({ keyProp: "down", Icon: ChevronDown, accessibilityLabel: t("blockBar.moveDown", { defaultValue: "Move down" }), disabled: !canDown, enterIndex: 8, onPress: () => move("down") }),
-            chip({ keyProp: "img", Icon: ImagePlus, accessibilityLabel: t("blockBar.image", { defaultValue: "Insert image" }), enterIndex: 9, onPress: () => void pickImage() }),
+            chip({ keyProp: "up", Icon: ChevronUp, accessibilityLabel: t("blockBar.moveUp", { defaultValue: "Move up" }), disabled: !canUp, enterIndex: 8, onPress: () => move("up") }),
+            chip({ keyProp: "down", Icon: ChevronDown, accessibilityLabel: t("blockBar.moveDown", { defaultValue: "Move down" }), disabled: !canDown, enterIndex: 9, onPress: () => move("down") }),
+            chip({ keyProp: "img", Icon: ImagePlus, accessibilityLabel: t("blockBar.image", { defaultValue: "Insert image" }), enterIndex: 10, onPress: () => void pickImage() }),
           ]
         : null}
-      {chip({ keyProp: "clear", Icon: Eraser, accessibilityLabel: t("blockBar.clear", { defaultValue: "Clear formatting" }), disabled: !canFormat, enterIndex: 10, onPress: () => apply({ clearFormatting: true }) })}
-      {chip({ keyProp: "del", Icon: Trash2, accessibilityLabel: t("common.delete", { defaultValue: "Delete" }), enterIndex: 11, onPress: del })}
+      {chip({ keyProp: "clear", Icon: Eraser, accessibilityLabel: t("blockBar.clear", { defaultValue: "Clear formatting" }), disabled: !canFormat, enterIndex: 11, onPress: () => apply({ clearFormatting: true }) })}
+      {chip({ keyProp: "del", Icon: Trash2, accessibilityLabel: t("common.delete", { defaultValue: "Delete" }), enterIndex: 12, onPress: del })}
     </>
   );
 
@@ -594,21 +618,53 @@ export function BlockContextBar({
           </AnimatedChip>
         );
       });
+    } else if (activeCategory === "color") {
+      // Text colour swatches → each dispatches format({ color }); a trailing eraser
+      // sends color:null (clear). Active = every selected run already that colour.
+      body = (
+        <>
+          {TEXT_COLORS.map((hex, i) => {
+            const active = colorActive(hex);
+            return (
+              <AnimatedChip
+                key={hex}
+                enterIndex={i}
+                onPress={() => apply({ color: hex })}
+                disabled={!canFormat}
+                active={active}
+                accessibilityLabel={t("blockBar.colorSwatch", { defaultValue: `Color #${hex}`, hex })}
+                style={optPill(false, !canFormat)}
+              >
+                <View
+                  style={[
+                    styles.swatch,
+                    { backgroundColor: `#${hex}`, borderColor: colors.borderDefault },
+                    active && { borderColor: colors.brandPrimary, borderWidth: 2 },
+                  ]}
+                />
+              </AnimatedChip>
+            );
+          })}
+          <AnimatedChip
+            key="color-clear"
+            enterIndex={TEXT_COLORS.length}
+            onPress={() => apply({ color: null })}
+            disabled={!canFormat}
+            accessibilityLabel={t("blockBar.colorClear", { defaultValue: "Clear color" })}
+            style={optPill(false, !canFormat)}
+          >
+            <Eraser size={16} color={colors.textPrimary} strokeWidth={2} />
+          </AnimatedChip>
+        </>
+      );
     } else {
-      // list / color — Phase 2 (DTO can't carry these yet): dimmed options + caption.
-      const items = activeCategory === "list" ? ["•", "1.", "☑"] : ["A", "A", "A"];
-      const phLabels =
-        activeCategory === "list"
-          ? [
-              t("blockBar.listBulleted", { defaultValue: "Bulleted list" }),
-              t("blockBar.listNumbered", { defaultValue: "Numbered list" }),
-              t("blockBar.listCheck", { defaultValue: "Checklist" }),
-            ]
-          : [
-              t("blockBar.colorText", { defaultValue: "Text color" }),
-              t("blockBar.colorHighlight", { defaultValue: "Highlight color" }),
-              t("blockBar.colorAccent", { defaultValue: "Accent color" }),
-            ];
+      // list — Phase 2 (structural; DTO can't carry it yet): dimmed options + caption.
+      const items = ["•", "1.", "☑"];
+      const phLabels = [
+        t("blockBar.listBulleted", { defaultValue: "Bulleted list" }),
+        t("blockBar.listNumbered", { defaultValue: "Numbered list" }),
+        t("blockBar.listCheck", { defaultValue: "Checklist" }),
+      ];
       body = (
         <>
           {items.map((label, i) => (
@@ -727,7 +783,7 @@ export function BlockContextBar({
                 {expandedTools}
               </Animated.View>
               {/* Static collapse control — outside the keyed row so toolset morphs don't tear it down. */}
-              {chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), enterIndex: 12, onPress: () => setPillExpanded(false) })}
+              {chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), enterIndex: 13, onPress: () => setPillExpanded(false) })}
             </ScrollView>
             {AskAI}
             {OutlineBtn}
@@ -874,6 +930,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   optText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  swatch: { width: 18, height: 18, borderRadius: 9, borderWidth: StyleSheet.hairlineWidth },
   soonCaption: { fontSize: 11, fontFamily: "Inter_500Medium", alignSelf: "center", marginLeft: 6 },
 
   savingDot: { position: "absolute", top: 4, right: 8, width: 6, height: 6, borderRadius: 3 },
