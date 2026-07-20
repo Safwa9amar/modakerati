@@ -49,9 +49,9 @@ export function shouldGlow(key: string) {
 
 // Zustand listeners fire synchronously inside set(), BEFORE React re-renders —
 // so the flag is up before the new row's pill mounts. Marking a handoff when no
-// remount actually happens (same anchor row) is harmless: pillIn/pillOut only
-// consult the flag at mount/unmount, and shouldGlow only on a new key — neither
-// fires without an actual change.
+// remount actually happens (same anchor row) is harmless: the entering/exiting
+// worklets only consult the flag at mount/unmount, and shouldGlow only on a new
+// key — neither fires without an actual change.
 useWorkspaceStore.subscribe((s, prev) => {
   if (s.selectedBlocks === prev.selectedBlocks) return;
   if (s.selectedBlocks.length === 0) {

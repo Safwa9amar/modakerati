@@ -33,24 +33,10 @@ export const pillIn: EntryExitAnimationFunction = () => {
   };
 };
 
-/** Pill exit: quick drop-fade — no bounce on the way out. */
-export const pillOut: EntryExitAnimationFunction = () => {
-  "worklet";
-  return {
-    initialValues: { opacity: 1, transform: [{ translateY: 0 }, { scale: 1 }] },
-    animations: {
-      opacity: withTiming(0, OUT_TIMING),
-      transform: [
-        { translateY: withTiming(40, OUT_TIMING) },
-        { scale: withTiming(0.9, OUT_TIMING) },
-      ],
-    },
-  };
-};
-
 /** Pill exit that skips itself during a block→block selection handoff: the pill
  *  vanishes instantly here and appears instantly under the new block ("moves"),
- *  instead of drop-fading out and springing back in. */
+ *  instead of drop-fading out and springing back in. Off a handoff it's a quick
+ *  drop-fade with no bounce. */
 export const pillOutUnlessHandoff: EntryExitAnimationFunction = () => {
   "worklet";
   if (pillHandoffSV.value === 1) {
@@ -86,23 +72,9 @@ export const rowIn: EntryExitAnimationFunction = () => {
   };
 };
 
-/** Category expansion close: fast fade + slight sink. */
-export const rowOut: EntryExitAnimationFunction = () => {
-  "worklet";
-  return {
-    initialValues: { opacity: 1, transform: [{ translateY: 0 }, { scale: 1 }] },
-    animations: {
-      opacity: withTiming(0, ROW_OUT_TIMING),
-      transform: [
-        { translateY: withTiming(10, ROW_OUT_TIMING) },
-        { scale: withTiming(0.92, ROW_OUT_TIMING) },
-      ],
-    },
-  };
-};
-
 /** Expansion-row exit that vanishes instantly during a block→block handoff so
- *  the old anchor's open category panel doesn't linger behind the moving pill. */
+ *  the old anchor's open category panel doesn't linger behind the moving pill.
+ *  Off a handoff it's a fast fade + slight sink. */
 export const rowOutUnlessHandoff: EntryExitAnimationFunction = () => {
   "worklet";
   if (pillHandoffSV.value === 1) {
