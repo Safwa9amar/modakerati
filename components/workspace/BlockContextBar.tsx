@@ -42,6 +42,7 @@ import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
 import { PictureCropModal } from "./PictureCropModal";
+import { AnimatedChip } from "./AnimatedChip";
 import type { FormatChange } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
@@ -290,7 +291,8 @@ export function BlockContextBar({
 
   // ── Small building blocks ──
   // Plain element-returning helpers (NOT inner components) so they aren't a fresh
-  // component type each render (which would remount every chip).
+  // component type each render (which would remount every chip). AnimatedChip itself
+  // is declared once at module scope so its TYPE stays stable across renders.
   const chip = (opts: {
     keyProp: string;
     Icon: LucideIcon;
@@ -299,16 +301,17 @@ export function BlockContextBar({
     disabled?: boolean;
     dim?: boolean;
     accessibilityLabel: string;
+    enterIndex?: number | null;
   }) => {
     const { Icon } = opts;
     return (
-      <Pressable
+      <AnimatedChip
         key={opts.keyProp}
         onPress={opts.onPress}
         disabled={opts.disabled}
-        accessibilityRole="button"
+        active={opts.active}
         accessibilityLabel={opts.accessibilityLabel}
-        accessibilityState={{ selected: opts.active, disabled: opts.disabled }}
+        enterIndex={opts.enterIndex}
         style={[
           styles.chip,
           { borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
@@ -317,7 +320,7 @@ export function BlockContextBar({
         ]}
       >
         <Icon size={17} color={opts.active ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
-      </Pressable>
+      </AnimatedChip>
     );
   };
 
