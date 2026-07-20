@@ -24,9 +24,11 @@ interface Props {
 
 /**
  * Springy chip: press-down scale, overshoot pop when it becomes active, and a
- * staggered pop-in entrance (drives the toolset-morph feel). Module-level +
- * memoized so it's a stable component type — same no-remount concern the old
- * element-returning chip() helper solved.
+ * staggered pop-in entrance (drives the toolset-morph feel). Declared once at
+ * module scope so the component TYPE is stable — chips never remount on parent
+ * re-renders (the concern the old element-returning chip() helper solved).
+ * memo() is best-effort only: call sites pass fresh style/onPress/children each
+ * render, so re-renders still happen — they're cheap; no-remount is what matters.
  */
 export const AnimatedChip = memo(function AnimatedChip({
   onPress,
