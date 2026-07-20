@@ -8,7 +8,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Send, type LucideIcon } from "lucide-react-native";
+import { ChevronsDownUp, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Send, type LucideIcon } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useChatStore } from "@/stores/chat-store";
@@ -171,15 +171,27 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
 
   return (
     <View style={styles.container}>
-      {/* 1. Fixed quick-action chips — always present, wrap onto a 2nd line if needed. */}
+      {/* 1. Fixed quick-action chips — always present, wrap onto a 2nd line if needed.
+             Leading collapse chevron mirrors the formatting pill's: back to the bubble. */}
       <View style={[styles.chipsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+        <AnimatedChip
+          onPress={() => {
+            useFloatingPillStore.getState().setInputOpen(false);
+            useFloatingPillStore.getState().setExpanded(false);
+          }}
+          accessibilityLabel={t("blockBar.collapse", { defaultValue: "Collapse" })}
+          enterIndex={0}
+          style={[styles.collapseChip, { borderColor: colors.borderDefault, backgroundColor: colors.bgCard }]}
+        >
+          <ChevronsDownUp size={15} color={colors.textPrimary} strokeWidth={2} />
+        </AnimatedChip>
         {quickActions.map(({ key, Icon, label, prompt }, i) => (
           <AnimatedChip
             key={key}
             onPress={() => sendPrompt(prompt)}
             disabled={isGenerating}
             accessibilityLabel={label}
-            enterIndex={i}
+            enterIndex={i + 1}
             style={[
               styles.actionChip,
               { flexDirection: rtl ? "row-reverse" : "row", borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
@@ -213,7 +225,7 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
                   onPress={() => sendPrompt(s.prompt)}
                   disabled={isGenerating}
                   accessibilityLabel={s.label}
-                  enterIndex={quickActions.length + i}
+                  enterIndex={quickActions.length + 1 + i}
                   style={[
                     styles.suggestedChip,
                     { borderColor: colors.brandPrimary, backgroundColor: colors.brandPrimary + "1A" },
@@ -239,7 +251,7 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
             onPress={() => useFloatingPillStore.getState().setInputOpen(true)}
             disabled={isGenerating}
             accessibilityLabel={t("aiDock.ask", { defaultValue: "Ask…" })}
-            enterIndex={quickActions.length + suggestions.length}
+            enterIndex={quickActions.length + suggestions.length + 1}
             style={[
               styles.askChip,
               { flexDirection: rtl ? "row-reverse" : "row", backgroundColor: colors.brandPrimary },
@@ -304,6 +316,16 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   actionChipText: { fontSize: 12, fontFamily: "Inter_500Medium" },
+
+  // Icon-only leading chevron — same footprint as an action chip, no label.
+  collapseChip: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
 
   suggestedChip: {
     paddingVertical: 7,
