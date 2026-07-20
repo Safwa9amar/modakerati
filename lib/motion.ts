@@ -13,6 +13,10 @@ import { pillHandoffSV } from "./pill-handoff";
 export const SPRING = { damping: 23, stiffness: 420, mass: 1 } as const;
 /** Slightly softer spring for larger surfaces (expansion row, glow ring). */
 export const SPRING_SOFT = { damping: 20, stiffness: 360, mass: 1 } as const;
+/** Snappy entrance spring for the pill / expansion-row OPEN moments — same
+ *  overshoot family as SPRING (ζ≈0.57) but ~30% quicker to settle, so the open
+ *  bounce reads fast rather than lingering. */
+export const SPRING_ENTER = { damping: 30, stiffness: 700, mass: 1 } as const;
 export const STAGGER_MS = 25;
 /** Cap the stagger tail so long rows (12 chips) don't feel laggy. */
 const STAGGER_MAX_MS = 150;
@@ -27,8 +31,8 @@ export const pillIn: EntryExitAnimationFunction = () => {
   return {
     initialValues: { opacity: 0, transform: [{ translateY: 48 }, { scale: 0.85 }] },
     animations: {
-      opacity: withTiming(1, { duration: 120 }),
-      transform: [{ translateY: withSpring(0, SPRING) }, { scale: withSpring(1, SPRING) }],
+      opacity: withTiming(1, { duration: 90 }),
+      transform: [{ translateY: withSpring(0, SPRING_ENTER) }, { scale: withSpring(1, SPRING_ENTER) }],
     },
   };
 };
@@ -63,10 +67,10 @@ export const rowIn: EntryExitAnimationFunction = () => {
   return {
     initialValues: { opacity: 0, transform: [{ translateY: 14 }, { scale: 0.85 }] },
     animations: {
-      opacity: withTiming(1, { duration: 100 }),
+      opacity: withTiming(1, { duration: 70 }),
       transform: [
-        { translateY: withSpring(0, SPRING_SOFT) },
-        { scale: withSpring(1, SPRING_SOFT) },
+        { translateY: withSpring(0, SPRING_ENTER) },
+        { scale: withSpring(1, SPRING_ENTER) },
       ],
     },
   };
