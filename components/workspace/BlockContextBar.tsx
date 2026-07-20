@@ -40,6 +40,7 @@ import {
   Sparkles,
   ListTree,
   X,
+  ChevronsDownUp,
   type LucideIcon,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -146,6 +147,10 @@ interface Props {
   scopeLabel: string;
   onAskAI: () => void;
   bottomInset: number;
+  /** When set (floating overlay only), the compact pill shows a leading collapse
+   *  chevron that calls this — collapses the pill back to its bubble. The keyboard-
+   *  docked bar never passes it. */
+  onCollapse?: () => void;
 }
 
 /**
@@ -171,6 +176,7 @@ export function BlockContextBar({
   scopeLabel,
   onAskAI,
   bottomInset,
+  onCollapse,
 }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -790,6 +796,9 @@ export function BlockContextBar({
           </View>
         ) : (
           <>
+            {onCollapse
+              ? chip({ keyProp: "collapse-bubble", Icon: ChevronsDownUp, accessibilityLabel: t("blockBar.collapse", { defaultValue: "Collapse" }), onPress: onCollapse })
+              : null}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
