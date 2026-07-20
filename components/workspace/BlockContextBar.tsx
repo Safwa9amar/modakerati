@@ -617,7 +617,8 @@ export function BlockContextBar({
   }
 
   // Keyboard closed: ONE container that morphs pill ⇄ full card (layoutSpring),
-  // springs in on block-select (pillIn) and drops away on deselect (pillOut).
+  // springs in on block-select (pillIn), drops away on deselect, and repositions
+  // instantly on block→block moves (pillOutUnlessHandoff + the handoff gate).
   return (
     <View style={styles.pillWrap} pointerEvents="box-none">
       {/* Must stay the FIRST child in both layout branches — the same tree position
