@@ -47,6 +47,12 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
 
   const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
   const askAiOpen = useWorkspaceStore((s) => s.askAiOpen);
+  // Composer visibility + preview mode — the floating pill must yield the bottom
+  // surface to the whole-memoir composer (count===0), hide when the composer is
+  // toggled off (else its Ask-AI opens a null BlockComposer → dead end), and never
+  // spawn over a docx/pdf preview. Primitive selectors (no Object.is loop).
+  const composerOpen = useWorkspaceStore((s) => s.composerOpen);
+  const previewMode = useWorkspaceStore((s) => s.previewMode);
   const aiGateActive = useChatStore((s) => s.pendingAsk != null || s.pendingConfirm != null);
 
   const visible = useFloatingPillStore((s) => s.visible);
@@ -94,9 +100,12 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   });
 
   // Spawn on the first non-empty selection; never auto-hide (only drag-to-X does).
-  // INTENTIONAL: the pill persists even when the selection is cleared (count === 0)
-  // — the product wants it to stay "like a manager" until dragged onto the X. The
-  // format tools inside already disable themselves when nothing is selected.
+  // PERSISTENCE vs RENDERING are separate concerns: `visible` (the store flag) is
+  // the persist-until-X truth and only ever flips false on a drag-to-X — a block→
+  // block change keeps count≥1 so it stays put. RENDERING is gated by `suppressed`
+  // below, which hides the pill (WITHOUT touching `visible`) when there's nothing
+  // selected, the composer is toggled off, or a preview is open — so no double
+  // bottom surface and no dead Ask-AI. It returns the instant those states clear.
   useEffect(() => {
     if (count > 0 && !visible) useFloatingPillStore.getState().show();
   }, [count, visible]);
@@ -203,7 +212,9 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     transform: [{ translateX: tx.value }, { translateY: ty.value }],
   }));
 
-  const suppressed = keyboardVisible || askAiOpen || aiGateActive || soleSuggested;
+  const suppressed =
+    keyboardVisible || askAiOpen || aiGateActive || soleSuggested ||
+    count === 0 || !composerOpen || previewMode != null;
   if (!visible || suppressed) {
     // Still render the target host? No — nothing to show when suppressed.
     return null;
