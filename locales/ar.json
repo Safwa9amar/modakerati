@@ -579,7 +579,10 @@
     "cropTitle": "اقتصاص الصورة",
     "cropApply": "تطبيق",
     "pdfFailed": "تعذّر إنشاء ملف PDF. يرجى المحاولة مرة أخرى.",
-    "pdfUnavailable": "معاينة PDF غير متاحة لهذا المستند."
+    "pdfUnavailable": "معاينة PDF غير متاحة لهذا المستند.",
+    "syncSaved": "تم الحفظ ✓",
+    "syncSyncing": "جارٍ المزامنة…",
+    "syncOffline": "غير متصل · محفوظ محليًا"
   },
   "history": {
     "title": "سجل المستند",

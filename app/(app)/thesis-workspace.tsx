@@ -34,6 +34,7 @@ import { DocSkeleton } from "@/components/workspace/DocSkeleton";
 import { BlockComposer, BLOCK_COMPOSER_MIN_INSET } from "@/components/workspace/BlockComposer";
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
 import { HeaderMenuButton } from "@/components/workspace/WorkspaceHeaderMenu";
+import { SyncStatusChip } from "@/components/workspace/SyncStatusChip";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
@@ -439,6 +440,15 @@ export default function ThesisWorkspaceScreen() {
         )}
       </View>
 
+      {/* Status strip: live doc progress (left) + per-thesis sync state (right).
+          Thin, themed, live-docs only. Sits above the preview toolbar. */}
+      {liveDoc && (
+        <View style={[styles.statusStrip, { borderBottomColor: colors.borderDefault }]}>
+          <View style={styles.statusStripSpacer} />
+          <SyncStatusChip thesisId={thesisId} />
+        </View>
+      )}
+
       {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}
       {liveDoc && <PreviewBar />}
 
@@ -635,6 +645,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   expandIcon: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
+  // Thin status strip under the top bar: progress on the leading edge, sync chip
+  // on the trailing edge (space-between mirrors correctly under an RTL app UI).
+  statusStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  statusStripSpacer: { flex: 1 },
   // Each live-doc view is an absolute layer filling the doc area; they overlap so
   // switching only toggles which is on top + interactive (all stay mounted → each
   // keeps its scroll). Inactive layers sit behind at opacity 0 (the active layer is

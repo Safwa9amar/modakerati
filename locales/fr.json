@@ -579,7 +579,10 @@
     "cropTitle": "Rogner l'image",
     "cropApply": "Appliquer",
     "pdfFailed": "Impossible de générer le PDF. Veuillez réessayer.",
-    "pdfUnavailable": "L'aperçu PDF n'est pas disponible pour ce document."
+    "pdfUnavailable": "L'aperçu PDF n'est pas disponible pour ce document.",
+    "syncSaved": "Enregistré ✓",
+    "syncSyncing": "Synchronisation…",
+    "syncOffline": "Hors ligne · enregistré localement"
   },
   "history": {
     "title": "Historique du document",

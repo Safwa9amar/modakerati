@@ -579,7 +579,10 @@
     "cropTitle": "Crop image",
     "cropApply": "Apply",
     "pdfFailed": "Couldn't generate the PDF. Please try again.",
-    "pdfUnavailable": "PDF preview isn't available for this document."
+    "pdfUnavailable": "PDF preview isn't available for this document.",
+    "syncSaved": "Saved ✓",
+    "syncSyncing": "Syncing…",
+    "syncOffline": "Offline · saved locally"
   },
   "history": {
     "title": "Document history",
