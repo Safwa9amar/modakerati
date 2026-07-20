@@ -9,6 +9,7 @@ import { GripVertical } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { DocBlock } from "./DocBlock";
 import { BlockToolbarPill } from "./BlockToolbarPill";
+import { InlineSuggestion } from "./InlineSuggestion";
 import {
   OutlineHeaderZone,
   OutlineFooterZone,
@@ -19,6 +20,7 @@ import { type DocBlockDTO, type DocSectionDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
 // One outline row: a drag handle (long-press to lift) + the block. The handle
@@ -66,7 +68,11 @@ function Row({
   );
   // Also suppress it while the AI's ask/confirm gate owns the bottom surface.
   const aiGateActive = useChatStore((s) => s.pendingAsk != null || s.pendingConfirm != null);
-  const showPill = pillEligible && !aiGateActive;
+  // A pending inline AI suggestion on THIS block replaces the pill (it renders its
+  // own approve/edit/reject/again controls) to avoid stacking two toolbars.
+  // Boolean-primitive selector → no zustand Object.is loop.
+  const hasSuggestion = useSuggestionStore((s) => !!s.byIndex[block.index]);
+  const showPill = pillEligible && !aiGateActive && !hasSuggestion;
   return (
     <View>
       {markerLabel != null && <OutlineSectionMarker label={markerLabel} rtl={rtl} />}
@@ -76,6 +82,7 @@ function Row({
         </Pressable>
         <View style={{ flex: 1 }}>
           <DocBlock block={block} rtl={rtl} thesisId={thesisId} version={version} />
+          <InlineSuggestion thesisId={thesisId} index={block.index} rtl={rtl} />
           {showPill && <BlockToolbarPill thesisId={thesisId} blocks={blocks} rtl={rtl} />}
         </View>
       </View>

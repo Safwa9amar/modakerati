@@ -678,5 +678,13 @@
     "notFound": "Ce paragraphe n'est plus disponible.",
     "empty": "Texte du paragraphe…",
     "aiPlaceholder": "Demandez à l'IA de modifier ce paragraphe…"
+  },
+  "suggestion": {
+    "approve": "Approuver",
+    "edit": "Modifier",
+    "reject": "Rejeter",
+    "again": "Réessayer",
+    "thinking": "Réflexion…",
+    "failed": "Impossible de générer une suggestion."
   }
 }

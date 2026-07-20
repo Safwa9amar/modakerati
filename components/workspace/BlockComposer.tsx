@@ -7,6 +7,7 @@ import { FileText, SquarePen } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useSuggestionStore } from "@/stores/suggestion-store";
 import { sendMessageToAI, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { type DocBlockDTO } from "@/lib/api";
 import { deriveThinkingMs } from "@/lib/thinking";
@@ -167,6 +168,19 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || isGenerating) return;
+    // Block-scoped "✦ Ask AI" on EXACTLY ONE block → propose an inline rewrite of
+    // that paragraph (approve/edit/reject inline on the block) instead of routing
+    // through the chat flow that applies the change directly. Whole-memoir
+    // (count === 0) and multi-block (count > 1) keep the sendMessageToAI path.
+    if (askAiOpen && count === 1) {
+      const idx = indices[0];
+      const original = paragraphSelection[0]?.text ?? selectedBlocks[0]?.text ?? "";
+      setInputText("");
+      Keyboard.dismiss();
+      useWorkspaceStore.getState().setAskAiOpen(false);
+      void useSuggestionStore.getState().request(thesisId, idx, original, text);
+      return;
+    }
     setInputText("");
     Keyboard.dismiss();
     useWorkspaceStore.getState().setAskAiOpen(false);
