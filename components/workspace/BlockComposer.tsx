@@ -157,8 +157,18 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         const ws = useWorkspaceStore.getState();
         // Also never while the bubble's dock inline input is up — its keyboard
         // toggles too and it still needs the block target (mirrors askAiOpen above).
-        if (ws.selectedBlocks.length > 0 && !ws.askAiOpen && !useFloatingPillStore.getState().inputOpen)
-          ws.clearSelection();
+        const fp = useFloatingPillStore.getState();
+        if (ws.selectedBlocks.length > 0 && !ws.askAiOpen && !fp.inputOpen) {
+          if (fp.visible) {
+            // Always-on bubble alive: exit inline editing but KEEP the selection —
+            // the block's bubble must persist (clearing here flipped the text
+            // bubble to the ✦ AI bubble on every keyboard dismiss).
+            ws.setEditingBlock(null);
+          } else {
+            // Legacy fallback (bubble dismissed): old behavior, clear everything.
+            ws.clearSelection();
+          }
+        }
       },
     );
     return () => {
@@ -263,6 +273,12 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     void sendMessageToAI(thesisId, answer, focusOpts);
   };
 
+  // The user always has the right to walk away from a question unanswered —
+  // the ask lives only in memory, so clearing it is the whole dismissal.
+  const handleDismissAsk = () => {
+    useChatStore.getState().setPendingAsk(null);
+  };
+
   const handleApprove = () => {
     if (pendingConfirm) void approvePendingAction(thesisId, pendingConfirm.actionId);
   };
@@ -299,7 +315,7 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   } else if (pendingAsk) {
     surface = (
       <Dock colors={colors} insets={insets} keyboardVisible={keyboardVisible}>
-        <ComposerAsk ask={pendingAsk} onAnswer={handleAnswer} rtl={rtl} onInputFocus={markInputFocused} onInputBlur={markInputBlurred} />
+        <ComposerAsk ask={pendingAsk} onAnswer={handleAnswer} onDismiss={handleDismissAsk} rtl={rtl} onInputFocus={markInputFocused} onInputBlur={markInputBlurred} />
       </Dock>
     );
   } else if (!pillAlive && count === 0) {
