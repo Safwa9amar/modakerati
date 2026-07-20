@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Dimensions, Keyboard, StyleSheet, View } from "react-native";
+import { Dimensions, Keyboard, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
@@ -7,15 +7,18 @@ import Animated, {
   useSharedValue,
   withSpring,
   withTiming,
+  ZoomIn,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
+import { Type, Image as ImageIcon, Table } from "lucide-react-native";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
+import { useThemeColors } from "@/hooks/useThemeColors";
 import { hSelection } from "@/lib/haptics";
-import { SPRING } from "@/lib/motion";
+import { layoutSpring, SPRING } from "@/lib/motion";
 import type { DocBlockDTO } from "@/lib/api";
 import { BlockContextBar } from "./BlockContextBar";
 import { DismissTarget, DISMISS_HIT_RADIUS } from "./DismissTarget";
@@ -30,6 +33,7 @@ interface Props {
 
 const PILL_W = 320; // approximate — used only for the initial center + clamp math
 const PILL_H = 56;
+const BUBBLE_SIZE = 52;
 
 /**
  * The persistent, draggable, screen-level floating pill. Mounted ONCE by
@@ -57,6 +61,9 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
 
   const visible = useFloatingPillStore((s) => s.visible);
   const pos = useFloatingPillStore((s) => s.pos);
+  const expanded = useFloatingPillStore((s) => s.expanded);
+  const anchorY = useFloatingPillStore((s) => s.anchorY);
+  const colors = useThemeColors();
 
   // Local keyboard tracking — hide the floating form while the docked bar is up.
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -91,6 +98,9 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
       ? (selectedBlocks[0]?.text?.replace(/\s+/g, " ").trim().slice(0, 32) ||
         t("workspace.selectedBlock", { defaultValue: "Selected section" }))
       : t("workspace.nSelected", { count, defaultValue: `${count} selected` });
+
+  // Container width depends on form; drives centering, clamp, and the drag hit-test.
+  const curW = expanded ? PILL_W : BUBBLE_SIZE;
 
   // Suggestion suppression: sole selected paragraph currently in review.
   const soleSuggested = useSuggestionStore((s) => {
@@ -139,7 +149,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const minX = 8;
   // Guard the max bounds so a device narrower/shorter than the pill can't yield a
   // max < min (which would clamp the pill off-screen).
-  const maxX = Math.max(minX, width - PILL_W - 8);
+  const maxX = Math.max(minX, width - curW - 8);
   // Keep the pill clear of the header chrome at the top.
   const minY = insets.top + 100;
   const maxY = Math.max(minY, height - insets.bottom - PILL_H - 8);
@@ -175,7 +185,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           tx.value = startTX.value + e.translationX;
           ty.value = startTY.value + e.translationY;
           // Hit test: pill center vs target center.
-          const cx = tx.value + PILL_W / 2;
+          const cx = tx.value + curW / 2;
           const cy = ty.value + PILL_H / 2;
           const dist = Math.hypot(cx - targetCX, cy - targetCY);
           const over = dist < DISMISS_HIT_RADIUS ? 1 : 0;
@@ -205,12 +215,32 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           overTarget.value = 0;
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [width, height, insets.top, insets.bottom],
+    [width, height, insets.top, insets.bottom, curW],
   );
 
   const pillStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }],
   }));
+
+  // Spawn/re-anchor beside the selected block: when the selected INDEX changes and
+  // we have a tap Y, spring the pill to a screen-side position at that height. A ref
+  // guards against re-anchoring on unrelated re-renders (drag, prop churn). Drag
+  // overrides until the next selection change; scrolling does not re-anchor.
+  const lastAnchoredIndex = React.useRef<number | null>(null);
+  const soleIndex = selectedBlock ? selectedBlock.index : count === 1 ? indices[0] ?? null : null;
+  useEffect(() => {
+    if (soleIndex == null) return;
+    if (soleIndex === lastAnchoredIndex.current) return;
+    lastAnchoredIndex.current = soleIndex;
+    if (anchorY == null) return;
+    const w = expanded ? PILL_W : BUBBLE_SIZE;
+    const sideX = rtl ? minX : Math.max(minX, width - w - 12);
+    const yy = Math.min(Math.max(anchorY - BUBBLE_SIZE / 2, minY), maxY);
+    tx.value = withSpring(sideX, SPRING);
+    ty.value = withSpring(yy, SPRING);
+    useFloatingPillStore.getState().setPos({ x: sideX, y: yy });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soleIndex, anchorY]);
 
   const suppressed =
     keyboardVisible || askAiOpen || aiGateActive || soleSuggested ||
@@ -224,26 +254,74 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <DismissTarget visible={dragActive} active={overTarget} centerY={targetCY} bottomInset={insets.bottom} />
       <GestureDetector gesture={pan}>
-        <Animated.View style={[styles.pill, pillStyle]}>
-          <BlockContextBar
-            thesisId={thesisId}
-            rtl={rtl}
-            paragraphSelection={paragraphSelection}
-            selectedBlock={selectedBlock}
-            selectedIndices={indices}
-            count={count}
-            blockCount={blocks.length}
-            keyboardOpen={false}
-            scopeLabel={scopeLabel}
-            onAskAI={() => useWorkspaceStore.getState().setAskAiOpen(true)}
-            bottomInset={0}
-          />
+        <Animated.View layout={layoutSpring} style={[styles.host, { width: curW }, pillStyle]}>
+          {expanded ? (
+            <BlockContextBar
+              thesisId={thesisId}
+              rtl={rtl}
+              paragraphSelection={paragraphSelection}
+              selectedBlock={selectedBlock}
+              selectedIndices={indices}
+              count={count}
+              blockCount={blocks.length}
+              keyboardOpen={false}
+              scopeLabel={scopeLabel}
+              onAskAI={() => useWorkspaceStore.getState().setAskAiOpen(true)}
+              onCollapse={() => useFloatingPillStore.getState().setExpanded(false)}
+              bottomInset={0}
+            />
+          ) : (
+            <Bubble
+              colors={colors}
+              kind={selectedBlock?.kind}
+              onPress={() => useFloatingPillStore.getState().setExpanded(true)}
+            />
+          )}
         </Animated.View>
       </GestureDetector>
     </View>
   );
 }
 
+/** Collapsed form: a small circular bubble with an icon matching the selected
+ *  block's kind. Tapping it expands to the full BlockContextBar pill. */
+function Bubble({
+  colors,
+  kind,
+  onPress,
+}: {
+  colors: ReturnType<typeof useThemeColors>;
+  kind: DocBlockDTO["kind"] | undefined;
+  onPress: () => void;
+}) {
+  const Icon = kind === "image" ? ImageIcon : kind === "table" ? Table : Type;
+  return (
+    <Animated.View entering={ZoomIn.springify().damping(30).stiffness(700)}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel="Formatting tools"
+        style={[styles.bubble, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
+      >
+        <Icon size={22} color={colors.bgPrimary} strokeWidth={2.2} />
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
-  pill: { position: "absolute", top: 0, left: 0, width: PILL_W },
+  host: { position: "absolute", top: 0, left: 0 },
+  bubble: {
+    width: BUBBLE_SIZE,
+    height: BUBBLE_SIZE,
+    borderRadius: BUBBLE_SIZE / 2,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 10,
+  },
 });
