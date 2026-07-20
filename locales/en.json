@@ -692,6 +692,10 @@
     "reject": "Reject",
     "again": "Again",
     "thinking": "Thinking…",
-    "failed": "Couldn't generate a suggestion."
+    "failed": "Couldn't generate a suggestion.",
+    "showOriginal": "Show original text",
+    "hideOriginal": "Hide original text",
+    "done": "Done",
+    "cancel": "Cancel"
   }
 }
