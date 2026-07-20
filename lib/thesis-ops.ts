@@ -11,6 +11,7 @@ import {
   type DocumentDTO,
   type DocSectionDTO,
 } from "@/lib/api";
+import { setThesisFigureCaption } from "@/lib/thesis-suggest";
 
 // Serializable manual-edit operations on a live-.docx thesis.
 //
@@ -64,7 +65,13 @@ export type ThesisOp =
       height?: number;
     }
   | { type: "deleteBlocks"; indices: number[] }
-  | { type: "startOnNewPage"; indices: number[] };
+  | { type: "startOnNewPage"; indices: number[] }
+  // Set (or create) a figure/image block's caption (approve of an inline AI
+  // "add caption" action). `index` is the IMAGE block. The optimistic patch just
+  // sets that block's `caption` (no block count change); the server edits the
+  // caption paragraph after the image (or inserts one) and echoes the document, so
+  // the reconcile brings any inserted-block truth. Not folded with anything.
+  | { type: "setCaption"; index: number; caption: string };
 
 // ── Edit coalescing (fold rapid same-block typing into one op) ────────────────
 //
@@ -207,6 +214,12 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
       // Page breaks don't change the block list — nothing to patch (the PDF/Word
       // views pick the change up from the server reconcile).
       return blocks;
+    case "setCaption":
+      // Paint the caption on the image block immediately. If the server ends up
+      // inserting a new caption paragraph (the figure had none), its echoed
+      // document reconciles the extra block on drain — the optimistic view already
+      // shows the caption via the image block's `caption` field.
+      return blocks.map((b) => (b.index === op.index && b.kind === "image" ? { ...b, caption: op.caption } : b));
   }
 }
 
@@ -306,6 +319,8 @@ export async function executeOp(
       return deleteThesisBlocks(thesisId, op.indices);
     case "startOnNewPage":
       return startThesisBlocksOnNewPage(thesisId, op.indices);
+    case "setCaption":
+      return setThesisFigureCaption(thesisId, op.index, op.caption);
   }
 }
 

@@ -1,5 +1,12 @@
 import { fetch as expoFetch } from "expo/fetch";
 import { getAuthHeader } from "@/lib/api";
+import type { DocumentDTO, HistoryStateDTO } from "@/lib/api";
+
+// Which unified action a suggestion applies on approval: rewrite a paragraph, or
+// set a figure's caption. Mirrors the server's SuggestAction. New action kinds are
+// added here + on the server's actionFrame (the [[MODK_ACTION:x]] header) + in the
+// suggestion store's approve dispatch.
+export type SuggestAction = "rewrite" | "setCaption";
 
 // Ask the server to REWRITE a single paragraph per an instruction and return the
 // proposed text WITHOUT applying it. The caller (suggestion-store) surfaces the
@@ -52,11 +59,19 @@ function safeEscapeBoundary(s: string): number {
 const THINK_OPEN = "[[MODK_THINK]]";
 const THINK_CLOSE = "[[/MODK_THINK]]";
 
+// Action header the server prepends as the stream's FIRST bytes, e.g.
+// [[MODK_ACTION:setCaption]] — parsed + stripped here (mirrors the THINK framing).
+const ACTION_PREFIX = "[[MODK_ACTION:";
+const ACTION_RE = /^\[\[MODK_ACTION:(\w+)\]\]/;
+
 export interface SuggestStreamHandlers {
   /** A chunk of reasoning ("thinking") text. */
   onReasoning: (delta: string) => void;
-  /** A chunk of the proposed rewrite (the visible answer). */
+  /** A chunk of the proposed text (the visible answer — rewrite OR caption). */
   onProposed: (delta: string) => void;
+  /** The action the server chose (from the [[MODK_ACTION:x]] header), fired once
+   *  before any proposed/reasoning text. Absent header (older server) → rewrite. */
+  onAction?: (action: SuggestAction) => void;
 }
 
 // How many trailing chars of `s` to hold back because they may be the start of a
@@ -101,9 +116,28 @@ export async function proposeBlockEditStream(
   let pending = "";
   let mode: "answer" | "think" = "answer";
   let buf = ""; // unescaped text awaiting routing
+  // The [[MODK_ACTION:x]] header is stripped once, before any content routing. Held
+  // back until complete so a chunk-split header is never emitted as visible text.
+  let actionParsed = false;
 
   const pump = (chunk: string, isFinal: boolean) => {
     buf += chunk;
+    if (!actionParsed) {
+      const m = buf.match(ACTION_RE);
+      if (m) {
+        actionParsed = true;
+        handlers.onAction?.(m[1] === "setCaption" ? "setCaption" : "rewrite");
+        buf = buf.slice(m[0].length);
+      } else if (!isFinal && (ACTION_PREFIX.startsWith(buf) || buf.startsWith(ACTION_PREFIX))) {
+        // A partial header still arriving (buf is a prefix of the marker, or has the
+        // full prefix but not the closing "]]" yet) → wait for more bytes.
+        return;
+      } else {
+        // No action header (older server) or an incomplete one at stream end →
+        // default to rewrite and route buf as normal content.
+        actionParsed = true;
+      }
+    }
     while (true) {
       if (mode === "answer") {
         const ti = buf.indexOf(THINK_OPEN);
@@ -152,4 +186,30 @@ export async function proposeBlockEditStream(
   } finally {
     reader.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Set (or create) a figure/image block's caption — POST /api/thesis/:id/blocks/
+// :index/caption. Applies the approved `setCaption` action; the server edits the
+// caption body paragraph following the image (or inserts one) and echoes the
+// mutated document so the doc store reconciles. Lives here (not lib/api.ts)
+// alongside the suggestion streaming it belongs to. `index` is the IMAGE block's
+// engine index. Mirrors the plain-fetch + Supabase-bearer style of the other
+// live-docx edit calls.
+// ---------------------------------------------------------------------------
+export async function setThesisFigureCaption(
+  thesisId: string,
+  index: number,
+  caption: string,
+): Promise<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  const res = await fetch(
+    `${process.env.EXPO_PUBLIC_API_URL}/api/thesis/${thesisId}/blocks/${index}/caption`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+      body: JSON.stringify({ caption }),
+    },
+  );
+  if (!res.ok) throw new Error(`caption ${res.status}`);
+  return res.json();
 }
