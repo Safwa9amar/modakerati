@@ -1,10 +1,20 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, Image, StyleSheet, Platform, TextInput, type TextStyle } from "react-native";
+import Animated, {
+  interpolateColor,
+  runOnJS,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from "react-native-reanimated";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthHeader } from "@/hooks/useAuthHeader";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useSuggestionStore } from "@/stores/suggestion-store";
 import { thesisBlockImageUrl, type DocBlockDTO } from "@/lib/api";
 
 // Dark ink / muted ink for text rendered on the always-white PaperPage.
@@ -14,6 +24,19 @@ const BORDER = "#D8D8DE";
 
 // Heading level → text style. Level 0 is justified body; 1 is the largest.
 const HEADING_SIZE: Record<1 | 2 | 3 | 4, number> = { 1: 22, 2: 19, 3: 16, 4: 14 };
+
+// Fixed on-white ink for text on the always-white paper — shared with the
+// inline suggestion so its proposed text renders as document, not UI.
+export const PARAGRAPH_INK = INK;
+
+// The exact Text style DocBlock uses for a paragraph of this heading level
+// (level 0 = body). The inline suggestion renders the proposed text with this
+// so it reads as the document.
+export function paragraphTextStyle(level: number): TextStyle {
+  return level >= 1
+    ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(level, 4) as 1 | 2 | 3 | 4] }
+    : styles.body;
+}
 
 // Cap an inlined image's rendered height so a tall chart can't dominate the page.
 const MAX_IMAGE_HEIGHT = 360;
@@ -51,6 +74,9 @@ export function DocBlock({
   // Colocated with isSelected (not inside the paragraph branch below) so this hook
   // still runs unconditionally across the other/image/table early returns.
   const isEditing = useWorkspaceStore((s) => s.editingBlockIndex === block.index);
+  // True right after this block's suggestion was approved — plays a one-shot
+  // green settle flash on the (freshly patched) paragraph text below.
+  const justApplied = useSuggestionStore((s) => s.justApplied === block.index);
   const hi = colors.brandPrimary;
 
   if (block.kind === "other") {
@@ -242,21 +268,23 @@ export function DocBlock({
           textAlign={textAlign}
         />
       ) : (
-        <Text
-          {...(androidJustify ? { textBreakStrategy: "simple" as const } : null)}
-          style={[
-            isHeading
-              ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
-              : styles.body,
-            {
-              textAlign,
-              ...(androidJustify ? null : { writingDirection: dir }),
-            },
-            empty && styles.emptyPara,
-          ]}
-        >
-          {empty ? "·" : block.text}
-        </Text>
+        <SettleFlash active={justApplied}>
+          <Text
+            {...(androidJustify ? { textBreakStrategy: "simple" as const } : null)}
+            style={[
+              isHeading
+                ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
+                : styles.body,
+              {
+                textAlign,
+                ...(androidJustify ? null : { writingDirection: dir }),
+              },
+              empty && styles.emptyPara,
+            ]}
+          >
+            {empty ? "·" : block.text}
+          </Text>
+        </SettleFlash>
       )}
     </Pressable>
   );
@@ -538,7 +566,7 @@ const LTR_CHAR = /[A-Za-zÀ-ɏɐ-ʯ]/;
  * bidi heuristic browsers use for `dir="auto"`). Falls back to the thesis
  * default when the text has no strong character (digits/punctuation only).
  */
-function detectDir(text: string, fallbackRtl: boolean): "rtl" | "ltr" {
+export function detectDir(text: string, fallbackRtl: boolean): "rtl" | "ltr" {
   for (const ch of text) {
     if (RTL_CHAR.test(ch)) return "rtl";
     if (LTR_CHAR.test(ch)) return "ltr";
@@ -549,6 +577,35 @@ function detectDir(text: string, fallbackRtl: boolean): "rtl" | "ltr" {
 function dirStyle(text: string, fallbackRtl: boolean) {
   const dir = detectDir(text, fallbackRtl);
   return { textAlign: dir === "rtl" ? "right" : "left", writingDirection: dir } as const;
+}
+
+// One-shot green settle flash behind a freshly-approved paragraph: "the new
+// text became the document". Clears the store marker when done (or instantly
+// under reduce-motion).
+function SettleFlash({ active, children }: { active: boolean; children: React.ReactNode }) {
+  const reduce = useReducedMotion();
+  const v = useSharedValue(0);
+  useEffect(() => {
+    if (!active) return;
+    const clear = () => useSuggestionStore.getState().clearApplied();
+    if (reduce) {
+      clear();
+      return;
+    }
+    v.value = 1;
+    v.value = withDelay(
+      150,
+      withTiming(0, { duration: 600 }, (finished) => {
+        if (finished) runOnJS(clear)();
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+  const st = useAnimatedStyle(() => ({
+    borderRadius: 6,
+    backgroundColor: interpolateColor(v.value, [0, 1], ["rgba(34,192,122,0)", "rgba(34,192,122,0.22)"]),
+  }));
+  return <Animated.View style={st}>{children}</Animated.View>;
 }
 
 const styles = StyleSheet.create({
