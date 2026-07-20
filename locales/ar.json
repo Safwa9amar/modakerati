@@ -583,7 +583,8 @@
     "syncSaved": "تم الحفظ ✓",
     "syncSyncing": "جارٍ المزامنة…",
     "syncOffline": "غير متصل · محفوظ محليًا",
-    "progressSummary": "{{words}} كلمة · {{pages}} صفحة · {{sections}} قسم"
+    "progressSummary": "{{words}} كلمة · {{pages}} صفحة · {{sections}} قسم",
+    "milestoneWords": "🎉 {{count}} كلمة!"
   },
   "history": {
     "title": "سجل المستند",

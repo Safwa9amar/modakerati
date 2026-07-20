@@ -35,7 +35,8 @@ import { BlockComposer, BLOCK_COMPOSER_MIN_INSET } from "@/components/workspace/
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
 import { HeaderMenuButton } from "@/components/workspace/WorkspaceHeaderMenu";
 import { SyncStatusChip } from "@/components/workspace/SyncStatusChip";
-import { DocProgress } from "@/components/workspace/DocProgress";
+import { DocProgress, countWords } from "@/components/workspace/DocProgress";
+import { MilestoneToast } from "@/components/workspace/MilestoneToast";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
@@ -54,6 +55,9 @@ import {
 // Ink colors retained by the workspace stylesheet.
 const INK = "#1A1A1A";
 const MUTED = "#777777";
+
+// Round word-count milestones celebrated (once each) as the student writes.
+const WORD_MILESTONES = [500, 1000, 2500, 5000, 10000];
 
 // Flat text of a block for tap→index matching in the docx-preview fallback view.
 function blockTapText(b: DocBlockDTO): string {
@@ -296,6 +300,42 @@ export default function ThesisWorkspaceScreen() {
     }
     return r > l;
   }, [liveDoc]);
+
+  // Live word count (paragraph prose only). Drives the milestone celebrations.
+  const wordCount = useMemo(() => (liveDoc ? countWords(liveDoc.blocks) : 0), [liveDoc]);
+
+  // Word-count milestone celebrations. `celebratedRef` holds the highest
+  // threshold already accounted for this session; the toast fires once per newly
+  // crossed threshold. A short grace window after (re)load absorbs the initial
+  // hydrate→revalidate settle so opening a long thesis never fires a celebration —
+  // only real growth (typing or an AI turn) during the session does.
+  const celebratedRef = useRef<number | null>(null);
+  const settledRef = useRef(false);
+  const [milestone, setMilestone] = useState<number | null>(null);
+  useEffect(() => {
+    celebratedRef.current = null;
+    settledRef.current = false;
+    setMilestone(null);
+    const id = setTimeout(() => {
+      settledRef.current = true;
+    }, 3000);
+    return () => clearTimeout(id);
+  }, [thesisId]);
+  useEffect(() => {
+    if (!isLiveDoc) return;
+    const passed = WORD_MILESTONES.filter((m) => wordCount >= m).pop() ?? 0;
+    // Grace window / first measurement → set the baseline silently.
+    if (!settledRef.current || celebratedRef.current === null) {
+      celebratedRef.current = Math.max(celebratedRef.current ?? 0, passed);
+      return;
+    }
+    const crossed = WORD_MILESTONES.filter((m) => m > (celebratedRef.current ?? 0) && wordCount >= m);
+    if (crossed.length > 0) {
+      const top = crossed[crossed.length - 1];
+      celebratedRef.current = top;
+      setMilestone(top);
+    }
+  }, [wordCount, isLiveDoc]);
 
   // Refresh the document when a turn finishes (generating true → false): the AI
   // committed its block edits to the .docx during the turn, so re-fetching gives
@@ -610,6 +650,14 @@ export default function ThesisWorkspaceScreen() {
         </View>
       </KeyboardAvoidingView>
 
+      {/* Word-count milestone celebration — floats over everything, never blocks
+          touches; keyed on the count so each crossing replays the animation. */}
+      {milestone != null && (
+        <View pointerEvents="box-none" style={[styles.milestoneHost, { top: insets.top + 64 }]}>
+          <MilestoneToast key={milestone} count={milestone} onDone={() => setMilestone(null)} />
+        </View>
+      )}
+
       {/* Sources sheet — self-hides when closed (conditional unmount). */}
       <SourcesSheet thesisId={thesisId} />
 
@@ -656,6 +704,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  // Full-width, centered overlay host for the milestone toast (top offset applied
+  // inline from the safe-area inset). box-none so only the pill itself is a target.
+  milestoneHost: { position: "absolute", left: 0, right: 0, alignItems: "center", zIndex: 100 },
   // Each live-doc view is an absolute layer filling the doc area; they overlap so
   // switching only toggles which is on top + interactive (all stay mounted → each
   // keeps its scroll). Inactive layers sit behind at opacity 0 (the active layer is

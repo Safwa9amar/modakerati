@@ -583,7 +583,8 @@
     "syncSaved": "Saved ✓",
     "syncSyncing": "Syncing…",
     "syncOffline": "Offline · saved locally",
-    "progressSummary": "{{words}} words · {{pages}} pages · {{sections}} sections"
+    "progressSummary": "{{words}} words · {{pages}} pages · {{sections}} sections",
+    "milestoneWords": "🎉 {{count}} words!"
   },
   "history": {
     "title": "Document history",
