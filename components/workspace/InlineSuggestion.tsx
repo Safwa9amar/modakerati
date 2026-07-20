@@ -15,7 +15,6 @@ import Animated, {
   FadeInDown,
   FadeOut,
   LinearTransition,
-  ZoomIn,
   ZoomOut,
   cancelAnimation,
   interpolate,
@@ -150,7 +149,12 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
       : { borderLeftWidth: 3, borderLeftColor: EDGE_GREEN, paddingLeft: 8 };
 
   const layout = reduce ? undefined : LinearTransition.springify().damping(18).stiffness(180);
-  const enter = reduce ? FadeIn.duration(120) : FadeInDown.springify().damping(16);
+  // Entrance is a calm ease-out fade+rise, NOT a spring — the spring's
+  // overshoot read as an annoying bounce when the thinking state appeared
+  // (user feedback on device).
+  const enter = reduce
+    ? FadeIn.duration(120)
+    : FadeInDown.duration(220).easing(Easing.out(Easing.cubic));
 
   // ----- header: instruction chip (+ live thinking trace when it exists) -----
   const header = (
@@ -188,9 +192,10 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
           {!reduce && <SweepBand />}
         </View>
         {/* Thinking capsule anchored at the pill position — Again's pill morphs
-            into this (ZoomIn) and it pops back out when the rerun resolves. */}
+            into this and it fades back out when the rerun resolves. Plain
+            eased fade — a springy zoom bounced annoyingly (device feedback). */}
         <Animated.View
-          entering={reduce ? FadeIn.duration(100) : ZoomIn.springify().damping(14)}
+          entering={FadeIn.duration(150).easing(Easing.out(Easing.quad))}
           exiting={FadeOut.duration(120)}
           style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}
         >
