@@ -7,7 +7,6 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
-import { useThemeColors } from "@/hooks/useThemeColors";
 
 // Grey placeholder tint for the "paper" skeleton bars. Kept independent of the
 // theme's border tokens so the bars read as content on the always-white paper
@@ -22,7 +21,6 @@ const BAR = "#E7E7EE";
  * animation, so it stays cheap and safe.
  */
 export function DocSkeleton() {
-  const colors = useThemeColors();
   // One shared pulse drives the whole card via a single wrapping Animated.View,
   // so we never share an animated style across multiple nodes.
   const pulse = useSharedValue(0.6);
@@ -41,7 +39,7 @@ export function DocSkeleton() {
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
   return (
-    <View style={[styles.host, { backgroundColor: colors.bgSurface }]}>
+    <View style={styles.host}>
       <View style={styles.paper}>
         <Animated.View style={pulseStyle}>
           <View style={styles.title} />
@@ -63,17 +61,14 @@ export function DocSkeleton() {
 }
 
 const styles = StyleSheet.create({
-  host: { flex: 1, paddingHorizontal: 16, paddingTop: 24 },
+  // Edge-to-edge white paper that fills the whole doc area (matches the loaded
+  // Writer), so the skeleton takes the rest of the container — no dark gap below.
+  host: { flex: 1, paddingTop: 8, backgroundColor: "#FFFFFF" },
   paper: {
+    flex: 1,
     backgroundColor: "#FFFFFF",
     borderRadius: 6,
     padding: 20,
-    minHeight: 320,
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
   },
   title: { height: 20, width: "58%", borderRadius: 5, backgroundColor: BAR },
   line: { height: 12, borderRadius: 4, backgroundColor: BAR, marginBottom: 10 },

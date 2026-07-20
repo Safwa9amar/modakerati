@@ -84,6 +84,9 @@ export default function ThesisWorkspaceScreen() {
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
   const isGenerating = useChatStore((s) => s.isGenerating);
   const activePanel = useWorkspaceStore((s) => s.activePanel);
+  // Pending "scroll the active doc view to this block" request (set by the outline
+  // navigator / a cold deep-link). Passed to whichever doc layer is on top.
+  const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
   // The composer (BlockComposer) measures itself and writes its rendered height
   // here; the document area reserves exactly that many px at the bottom so content
   // always clears whichever composer surface is up — the idle AI bar, the floating
@@ -279,6 +282,20 @@ export default function ThesisWorkspaceScreen() {
     const resolved = tapBlocks.find((b) => b.index === idx)?.text ?? existing?.text ?? "";
     store.selectBlock(idx, resolved);
   }, [blockIndex, tapBlocks]);
+
+  // Cold deep-link (opened from the chat tab / detail outline with a blockIndex):
+  // once the document has loaded, ask the active doc layer to scroll to it. Fires
+  // once per blockIndex value — not on every tapBlocks change. In-workspace outline
+  // taps set the scroll request directly (no navigation), so they skip this.
+  const coldScrolledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (blockIndex == null || !isLiveDoc) return;
+    if (coldScrolledRef.current === blockIndex) return;
+    const idx = Number(blockIndex);
+    if (!Number.isFinite(idx)) return;
+    coldScrolledRef.current = blockIndex;
+    useWorkspaceStore.getState().requestScrollToBlock(idx);
+  }, [blockIndex, isLiveDoc]);
 
   // Base text direction for rendering. The thesis `language` field is unreliable
   // (imports default to "fr" even for Arabic docs), so detect from the actual
@@ -515,7 +532,9 @@ export default function ThesisWorkspaceScreen() {
       {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}
       {liveDoc && <PreviewBar />}
 
-      <Animated.View style={[{ flex: 1 }, docAreaStyle]}>
+      {/* White base so the composer's reserved bottom clearance (and the small top
+          gap above the paper) render as paper, not the dark app background. */}
+      <Animated.View style={[{ flex: 1, backgroundColor: "#FFFFFF" }, docAreaStyle]}>
         {doc === undefined ? (
           /* Document model not resolved yet — avoid flashing the legacy render
              (migrated theses can still have section rows) before we know mode.
@@ -562,11 +581,7 @@ export default function ThesisWorkspaceScreen() {
                   thesisId={thesisId}
                   blocks={tapBlocks}
                   selectedIndices={selectedIndices}
-                  scrollToIndex={
-                    blockIndex != null && Number.isFinite(Number(blockIndex))
-                      ? Number(blockIndex)
-                      : undefined
-                  }
+                  scrollTarget={scrollTarget}
                   rtl={docRtl}
                   onSelect={(index, text) => {
                     // Tap: toggle in multi mode, else single-select (replace).
@@ -612,6 +627,7 @@ export default function ThesisWorkspaceScreen() {
                 rtl={docRtl}
                 paddingBottom={16}
                 version={docTick}
+                scrollTarget={scrollTarget}
               />
             </View>
 
