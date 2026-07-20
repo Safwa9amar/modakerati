@@ -459,6 +459,18 @@ export function BlockContextBar({
     disabled && styles.chipDim,
   ];
 
+  const alignLabel: Record<Align, string> = {
+    left: t("blockBar.alignLeft", { defaultValue: "Left" }),
+    center: t("blockBar.alignCenter", { defaultValue: "Center" }),
+    right: t("blockBar.alignRight", { defaultValue: "Right" }),
+    justify: t("blockBar.alignJustify", { defaultValue: "Justify" }),
+  };
+
+  const directionLabel: Record<"rtl" | "ltr", string> = {
+    rtl: t("blockBar.dirRtl", { defaultValue: "Right to left" }),
+    ltr: t("blockBar.dirLtr", { defaultValue: "Left to right" }),
+  };
+
   const renderExpansion = () => {
     if (!activeCategory) return null;
     let body: React.ReactNode = null;
@@ -491,7 +503,7 @@ export function BlockContextBar({
             onPress={() => apply({ alignment: value })}
             disabled={!canFormat}
             active={active}
-            accessibilityLabel={value}
+            accessibilityLabel={alignLabel[value]}
             style={optPill(active, !canFormat)}
           >
             <Icon size={16} color={active ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
@@ -508,7 +520,7 @@ export function BlockContextBar({
             onPress={() => apply({ direction: value })}
             disabled={!canFormat}
             active={active}
-            accessibilityLabel={value}
+            accessibilityLabel={directionLabel[value]}
             style={optPill(active, !canFormat)}
           >
             <Icon size={16} color={active ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
@@ -518,10 +530,22 @@ export function BlockContextBar({
     } else {
       // list / color — Phase 2 (DTO can't carry these yet): dimmed options + caption.
       const items = activeCategory === "list" ? ["•", "1.", "☑"] : ["A", "A", "A"];
+      const phLabels =
+        activeCategory === "list"
+          ? [
+              t("blockBar.listBulleted", { defaultValue: "Bulleted list" }),
+              t("blockBar.listNumbered", { defaultValue: "Numbered list" }),
+              t("blockBar.listCheck", { defaultValue: "Checklist" }),
+            ]
+          : [
+              t("blockBar.colorText", { defaultValue: "Text color" }),
+              t("blockBar.colorHighlight", { defaultValue: "Highlight color" }),
+              t("blockBar.colorAccent", { defaultValue: "Accent color" }),
+            ];
       body = (
         <>
           {items.map((label, i) => (
-            <AnimatedChip key={i} enterIndex={i} onPress={soon} accessibilityLabel={label} style={optPill(false, true)}>
+            <AnimatedChip key={i} enterIndex={i} onPress={soon} accessibilityLabel={phLabels[i]} style={optPill(false, true)}>
               <Text style={[styles.optText, { color: colors.textPlaceholder }]}>{label}</Text>
             </AnimatedChip>
           ))}
@@ -554,6 +578,8 @@ export function BlockContextBar({
     // Compact floating pill (keyboard closed).
     return (
       <View style={styles.pillWrap} pointerEvents="box-none">
+        {/* Must stay the FIRST child in both layout branches — the same tree position
+            keeps the expansion row mounted across pill/bar form switches (no spurious re-entering). */}
         {renderExpansion()}
         <View style={[styles.pill, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle, flexDirection: rtl ? "row-reverse" : "row" }]}>
           <ScrollView
@@ -587,6 +613,8 @@ export function BlockContextBar({
         },
       ]}
     >
+      {/* Must stay the FIRST child in both layout branches — the same tree position
+          keeps the expansion row mounted across pill/bar form switches (no spurious re-entering). */}
       {renderExpansion()}
       <View style={[styles.fullRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
         <ScrollView
