@@ -363,20 +363,26 @@ function SweepBand() {
   );
 }
 
-// Solid primary pill action (Approve / Done / Again-on-error).
+// Pill actions: the Pressable is a BARE hit-area and all visual styling lives
+// on a plain inner View. On this app's New-Arch iOS build, styles passed to
+// Pressable via the ({pressed}) => [...] function form intermittently fail to
+// apply AT ALL (observed on device: no background, no border, no
+// flexDirection — the Approve button rendered as a bare column of white icon +
+// label spilling out of the pill). Plain Views always paint, so the visuals
+// are safe here; press feedback is intentionally omitted rather than routed
+// back through the broken style-function path.
+
+// Primary pill action (Approve / Done / Again-on-error): tinted, bordered,
+// labeled — the one action that must always dominate and never vanish.
 function PillPrimary({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress: () => void }) {
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      hitSlop={6}
-      style={({ pressed }) => [styles.primaryBtn, { opacity: pressed ? 0.75 : 1 }]}
-    >
-      {icon}
-      <Text numberOfLines={1} style={styles.primaryLabel}>
-        {label}
-      </Text>
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={6}>
+      <View style={styles.primaryBtn}>
+        {icon}
+        <Text numberOfLines={1} style={styles.primaryLabel}>
+          {label}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -385,14 +391,8 @@ function PillPrimary({ icon, label, onPress }: { icon: React.ReactNode; label: s
 // target via hitSlop, localized accessibilityLabel.
 function PillIcon({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress: () => void }) {
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      hitSlop={10}
-      style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.6 : 1 }]}
-    >
-      {icon}
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={10}>
+      <View style={styles.iconBtn}>{icon}</View>
     </Pressable>
   );
 }
