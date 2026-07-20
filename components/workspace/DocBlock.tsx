@@ -32,6 +32,7 @@ export function DocBlock({
   rtl,
   thesisId,
   version,
+  onLongPressDrag,
 }: {
   block: DocBlockDTO;
   rtl: boolean;
@@ -39,6 +40,9 @@ export function DocBlock({
   // in the block DTO). `version` busts the image cache after an edit.
   thesisId: string;
   version?: number;
+  // Long-press a block to lift it for drag-reorder (replaces the visible grip
+  // handle). When provided it supersedes the long-press multi-select.
+  onLongPressDrag?: () => void;
 }) {
   const colors = useThemeColors();
   // Membership test against the multi-selection set — a boolean primitive, so this
@@ -71,7 +75,7 @@ export function DocBlock({
 
     const figText = caption || "figure";
     const onSelect = () => pickBlock(block.index, figText);
-    const onLong = () => longPickBlock(block.index, figText);
+    const onLong = onLongPressDrag ?? (() => longPickBlock(block.index, figText));
     const ratio =
       block.width && block.height && block.height > 0 ? block.width / block.height : undefined;
 
@@ -114,7 +118,7 @@ export function DocBlock({
     return (
       <Pressable
         onPress={() => pickBlock(block.index, tableToText(block.rows))}
-        onLongPress={() => longPickBlock(block.index, tableToText(block.rows))}
+        onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, tableToText(block.rows)))}
         style={[
           styles.tableWrap,
           { borderColor: isSelected ? hi : BORDER },
@@ -192,7 +196,7 @@ export function DocBlock({
   return (
     <Pressable
       onPress={() => enterOrSelect(block.index, block.text)}
-      onLongPress={() => longPickBlock(block.index, block.text)}
+      onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, block.text))}
       style={[
         styles.paraWrap,
         // While this paragraph is being inline-edited the keyboard is up and the

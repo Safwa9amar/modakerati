@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { View, Pressable, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import ReorderableList, {
   useReorderableDrag,
   reorderItems,
   type ReorderableListReorderEvent,
 } from "react-native-reorderable-list";
-import { GripVertical } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { DocBlock } from "./DocBlock";
 import { BlockToolbarPill } from "./BlockToolbarPill";
@@ -21,7 +20,6 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
-import { useThemeColors } from "@/hooks/useThemeColors";
 
 // One outline row: a drag handle (long-press to lift) + the block. The handle
 // owns the drag so DocBlock keeps its tap-to-select / long-press-multi-select.
@@ -43,7 +41,6 @@ function Row({
   version?: number;
   markerLabel?: string;
 }) {
-  const colors = useThemeColors();
   const drag = useReorderableDrag();
   // Focus / typewriter mode: dim every block except the one being worked on.
   // Select primitives individually (store convention — an object/array literal
@@ -76,15 +73,10 @@ function Row({
   return (
     <View>
       {markerLabel != null && <OutlineSectionMarker label={markerLabel} rtl={rtl} />}
-      <View style={[styles.row, { flexDirection: rtl ? "row-reverse" : "row" }, dimmed && styles.dimmed]}>
-        <Pressable onLongPress={drag} delayLongPress={180} hitSlop={6} style={styles.handle}>
-          <GripVertical size={18} color={colors.textPlaceholder} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <DocBlock block={block} rtl={rtl} thesisId={thesisId} version={version} />
-          <InlineSuggestion thesisId={thesisId} index={block.index} rtl={rtl} />
-          {showPill && <BlockToolbarPill thesisId={thesisId} blocks={blocks} rtl={rtl} />}
-        </View>
+      <View style={[styles.row, dimmed && styles.dimmed]}>
+        <DocBlock block={block} rtl={rtl} thesisId={thesisId} version={version} onLongPressDrag={drag} />
+        <InlineSuggestion thesisId={thesisId} index={block.index} rtl={rtl} />
+        {showPill && <BlockToolbarPill thesisId={thesisId} blocks={blocks} rtl={rtl} />}
       </View>
     </View>
   );
@@ -184,10 +176,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   content: { padding: 12 },
-  row: { alignItems: "flex-start", gap: 2 },
+  // Block occupies the full row now that the drag grip is gone (long-press the
+  // block itself to lift it for reorder).
+  row: {},
   // Focus-mode dim for non-active blocks (pure styling; no data change).
   dimmed: { opacity: 0.35 },
-  handle: { paddingTop: 12, paddingHorizontal: 2 },
   // Zones bleed to the card edges through the content's 12px padding.
   bleedTop: { marginHorizontal: -12, marginTop: -12, marginBottom: 10 },
   bleedBottom: { marginHorizontal: -12, marginBottom: -12, marginTop: 10 },
