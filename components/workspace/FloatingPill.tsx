@@ -151,6 +151,16 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     if (count > 0 && !visible) useFloatingPillStore.getState().show();
   }, [count, visible]);
 
+  // A selection CHANGE closes the inline Ask input. The input is per-target: a
+  // stale `inputOpen` from an unsent ask would otherwise make the next block's
+  // expanded bubble render the AI dock instead of that block's own tool pill
+  // (user feedback: block selection must always get its text/image/table tools).
+  useEffect(() => {
+    if (useFloatingPillStore.getState().inputOpen) {
+      useFloatingPillStore.getState().setInputOpen(false);
+    }
+  }, [selectedBlocks]);
+
   // ── Drag position ──
   const defaultX = (width - PILL_W) / 2;
   const defaultY = height - insets.bottom - PILL_H - 120;
@@ -321,7 +331,8 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           {expanded ? (
             count === 0 || inputOpen ? (
               <View style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}>
-                <AIDock thesisId={thesisId} rtl={rtl} scopeLabel={scopeLabel} scopeIndices={indices} />
+                {/* AIDock lays out by APP language (useRTL inside), not thesis rtl. */}
+                <AIDock thesisId={thesisId} scopeLabel={scopeLabel} scopeIndices={indices} />
               </View>
             ) : (
               <BlockContextBar

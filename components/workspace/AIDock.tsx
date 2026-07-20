@@ -11,6 +11,7 @@ import Animated, {
 import { ChevronsDownUp, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Send, type LucideIcon } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useRTL } from "@/hooks/useRTL";
 import { useChatStore } from "@/stores/chat-store";
 import { useNotificationStore } from "@/stores/notification-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
@@ -20,7 +21,6 @@ import { AnimatedChip } from "./AnimatedChip";
 
 interface Props {
   thesisId: string;
-  rtl: boolean;
   /** Scope pill text shown beside the on-demand Ask input (whole memoir / selected block). */
   scopeLabel: string;
   /** Doc-block indices the fixed/suggested chips and the Ask input target. Empty → whole memoir. */
@@ -61,9 +61,12 @@ function ShimmerBar({ color }: { color: string }) {
  *      text + send) once tapped — the store's `inputOpen` drives which form shows,
  *      so the pill's own ✦ can also open it in block mode.
  */
-export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
+export function AIDock({ thesisId, scopeLabel, scopeIndices }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  // The dock is APP UI (labels are in the UI locale), so its layout follows the
+  // app language's direction — NOT the thesis document's (user feedback).
+  const { flexDirection, textAlign } = useRTL();
   const isGenerating = useChatStore((s) => s.isGenerating);
   const inputOpen = useFloatingPillStore((s) => s.inputOpen);
   // The "AI Suggestions" setting gates the Suggested section entirely: off → no
@@ -173,7 +176,7 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
     <View style={styles.container}>
       {/* 1. Fixed quick-action chips — always present, wrap onto a 2nd line if needed.
              Leading collapse chevron mirrors the formatting pill's: back to the bubble. */}
-      <View style={[styles.chipsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+      <View style={[styles.chipsRow, { flexDirection }]}>
         <AnimatedChip
           onPress={() => {
             useFloatingPillStore.getState().setInputOpen(false);
@@ -194,7 +197,7 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
             enterIndex={i + 1}
             style={[
               styles.actionChip,
-              { flexDirection: rtl ? "row-reverse" : "row", borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
+              { flexDirection, borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
               isGenerating && styles.dim,
             ]}
           >
@@ -213,12 +216,12 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
             {t("aiDock.suggested", { defaultValue: "Suggested" })}
           </Text>
           {loadingSuggestions ? (
-            <View style={[styles.chipsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+            <View style={[styles.chipsRow, { flexDirection }]}>
               <ShimmerBar color={colors.bgCard} />
               <ShimmerBar color={colors.bgCard} />
             </View>
           ) : (
-            <View style={[styles.chipsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+            <View style={[styles.chipsRow, { flexDirection }]}>
               {suggestions.map((s, i) => (
                 <AnimatedChip
                   key={`sugg-${i}`}
@@ -254,7 +257,7 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
             enterIndex={quickActions.length + suggestions.length + 1}
             style={[
               styles.askChip,
-              { flexDirection: rtl ? "row-reverse" : "row", backgroundColor: colors.brandPrimary },
+              { flexDirection, backgroundColor: colors.brandPrimary },
               isGenerating && styles.dim,
             ]}
           >
@@ -264,7 +267,7 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
             </Text>
           </AnimatedChip>
         ) : (
-          <View style={[styles.askRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+          <View style={[styles.askRow, { flexDirection }]}>
             <View style={[styles.scopeTag, { backgroundColor: colors.brandPrimary + "1A" }]}>
               <Text numberOfLines={1} style={[styles.scopeTagText, { color: colors.brandPrimary }]}>
                 {scopeLabel}
@@ -278,7 +281,7 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
               placeholderTextColor={colors.textPlaceholder}
               style={[
                 styles.askInput,
-                { color: colors.textPrimary, backgroundColor: colors.bgCard, textAlign: rtl ? "right" : "left" },
+                { color: colors.textPrimary, backgroundColor: colors.bgCard, textAlign },
               ]}
               multiline={false}
               returnKeyType="send"
