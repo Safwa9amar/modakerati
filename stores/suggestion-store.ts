@@ -30,6 +30,9 @@ export interface PendingSuggestion {
 
 interface SuggestionState {
   byIndex: Record<number, PendingSuggestion>;
+  // Block index whose suggestion was JUST approved — the returning DocBlock
+  // reads this to play a one-shot green settle flash, then clears it.
+  justApplied: number | null;
   // Kick off a proposal for `index`: mark loading, call the server, then set the
   // proposed text (ready) or mark error. `original` is kept from the arg.
   request: (thesisId: string, index: number, original: string, instruction: string) => Promise<void>;
@@ -41,6 +44,8 @@ interface SuggestionState {
   again: (thesisId: string, index: number) => Promise<void>;
   // Edit the proposed text in place (inline editing of the suggestion).
   setProposed: (index: number, text: string) => void;
+  // Clear the settle-flash marker (called by the flash animation when done).
+  clearApplied: () => void;
   // Drop every pending suggestion (e.g. leaving the workspace).
   clear: () => void;
 }
@@ -56,6 +61,7 @@ function without(byIndex: Record<number, PendingSuggestion>, index: number): Rec
 
 export const useSuggestionStore = create<SuggestionState>((set, get) => ({
   byIndex: {},
+  justApplied: null,
 
   request: async (thesisId, index, original, instruction) => {
     set((s) => ({
@@ -112,7 +118,7 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
     const cur = get().byIndex[index];
     if (!cur || cur.status !== "ready") return;
     void useThesisDocStore.getState().mutate(thesisId, { type: "editText", index, text: cur.proposed });
-    set((s) => ({ byIndex: without(s.byIndex, index) }));
+    set((s) => ({ byIndex: without(s.byIndex, index), justApplied: index }));
   },
 
   reject: (index) => set((s) => ({ byIndex: without(s.byIndex, index) })),
@@ -130,5 +136,7 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
       return { byIndex: { ...s.byIndex, [index]: { ...cur, proposed: text } } };
     }),
 
-  clear: () => set({ byIndex: {} }),
+  clearApplied: () => set({ justApplied: null }),
+
+  clear: () => set({ byIndex: {}, justApplied: null }),
 }));
