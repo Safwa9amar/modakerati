@@ -582,7 +582,8 @@
     "pdfUnavailable": "معاينة PDF غير متاحة لهذا المستند.",
     "syncSaved": "تم الحفظ ✓",
     "syncSyncing": "جارٍ المزامنة…",
-    "syncOffline": "غير متصل · محفوظ محليًا"
+    "syncOffline": "غير متصل · محفوظ محليًا",
+    "progressSummary": "{{words}} كلمة · {{pages}} صفحة · {{sections}} قسم"
   },
   "history": {
     "title": "سجل المستند",

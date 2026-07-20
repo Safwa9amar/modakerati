@@ -582,7 +582,8 @@
     "pdfUnavailable": "PDF preview isn't available for this document.",
     "syncSaved": "Saved ✓",
     "syncSyncing": "Syncing…",
-    "syncOffline": "Offline · saved locally"
+    "syncOffline": "Offline · saved locally",
+    "progressSummary": "{{words}} words · {{pages}} pages · {{sections}} sections"
   },
   "history": {
     "title": "Document history",

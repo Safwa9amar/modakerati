@@ -35,6 +35,7 @@ import { BlockComposer, BLOCK_COMPOSER_MIN_INSET } from "@/components/workspace/
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
 import { HeaderMenuButton } from "@/components/workspace/WorkspaceHeaderMenu";
 import { SyncStatusChip } from "@/components/workspace/SyncStatusChip";
+import { DocProgress } from "@/components/workspace/DocProgress";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
 import { SourcesSheet } from "@/components/workspace/SourcesSheet";
 import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
@@ -444,7 +445,7 @@ export default function ThesisWorkspaceScreen() {
           Thin, themed, live-docs only. Sits above the preview toolbar. */}
       {liveDoc && (
         <View style={[styles.statusStrip, { borderBottomColor: colors.borderDefault }]}>
-          <View style={styles.statusStripSpacer} />
+          <DocProgress blocks={liveDoc.blocks} />
           <SyncStatusChip thesisId={thesisId} />
         </View>
       )}
@@ -655,7 +656,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  statusStripSpacer: { flex: 1 },
   // Each live-doc view is an absolute layer filling the doc area; they overlap so
   // switching only toggles which is on top + interactive (all stay mounted → each
   // keeps its scroll). Inactive layers sit behind at opacity 0 (the active layer is

@@ -582,7 +582,8 @@
     "pdfUnavailable": "L'aperçu PDF n'est pas disponible pour ce document.",
     "syncSaved": "Enregistré ✓",
     "syncSyncing": "Synchronisation…",
-    "syncOffline": "Hors ligne · enregistré localement"
+    "syncOffline": "Hors ligne · enregistré localement",
+    "progressSummary": "{{words}} mots · {{pages}} pages · {{sections}} sections"
   },
   "history": {
     "title": "Historique du document",
