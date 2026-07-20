@@ -155,7 +155,10 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         // only comes up for paragraph editing / the Ask-AI input, so this only
         // triggers a real dismiss. Never while Ask-AI is up (it needs the target).
         const ws = useWorkspaceStore.getState();
-        if (ws.selectedBlocks.length > 0 && !ws.askAiOpen) ws.clearSelection();
+        // Also never while the bubble's dock inline input is up — its keyboard
+        // toggles too and it still needs the block target (mirrors askAiOpen above).
+        if (ws.selectedBlocks.length > 0 && !ws.askAiOpen && !useFloatingPillStore.getState().inputOpen)
+          ws.clearSelection();
       },
     );
     return () => {
@@ -378,7 +381,16 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         blockCount={blocks.length}
         keyboardOpen
         scopeLabel={blockScopeLabel}
-        onAskAI={() => useWorkspaceStore.getState().setAskAiOpen(true)}
+        onAskAI={() => {
+          // Bubble alive → the dock's inline input owns AI asking (block-scoped).
+          // Bubble dismissed → legacy fallback input as before.
+          if (useFloatingPillStore.getState().visible) {
+            useFloatingPillStore.getState().setExpanded(true);
+            useFloatingPillStore.getState().setInputOpen(true);
+          } else {
+            useWorkspaceStore.getState().setAskAiOpen(true);
+          }
+        }}
         bottomInset={insets.bottom}
       />
     );

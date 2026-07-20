@@ -12,6 +12,7 @@ import { FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Send, type
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useChatStore } from "@/stores/chat-store";
+import { useNotificationStore } from "@/stores/notification-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { sendMessageToAI } from "@/lib/ai-service";
 import { getComposerSuggestions, type ComposerSuggestion } from "@/lib/api";
@@ -65,6 +66,10 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
   const colors = useThemeColors();
   const isGenerating = useChatStore((s) => s.isGenerating);
   const inputOpen = useFloatingPillStore((s) => s.inputOpen);
+  // The "AI Suggestions" setting gates the Suggested section entirely: off → no
+  // fetch and no chips. Subscribed (not read once) so toggling it in Settings
+  // clears/restores the dock's chips live, mirroring useComposerSuggestions.
+  const aiSuggestionsEnabled = useNotificationStore((s) => s.preferences.aiSuggestions);
 
   const [suggestions, setSuggestions] = useState<ComposerSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
@@ -72,9 +77,19 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
 
   const scopeKey = scopeIndices.join(",");
 
-  // Fetch on mount + whenever the scope identity changes; abort a superseded
-  // fetch (context moved on) and on unmount. Empty/failure → [] (hides the section).
+  // Fetch on mount + whenever the scope identity or the preference changes; abort
+  // a superseded fetch (context moved on) and on unmount. Empty/failure → []
+  // (hides the section). `cancelled` guards the async callbacks too, so a response
+  // that resolves after the scope/preference already moved on can't overwrite
+  // fresher chips (mirrors useComposerSuggestions' pattern).
   useEffect(() => {
+    // Off by user preference → clear any stale chips and never fetch.
+    if (!aiSuggestionsEnabled) {
+      setSuggestions([]);
+      setLoadingSuggestions(false);
+      return;
+    }
+    let cancelled = false;
     const controller = new AbortController();
     setLoadingSuggestions(true);
     getComposerSuggestions(
@@ -85,14 +100,23 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
       },
       controller.signal,
     )
-      .then((result) => setSuggestions(result))
-      .catch(() => setSuggestions([]))
-      .finally(() => setLoadingSuggestions(false));
-    return () => controller.abort();
+      .then((result) => {
+        if (!cancelled) setSuggestions(result);
+      })
+      .catch(() => {
+        if (!cancelled) setSuggestions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSuggestions(false);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
     // scopeKey is the primitive identity of scopeIndices — see selectionKey in
     // useComposerSuggestions for the same pattern.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thesisId, scopeKey]);
+  }, [thesisId, scopeKey, aiSuggestionsEnabled]);
 
   const quickActions: QuickAction[] = [
     {
@@ -142,7 +166,7 @@ export function AIDock({ thesisId, rtl, scopeLabel, scopeIndices }: Props) {
     Keyboard.dismiss();
   };
 
-  const showSuggested = loadingSuggestions || suggestions.length > 0;
+  const showSuggested = aiSuggestionsEnabled && (loadingSuggestions || suggestions.length > 0);
   const askDisabled = !askText.trim() || isGenerating;
 
   return (

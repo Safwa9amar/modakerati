@@ -144,6 +144,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A dismissed bubble revives when the user selects a block again — dismissal
+  // holds only while nothing new is selected (otherwise block formatting would
+  // be unreachable with the keyboard down).
+  useEffect(() => {
+    if (count > 0 && !visible) useFloatingPillStore.getState().show();
+  }, [count, visible]);
+
   // ── Drag position ──
   const defaultX = (width - PILL_W) / 2;
   const defaultY = height - insets.bottom - PILL_H - 120;
