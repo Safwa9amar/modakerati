@@ -387,7 +387,14 @@ function FigureImage({
   captionNode: React.ReactNode;
 }) {
   const authHeader = useAuthHeader();
-  const [failed, setFailed] = useState(false);
+  // Track WHICH uri failed (not a bare boolean): a freshly-inserted image first
+  // renders from its optimistic base64 `data:` URI, then reconciles to the media-
+  // endpoint URL (large photos lose the inlined `dataUri` past the size cap). If
+  // the big base64 fails to decode on-device — or the media load hiccups once — a
+  // sticky boolean would latch the placeholder forever even after `uri` changes to
+  // a loadable one. Keying the failure to the uri clears it the moment uri changes.
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const failed = failedUri === uri;
 
   // Wait for the token before hitting the media endpoint (an unauthed request
   // would 401 and needlessly flip us to the placeholder); show the placeholder on
@@ -417,7 +424,7 @@ function FigureImage({
       <Image
         source={needsAuth && authHeader ? { uri, headers: authHeader } : { uri }}
         resizeMode="contain"
-        onError={() => setFailed(true)}
+        onError={() => setFailedUri(uri)}
         style={[
           styles.image,
           ratio ? { aspectRatio: ratio, maxHeight: MAX_IMAGE_HEIGHT } : { height: MAX_IMAGE_HEIGHT },
