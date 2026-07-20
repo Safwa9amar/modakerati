@@ -357,13 +357,13 @@ export default function ThesisWorkspaceScreen() {
   // fetch on it re-converts after a real edit but not on incidental refreshes.
   const docVersionKey = editorCfg?.enabled ? editorCfg.config?.document?.key : undefined;
 
-  // Mount the PDF layer on first open and keep it warm thereafter (see the layered
-  // doc area), so toggling back to it preserves the rendered page and its scroll.
-  // Convert only on first open and after a REAL document change (docVersionKey) —
-  // never on a mere re-entry, which would reload the WebView and lose the scroll.
-  // The render is dropped on screen-leave (cleanup above), not on view switch.
-  useEffect(() => {
-    if (previewMode !== "pdf" || !isLiveDoc) return;
+  // Mount the PDF layer + (re)convert its render for the current doc version.
+  // Idempotent per version: converts on first call and after a REAL document
+  // change (docVersionKey) only — a mere re-entry keeps the warm render (and its
+  // scroll). Mounting the (hidden) layer also arms the screen-leave cleanup that
+  // deletes the ephemeral server render, so a background warm can't leak it.
+  const ensurePdfForVersion = useCallback(() => {
+    if (!isLiveDoc) return;
     if (!pdfMountedRef.current) {
       pdfMountedRef.current = true;
       setPdfMounted(true);
@@ -372,7 +372,29 @@ export default function ThesisWorkspaceScreen() {
     pdfConvertedRef.current = true;
     pdfVersionRef.current = docVersionKey;
     void refreshPdf();
-  }, [previewMode, isLiveDoc, docVersionKey, refreshPdf]);
+  }, [isLiveDoc, docVersionKey, refreshPdf]);
+
+  // Opening the PDF view converts immediately (keep its scroll on re-entry).
+  useEffect(() => {
+    if (previewMode !== "pdf") return;
+    ensurePdfForVersion();
+  }, [previewMode, ensurePdfForVersion]);
+
+  // Warm the PDF in the BACKGROUND so tapping Preview → PDF opens instantly
+  // instead of spinning through a server conversion. Runs once the doc is loaded
+  // and idle — not while generating, not while manual edits are still queued (the
+  // version key is stale until they drain), and only when a real Document Server
+  // render is possible (docVersionKey defined). Debounced ~2.5s after load / an
+  // edit settling and guarded on the version key, so it converts at most once per
+  // real doc version — the same server cost as the user opening it, front-loaded.
+  useEffect(() => {
+    if (!isLiveDoc || previewMode === "pdf") return;
+    if (isGenerating || pendingOps > 0) return;
+    if (docVersionKey === undefined) return;
+    if (pdfConvertedRef.current && pdfVersionRef.current === docVersionKey) return;
+    const id = setTimeout(() => ensurePdfForVersion(), 2500);
+    return () => clearTimeout(id);
+  }, [isLiveDoc, previewMode, isGenerating, pendingOps, docVersionKey, ensurePdfForVersion]);
 
   const title = thesis?.title ?? "";
 
