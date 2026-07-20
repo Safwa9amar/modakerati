@@ -4,6 +4,7 @@ import {
   editThesisParagraphs,
   moveThesisBlock,
   insertThesisImage,
+  replaceThesisBlockImage,
   deleteThesisBlocks,
   startThesisBlocksOnNewPage,
   type DocBlockDTO,
@@ -46,6 +47,17 @@ export type ThesisOp =
   | {
       type: "insertImage";
       afterIndex: number;
+      data: string; // base64 (no data: prefix)
+      format: string;
+      width?: number;
+      height?: number;
+    }
+  | {
+      // Swap the bytes of the existing image block at `index` in place (smart-pill
+      // "Replace image"). Positional-index-safe like editText/format — it never
+      // moves blocks — so it replays cleanly in the durable queue.
+      type: "replaceImage";
+      index: number;
       data: string; // base64 (no data: prefix)
       format: string;
       width?: number;
@@ -101,6 +113,27 @@ function patchInsertImage(
   return reindex(arr);
 }
 
+function patchReplaceImage(
+  blocks: DocBlockDTO[],
+  op: Extract<ThesisOp, { type: "replaceImage" }>,
+): DocBlockDTO[] {
+  return blocks.map((b) => {
+    if (b.index !== op.index || b.kind !== "image") return b;
+    // Paint the newly-picked bytes immediately as a self-contained data: URI
+    // (DocBlock renders `dataUri` first), so the swap is instant. On reconcile the
+    // server echoes the persisted image (small → its own `dataUri`; large → the
+    // media endpoint keyed on the bumped doc version).
+    const next: ImageBlock = {
+      ...b,
+      dataUri: `data:image/${op.format};base64,${op.data}`,
+      hasMedia: true,
+    };
+    if (op.width) next.width = op.width;
+    if (op.height) next.height = op.height;
+    return next;
+  });
+}
+
 function patchDelete(blocks: DocBlockDTO[], indices: number[]): DocBlockDTO[] {
   const set = new Set(indices);
   return reindex(blocks.filter((b) => !set.has(b.index)));
@@ -130,6 +163,8 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
       return patchMove(blocks, op.from, op.to);
     case "insertImage":
       return patchInsertImage(blocks, op);
+    case "replaceImage":
+      return patchReplaceImage(blocks, op);
     case "deleteBlocks":
       return patchDelete(blocks, op.indices);
     case "startOnNewPage":
@@ -223,6 +258,13 @@ export async function executeOp(
         width: op.width,
         height: op.height,
         afterIndex: op.afterIndex,
+      });
+    case "replaceImage":
+      return replaceThesisBlockImage(thesisId, op.index, {
+        data: op.data,
+        format: op.format,
+        width: op.width,
+        height: op.height,
       });
     case "deleteBlocks":
       return deleteThesisBlocks(thesisId, op.indices);

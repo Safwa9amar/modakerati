@@ -11,6 +11,13 @@
     "clear": "Effacer la mise en forme",
     "more": "Plus d'outils",
     "askAi": "Demander à l'IA",
+    "replaceImage": "Remplacer l'image",
+    "rotate": "Pivoter",
+    "flip": "Retourner",
+    "crop": "Rogner",
+    "removeBg": "Supprimer l'arrière-plan",
+    "pictureToolsTitle": "Outils d'image",
+    "pictureToolsBody": "La rotation, le retournement, le rognage et la suppression de l'arrière-plan se trouvent dans l'onglet Image de la barre d'outils.",
     "soonTitle": "Bientôt disponible",
     "soonBody": "La mise en forme du texte arrive dans une prochaine mise à jour."
   },

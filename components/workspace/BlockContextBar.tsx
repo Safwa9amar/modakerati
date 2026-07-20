@@ -19,6 +19,11 @@ import {
   ChevronUp,
   ChevronDown,
   ImagePlus,
+  RefreshCw,
+  RotateCw,
+  FlipHorizontal2,
+  Crop,
+  WandSparkles,
   Eraser,
   Trash2,
   Plus,
@@ -59,6 +64,11 @@ interface Props {
   /** Selected PARAGRAPH blocks (in doc order) — the target of style/align/direction/
    *  clear/move/image. Empty when the selection is a table/image → those tools disable. */
   paragraphSelection: ParagraphBlock[];
+  /** The SOLE selected block of ANY kind (null unless exactly one is selected).
+   *  Drives the "smart pill": an image block swaps in image tools (replace/move/
+   *  delete) as the primary actions, a table gets a minimal set, a paragraph keeps
+   *  the text tools. */
+  selectedBlock?: DocBlockDTO | null;
   /** Every selected block index (paragraph or not) — the target of Delete. */
   selectedIndices: number[];
   count: number;
@@ -85,6 +95,7 @@ export function BlockContextBar({
   thesisId,
   rtl,
   paragraphSelection,
+  selectedBlock,
   selectedIndices,
   count,
   blockCount,
@@ -106,6 +117,21 @@ export function BlockContextBar({
   const paraIndices = paragraphSelection.map((b) => b.index);
   const single = paragraphSelection.length === 1 ? paragraphSelection[0] : null;
 
+  // Smart-pill mode: which toolset the sole selection gets. Falls back to the
+  // paragraph (text) tools for anything that isn't a single image / table.
+  const isImage = selectedBlock?.kind === "image";
+  const isTable = selectedBlock?.kind === "table";
+
+  // A generic sole-block anchor (any kind) for move/replace/delete — the old
+  // `single` only covered paragraphs, so image/table move needs this.
+  const soleIndex = selectedBlock ? selectedBlock.index : null;
+  const soleText =
+    selectedBlock?.kind === "paragraph"
+      ? selectedBlock.text
+      : selectedBlock?.kind === "image"
+        ? (selectedBlock.caption ?? "")
+        : "";
+
   // ── Wiring (mirrors ComposerEditTools: optimistic + durable format op) ──
   const apply = (changes: FormatChange) => {
     if (!paraIndices.length) return;
@@ -113,15 +139,56 @@ export function BlockContextBar({
   };
 
   const move = (dir: "up" | "down") => {
-    if (!single) return;
-    const from = single.index;
+    if (soleIndex == null) return;
+    const from = soleIndex;
     const to = dir === "up" ? from - 1 : from + 1;
     if (to < 0 || to >= blockCount) return;
-    useWorkspaceStore.getState().selectBlock(to, single.text);
+    useWorkspaceStore.getState().selectBlock(to, soleText);
     void useThesisDocStore.getState().mutate(thesisId, { type: "move", from, to });
   };
-  const canUp = !!single && single.index > 0;
-  const canDown = !!single && single.index < blockCount - 1;
+  const canUp = soleIndex != null && soleIndex > 0;
+  const canDown = soleIndex != null && soleIndex < blockCount - 1;
+
+  // Pick a new image and swap the selected figure's bytes IN PLACE (durable
+  // replaceImage op → optimistic instant repaint + reconcile). Mirrors pickImage.
+  const replaceImage = async () => {
+    if (soleIndex == null || pickingRef.current) return;
+    pickingRef.current = true;
+    let res: ImagePicker.ImagePickerResult;
+    try {
+      res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], base64: true, quality: 0.85 });
+    } catch {
+      Alert.alert(t("workspace.imageError", { defaultValue: "Couldn't update the image." }));
+      return;
+    } finally {
+      pickingRef.current = false;
+    }
+    const asset = res.canceled ? null : res.assets[0];
+    if (!asset?.base64) return;
+    const mime = asset.mimeType ?? "";
+    const format = mime.includes("png") ? "png" : mime.includes("gif") ? "gif" : "jpeg";
+    void useThesisDocStore.getState().mutate(thesisId, {
+      type: "replaceImage",
+      index: soleIndex,
+      data: asset.base64,
+      format,
+      width: asset.width,
+      height: asset.height,
+    });
+  };
+
+  // Advanced picture ops (rotate / flip / crop / background removal) already ship
+  // fully wired in the ribbon's Picture tab (lib/ribbon-actions.ts → the on-device
+  // expo-image-manipulator + replace/remove-bg endpoints + the crop modal). Wiring
+  // them inline would mean re-plumbing the crop modal + busy overlay and bypassing
+  // the durable op queue, so the pill points users there instead of duplicating it.
+  const pictureSoon = () =>
+    Alert.alert(
+      t("blockBar.pictureToolsTitle", { defaultValue: "Picture tools" }),
+      t("blockBar.pictureToolsBody", {
+        defaultValue: "Rotate, flip, crop and background removal live in the Picture tab of the editor toolbar.",
+      }),
+    );
 
   const pickImage = async () => {
     if (!single || pickingRef.current) return;
@@ -257,6 +324,41 @@ export function BlockContextBar({
     </>
   );
 
+  // ── IMAGE block: image tools are PRIMARY (no Style/Align/Direction) ──
+  const imageMoveDeleteChips = [
+    chip({ keyProp: "img-up", Icon: ChevronUp, accessibilityLabel: t("blockBar.moveUp", { defaultValue: "Move up" }), disabled: !canUp, onPress: () => move("up") }),
+    chip({ keyProp: "img-down", Icon: ChevronDown, accessibilityLabel: t("blockBar.moveDown", { defaultValue: "Move down" }), disabled: !canDown, onPress: () => move("down") }),
+    chip({ keyProp: "img-del", Icon: Trash2, accessibilityLabel: t("common.delete", { defaultValue: "Delete" }), onPress: del }),
+  ];
+  // Compact pill: Replace / Move up / Move down / Delete / (+).
+  const imagePillTools = (
+    <>
+      {chip({ keyProp: "img-replace", Icon: RefreshCw, accessibilityLabel: t("blockBar.replaceImage", { defaultValue: "Replace image" }), onPress: () => void replaceImage() })}
+      {imageMoveDeleteChips}
+      {chip({ keyProp: "img-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), onPress: () => setPillExpanded(true) })}
+    </>
+  );
+  // Expanded / keyboard-docked: the same primaries + the advanced picture ops
+  // (dimmed → they route to the Picture ribbon tab, like the text "coming soon" set).
+  const imageFullTools = (
+    <>
+      {chip({ keyProp: "img-replace", Icon: RefreshCw, accessibilityLabel: t("blockBar.replaceImage", { defaultValue: "Replace image" }), onPress: () => void replaceImage() })}
+      {imageMoveDeleteChips}
+      {sep("is1")}
+      {chip({ keyProp: "img-rotate", Icon: RotateCw, accessibilityLabel: t("blockBar.rotate", { defaultValue: "Rotate" }), dim: true, onPress: pictureSoon })}
+      {chip({ keyProp: "img-flip", Icon: FlipHorizontal2, accessibilityLabel: t("blockBar.flip", { defaultValue: "Flip" }), dim: true, onPress: pictureSoon })}
+      {chip({ keyProp: "img-crop", Icon: Crop, accessibilityLabel: t("blockBar.crop", { defaultValue: "Crop" }), dim: true, onPress: pictureSoon })}
+      {chip({ keyProp: "img-bg", Icon: WandSparkles, accessibilityLabel: t("blockBar.removeBg", { defaultValue: "Remove background" }), dim: true, onPress: pictureSoon })}
+    </>
+  );
+
+  // ── TABLE block: minimal set (Move / Delete). No text/format tools apply. ──
+  const tableTools = <>{imageMoveDeleteChips}</>;
+
+  // Resolve the toolset for the current block kind + form.
+  const compactTools = isImage ? imagePillTools : isTable ? tableTools : pillTools;
+  const expandedTools = isImage ? imageFullTools : isTable ? tableTools : fullTools;
+
   const AskAI = (
     <Pressable
       onPress={onAskAI}
@@ -346,7 +448,7 @@ export function BlockContextBar({
             style={styles.pillScroll}
             contentContainerStyle={[styles.pillToolsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
           >
-            {pillTools}
+            {compactTools}
           </ScrollView>
           <View style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />
           {AskAI}
@@ -377,7 +479,7 @@ export function BlockContextBar({
           contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
           style={styles.fullScroll}
         >
-          {fullTools}
+          {expandedTools}
           {/* Collapse the expanded pill back to compact (keyboard-closed only). */}
           {!keyboardOpen
             ? chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), onPress: () => setPillExpanded(false) })

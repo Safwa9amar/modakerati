@@ -11,6 +11,13 @@
     "clear": "Clear formatting",
     "more": "More tools",
     "askAi": "Ask AI",
+    "replaceImage": "Replace image",
+    "rotate": "Rotate",
+    "flip": "Flip",
+    "crop": "Crop",
+    "removeBg": "Remove background",
+    "pictureToolsTitle": "Picture tools",
+    "pictureToolsBody": "Rotate, flip, crop and background removal live in the Picture tab of the editor toolbar.",
     "soonTitle": "Coming soon",
     "soonBody": "Inline text styling arrives in a later update."
   },

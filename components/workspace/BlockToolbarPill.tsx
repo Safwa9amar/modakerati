@@ -49,6 +49,14 @@ export function BlockToolbarPill({ thesisId, blocks, rtl }: Props) {
       .filter((b): b is ParagraphBlock => !!b && b.kind === "paragraph");
   }, [ordered, blocks]);
 
+  // The SOLE selected block of any kind — powers the "smart pill": image blocks
+  // get image tools (replace / move / delete), tables get a minimal set, and
+  // paragraphs keep the text tools. Null when nothing or multiple are selected.
+  const selectedBlock = useMemo<DocBlockDTO | null>(() => {
+    if (count !== 1) return null;
+    return blocks.find((b) => b.index === ordered[0]?.index) ?? null;
+  }, [count, ordered, blocks]);
+
   const scopeLabel =
     count === 1
       ? (selectedBlocks[0]?.text?.replace(/\s+/g, " ").trim().slice(0, 32) ||
@@ -61,6 +69,7 @@ export function BlockToolbarPill({ thesisId, blocks, rtl }: Props) {
         thesisId={thesisId}
         rtl={rtl}
         paragraphSelection={paragraphSelection}
+        selectedBlock={selectedBlock}
         selectedIndices={indices}
         count={count}
         blockCount={blocks.length}
