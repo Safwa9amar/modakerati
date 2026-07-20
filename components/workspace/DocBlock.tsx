@@ -39,6 +39,43 @@ export function paragraphTextStyle(level: number): TextStyle {
     : styles.body;
 }
 
+// One visible run of a paragraph with its inline character formatting, as emitted
+// by the server DTO. Read defensively off the block (the shared `lib/api.ts`
+// DocBlockDTO doesn't declare it) so the read path can render marks.
+type Run = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
+
+// A run's inline color is honoured on the always-white paper only when it stays
+// legible — a near-white color would vanish, so we drop it and keep the default
+// ink. Accepts the OOXML 6-hex with or without a leading '#'.
+function legibleColor(hex?: string): string | undefined {
+  if (!hex) return undefined;
+  const h = hex.replace(/^#/, "");
+  if (!/^[0-9A-Fa-f]{6}$/.test(h)) return undefined;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255; // perceived luminance 0..1
+  return lum > 0.82 ? undefined : `#${h.toUpperCase()}`;
+}
+
+// Per-run text style for a span. Named Google fonts ignore `fontWeight`, so bold
+// swaps to the bold family (fontWeight kept as a harmless fallback); italic is
+// best-effort (no italic Inter is loaded → faux/synthesised where the platform
+// allows). Only the marks present on the run are applied — everything else is
+// inherited from the parent paragraph <Text>.
+function runTextStyle(run: Run): TextStyle {
+  const s: TextStyle = {};
+  if (run.bold) {
+    s.fontFamily = "Inter_700Bold";
+    s.fontWeight = "700";
+  }
+  if (run.italic) s.fontStyle = "italic";
+  if (run.underline) s.textDecorationLine = "underline";
+  const col = legibleColor(run.color);
+  if (col) s.color = col;
+  return s;
+}
+
 // Cap an inlined image's rendered height so a tall chart can't dominate the page.
 const MAX_IMAGE_HEIGHT = 360;
 
@@ -214,6 +251,17 @@ export function DocBlock({
   // paragraph
   const isHeading = block.level >= 1;
   const empty = !block.text.trim();
+  // Per-run inline formatting (bold/italic/underline/color) from the server, READ
+  // path only. Render run spans when the paragraph actually carries formatting;
+  // otherwise the flat `block.text` renders identically (and stays the source of
+  // truth for inline editing). The DTO guarantees the runs' text reconstructs
+  // `block.text`, so swapping in spans never drops content.
+  const runs = (block as { runs?: Run[] }).runs;
+  const useRuns =
+    !empty &&
+    Array.isArray(runs) &&
+    runs.length > 0 &&
+    (runs.length > 1 || runs.some((r) => r.bold || r.italic || r.underline || r.color));
   // Base direction from this paragraph's own script, not the thesis flag, so
   // French/English text never renders RTL (and Arabic never renders LTR).
   // An explicit paragraph direction (w:bidi, set via the Edit tools) wins;
@@ -283,7 +331,15 @@ export function DocBlock({
               empty && styles.emptyPara,
             ]}
           >
-            {empty ? "·" : block.text}
+            {empty
+              ? "·"
+              : useRuns && runs
+                ? runs.map((r, i) => (
+                    <Text key={i} style={runTextStyle(r)}>
+                      {r.text}
+                    </Text>
+                  ))
+                : block.text}
           </Text>
         </SettleFlash>
       )}
