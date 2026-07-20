@@ -52,6 +52,7 @@ import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
+import { resolveBubbleKind, type BubbleKind } from "@/lib/bubble-configs";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
 import { chipOut, layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff, SPRING_SOFT } from "@/lib/motion";
@@ -194,13 +195,36 @@ export function BlockContextBar({
   const paraIndices = paragraphSelection.map((b) => b.index);
   const single = paragraphSelection.length === 1 ? paragraphSelection[0] : null;
 
-  // Smart-pill mode: which toolset the sole selection gets. Falls back to the
-  // paragraph (text) tools for anything that isn't a single image / table.
-  const isImage = selectedBlock?.kind === "image";
-  const isTable = selectedBlock?.kind === "table";
+  // Smart-pill mode: which toolset the sole selection gets, driven by the SAME
+  // registry that picks the collapsed bubble's icon (FloatingPill) — so the
+  // glyph and the toolset can never disagree. `isImage` is true ONLY for a real
+  // picture (media bytes present) — a chart is an "image" kind block too but
+  // WITHOUT bytes, so it must not get the picture ops (rotate/crop/removeBg).
+  const bubbleKind: BubbleKind = resolveBubbleKind(selectedBlock);
+  const isImage = bubbleKind === "image";
+  const isTable = bubbleKind === "table";
+  // Chart placeholders and raw "other" OOXML blocks share a minimal toolset
+  // (move up/down/delete) — no text/format/picture tools apply to either.
+  const isMinimal = bubbleKind === "chart" || bubbleKind === "other";
   // Keyed remount of the tool row per block kind → old chips fade out (chipOut on
   // the row), new chips stagger in (per-chip chipIn) = the smart-pill morph.
-  const toolsetKind = isImage ? "image" : isTable ? "table" : "para";
+  // "text" and "heading" share one key ("para") so switching body↔heading text
+  // doesn't remount the (identical) paragraph tools; chart/other keep their own
+  // key so the minimal toolset remount is still visible on kind changes.
+  const toolsetKind = bubbleKind === "text" || bubbleKind === "heading" ? "para" : bubbleKind;
+
+  // HEADING nicety: the moment the sole selection BECOMES a heading, auto-reveal
+  // the Style category so H1/H2/H3 options are immediately visible — but never
+  // force-close it when the selection moves away from a heading (the user's own
+  // category choice sticks). Guarded by a transition check (prev !== "heading")
+  // so it fires once per entry, not on every render while heading stays selected.
+  const prevBubbleKindRef = useRef<BubbleKind | null>(null);
+  useEffect(() => {
+    if (bubbleKind === "heading" && prevBubbleKindRef.current !== "heading") {
+      setActiveCategory("style");
+    }
+    prevBubbleKindRef.current = bubbleKind;
+  }, [bubbleKind]);
 
   // Morphing toolsets keeps the ScrollView instance alive — snap back to the start
   // so a long paragraph toolset scrolled right can't leave a short image/table row
@@ -500,9 +524,14 @@ export function BlockContextBar({
   // ── TABLE block: minimal set (Move / Delete). No text/format tools apply. ──
   const tableTools = <>{imageMoveDeleteChips(0)}</>;
 
+  // ── CHART / OTHER block: same minimal Move/Delete set — no text/format tools
+  // apply, and (unlike a real picture) there are no media bytes for the picture
+  // ops either. ──
+  const minimalTools = <>{imageMoveDeleteChips(0)}</>;
+
   // Resolve the toolset for the current block kind + form.
-  const compactTools = isImage ? imagePillTools : isTable ? tableTools : pillTools;
-  const expandedTools = isImage ? imageFullTools : isTable ? tableTools : fullTools;
+  const compactTools = isImage ? imagePillTools : isTable ? tableTools : isMinimal ? minimalTools : pillTools;
+  const expandedTools = isImage ? imageFullTools : isTable ? tableTools : isMinimal ? minimalTools : fullTools;
 
   const AskAI = (
     <Pressable

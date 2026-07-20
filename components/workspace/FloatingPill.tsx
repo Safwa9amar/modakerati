@@ -15,7 +15,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import { Type, Image as ImageIcon, Table, Sparkles } from "lucide-react-native";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
@@ -24,6 +23,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { hSelection } from "@/lib/haptics";
 import { layoutSpring, SPRING } from "@/lib/motion";
 import type { DocBlockDTO } from "@/lib/api";
+import { resolveBubbleKind, BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
 import { AIDock } from "./AIDock";
 import { BlockContextBar } from "./BlockContextBar";
 import { DismissTarget, DISMISS_HIT_RADIUS } from "./DismissTarget";
@@ -118,6 +118,10 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     if (count !== 1) return null;
     return blocks.find((b) => b.index === ordered[0]?.index) ?? null;
   }, [count, ordered, blocks]);
+  // Which bubble/toolset family drives the collapsed bubble icon AND (via
+  // BlockContextBar's own resolveBubbleKind call) the expanded toolset — one
+  // registry, so they can never disagree.
+  const bubbleKind: BubbleKind = count === 0 ? "ai" : resolveBubbleKind(selectedBlock);
   const scopeLabel =
     count === 0
       ? t("workspace.wholeMemoir", { defaultValue: "Whole memoir" })
@@ -362,7 +366,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           ) : (
             <Bubble
               colors={colors}
-              kind={count === 0 ? "ai" : selectedBlock?.kind}
+              kind={bubbleKind}
               busy={busy}
               label={
                 count === 0
@@ -390,12 +394,12 @@ function Bubble({
   onPress,
 }: {
   colors: ReturnType<typeof useThemeColors>;
-  kind: DocBlockDTO["kind"] | "ai" | undefined;
+  kind: BubbleKind;
   label: string;
   busy: boolean;
   onPress: () => void;
 }) {
-  const Icon = kind === "ai" ? Sparkles : kind === "image" ? ImageIcon : kind === "table" ? Table : Type;
+  const Icon = BUBBLE_ICONS[kind];
 
   const spin = useSharedValue(0);
   useEffect(() => {
