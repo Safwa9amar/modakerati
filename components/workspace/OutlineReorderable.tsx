@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, type FlatList, type ViewToken } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from "react-native-reanimated";
 import ReorderableList, {
@@ -25,17 +25,14 @@ import { hLight, hMedium } from "@/lib/haptics";
 // owns the drag so DocBlock keeps its tap-to-select / long-press-multi-select.
 // `markerLabel` renders a section marker ABOVE the row — chrome, not data, so
 // it never enters the reorderable list's index space.
-function Row({
+const Row = memo(function Row({
   block,
-  blocks,
   rtl,
   thesisId,
   version,
   markerLabel,
 }: {
   block: DocBlockDTO;
-  // Full block model — the inline toolbar pill needs it (paragraph props + count).
-  blocks: DocBlockDTO[];
   rtl: boolean;
   thesisId: string;
   version?: number;
@@ -43,19 +40,23 @@ function Row({
 }) {
   const rawDrag = useReorderableDrag();
   // Light tick on lift, then start the drag (the drop fires hMedium in onReorder).
-  const drag = () => {
+  // Stable identity (useCallback) so the memoized DocBlock doesn't re-render merely
+  // because this Row re-rendered.
+  const drag = useCallback(() => {
     hLight();
     rawDrag();
-  };
+  }, [rawDrag]);
   // Focus / typewriter mode: dim every block except the one being worked on.
-  // Select primitives individually (store convention — an object/array literal
-  // selector would loop). The "active" block is the inline-edited one, else the
-  // sole selected block; when nothing is active, no block is dimmed.
-  const focusMode = useWorkspaceStore((s) => s.focusMode);
-  const activeIndex = useWorkspaceStore((s) =>
-    s.editingBlockIndex ?? (s.selectedBlocks.length === 1 ? s.selectedBlocks[0].index : null),
-  );
-  const dimmed = focusMode && activeIndex != null && activeIndex !== block.index;
+  // Compute THIS block's dimmed flag INSIDE the selector and return a boolean, so a
+  // change to the active block only re-renders the rows whose dimmed value actually
+  // flips — not every visible row. (Subscribing to the global active index instead
+  // re-rendered every visible row on each tap/edit — a big part of the edit-mode lag.)
+  const dimmed = useWorkspaceStore((s) => {
+    if (!s.focusMode) return false;
+    const active =
+      s.editingBlockIndex ?? (s.selectedBlocks.length === 1 ? s.selectedBlocks[0].index : null);
+    return active != null && active !== block.index;
+  });
   // A pending inline AI suggestion on THIS block REPLACES the block's own
   // rendering (in-place proposal + its own controls) and suppresses the pill.
   // STALENESS GATE: the suggestion only counts if its stored `original` still
@@ -119,7 +120,7 @@ function Row({
       </Animated.View>
     </View>
   );
-}
+});
 
 // The Outline view as a drag-to-reorder list. `blocks` is the server order (a
 // block's `index` equals its position), so a drop's from/to map directly to
@@ -127,7 +128,7 @@ function Row({
 // persists + flushes the move and re-syncs `blocks` (which renumbers indices).
 // `sections` (optional — older caches lack it) adds READ-ONLY page chrome:
 // header/footer zones as list header/footer, markers above section starts.
-export function OutlineReorderable({
+function OutlineReorderableInner({
   thesisId,
   blocks,
   sections,
@@ -213,6 +214,22 @@ export function OutlineReorderable({
     void useThesisDocStore.getState().mutate(thesisId, { type: "move", from, to });
   };
 
+  // Stable renderItem so a re-render of this list (e.g. a marker/version change)
+  // doesn't hand every cell a brand-new closure and force all visible rows to
+  // reconcile. Each Row is memoized and re-renders only on its own store slices.
+  const renderItem = useCallback(
+    ({ item }: { item: DocBlockDTO }) => (
+      <Row
+        block={item}
+        rtl={rtl}
+        thesisId={thesisId}
+        version={version}
+        markerLabel={markers.get(item.index)}
+      />
+    ),
+    [rtl, thesisId, version, markers],
+  );
+
   return (
     <ReorderableList
       ref={listRef}
@@ -229,16 +246,7 @@ export function OutlineReorderable({
       }}
       onViewableItemsChanged={onViewableChanged.current}
       viewabilityConfig={viewabilityConfig.current}
-      renderItem={({ item }) => (
-        <Row
-          block={item}
-          blocks={blocks}
-          rtl={rtl}
-          thesisId={thesisId}
-          version={version}
-          markerLabel={markers.get(item.index)}
-        />
-      )}
+      renderItem={renderItem}
       ListHeaderComponent={headerZone}
       ListFooterComponent={footerZone}
       style={styles.list}
@@ -250,6 +258,10 @@ export function OutlineReorderable({
     />
   );
 }
+
+// Memoized so a selection tap (which no longer touches this component's props) or
+// any unrelated workspace re-render can't reconcile the whole list.
+export const OutlineReorderable = memo(OutlineReorderableInner);
 
 const styles = StyleSheet.create({
   list: {

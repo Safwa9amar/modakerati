@@ -12,7 +12,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
  * the editor reloads the updated bytes. Tap-to-target isn't exposed here yet (the
  * composer still works; the AI targets blocks via find).
  */
-export function OnlyOfficeView({
+function OnlyOfficeViewInner({
   documentServerUrl,
   config,
   onError,
@@ -101,6 +101,11 @@ export function OnlyOfficeView({
     </View>
   );
 }
+
+// Memoized: props (documentServerUrl / config) only change on a real doc-version
+// bump, so a workspace re-render for any other reason must not reconcile this
+// heavy canvas-editor WebView.
+export const OnlyOfficeView = React.memo(OnlyOfficeViewInner);
 
 // The WebView shell: loads the Document Server api.js, instantiates the DocEditor
 // with the signed config, and posts lifecycle/error messages back to RN.

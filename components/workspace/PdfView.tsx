@@ -18,7 +18,7 @@ const PDFJS_WORKER = "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min
  * Re-renders (and reloads the WebView) whenever `url` changes — i.e. on the
  * initial load and after each AI turn, when a fresh PDF is converted.
  */
-export function PdfView({ url }: { url: string }) {
+function PdfViewInner({ url }: { url: string }) {
   const colors = useThemeColors();
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
@@ -80,6 +80,10 @@ export function PdfView({ url }: { url: string }) {
     </View>
   );
 }
+
+// Memoized: re-renders only when `url` changes (a fresh conversion). Keeps an
+// unrelated workspace re-render from reloading the PDF.js WebView.
+export const PdfView = React.memo(PdfViewInner);
 
 // The WebView shell: loads PDF.js, fetches the PDF bytes, lays out one sized
 // placeholder per page (page-on-gray look), and renders each page's canvas as it

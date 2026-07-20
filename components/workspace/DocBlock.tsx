@@ -88,7 +88,7 @@ const MAX_IMAGE_HEIGHT = 360;
  * theses render correctly); `rtl` (the thesis language) is only the fallback
  * for blocks with no strong-directional character.
  */
-export function DocBlock({
+function DocBlockInner({
   block,
   rtl,
   thesisId,
@@ -347,6 +347,11 @@ export function DocBlock({
   );
 }
 
+// Memoized: each block re-renders only when its own props (block/rtl/version/…) or
+// its per-block store selectors (isSelected / isEditing / justApplied) change — so
+// entering edit mode on one paragraph doesn't reconcile every other visible block.
+export const DocBlock = React.memo(DocBlockInner);
+
 // The paragraph body when it's being edited inline (outline view): a multiline
 // TextInput seeded ONCE from the block text, committing live (debounced) + on blur
 // via the editText op. Enter splits, Backspace-at-start merges. Local state owns
@@ -372,6 +377,16 @@ function EditableParagraph({
   const selRef = useRef({ start: block.text.length, end: block.text.length });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handedOffRef = useRef(false); // true once editing was handed to a sibling (split/merge)
+  const inputRef = useRef<TextInput>(null);
+
+  // Focus backstop: `autoFocus` fires as part of the mount commit, so if this block
+  // ever mounts during a heavier render the keyboard can lag. Explicitly focus on
+  // the next frame as well — focusing an already-focused input is a no-op, so this
+  // only helps when autoFocus was late/missed.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const pending = useWorkspaceStore.getState().pendingCaret;
   const [selection, setSelection] = useState<{ start: number; end: number } | undefined>(
@@ -454,6 +469,7 @@ function EditableParagraph({
 
   return (
     <TextInput
+      ref={inputRef}
       value={value}
       onChangeText={onChangeText}
       onKeyPress={onKeyPress}
