@@ -8,6 +8,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
+import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { sendMessageToAI, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { type DocBlockDTO } from "@/lib/api";
 import { deriveThinkingMs } from "@/lib/thinking";
@@ -34,10 +35,13 @@ interface Props {
  * The context-aware action zone that replaces the old always-present composer
  * sheet. Its shape follows selection + keyboard state:
  *   • pending confirm / ask → the AI's gate surface (docked).
- *   • nothing selected → the whole-memoir AI input (IdleAIBar, docked).
+ *   • nothing selected → the whole-memoir AI input (IdleAIBar, docked) — but only
+ *     as a FALLBACK once the floating AI bubble has been drag-to-X dismissed; while
+ *     the bubble is alive it owns whole-memoir AI input instead (see FloatingPill).
  *   • a block selected → the block-anchored BlockContextBar (floating pill when the
  *     keyboard is down, full-width docked bar when it's up); tapping ✦ Ask AI swaps
- *     in a block-scoped IdleAIBar.
+ *     in a block-scoped IdleAIBar — again only once the bubble is dismissed; with
+ *     the bubble alive, its own ✦ opens the dock's inline input instead (AIDock).
  * Positioned absolutely at the container bottom; the parent's KeyboardAvoidingView
  * lifts it above the keyboard, so its own detent/docking math isn't needed.
  */
@@ -54,6 +58,11 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   // The block-scoped "✦ Ask AI" input lives in the store now (the inline block pill
   // can open it, and it must survive across the pill/bar swaps).
   const askAiOpen = useWorkspaceStore((s) => s.askAiOpen);
+  // The floating AI bubble now owns AI input. These legacy inputs (whole-memoir
+  // IdleAIBar + the block-scoped Ask-AI bar) are the FALLBACK for when the bubble
+  // has been drag-to-X dismissed — otherwise the bubble's dock/inline input takes
+  // over (see FloatingPill/AIDock). Primitive selector only (zustand v5).
+  const pillAlive = useFloatingPillStore((s) => s.visible);
 
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
@@ -170,9 +179,12 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   // below: confirm > ask > idle bar > block Ask-AI > keyboard-docked block bar).
   // A block selected with the keyboard down renders nothing here — its pill
   // floats inline on the block in the outline.
+  // The idle bar / block Ask-AI branches are the bubble-dismissed fallback, so
+  // while the bubble is alive they contribute no surface (the doc shouldn't
+  // reserve inset space for bars that aren't showing).
   const blockKeyboardOpen = keyboardVisible && (inlineEditing || composerInputFocused);
   const hasSurface =
-    !!pendingConfirm || !!pendingAsk || count === 0 || askAiOpen || blockKeyboardOpen;
+    !!pendingConfirm || !!pendingAsk || blockKeyboardOpen || (!pillAlive && (count === 0 || askAiOpen));
 
   // Collapse the reserved inset imperatively whenever nothing renders at the
   // bottom (hidden via the header ⋯ toggle, or the floating-pill state above).
@@ -269,6 +281,8 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
       : t("workspace.nSelected", { count, defaultValue: `${count} selected` });
 
   // Which surface: confirm > ask > (block Ask-AI | keyboard-open block bar | idle).
+  // The idle-bar and block Ask-AI branches only fire once the floating AI bubble
+  // has been dismissed (!pillAlive) — while it's alive it owns AI input instead.
   // Default null: a block selected with the keyboard DOWN docks nothing here — its
   // formatting pill floats inline on the block in the outline instead. Keep this
   // chain in sync with `hasSurface` above.
@@ -285,7 +299,9 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         <ComposerAsk ask={pendingAsk} onAnswer={handleAnswer} rtl={rtl} onInputFocus={markInputFocused} onInputBlur={markInputBlurred} />
       </Dock>
     );
-  } else if (count === 0) {
+  } else if (!pillAlive && count === 0) {
+    // Fallback only: the floating AI bubble owns whole-memoir AI input while
+    // alive; this whole-memoir bar returns once the bubble is drag-to-X dismissed.
     surface = (
       <IdleAIBar
         rtl={rtl}
@@ -314,7 +330,9 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         bottomInset={insets.bottom}
       />
     );
-  } else if (askAiOpen) {
+  } else if (!pillAlive && askAiOpen) {
+    // Fallback only: with the bubble alive, its ✦ opens the dock's inline input
+    // (scoped to the block) instead of this bar (see FloatingPill/AIDock).
     surface = (
       <IdleAIBar
         rtl={rtl}
