@@ -52,6 +52,11 @@ interface WorkspaceState {
   // one being worked on (the inline-edited block, else the single selected block)
   // to reduce distraction while writing. Does not touch the data model.
   focusMode: boolean;
+  // True while the block-scoped "✦ Ask AI" input is open (the block-anchored AI
+  // composer at the screen bottom). Lifted out of BlockComposer so the inline
+  // block toolbar pill (rendered on the selected block) can open it, and so the
+  // pill hides itself while the AI input is up. Reset on deselect / workspace leave.
+  askAiOpen: boolean;
 
   setThesis: (id: string) => void;
   // Single-select: replace the whole selection with just this block and exit
@@ -80,6 +85,7 @@ interface WorkspaceState {
   setComposerInputFocused: (v: boolean) => void;
   setFocusMode: (v: boolean) => void;
   toggleFocusMode: () => void;
+  setAskAiOpen: (v: boolean) => void;
   reset: () => void;
 }
 
@@ -98,6 +104,7 @@ const INITIAL = {
   composerOpen: true,
   composerInputFocused: false,
   focusMode: false,
+  askAiOpen: false,
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -175,6 +182,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setFocusMode: (v) => set({ focusMode: v }),
 
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
+
+  setAskAiOpen: (v) => set({ askAiOpen: v }),
 
   reset: () => set(INITIAL),
 }));

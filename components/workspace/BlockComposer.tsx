@@ -50,6 +50,9 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   const inlineEditing = useWorkspaceStore((s) => s.inlineEditing);
   const composerOpen = useWorkspaceStore((s) => s.composerOpen);
   const composerInputFocused = useWorkspaceStore((s) => s.composerInputFocused);
+  // The block-scoped "✦ Ask AI" input lives in the store now (the inline block pill
+  // can open it, and it must survive across the pill/bar swaps).
+  const askAiOpen = useWorkspaceStore((s) => s.askAiOpen);
 
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
@@ -88,7 +91,6 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   });
 
   const [inputText, setInputText] = useState("");
-  const [askAiOpen, setAskAiOpen] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   // ——— Selection derivations ———
@@ -135,7 +137,7 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
 
   // Deselecting drops the Ask-AI panel back to nothing (idle bar takes over).
   useEffect(() => {
-    if (count === 0 && askAiOpen) setAskAiOpen(false);
+    if (count === 0 && askAiOpen) useWorkspaceStore.getState().setAskAiOpen(false);
   }, [count, askAiOpen]);
 
   // Hidden via the header toggle → collapse the reserved inset so the doc reclaims
@@ -167,7 +169,7 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     if (!text || isGenerating) return;
     setInputText("");
     Keyboard.dismiss();
-    setAskAiOpen(false);
+    useWorkspaceStore.getState().setAskAiOpen(false);
     await sendMessageToAI(thesisId, text, focusOpts);
   };
 
@@ -195,10 +197,12 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
       ? (selectedBlocks[0]?.text?.replace(/\s+/g, " ").trim().slice(0, 32) || t("workspace.selectedBlock", { defaultValue: "Selected section" }))
       : t("workspace.nSelected", { count, defaultValue: `${count} selected` });
 
-  // Which surface: confirm > ask > (block Ask-AI | block bar | idle).
+  // Which surface: confirm > ask > (block Ask-AI | keyboard-open block bar | idle).
+  // Default null: a block selected with the keyboard DOWN docks nothing here — its
+  // formatting pill floats inline on the block in the outline instead.
   const blockKeyboardOpen = keyboardVisible && (inlineEditing || composerInputFocused);
 
-  let surface: React.ReactNode;
+  let surface: React.ReactNode = null;
   if (pendingConfirm) {
     surface = (
       <Dock colors={colors} insets={insets} keyboardVisible={keyboardVisible}>
@@ -245,7 +249,7 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         rtl={rtl}
         scopeLabel={blockScopeLabel}
         scopeIcon={SquarePen}
-        onScopeClose={() => setAskAiOpen(false)}
+        onScopeClose={() => useWorkspaceStore.getState().setAskAiOpen(false)}
         inputText={inputText}
         onChangeText={setInputText}
         onSend={handleSend}
@@ -268,7 +272,12 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         bottomInset={insets.bottom}
       />
     );
-  } else {
+  } else if (blockKeyboardOpen) {
+    // Keyboard UP with a block selected → the full-width formatting bar docked above
+    // the keyboard (the pill can't float on a block that's scrolled behind the
+    // keyboard). Keyboard DOWN → nothing docks here: the pill now floats inline on
+    // the selected block in the outline (see OutlineReorderable's Row), so `surface`
+    // stays null and the reserved bottom inset collapses (the doc reclaims height).
     surface = (
       <BlockContextBar
         thesisId={thesisId}
@@ -277,9 +286,9 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         selectedIndices={indices}
         count={count}
         blockCount={blocks.length}
-        keyboardOpen={blockKeyboardOpen}
+        keyboardOpen
         scopeLabel={blockScopeLabel}
-        onAskAI={() => setAskAiOpen(true)}
+        onAskAI={() => useWorkspaceStore.getState().setAskAiOpen(true)}
         bottomInset={insets.bottom}
       />
     );

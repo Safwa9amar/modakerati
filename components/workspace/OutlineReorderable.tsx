@@ -8,6 +8,7 @@ import ReorderableList, {
 import { GripVertical } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { DocBlock } from "./DocBlock";
+import { BlockToolbarPill } from "./BlockToolbarPill";
 import {
   OutlineHeaderZone,
   OutlineFooterZone,
@@ -17,6 +18,7 @@ import {
 import { type DocBlockDTO, type DocSectionDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useChatStore } from "@/stores/chat-store";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
 // One outline row: a drag handle (long-press to lift) + the block. The handle
@@ -25,12 +27,15 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 // it never enters the reorderable list's index space.
 function Row({
   block,
+  blocks,
   rtl,
   thesisId,
   version,
   markerLabel,
 }: {
   block: DocBlockDTO;
+  // Full block model — the inline toolbar pill needs it (paragraph props + count).
+  blocks: DocBlockDTO[];
   rtl: boolean;
   thesisId: string;
   version?: number;
@@ -47,6 +52,21 @@ function Row({
     s.editingBlockIndex ?? (s.selectedBlocks.length === 1 ? s.selectedBlocks[0].index : null),
   );
   const dimmed = focusMode && activeIndex != null && activeIndex !== block.index;
+  // Show the floating formatting pill anchored under THIS block when it's the sole
+  // selection AND the keyboard is down (not inline-editing / composer-focused) AND
+  // the block-scoped Ask-AI input isn't up. Boolean-primitive selector (never a
+  // fresh object/array literal → zustand Object.is loop).
+  const pillEligible = useWorkspaceStore(
+    (s) =>
+      s.selectedBlocks.length === 1 &&
+      s.selectedBlocks[0].index === block.index &&
+      !s.inlineEditing &&
+      !s.composerInputFocused &&
+      !s.askAiOpen,
+  );
+  // Also suppress it while the AI's ask/confirm gate owns the bottom surface.
+  const aiGateActive = useChatStore((s) => s.pendingAsk != null || s.pendingConfirm != null);
+  const showPill = pillEligible && !aiGateActive;
   return (
     <View>
       {markerLabel != null && <OutlineSectionMarker label={markerLabel} rtl={rtl} />}
@@ -56,6 +76,7 @@ function Row({
         </Pressable>
         <View style={{ flex: 1 }}>
           <DocBlock block={block} rtl={rtl} thesisId={thesisId} version={version} />
+          {showPill && <BlockToolbarPill thesisId={thesisId} blocks={blocks} rtl={rtl} />}
         </View>
       </View>
     </View>
@@ -128,6 +149,7 @@ export function OutlineReorderable({
       renderItem={({ item }) => (
         <Row
           block={item}
+          blocks={blocks}
           rtl={rtl}
           thesisId={thesisId}
           version={version}
