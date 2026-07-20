@@ -50,8 +50,14 @@ const MUTED_INK = "#8A94A4";
 const CHIP_BG = "rgba(14,122,70,0.08)";
 const CHIP_INK = "#0E5C36";
 const CHIP_BORDER = "rgba(14,122,70,0.18)";
-const APPROVE_BG = "#0E7A46";
-const APPROVE_INK = "#FFFFFF";
+// Primary action (Approve/Done/Again): a light green TINT with dark-green ink,
+// same recipe as the instruction chip. Deliberately NOT a solid dark fill with
+// white ink — on this app's New-Arch iOS build a solid bg on a Pressable can
+// fail to paint (observed on device, in both the old card and this rebuild),
+// which left a white-on-white "missing" button. Dark ink stays legible even if
+// the bg is ever dropped again.
+const APPROVE_BG = "rgba(14,122,70,0.12)";
+const APPROVE_INK = "#0E5C36";
 const ICON_INK = "#3C4654";
 const REJECT_INK = "#C0392B";
 const ERR_BG = "#FDF0EF";
@@ -469,6 +475,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 5,
     backgroundColor: APPROVE_BG,
+    borderWidth: 1,
+    borderColor: CHIP_BORDER,
     borderRadius: 999,
     paddingVertical: 8,
     paddingHorizontal: 18,
