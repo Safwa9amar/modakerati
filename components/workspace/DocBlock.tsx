@@ -296,15 +296,16 @@ function DocBlockInner({
   //      content, which keeps justify enabled. iOS and non-justified blocks keep the
   //      explicit direction (needed for correct bidi on mixed-script lines).
   const androidJustify = Platform.OS === "android" && textAlign === "justify";
-  return (
-    <Pressable
-      onPress={() => enterOrSelect(block.index, block.text)}
-      onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, block.text))}
-      // No selection box on paragraphs — the caret (while editing) or the floating
-      // pill (when the keyboard is dismissed) is the selection indicator.
-      style={styles.paraWrap}
-    >
-      {isEditing ? (
+  // While editing, the paragraph is JUST the TextInput — NOT wrapped in a Pressable
+  // with an onPress. On the New Architecture that ancestor press-handler swallows the
+  // tap you make to move the caret inside the field (so the caret can't land on the
+  // word you pressed) AND blurs the input on that tap — which fires onBlur →
+  // setEditingBlock(null), so the caret "shows once then hides". With no wrapping
+  // press-handler the TextInput owns every touch: tapping a word places the caret
+  // there natively, and staying inside the field never kicks you out.
+  if (isEditing) {
+    return (
+      <View style={styles.paraWrap}>
         <EditableParagraph
           block={block}
           rtl={rtl}
@@ -316,33 +317,43 @@ function DocBlockInner({
           }
           textAlign={textAlign}
         />
-      ) : (
-        <SettleFlash active={justApplied}>
-          <Text
-            {...(androidJustify ? { textBreakStrategy: "simple" as const } : null)}
-            style={[
-              isHeading
-                ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
-                : styles.body,
-              {
-                textAlign,
-                ...(androidJustify ? null : { writingDirection: dir }),
-              },
-              empty && styles.emptyPara,
-            ]}
-          >
-            {empty
-              ? "·"
-              : useRuns && runs
-                ? runs.map((r, i) => (
-                    <Text key={i} style={runTextStyle(r)}>
-                      {r.text}
-                    </Text>
-                  ))
-                : block.text}
-          </Text>
-        </SettleFlash>
-      )}
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={() => enterOrSelect(block.index, block.text)}
+      onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, block.text))}
+      // No selection box on paragraphs — the caret (while editing) or the floating
+      // pill (when the keyboard is dismissed) is the selection indicator.
+      style={styles.paraWrap}
+    >
+      <SettleFlash active={justApplied}>
+        <Text
+          {...(androidJustify ? { textBreakStrategy: "simple" as const } : null)}
+          style={[
+            isHeading
+              ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
+              : styles.body,
+            {
+              textAlign,
+              ...(androidJustify ? null : { writingDirection: dir }),
+            },
+            empty && styles.emptyPara,
+          ]}
+        >
+          {empty
+            ? "·"
+            : useRuns && runs
+              ? runs.map((r, i) => (
+                  <Text key={i} style={runTextStyle(r)}>
+                    {r.text}
+                  </Text>
+                ))
+              : block.text}
+        </Text>
+      </SettleFlash>
     </Pressable>
   );
 }
@@ -381,10 +392,13 @@ function EditableParagraph({
 
   // Focus backstop: `autoFocus` fires as part of the mount commit, so if this block
   // ever mounts during a heavier render the keyboard can lag. Explicitly focus on
-  // the next frame as well — focusing an already-focused input is a no-op, so this
-  // only helps when autoFocus was late/missed.
+  // the next frame — but ONLY if autoFocus hasn't already taken. Re-calling focus()
+  // on an already-focused field can emit a transient blur on some New-Arch builds,
+  // which would fire onBlur → exit edit mode; the isFocused() guard avoids that.
   useEffect(() => {
-    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    const id = requestAnimationFrame(() => {
+      if (!inputRef.current?.isFocused?.()) inputRef.current?.focus();
+    });
     return () => cancelAnimationFrame(id);
   }, []);
 
