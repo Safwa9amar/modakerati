@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, Alert } from "react-native";
+import { View, Text, Pressable, StyleSheet, Alert, Keyboard } from "react-native";
 // Horizontal tool rows use gesture-handler's ScrollView so they scroll even when
 // nested inside the reorderable list (RN's ScrollView loses the horizontal pan to
 // the list's gesture handler).
@@ -28,6 +28,7 @@ import {
   Trash2,
   Plus,
   Sparkles,
+  ListTree,
   X,
   type LucideIcon,
 } from "lucide-react-native";
@@ -36,6 +37,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
@@ -412,6 +414,26 @@ export function BlockContextBar({
     </Pressable>
   );
 
+  // Open the Thesis Structure navigator — the root push-drawer (same target as the
+  // header ⋯ → Outline). The drawer dismisses the keyboard itself on open.
+  const openOutline = () => {
+    Keyboard.dismiss();
+    useNavDrawerStore.getState().openDrawer();
+  };
+
+  // Pinned beside ✦ Ask AI so the outline is always one tap away (never scrolled
+  // off with the formatting tools).
+  const OutlineBtn = (
+    <Pressable
+      onPress={openOutline}
+      accessibilityRole="button"
+      accessibilityLabel={t("workspace.outline", { defaultValue: "Outline" })}
+      style={[styles.pinnedChip, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
+    >
+      <ListTree size={18} color={colors.textPrimary} strokeWidth={2} />
+    </Pressable>
+  );
+
   // Interactive crop for the selected figure. Self-contained <Modal> (portals to
   // root) so it renders correctly from either pill/bar form. On commit it uploads
   // via replaceThesisBlockImage and we revalidate the doc store to repaint.
@@ -506,6 +528,7 @@ export function BlockContextBar({
           </ScrollView>
           <View style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />
           {AskAI}
+          {OutlineBtn}
         </View>
         {cropModal}
       </View>
@@ -541,6 +564,7 @@ export function BlockContextBar({
             : null}
         </ScrollView>
         {AskAI}
+        {OutlineBtn}
       </View>
       {saving ? <View style={[styles.savingDot, { backgroundColor: colors.brandPrimary }]} /> : null}
       {cropModal}
@@ -617,6 +641,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: CHIP / 2,
+  },
+  // Pinned Outline button beside Ask AI — round to pair with it, but bordered/
+  // secondary (not brand-filled) so ✦ Ask AI stays the primary action.
+  pinnedChip: {
+    width: CHIP,
+    height: CHIP,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: CHIP / 2,
+    borderWidth: 1,
   },
 
   scopePill: {
