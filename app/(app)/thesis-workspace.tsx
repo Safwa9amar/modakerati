@@ -36,6 +36,7 @@ import { DocBlock } from "@/components/workspace/DocBlock";
 import { PaperPage } from "@/components/workspace/PaperPage";
 import { DocSkeleton } from "@/components/workspace/DocSkeleton";
 import { BlockComposer, BLOCK_COMPOSER_MIN_INSET } from "@/components/workspace/BlockComposer";
+import { FloatingPill } from "@/components/workspace/FloatingPill";
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
 import { HeaderMenuButton } from "@/components/workspace/WorkspaceHeaderMenu";
 import { SyncStatusChip } from "@/components/workspace/SyncStatusChip";
@@ -723,6 +724,12 @@ export default function ThesisWorkspaceScreen() {
       />
         </View>
       </KeyboardAvoidingView>
+
+      {/* Persistent floating formatting pill — draggable screen overlay; closes
+          only by drag-to-X. Replaces the old inline per-block pill. */}
+      {thesisId && (
+        <FloatingPill thesisId={thesisId} rtl={docRtl} blocks={liveDoc?.blocks ?? []} />
+      )}
 
       {/* Word-count milestone celebration — floats over everything, never blocks
           touches; keyed on the count so each crossing replays the animation. */}

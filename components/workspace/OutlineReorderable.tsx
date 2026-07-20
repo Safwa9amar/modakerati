@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, StyleSheet, type FlatList } from "react-native";
+import { View, StyleSheet, type FlatList, type ViewToken } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from "react-native-reanimated";
 import ReorderableList, {
   useReorderableDrag,
   reorderItems,
@@ -7,7 +8,6 @@ import ReorderableList, {
 } from "react-native-reorderable-list";
 import { useTranslation } from "react-i18next";
 import { DocBlock } from "./DocBlock";
-import { BlockToolbarPill } from "./BlockToolbarPill";
 import { InlineSuggestion } from "./InlineSuggestion";
 import {
   OutlineHeaderZone,
@@ -18,7 +18,6 @@ import {
 import { type DocBlockDTO, type DocSectionDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
-import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { hLight, hMedium } from "@/lib/haptics";
 
@@ -57,33 +56,49 @@ function Row({
     s.editingBlockIndex ?? (s.selectedBlocks.length === 1 ? s.selectedBlocks[0].index : null),
   );
   const dimmed = focusMode && activeIndex != null && activeIndex !== block.index;
-  // Show the floating formatting pill anchored under THIS block when it's the sole
-  // selection AND the keyboard is down (not inline-editing / composer-focused) AND
-  // the block-scoped Ask-AI input isn't up. Boolean-primitive selector (never a
-  // fresh object/array literal → zustand Object.is loop).
-  const pillEligible = useWorkspaceStore(
-    (s) =>
-      s.selectedBlocks.length === 1 &&
-      s.selectedBlocks[0].index === block.index &&
-      !s.inlineEditing &&
-      !s.composerInputFocused &&
-      !s.askAiOpen,
+  // A pending inline AI suggestion on THIS block REPLACES the block's own
+  // rendering (in-place proposal + its own controls) and suppresses the pill.
+  // STALENESS GATE: the suggestion only counts if its stored `original` still
+  // matches this paragraph's current text — suggestions are keyed by BARE
+  // index, so a structural edit elsewhere (split/merge/delete/reorder) that
+  // renumbers indices, or an AI tool rewriting the paragraph mid-suggestion,
+  // would otherwise overlay (and let Approve overwrite) the WRONG paragraph.
+  // A mismatched entry simply stops rendering; the workspace-exit clear()
+  // sweeps it away. Boolean-primitive selector → no zustand Object.is loop.
+  const hasSuggestion = useSuggestionStore(
+    (s) => block.kind === "paragraph" && s.byIndex[block.index]?.original === block.text,
   );
-  // Also suppress it while the AI's ask/confirm gate owns the bottom surface.
-  const aiGateActive = useChatStore((s) => s.pendingAsk != null || s.pendingConfirm != null);
-  // A pending inline AI suggestion on THIS block replaces the pill (it renders its
-  // own approve/edit/reject/again controls) to avoid stacking two toolbars.
-  // Boolean-primitive selector → no zustand Object.is loop.
-  const hasSuggestion = useSuggestionStore((s) => !!s.byIndex[block.index]);
-  const showPill = pillEligible && !aiGateActive && !hasSuggestion;
+
+  // Post-navigation flash: when the jump lands on THIS block, pulse a brand tint so
+  // the eye finds the heading. Selector returns the nonce only for the target block
+  // (else null) → a primitive, re-fires the pulse on each navigation.
+  const flashNonce = useWorkspaceStore((s) =>
+    s.flashTarget && s.flashTarget.index === block.index ? s.flashTarget.nonce : null,
+  );
+  const flash = useSharedValue(0);
+  useEffect(() => {
+    if (flashNonce == null) return;
+    flash.value = withSequence(withTiming(1, { duration: 160 }), withTiming(0, { duration: 780 }));
+  }, [flashNonce]);
+  const flashStyle = useAnimatedStyle(() => ({
+    backgroundColor: `rgba(92,107,255,${flash.value * 0.16})`,
+    borderRadius: 8,
+  }));
+
   return (
     <View>
       {markerLabel != null && <OutlineSectionMarker label={markerLabel} rtl={rtl} />}
-      <View style={[styles.row, dimmed && styles.dimmed]}>
-        <DocBlock block={block} rtl={rtl} thesisId={thesisId} version={version} onLongPressDrag={drag} />
-        <InlineSuggestion thesisId={thesisId} index={block.index} rtl={rtl} />
-        {showPill && <BlockToolbarPill thesisId={thesisId} blocks={blocks} rtl={rtl} />}
-      </View>
+      <Animated.View style={[styles.row, dimmed && styles.dimmed, flashStyle]}>
+        {/* kind narrowing: hasSuggestion is only ever true for paragraphs. */}
+        {hasSuggestion && block.kind === "paragraph" ? (
+          // The suggestion takes over the block's rendering entirely (proposed
+          // text in doc typography + peek + pill). Drag/select intentionally
+          // unavailable while the block is "in review".
+          <InlineSuggestion thesisId={thesisId} block={block} rtl={rtl} />
+        ) : (
+          <DocBlock block={block} rtl={rtl} thesisId={thesisId} version={version} onLongPressDrag={drag} />
+        )}
+      </Animated.View>
     </View>
   );
 }
@@ -128,13 +143,24 @@ export function OutlineReorderable({
     if (!scrollTarget) return;
     const pos = data.findIndex((b) => b.index === scrollTarget.index);
     if (pos < 0) return;
-    // Defer a frame so a just-mounted list is laid out before we scroll.
+    // Defer a frame so a just-mounted list is laid out before we scroll. Jump
+    // INSTANTLY (animated:false) — the workspace's NavOverlay masks the doc while
+    // it moves, so an animated fly-through would only be seen as jank.
     const id = requestAnimationFrame(() => {
-      listRef.current?.scrollToIndex({ index: pos, animated: true, viewPosition: 0 });
+      listRef.current?.scrollToIndex({ index: pos, animated: false, viewPosition: 0 });
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTarget?.nonce]);
+
+  // Report the top-most visible block so the Structure drawer can highlight the
+  // heading the reader is currently under ("you are here"). Stable refs — React
+  // forbids changing onViewableItemsChanged / viewabilityConfig on the fly.
+  const onViewableChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    const top = viewableItems[0]?.item as DocBlockDTO | undefined;
+    if (top) useWorkspaceStore.getState().setActiveBlockIndex(top.index);
+  });
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 1 });
 
   const markers = useMemo(() => computeSectionMarkers(t, sections), [t, sections]);
 
@@ -180,9 +206,11 @@ export function OutlineReorderable({
       onScrollToIndexFailed={({ index, averageItemLength }) => {
         listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false });
         setTimeout(() => {
-          listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+          listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0 });
         }, 120);
       }}
+      onViewableItemsChanged={onViewableChanged.current}
+      viewabilityConfig={viewabilityConfig.current}
       renderItem={({ item }) => (
         <Row
           block={item}
