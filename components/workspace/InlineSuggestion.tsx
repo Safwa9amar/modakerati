@@ -1,10 +1,25 @@
-import React from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import React, { useEffect } from "react";
+import { View, Text, Pressable, StyleSheet, I18nManager } from "react-native";
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
 import { Sparkles, Check, Pencil, X, RotateCw } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+
+/** A ✦ that spins while the AI drafts the suggestion. */
+function Spinner({ color }: { color: string }) {
+  const rot = useSharedValue(0);
+  useEffect(() => {
+    rot.value = withRepeat(withTiming(360, { duration: 1000, easing: Easing.linear }), -1);
+  }, []);
+  const st = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }));
+  return (
+    <Animated.View style={st}>
+      <Sparkles size={14} color={color} />
+    </Animated.View>
+  );
+}
 
 interface Props {
   thesisId: string;
@@ -31,6 +46,9 @@ export function InlineSuggestion({ thesisId, index, rtl }: Props) {
   if (!sug) return null;
 
   const rowDir = rtl ? "row-reverse" : "row";
+  // The "Thinking…" chrome follows the APP language (not the document's), per the
+  // app-lang alignment rule; the proposed/original TEXT keeps the doc direction.
+  const appRowDir = I18nManager.isRTL ? "row-reverse" : "row";
   const textStyle = {
     writingDirection: rtl ? ("rtl" as const) : ("ltr" as const),
     textAlign: rtl ? ("right" as const) : ("left" as const),
@@ -42,10 +60,10 @@ export function InlineSuggestion({ thesisId, index, rtl }: Props) {
         style={[
           styles.card,
           styles.thinkingCard,
-          { backgroundColor: colors.bgCard, borderColor: colors.borderSubtle, flexDirection: rowDir },
+          { backgroundColor: colors.bgCard, borderColor: colors.borderSubtle, flexDirection: appRowDir },
         ]}
       >
-        <Sparkles size={14} color={colors.brandPrimary} />
+        <Spinner color={colors.brandPrimary} />
         <Text style={[styles.thinking, { color: colors.textSecondary }]}>
           {t("composer.thinking", { defaultValue: "Thinking…" })}
         </Text>
@@ -108,11 +126,13 @@ export function InlineSuggestion({ thesisId, index, rtl }: Props) {
       ]}
     >
       {!!sug.original && sug.original !== sug.proposed && (
-        <Text style={[styles.original, textStyle, { color: colors.textPlaceholder }]} numberOfLines={3}>
+        <Text style={[styles.original, textStyle, { color: "rgba(20,40,26,0.45)" }]} numberOfLines={3}>
           {sug.original}
         </Text>
       )}
-      <Text style={[styles.proposed, textStyle, { color: colors.textPrimary }]}>{sug.proposed}</Text>
+      {/* The card sits on the WHITE document, so text must be dark ink (theme
+          textPrimary is light in dark mode → invisible here). */}
+      <Text style={[styles.proposed, textStyle, { color: "#16311F" }]}>{sug.proposed}</Text>
       <View style={[styles.actions, styles.readyActions, { flexDirection: rowDir }]}>
         <Btn
           colors={colors}

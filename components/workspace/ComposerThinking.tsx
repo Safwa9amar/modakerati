@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, I18nManager } from "react-native";
 import type { ComponentType } from "react";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -31,12 +31,15 @@ interface Props {
  */
 export function ComposerThinking({ isGenerating, reasoning, thinking, durationMs, statusReady, rtl, scrollComponent }: Props) {
   const colors = useThemeColors();
+  // The thinking indicator is app chrome, not document content, so it aligns to the
+  // APP language (I18nManager.isRTL) — NOT the document's detected direction (`rtl`).
+  const appRtl = I18nManager.isRTL;
 
   if (!isGenerating && !thinking) {
     return (
       <View style={[styles.box, { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle }]}>
         <Text
-          style={[styles.status, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}
+          style={[styles.status, { color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }]}
           numberOfLines={1}
         >
           {statusReady}
@@ -52,7 +55,7 @@ export function ComposerThinking({ isGenerating, reasoning, thinking, durationMs
         streaming={reasoning}
         durationMs={reasoning ? undefined : durationMs}
         defaultOpen={reasoning}
-        rtl={rtl}
+        rtl={appRtl}
         ScrollComponent={scrollComponent ?? BottomSheetScrollView}
         surfaceColor={colors.bgSurface}
       />
