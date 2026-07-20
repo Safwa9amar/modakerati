@@ -1,11 +1,12 @@
 import React, { useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, I18nManager } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, I18nManager } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
 import { Sparkles, Check, Pencil, X, RotateCw } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { ThinkingTrace } from "@/components/ThinkingTrace";
 
 // The ready card sits on the WHITE document paper (a pale mint success tint over
 // white), so its controls use FIXED on-white ink — theme textPrimary/bgCard are
@@ -33,6 +34,43 @@ function Spinner({ color }: { color: string }) {
     <Animated.View style={st}>
       <Sparkles size={14} color={color} />
     </Animated.View>
+  );
+}
+
+/**
+ * The AI's reasoning for this suggestion, in the shared collapsible ThinkingTrace.
+ * Rendered on a THEME surface (bgCard) — ThinkingTrace styles its text with theme
+ * colors, which would be illegible on the white/mint document cards below. The
+ * chrome follows the APP language (I18nManager.isRTL); the reasoning text itself
+ * stays LTR (ThinkingTrace handles that). A plain RN ScrollView is passed because
+ * this card is NOT inside a bottom sheet — ThinkingTrace's default
+ * BottomSheetScrollView throws outside one. Renders nothing when the model emitted
+ * no reasoning (a short rewrite often does), so the card keeps its simple spinner.
+ */
+function SuggestionTrace({
+  reasoning,
+  streaming,
+  reasoningMs,
+  colors,
+}: {
+  reasoning: string;
+  streaming: boolean;
+  reasoningMs?: number;
+  colors: ReturnType<typeof useThemeColors>;
+}) {
+  if (!reasoning.trim()) return null;
+  return (
+    <View style={[styles.traceCard, { backgroundColor: colors.bgCard, borderColor: colors.borderSubtle }]}>
+      <ThinkingTrace
+        text={reasoning}
+        streaming={streaming}
+        durationMs={reasoningMs}
+        defaultOpen={false}
+        rtl={I18nManager.isRTL}
+        ScrollComponent={ScrollView}
+        surfaceColor={colors.bgCard}
+      />
+    </View>
   );
 }
 
@@ -70,6 +108,12 @@ export function InlineSuggestion({ thesisId, index, rtl }: Props) {
   };
 
   if (sug.status === "loading") {
+    // Once reasoning tokens arrive, the ThinkingTrace's own animated header IS the
+    // loading indicator (expandable to watch the thinking stream live); before any
+    // reasoning has streamed, keep the simple spinner row.
+    if (sug.reasoning.trim()) {
+      return <SuggestionTrace reasoning={sug.reasoning} streaming reasoningMs={sug.reasoningMs} colors={colors} />;
+    }
     return (
       <View
         style={[
@@ -134,62 +178,67 @@ export function InlineSuggestion({ thesisId, index, rtl }: Props) {
   const onAgain = () => void useSuggestionStore.getState().again(thesisId, index);
 
   return (
-    <View
-      style={[
-        styles.readyCard,
-        { backgroundColor: colors.semanticSuccess + "14", borderColor: colors.semanticSuccess + "66" },
-      ]}
-    >
-      {!!sug.original && sug.original !== sug.proposed && (
-        <Text style={[styles.original, textStyle, { color: "rgba(20,40,26,0.45)" }]} numberOfLines={3}>
-          {sug.original}
-        </Text>
-      )}
-      {/* The card sits on the WHITE document, so text must be dark ink (theme
-          textPrimary is light in dark mode → invisible here). */}
-      <Text style={[styles.proposed, textStyle, { color: "#16311F" }]}>{sug.proposed}</Text>
-      <View style={[styles.actions, styles.readyActions, { flexDirection: rowDir }]}>
-        <Btn
-          colors={colors}
-          flex
-          icon={<Check size={15} color={APPROVE_INK} />}
-          label={t("suggestion.approve", { defaultValue: "Approve" })}
-          onPress={onApprove}
-          bg={APPROVE_BG}
-          fg={APPROVE_INK}
-        />
-        <Btn
-          colors={colors}
-          flex
-          icon={<Pencil size={14} color={CARD_INK} />}
-          label={t("suggestion.edit", { defaultValue: "Edit" })}
-          onPress={onEdit}
-          bg={CARD_CHIP_BG}
-          fg={CARD_INK}
-          border={CARD_INK_BORDER}
-        />
-        <Btn
-          colors={colors}
-          flex
-          icon={<RotateCw size={14} color={CARD_INK} />}
-          label={t("suggestion.again", { defaultValue: "Again" })}
-          onPress={onAgain}
-          bg={CARD_CHIP_BG}
-          fg={CARD_INK}
-          border={CARD_INK_BORDER}
-        />
-        <Btn
-          colors={colors}
-          flex
-          icon={<X size={14} color={REJECT_INK} />}
-          label={t("suggestion.reject", { defaultValue: "Reject" })}
-          onPress={onReject}
-          bg={CARD_CHIP_BG}
-          fg={REJECT_INK}
-          border={REJECT_BORDER}
-        />
+    <>
+      {/* Collapsed "Thought for Xs" above the diff — the user can expand it to read
+          how the AI approached the rewrite. Self-hides when there was no reasoning. */}
+      <SuggestionTrace reasoning={sug.reasoning} streaming={false} reasoningMs={sug.reasoningMs} colors={colors} />
+      <View
+        style={[
+          styles.readyCard,
+          { backgroundColor: colors.semanticSuccess + "14", borderColor: colors.semanticSuccess + "66" },
+        ]}
+      >
+        {!!sug.original && sug.original !== sug.proposed && (
+          <Text style={[styles.original, textStyle, { color: "rgba(20,40,26,0.45)" }]} numberOfLines={3}>
+            {sug.original}
+          </Text>
+        )}
+        {/* The card sits on the WHITE document, so text must be dark ink (theme
+            textPrimary is light in dark mode → invisible here). */}
+        <Text style={[styles.proposed, textStyle, { color: "#16311F" }]}>{sug.proposed}</Text>
+        <View style={[styles.actions, styles.readyActions, { flexDirection: rowDir }]}>
+          <Btn
+            colors={colors}
+            flex
+            icon={<Check size={15} color={APPROVE_INK} />}
+            label={t("suggestion.approve", { defaultValue: "Approve" })}
+            onPress={onApprove}
+            bg={APPROVE_BG}
+            fg={APPROVE_INK}
+          />
+          <Btn
+            colors={colors}
+            flex
+            icon={<Pencil size={14} color={CARD_INK} />}
+            label={t("suggestion.edit", { defaultValue: "Edit" })}
+            onPress={onEdit}
+            bg={CARD_CHIP_BG}
+            fg={CARD_INK}
+            border={CARD_INK_BORDER}
+          />
+          <Btn
+            colors={colors}
+            flex
+            icon={<RotateCw size={14} color={CARD_INK} />}
+            label={t("suggestion.again", { defaultValue: "Again" })}
+            onPress={onAgain}
+            bg={CARD_CHIP_BG}
+            fg={CARD_INK}
+            border={CARD_INK_BORDER}
+          />
+          <Btn
+            colors={colors}
+            flex
+            icon={<X size={14} color={REJECT_INK} />}
+            label={t("suggestion.reject", { defaultValue: "Reject" })}
+            onPress={onReject}
+            bg={CARD_CHIP_BG}
+            fg={REJECT_INK}
+            border={REJECT_BORDER}
+          />
+        </View>
       </View>
-    </View>
+    </>
   );
 }
 
@@ -256,6 +305,16 @@ const styles = StyleSheet.create({
   },
   thinkingCard: { alignItems: "center" },
   thinking: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  // The reasoning trace card — a theme surface (bgCard) so ThinkingTrace's
+  // theme-colored text stays legible (the diff card below is white/mint).
+  traceCard: {
+    marginTop: 4,
+    marginBottom: 2,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   errText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
   readyCard: {
     marginTop: 4,

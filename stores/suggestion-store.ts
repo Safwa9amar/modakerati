@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { proposeBlockEdit } from "@/lib/thesis-suggest";
+import { proposeBlockEditStream } from "@/lib/thesis-suggest";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 
 // Per-block pending AI suggestion: the student asks the AI to rewrite a single
@@ -19,6 +19,13 @@ export interface PendingSuggestion {
   proposed: string;
   instruction: string;
   status: Status;
+  // The model's reasoning ("thinking"), streamed live while `loading` and shown
+  // in the collapsible ThinkingTrace on the inline card. Empty when the model
+  // emits none (a short rewrite often does) — the card then just shows the spinner.
+  reasoning: string;
+  // How long the model spent reasoning, in ms — powers the "Thought for Xs" chip
+  // once the suggestion is ready. Undefined when there was no reasoning.
+  reasoningMs?: number;
 }
 
 interface SuggestionState {
@@ -52,16 +59,45 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
 
   request: async (thesisId, index, original, instruction) => {
     set((s) => ({
-      byIndex: { ...s.byIndex, [index]: { index, original, instruction, proposed: "", status: "loading" } },
+      byIndex: { ...s.byIndex, [index]: { index, original, instruction, proposed: "", status: "loading", reasoning: "" } },
     }));
+    // Accumulated locally; the store only holds the live reasoning (for the trace)
+    // and, at the end, the final rewrite. Timing runs from the first reasoning
+    // token to the first answer token → "Thought for Xs".
+    let reasoning = "";
+    let proposed = "";
+    let reasoningStart = 0;
+    let reasoningMs: number | undefined;
+    // This request is still the one on `index` (not rejected / superseded by a
+    // newer instruction while in flight).
+    const isMine = (cur: PendingSuggestion | undefined) =>
+      !!cur && cur.status === "loading" && cur.instruction === instruction;
     try {
-      const { proposed } = await proposeBlockEdit(thesisId, index, instruction);
+      await proposeBlockEditStream(thesisId, index, instruction, {
+        onReasoning: (delta) => {
+          if (!reasoningStart) reasoningStart = Date.now();
+          reasoning += delta;
+          set((s) => {
+            const cur = s.byIndex[index];
+            if (!isMine(cur)) return {};
+            return { byIndex: { ...s.byIndex, [index]: { ...cur!, reasoning } } };
+          });
+        },
+        onProposed: (delta) => {
+          // First answer token → reasoning is done; freeze its duration.
+          if (reasoningStart && reasoningMs == null) reasoningMs = Date.now() - reasoningStart;
+          proposed += delta;
+        },
+      });
+      if (reasoningStart && reasoningMs == null) reasoningMs = Date.now() - reasoningStart;
+      const finalText = proposed.trim();
       set((s) => {
-        // The suggestion may have been rejected / superseded while in flight —
-        // don't resurrect a dismissed one or clobber a newer request.
         const cur = s.byIndex[index];
-        if (!cur || cur.status !== "loading" || cur.instruction !== instruction) return {};
-        return { byIndex: { ...s.byIndex, [index]: { ...cur, proposed, status: "ready" } } };
+        if (!isMine(cur)) return {};
+        // An empty rewrite (e.g. the model only "thought") is an error, not a
+        // ready suggestion — don't show a blank green card.
+        if (!finalText) return { byIndex: { ...s.byIndex, [index]: { ...cur!, reasoning, reasoningMs, status: "error" } } };
+        return { byIndex: { ...s.byIndex, [index]: { ...cur!, proposed: finalText, reasoning, reasoningMs, status: "ready" } } };
       });
     } catch {
       set((s) => {
