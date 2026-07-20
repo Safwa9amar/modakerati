@@ -141,8 +141,12 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         // drops, so the tool closes first ("close the tool before the keyboard").
         // Guarded: never while the block Ask-AI input is up (its keyboard toggles
         // too, and it still needs the block target).
+        // Clear when ANY block is selected (not gated on editingBlockIndex — the
+        // block's onBlur may have already nulled it before this fires). The keyboard
+        // only comes up for paragraph editing / the Ask-AI input, so this only
+        // triggers a real dismiss. Never while Ask-AI is up (it needs the target).
         const ws = useWorkspaceStore.getState();
-        if (ws.editingBlockIndex != null && !ws.askAiOpen) ws.clearSelection();
+        if (ws.selectedBlocks.length > 0 && !ws.askAiOpen) ws.clearSelection();
       },
     );
     return () => {
