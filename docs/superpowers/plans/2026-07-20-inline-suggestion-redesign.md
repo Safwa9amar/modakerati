@@ -333,6 +333,9 @@ function SettleFlash({ active, children }: { active: boolean; children: React.Re
         if (finished) runOnJS(clear)();
       }),
     );
+    // Cleanup guarantees the marker clears even if the row unmounts mid-flash
+    // (virtualized list) and the UI-thread completion callback never fires.
+    return clear;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
   const st = useAnimatedStyle(() => ({
