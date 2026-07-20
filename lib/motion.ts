@@ -7,6 +7,7 @@ import {
   withTiming,
 } from "react-native-reanimated";
 import type { EntryExitAnimationFunction } from "react-native-reanimated";
+import { pillHandoffSV } from "./pill-handoff";
 
 /** Shared spring — settles ≲ 400ms. Every pill moment speaks this dialect. */
 export const SPRING = { damping: 18, stiffness: 250, mass: 1 } as const;
@@ -35,6 +36,29 @@ export const pillIn: EntryExitAnimationFunction = () => {
 /** Pill exit: quick drop-fade — no bounce on the way out. */
 export const pillOut: EntryExitAnimationFunction = () => {
   "worklet";
+  return {
+    initialValues: { opacity: 1, transform: [{ translateY: 0 }, { scale: 1 }] },
+    animations: {
+      opacity: withTiming(0, OUT_TIMING),
+      transform: [
+        { translateY: withTiming(40, OUT_TIMING) },
+        { scale: withTiming(0.9, OUT_TIMING) },
+      ],
+    },
+  };
+};
+
+/** Pill exit that skips itself during a block→block selection handoff: the pill
+ *  vanishes instantly here and appears instantly under the new block ("moves"),
+ *  instead of drop-fading out and springing back in. */
+export const pillOutUnlessHandoff: EntryExitAnimationFunction = () => {
+  "worklet";
+  if (pillHandoffSV.value === 1) {
+    return {
+      initialValues: { opacity: 0 },
+      animations: { opacity: withTiming(0, { duration: 1 }) },
+    };
+  }
   return {
     initialValues: { opacity: 1, transform: [{ translateY: 0 }, { scale: 1 }] },
     animations: {

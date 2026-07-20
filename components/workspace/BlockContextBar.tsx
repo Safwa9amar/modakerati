@@ -44,7 +44,8 @@ import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit
 import { hWarn } from "@/lib/haptics";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
-import { layoutSpring, pillIn, pillOut, rowIn, rowOut } from "@/lib/motion";
+import { layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOut } from "@/lib/motion";
+import { isPillHandoff } from "@/lib/pill-handoff";
 import type { FormatChange } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
@@ -615,8 +616,10 @@ export function BlockContextBar({
           re-entering). */}
       {renderExpansion()}
       <Animated.View
-        entering={pillIn}
-        exiting={pillOut}
+        // Block→block selection handoff: skip entrance/exit so the pill MOVES to
+        // the new block instead of hiding and reappearing (user request).
+        entering={isPillHandoff() ? undefined : pillIn}
+        exiting={pillOutUnlessHandoff}
         layout={layoutSpring}
         style={
           pillExpanded
