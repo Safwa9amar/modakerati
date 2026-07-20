@@ -135,12 +135,14 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
       () => {
         setKeyboardVisible(false);
-        // Keyboard dismissed → exit inline editing (keep the selection) so the
-        // block's floating pill appears — the smart keyboard⇄pill switch. On
-        // Android, hiding the keyboard does NOT blur the TextInput, so the block's
-        // onBlur wouldn't fire on its own; this makes the switch reliable.
+        // Dismissing the keyboard CLOSES the block tool entirely (clears the
+        // selection) → back to the idle state, so no floating pill lingers over the
+        // vacated keyboard space. On iOS keyboardWillHide fires before the keyboard
+        // drops, so the tool closes first ("close the tool before the keyboard").
+        // Guarded: never while the block Ask-AI input is up (its keyboard toggles
+        // too, and it still needs the block target).
         const ws = useWorkspaceStore.getState();
-        if (ws.editingBlockIndex != null) ws.setEditingBlock(null);
+        if (ws.editingBlockIndex != null && !ws.askAiOpen) ws.clearSelection();
       },
     );
     return () => {
