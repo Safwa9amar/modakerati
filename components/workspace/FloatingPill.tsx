@@ -199,14 +199,21 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const minY = insets.top + 100;
   const maxY = Math.max(minY, height - dismissBottom - PILL_H - 8);
 
-  // The inline Ask input must sit ABOVE the keyboard (user requirement): when it
-  // opens and the keyboard rises, spring the dock up if it would be occluded.
+  // Keep the bubble/pill visible above a rising keyboard — it anchors at the tap Y,
+  // which is often exactly where the keyboard lands. Clearance depends on the form:
+  // the expanded dock needs room for its rows; the collapsed bubble just its height.
+  // Runs on every keyboardHeight change (not just when the dock's Ask input is
+  // open) — the anchor effect below places the bubble at the raw tap Y BEFORE the
+  // keyboard has risen (keyboardWillShow/DidShow land ~150-300ms after the tapped
+  // block's TextInput autoFocus), so without this the bubble spawns at a Y the
+  // keyboard is about to cover and vanishes behind it the instant it rises.
   useEffect(() => {
-    if (!inputOpen || keyboardHeight <= 0) return;
-    const limit = height - keyboardHeight - DOCK_CLEARANCE;
+    if (keyboardHeight <= 0) return;
+    const clearance = inputOpen ? DOCK_CLEARANCE : expanded ? DOCK_CLEARANCE : PILL_H + 24;
+    const limit = height - keyboardHeight - clearance;
     if (ty.value > limit) ty.value = withSpring(Math.max(minY, limit), SPRING);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputOpen, keyboardHeight]);
+  }, [keyboardHeight, inputOpen, expanded]);
 
   // Guards re-anchoring against unrelated re-renders. Declared here (above dismiss)
   // so dismiss can clear it — see the anchor effect below.
