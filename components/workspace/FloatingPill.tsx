@@ -94,6 +94,9 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   });
 
   // Spawn on the first non-empty selection; never auto-hide (only drag-to-X does).
+  // INTENTIONAL: the pill persists even when the selection is cleared (count === 0)
+  // — the product wants it to stay "like a manager" until dragged onto the X. The
+  // format tools inside already disable themselves when nothing is selected.
   useEffect(() => {
     if (count > 0 && !visible) useFloatingPillStore.getState().show();
   }, [count, visible]);
@@ -106,10 +109,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
 
   const tx = useSharedValue(startX);
   const ty = useSharedValue(startY);
-  // Re-seed when the store position changes from outside (e.g. reset → default).
+  // Re-seed ONLY on a reset-to-default (pos → null). Re-seeding to the value we
+  // JUST wrote on a drag drop would overwrite (and cut short) the spring-back.
   useEffect(() => {
-    tx.value = pos?.x ?? defaultX;
-    ty.value = pos?.y ?? defaultY;
+    if (pos == null) {
+      tx.value = (width - PILL_W) / 2;
+      ty.value = height - insets.bottom - PILL_H - 120;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pos, width, height, insets.bottom]);
 
@@ -122,50 +128,76 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const targetCY = height - insets.bottom - 24 - 32; // matches DismissTarget bottom+radius
 
   const minX = 8;
-  const maxX = width - PILL_W - 8;
-  const minY = insets.top + 8;
-  const maxY = height - insets.bottom - PILL_H - 8;
+  // Guard the max bounds so a device narrower/shorter than the pill can't yield a
+  // max < min (which would clamp the pill off-screen).
+  const maxX = Math.max(minX, width - PILL_W - 8);
+  // Keep the pill clear of the header chrome at the top.
+  const minY = insets.top + 100;
+  const maxY = Math.max(minY, height - insets.bottom - PILL_H - 8);
 
   const dismiss = () => {
     useFloatingPillStore.getState().hide();
     useWorkspaceStore.getState().clearSelection();
   };
+  // JS-thread wrapper: reanimated must persist via runOnJS(persistPos) — NOT
+  // runOnJS(useFloatingPillStore.getState().setPos), which would evaluate
+  // getState() on the UI thread and crash on release.
+  const persistPos = (p: { x: number; y: number }) =>
+    useFloatingPillStore.getState().setPos(p);
 
-  const pan = Gesture.Pan()
-    .minDistance(10) // let quick taps reach the chips
-    .onStart(() => {
-      startTX.value = tx.value;
-      startTY.value = ty.value;
-      dragActive.value = withTiming(1, { duration: 140 });
-    })
-    .onUpdate((e) => {
-      tx.value = startTX.value + e.translationX;
-      ty.value = startTY.value + e.translationY;
-      // Hit test: pill center vs target center.
-      const cx = tx.value + PILL_W / 2;
-      const cy = ty.value + PILL_H / 2;
-      const dist = Math.hypot(cx - targetCX, cy - targetCY);
-      const over = dist < DISMISS_HIT_RADIUS ? 1 : 0;
-      if (over !== overTarget.value) {
-        overTarget.value = withTiming(over, { duration: 120 });
-        if (over) runOnJS(hSelection)();
-      }
-    })
-    .onEnd(() => {
-      dragActive.value = withTiming(0, { duration: 140 });
-      if (overTarget.value > 0.5) {
-        overTarget.value = 0;
-        runOnJS(dismiss)();
-        return;
-      }
-      overTarget.value = 0;
-      // Clamp into bounds and persist.
-      const clampedX = Math.min(Math.max(tx.value, minX), maxX);
-      const clampedY = Math.min(Math.max(ty.value, minY), maxY);
-      tx.value = withSpring(clampedX, SPRING);
-      ty.value = withSpring(clampedY, SPRING);
-      runOnJS(useFloatingPillStore.getState().setPos)({ x: clampedX, y: clampedY });
-    });
+  // Memoized so a re-render never swaps the gesture mid-drag (which would drop the
+  // drag and strand the X target on screen). Rebuilds only when the bounds inputs
+  // change — the render-scope consts above (targetCX/CY, min/max X/Y) are closed
+  // over, and they recompute on exactly these deps. Vertical-biased arbitration:
+  // horizontal drags yield to the inner chip ScrollView (failOffsetX); only a
+  // vertical drag activates the pill move (activeOffsetY) — and the X sits at
+  // bottom-center, so you drag DOWN to it. A zero-offset tap never activates.
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([-12, 12])
+        .failOffsetX([-16, 16])
+        .onStart(() => {
+          startTX.value = tx.value;
+          startTY.value = ty.value;
+          dragActive.value = withTiming(1, { duration: 140 });
+        })
+        .onUpdate((e) => {
+          tx.value = startTX.value + e.translationX;
+          ty.value = startTY.value + e.translationY;
+          // Hit test: pill center vs target center.
+          const cx = tx.value + PILL_W / 2;
+          const cy = ty.value + PILL_H / 2;
+          const dist = Math.hypot(cx - targetCX, cy - targetCY);
+          const over = dist < DISMISS_HIT_RADIUS ? 1 : 0;
+          if (over !== overTarget.value) {
+            overTarget.value = withTiming(over, { duration: 120 });
+            if (over) runOnJS(hSelection)();
+          }
+        })
+        .onEnd(() => {
+          if (overTarget.value > 0.5) {
+            overTarget.value = 0;
+            runOnJS(dismiss)();
+            return;
+          }
+          overTarget.value = 0;
+          // Clamp into bounds and persist.
+          const clampedX = Math.min(Math.max(tx.value, minX), maxX);
+          const clampedY = Math.min(Math.max(ty.value, minY), maxY);
+          tx.value = withSpring(clampedX, SPRING);
+          ty.value = withSpring(clampedY, SPRING);
+          runOnJS(persistPos)({ x: clampedX, y: clampedY });
+        })
+        .onFinalize(() => {
+          // Always settle the target chrome, even on a cancelled/interrupted drag
+          // that never reaches onEnd — otherwise the X target stays visible.
+          dragActive.value = withTiming(0, { duration: 140 });
+          overTarget.value = 0;
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [width, height, insets.top, insets.bottom],
+  );
 
   const pillStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }],
