@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo } from "react";
-import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Dimensions, Keyboard, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
@@ -65,6 +65,23 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const expanded = useFloatingPillStore((s) => s.expanded);
   const anchorY = useFloatingPillStore((s) => s.anchorY);
   const colors = useThemeColors();
+
+  // Keyboard HEIGHT tracking — positioning ONLY (the bubble is NOT suppressed by
+  // the keyboard). Used to float the drag-to-X target + clamp above the keyboard
+  // and its docked formatting bar so the bubble stays closable while typing.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const onShow = (e: { endCoordinates?: { height: number } }) =>
+      setKeyboardHeight(e.endCoordinates?.height ?? 0);
+    const onHide = () => setKeyboardHeight(0);
+    const subs = [
+      Keyboard.addListener("keyboardDidShow", onShow),
+      Keyboard.addListener("keyboardDidHide", onHide),
+      Keyboard.addListener("keyboardWillShow", onShow),
+      Keyboard.addListener("keyboardWillHide", onHide),
+    ];
+    return () => subs.forEach((s) => s.remove());
+  }, []);
 
   // ── Selection derivations (mirror BlockToolbarPill) ──
   const ordered = useMemo(
@@ -134,8 +151,12 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const startTX = useSharedValue(0);
   const startTY = useSharedValue(0);
 
+  // When the keyboard is up, float the dismiss X + keep the pill above BOTH the
+  // keyboard and the docked formatting bar (~56px) that sits above it.
+  const dismissBottom = keyboardHeight > 0 ? keyboardHeight + 56 : insets.bottom;
+
   const targetCX = width / 2;
-  const targetCY = height - insets.bottom - 24 - 32; // matches DismissTarget bottom+radius
+  const targetCY = height - dismissBottom - 24 - 32; // matches DismissTarget bottom+radius
 
   const minX = 8;
   // Guard the max bounds so a device narrower/shorter than the pill can't yield a
@@ -143,7 +164,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const maxX = Math.max(minX, width - curW - 8);
   // Keep the pill clear of the header chrome at the top.
   const minY = insets.top + 100;
-  const maxY = Math.max(minY, height - insets.bottom - PILL_H - 8);
+  const maxY = Math.max(minY, height - dismissBottom - PILL_H - 8);
 
   // Guards re-anchoring against unrelated re-renders. Declared here (above dismiss)
   // so dismiss can clear it — see the anchor effect below.
@@ -220,7 +241,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           overTarget.value = 0;
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [width, height, insets.top, insets.bottom, curW],
+    [width, height, insets.top, insets.bottom, curW, keyboardHeight],
   );
 
   const pillStyle = useAnimatedStyle(() => ({
@@ -259,7 +280,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <DismissTarget visible={dragActive} active={overTarget} centerY={targetCY} bottomInset={insets.bottom} />
+      <DismissTarget visible={dragActive} active={overTarget} centerY={targetCY} bottomInset={dismissBottom} />
       <GestureDetector gesture={pan}>
         <Animated.View layout={layoutSpring} style={[styles.host, { width: curW }, pillStyle]}>
           {expanded ? (
