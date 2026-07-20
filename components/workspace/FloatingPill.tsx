@@ -2,9 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Dimensions, Keyboard, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  cancelAnimation,
+  Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSpring,
   withTiming,
   ZoomIn,
@@ -12,7 +15,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import { Type, Image as ImageIcon, Table } from "lucide-react-native";
+import { Type, Image as ImageIcon, Table, Sparkles } from "lucide-react-native";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
@@ -21,6 +24,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { hSelection } from "@/lib/haptics";
 import { layoutSpring, SPRING } from "@/lib/motion";
 import type { DocBlockDTO } from "@/lib/api";
+import { AIDock } from "./AIDock";
 import { BlockContextBar } from "./BlockContextBar";
 import { DismissTarget, DISMISS_HIT_RADIUS } from "./DismissTarget";
 
@@ -35,15 +39,25 @@ interface Props {
 const PILL_W = 320; // approximate — used only for the initial center + clamp math
 const PILL_H = 56;
 const BUBBLE_SIZE = 52;
+// Dock panel height + margin — how far above the keyboard the inline Ask input
+// needs to clear so it isn't occluded once it opens.
+const DOCK_CLEARANCE = 240;
 
 /**
- * The persistent, draggable, screen-level floating pill. Mounted ONCE by
- * thesis-workspace. Appears on the first block selection, stays open across block
- * changes (retargeting its tools to the current selection), and closes only when
- * dragged onto the bottom-center X (which also clears the selection). Suppressed —
- * but not hidden from the store — while the keyboard is up (the docked bar takes
- * over), while the block Ask-AI input is open, while the AI ask/confirm gate owns
- * the bottom, and while the sole selected paragraph has an active inline suggestion.
+ * The persistent, draggable, screen-level floating ✦ AI bubble. Mounted ONCE by
+ * thesis-workspace and shown on entry — it is ALWAYS ON, not spawned by selection:
+ * it lives from workspace entry until dragged onto the bottom-center X (which also
+ * clears the selection), and stays dismissed until the workspace is re-entered.
+ * Two modes, both reachable from the same bubble:
+ *   • count === 0 (nothing selected) → the bubble shows ✦ Sparkles; expanding opens
+ *     the AI dock (quick actions, suggested chips, on-demand Ask input).
+ *   • count > 0 (block(s) selected) → the bubble shows the block's kind icon;
+ *     expanding opens the BlockContextBar formatting toolbar, whose own ✦ Ask AI
+ *     swaps it for the same AI dock (block-scoped) via the store's `inputOpen`.
+ * Suppressed — but not hidden from the store — while the keyboard is up (the docked
+ * bar takes over), while the block Ask-AI input is open, while the AI ask/confirm
+ * gate owns the bottom, and while the sole selected paragraph has an active inline
+ * suggestion.
  */
 export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const { t } = useTranslation();
@@ -64,7 +78,10 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const pos = useFloatingPillStore((s) => s.pos);
   const expanded = useFloatingPillStore((s) => s.expanded);
   const anchorY = useFloatingPillStore((s) => s.anchorY);
+  const inputOpen = useFloatingPillStore((s) => s.inputOpen);
   const colors = useThemeColors();
+  // Busy spinner: the bubble spins while an AI turn is generating, in either mode.
+  const busy = useChatStore((s) => s.isGenerating);
 
   // Keyboard HEIGHT tracking — positioning ONLY (the bubble is NOT suppressed by
   // the keyboard). Used to float the drag-to-X target + clamp above the keyboard
@@ -102,10 +119,12 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     return blocks.find((b) => b.index === ordered[0]?.index) ?? null;
   }, [count, ordered, blocks]);
   const scopeLabel =
-    count === 1
-      ? (selectedBlocks[0]?.text?.replace(/\s+/g, " ").trim().slice(0, 32) ||
-        t("workspace.selectedBlock", { defaultValue: "Selected section" }))
-      : t("workspace.nSelected", { count, defaultValue: `${count} selected` });
+    count === 0
+      ? t("workspace.wholeMemoir", { defaultValue: "Whole memoir" })
+      : count === 1
+        ? (selectedBlocks[0]?.text?.replace(/\s+/g, " ").trim().slice(0, 32) ||
+          t("workspace.selectedBlock", { defaultValue: "Selected section" }))
+        : t("workspace.nSelected", { count, defaultValue: `${count} selected` });
 
   // Container width depends on form; drives centering, clamp, and the drag hit-test.
   const curW = expanded ? PILL_W : BUBBLE_SIZE;
@@ -117,16 +136,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     return !!b && b.kind === "paragraph" && s.byIndex[b.index]?.original === b.text;
   });
 
-  // Spawn on the first non-empty selection; never auto-hide (only drag-to-X does).
-  // PERSISTENCE vs RENDERING are separate concerns: `visible` (the store flag) is
-  // the persist-until-X truth and only ever flips false on a drag-to-X — a block→
-  // block change keeps count≥1 so it stays put. RENDERING is gated by `suppressed`
-  // below, which hides the pill (WITHOUT touching `visible`) when there's nothing
-  // selected, the composer is toggled off, or a preview is open — so no double
-  // bottom surface and no dead Ask-AI. It returns the instant those states clear.
+  // Always-on: the bubble lives from workspace entry until drag-to-X. `visible`
+  // is the persist flag (only hide() clears it); a dismissed bubble stays hidden
+  // until the user re-enters the workspace (reset() → mount → show()).
   useEffect(() => {
-    if (count > 0 && !visible) useFloatingPillStore.getState().show();
-  }, [count, visible]);
+    useFloatingPillStore.getState().show();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Drag position ──
   const defaultX = (width - PILL_W) / 2;
@@ -165,6 +181,15 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // Keep the pill clear of the header chrome at the top.
   const minY = insets.top + 100;
   const maxY = Math.max(minY, height - dismissBottom - PILL_H - 8);
+
+  // The inline Ask input must sit ABOVE the keyboard (user requirement): when it
+  // opens and the keyboard rises, spring the dock up if it would be occluded.
+  useEffect(() => {
+    if (!inputOpen || keyboardHeight <= 0) return;
+    const limit = height - keyboardHeight - DOCK_CLEARANCE;
+    if (ty.value > limit) ty.value = withSpring(Math.max(minY, limit), SPRING);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputOpen, keyboardHeight]);
 
   // Guards re-anchoring against unrelated re-renders. Declared here (above dismiss)
   // so dismiss can clear it — see the anchor effect below.
@@ -270,9 +295,12 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [soleIndex, anchorY]);
 
+  // Always-on: no `count === 0` term here — that's now a valid MODE (the AI dock),
+  // not a hide condition. askAiOpen is kept: BlockComposer's keyboard-docked
+  // BlockContextBar (Task 4, untouched here) can still set it, and the bubble must
+  // yield the bottom surface to that legacy bar while it's up.
   const suppressed =
-    askAiOpen || aiGateActive || soleSuggested ||
-    count === 0 || !composerOpen || previewMode != null;
+    askAiOpen || aiGateActive || soleSuggested || !composerOpen || previewMode != null;
   if (!visible || suppressed) {
     // Still render the target host? No — nothing to show when suppressed.
     return null;
@@ -284,25 +312,38 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
       <GestureDetector gesture={pan}>
         <Animated.View layout={layoutSpring} style={[styles.host, { width: curW }, pillStyle]}>
           {expanded ? (
-            <BlockContextBar
-              thesisId={thesisId}
-              rtl={rtl}
-              paragraphSelection={paragraphSelection}
-              selectedBlock={selectedBlock}
-              selectedIndices={indices}
-              count={count}
-              blockCount={blocks.length}
-              keyboardOpen={false}
-              scopeLabel={scopeLabel}
-              onAskAI={() => useWorkspaceStore.getState().setAskAiOpen(true)}
-              onCollapse={() => useFloatingPillStore.getState().setExpanded(false)}
-              bottomInset={0}
-            />
+            count === 0 || inputOpen ? (
+              <View style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}>
+                <AIDock thesisId={thesisId} rtl={rtl} scopeLabel={scopeLabel} scopeIndices={indices} />
+              </View>
+            ) : (
+              <BlockContextBar
+                thesisId={thesisId}
+                rtl={rtl}
+                paragraphSelection={paragraphSelection}
+                selectedBlock={selectedBlock}
+                selectedIndices={indices}
+                count={count}
+                blockCount={blocks.length}
+                keyboardOpen={false}
+                scopeLabel={scopeLabel}
+                // Routes to the dock's inline input, block-scoped; the legacy bottom
+                // Ask-AI input is retired while the bubble is alive (Task 4).
+                onAskAI={() => useFloatingPillStore.getState().setInputOpen(true)}
+                onCollapse={() => useFloatingPillStore.getState().setExpanded(false)}
+                bottomInset={0}
+              />
+            )
           ) : (
             <Bubble
               colors={colors}
-              kind={selectedBlock?.kind}
-              label={t("blockBar.formattingTools", { defaultValue: "Formatting tools" })}
+              kind={count === 0 ? "ai" : selectedBlock?.kind}
+              busy={busy}
+              label={
+                count === 0
+                  ? t("blockBar.askAi", { defaultValue: "Ask AI" })
+                  : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
+              }
               onPress={() => useFloatingPillStore.getState().setExpanded(true)}
             />
           )}
@@ -312,20 +353,37 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   );
 }
 
-/** Collapsed form: a small circular bubble with an icon matching the selected
- *  block's kind. Tapping it expands to the full BlockContextBar pill. */
+/** Collapsed form: a small circular bubble with an icon matching the current mode
+ *  — ✦ Sparkles when nothing is selected (AI mode), else the selected block's kind.
+ *  Spins continuously while `busy` (an AI turn is generating). Tapping it expands
+ *  to the AI dock (AI mode) or the full BlockContextBar pill (block mode). */
 function Bubble({
   colors,
   kind,
   label,
+  busy,
   onPress,
 }: {
   colors: ReturnType<typeof useThemeColors>;
-  kind: DocBlockDTO["kind"] | undefined;
+  kind: DocBlockDTO["kind"] | "ai" | undefined;
   label: string;
+  busy: boolean;
   onPress: () => void;
 }) {
-  const Icon = kind === "image" ? ImageIcon : kind === "table" ? Table : Type;
+  const Icon = kind === "ai" ? Sparkles : kind === "image" ? ImageIcon : kind === "table" ? Table : Type;
+
+  const spin = useSharedValue(0);
+  useEffect(() => {
+    if (busy) {
+      spin.value = 0;
+      spin.value = withRepeat(withTiming(360, { duration: 1200, easing: Easing.linear }), -1, false);
+    } else {
+      cancelAnimation(spin);
+      spin.value = withTiming(0, { duration: 200 });
+    }
+  }, [busy, spin]);
+  const spinStyle = useAnimatedStyle(() => ({ transform: [{ rotate: spin.value + "deg" }] }));
+
   return (
     <Animated.View
       entering={ZoomIn.springify().damping(30).stiffness(700)}
@@ -337,7 +395,9 @@ function Bubble({
         accessibilityLabel={label}
         style={[styles.bubble, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
       >
-        <Icon size={22} color={colors.bgPrimary} strokeWidth={2.2} />
+        <Animated.View style={spinStyle}>
+          <Icon size={22} color={colors.bgPrimary} strokeWidth={2.2} />
+        </Animated.View>
       </Pressable>
     </Animated.View>
   );
@@ -345,6 +405,19 @@ function Bubble({
 
 const styles = StyleSheet.create({
   host: { position: "absolute", top: 0, left: 0 },
+  // AI-dock wrapper — mirrors BlockContextBar's fullCard surface language (dark
+  // panel, hairline border, pill-matching shadow) since AIDock only owns its rows.
+  dockPanel: {
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+  },
   bubble: {
     width: BUBBLE_SIZE,
     height: BUBBLE_SIZE,
