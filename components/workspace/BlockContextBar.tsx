@@ -36,7 +36,9 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
-import type { DocBlockDTO } from "@/lib/api";
+import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
+import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
+import { PictureCropModal } from "./PictureCropModal";
 import type { FormatChange } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
@@ -111,6 +113,10 @@ export function BlockContextBar({
   const [activeCategory, setActiveCategory] = useState<Category | null>(null);
   const [pillExpanded, setPillExpanded] = useState(false);
   const pickingRef = useRef(false);
+  // Advanced picture ops: `busy` guards the async rotate/flip/remove-bg (disables
+  // those chips while one runs); `cropIndex` drives the interactive crop modal.
+  const [busy, setBusy] = useState(false);
+  const [cropIndex, setCropIndex] = useState<number | null>(null);
 
   const showFull = keyboardOpen || pillExpanded;
   const canFormat = paragraphSelection.length > 0;
@@ -177,18 +183,51 @@ export function BlockContextBar({
     });
   };
 
-  // Advanced picture ops (rotate / flip / crop / background removal) already ship
-  // fully wired in the ribbon's Picture tab (lib/ribbon-actions.ts → the on-device
-  // expo-image-manipulator + replace/remove-bg endpoints + the crop modal). Wiring
-  // them inline would mean re-plumbing the crop modal + busy overlay and bypassing
-  // the durable op queue, so the pill points users there instead of duplicating it.
-  const pictureSoon = () =>
-    Alert.alert(
-      t("blockBar.pictureToolsTitle", { defaultValue: "Picture tools" }),
-      t("blockBar.pictureToolsBody", {
-        defaultValue: "Rotate, flip, crop and background removal live in the Picture tab of the editor toolbar.",
-      }),
-    );
+  // ── Advanced picture ops (mirror lib/ribbon-actions.ts Picture tab) ──
+  // Rotate / flip the selected figure ON-DEVICE: download its current bytes via the
+  // authed media endpoint (rotateFlipBlockImage → downloadBlockImage), transform with
+  // expo-image-manipulator, then swap them in through the durable `replaceImage` op —
+  // the same optimistic + durable-queue path as "Replace image" above.
+  const rotateFlip = async (op: RotateFlipOp) => {
+    if (soleIndex == null || busy) return;
+    setBusy(true);
+    try {
+      const edited = await rotateFlipBlockImage(thesisId, soleIndex, op);
+      if (!edited.data) throw new Error("empty image");
+      void useThesisDocStore.getState().mutate(thesisId, {
+        type: "replaceImage",
+        index: soleIndex,
+        data: edited.data,
+        format: edited.format,
+        width: edited.width,
+        height: edited.height,
+      });
+    } catch {
+      Alert.alert(t("workspace.imageError", { defaultValue: "Couldn't update the image." }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Remove the figure's background SERVER-SIDE (rembg sidecar — no pixels travel
+  // through the app). Direct endpoint (bypasses the op queue), so revalidate the doc
+  // store afterward to repaint, exactly like the ribbon Picture tab. Fails cleanly
+  // (Alert) when the sidecar isn't running.
+  const removeBg = async () => {
+    if (soleIndex == null || busy) return;
+    setBusy(true);
+    try {
+      await removeThesisBlockBg(thesisId, soleIndex);
+      await useThesisDocStore.getState().revalidate(thesisId);
+    } catch {
+      Alert.alert(
+        t("common.error", { defaultValue: "Error" }),
+        t("workspace.bgError", { defaultValue: "Couldn't remove the background. Please try again." }),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const pickImage = async () => {
     if (!single || pickingRef.current) return;
@@ -338,17 +377,18 @@ export function BlockContextBar({
       {chip({ keyProp: "img-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), onPress: () => setPillExpanded(true) })}
     </>
   );
-  // Expanded / keyboard-docked: the same primaries + the advanced picture ops
-  // (dimmed → they route to the Picture ribbon tab, like the text "coming soon" set).
+  // Expanded / keyboard-docked: the same primaries + the advanced picture ops, now
+  // fully wired (rotate/flip on-device → durable replaceImage op, crop modal, server
+  // remove-bg). Disabled while an async op is running.
   const imageFullTools = (
     <>
       {chip({ keyProp: "img-replace", Icon: RefreshCw, accessibilityLabel: t("blockBar.replaceImage", { defaultValue: "Replace image" }), onPress: () => void replaceImage() })}
       {imageMoveDeleteChips}
       {sep("is1")}
-      {chip({ keyProp: "img-rotate", Icon: RotateCw, accessibilityLabel: t("blockBar.rotate", { defaultValue: "Rotate" }), dim: true, onPress: pictureSoon })}
-      {chip({ keyProp: "img-flip", Icon: FlipHorizontal2, accessibilityLabel: t("blockBar.flip", { defaultValue: "Flip" }), dim: true, onPress: pictureSoon })}
-      {chip({ keyProp: "img-crop", Icon: Crop, accessibilityLabel: t("blockBar.crop", { defaultValue: "Crop" }), dim: true, onPress: pictureSoon })}
-      {chip({ keyProp: "img-bg", Icon: WandSparkles, accessibilityLabel: t("blockBar.removeBg", { defaultValue: "Remove background" }), dim: true, onPress: pictureSoon })}
+      {chip({ keyProp: "img-rotate", Icon: RotateCw, accessibilityLabel: t("blockBar.rotate", { defaultValue: "Rotate" }), disabled: busy, onPress: () => void rotateFlip("rotateRight") })}
+      {chip({ keyProp: "img-flip", Icon: FlipHorizontal2, accessibilityLabel: t("blockBar.flip", { defaultValue: "Flip" }), disabled: busy, onPress: () => void rotateFlip("flipH") })}
+      {chip({ keyProp: "img-crop", Icon: Crop, accessibilityLabel: t("blockBar.crop", { defaultValue: "Crop" }), disabled: busy, onPress: () => { if (soleIndex != null) setCropIndex(soleIndex); } })}
+      {chip({ keyProp: "img-bg", Icon: WandSparkles, accessibilityLabel: t("blockBar.removeBg", { defaultValue: "Remove background" }), disabled: busy, onPress: () => void removeBg() })}
     </>
   );
 
@@ -368,6 +408,18 @@ export function BlockContextBar({
     >
       <Sparkles size={18} color={colors.bgPrimary} strokeWidth={2.2} />
     </Pressable>
+  );
+
+  // Interactive crop for the selected figure. Self-contained <Modal> (portals to
+  // root) so it renders correctly from either pill/bar form. On commit it uploads
+  // via replaceThesisBlockImage and we revalidate the doc store to repaint.
+  const cropModal = (
+    <PictureCropModal
+      thesisId={thesisId}
+      blockIndex={cropIndex}
+      onClose={() => setCropIndex(null)}
+      onDone={() => void useThesisDocStore.getState().revalidate(thesisId)}
+    />
   );
 
   // ── Category expansion options row ──
@@ -453,6 +505,7 @@ export function BlockContextBar({
           <View style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />
           {AskAI}
         </View>
+        {cropModal}
       </View>
     );
   }
@@ -488,6 +541,7 @@ export function BlockContextBar({
         {AskAI}
       </View>
       {saving ? <View style={[styles.savingDot, { backgroundColor: colors.brandPrimary }]} /> : null}
+      {cropModal}
     </View>
   );
 }
