@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -15,13 +15,18 @@ import Animated, {
   FadeInDown,
   FadeOut,
   LinearTransition,
+  ZoomIn,
+  ZoomOut,
   cancelAnimation,
+  interpolate,
   interpolateColor,
+  runOnJS,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
   withRepeat,
   withSequence,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
@@ -30,7 +35,7 @@ import { Sparkles, Check, Pencil, X, RotateCw } from "lucide-react-native";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
 import { paragraphTextStyle, detectDir } from "@/components/workspace/DocBlock";
-import { hSuccess } from "@/lib/haptics";
+import { hSelection, hSuccess } from "@/lib/haptics";
 import { diffWords, type DiffSegment } from "@/lib/word-diff";
 import type { DocBlockDTO } from "@/lib/api";
 
@@ -95,6 +100,30 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
     [sug?.status, sug?.original, sug?.proposed],
   );
 
+  // "Absorb" choreography state: while leaving, all pill presses are disabled
+  // and the store commit fires at animation end (400ms fallback — exactly once).
+  const [leaving, setLeaving] = useState<null | "approve" | "reject">(null);
+  const [rootH, setRootH] = useState(0);
+  const committedRef = useRef(false);
+  const pillSink = useSharedValue(0); // approve: sink+shrink+fade
+  const pillDrop = useSharedValue(0); // reject: tip+drop+fade
+  const flyV = useSharedValue(0); // the ✓ badge's flight progress
+  const pillFx = useAnimatedStyle(() => ({
+    opacity: 1 - Math.max(pillSink.value, pillDrop.value),
+    transform: [
+      { translateY: pillSink.value * 12 + pillDrop.value * 20 },
+      { scale: 1 - 0.15 * pillSink.value },
+      { rotate: `${pillDrop.value * 6}deg` },
+    ],
+  }));
+  const flyFx = useAnimatedStyle(() => ({
+    opacity: interpolate(flyV.value, [0, 0.12, 0.8, 1], [0, 1, 1, 0]),
+    transform: [
+      { translateY: -flyV.value * Math.max(rootH - 88, 40) },
+      { scale: interpolate(flyV.value, [0, 0.2, 1], [0.6, 1.15, 0.9]) },
+    ],
+  }));
+
   if (!sug) return null;
 
   // Content direction follows the TEXT (per-block, like DocBlock); chrome rows
@@ -158,6 +187,18 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
           <Text style={[baseTextStyle, contentTextStyle, styles.thinkingText]}>{block.text || sug.original}</Text>
           {!reduce && <SweepBand />}
         </View>
+        {/* Thinking capsule anchored at the pill position — Again's pill morphs
+            into this (ZoomIn) and it pops back out when the rerun resolves. */}
+        <Animated.View
+          entering={reduce ? FadeIn.duration(100) : ZoomIn.springify().damping(14)}
+          exiting={FadeOut.duration(120)}
+          style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}
+        >
+          <View style={[styles.thinkCapsule, { flexDirection: appRow }]}>
+            <SpinSparkle color={CHIP_INK} reduce={reduce} />
+            <Text style={styles.thinkLabel}>{t("suggestion.thinking", { defaultValue: "Thinking…" })}</Text>
+          </View>
+        </Animated.View>
       </Animated.View>
     );
   }
@@ -179,11 +220,13 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             icon={<RotateCw size={15} color={APPROVE_INK} />}
             label={t("suggestion.again", { defaultValue: "Again" })}
             onPress={() => void useSuggestionStore.getState().again(thesisId, block.index)}
+            reduce={reduce}
           />
           <PillIcon
             icon={<X size={16} color={REJECT_INK} />}
             label={t("suggestion.reject", { defaultValue: "Reject" })}
             onPress={() => useSuggestionStore.getState().reject(block.index)}
+            reduce={reduce}
           />
         </View>
       </Animated.View>
@@ -211,31 +254,68 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             style={[baseTextStyle, contentTextStyle, styles.editInput]}
           />
         </View>
-        <View style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+        {/* Crossfade wrapper: only the pill row swaps between ready (4 actions)
+            and editing (Done/Cancel); the paragraph area stays put. */}
+        <Animated.View
+          entering={FadeIn.duration(120)}
+          exiting={FadeOut.duration(120)}
+          style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}
+        >
           <PillPrimary
             icon={<Check size={15} color={APPROVE_INK} />}
             label={t("suggestion.done", { defaultValue: "Done" })}
             onPress={done}
+            reduce={reduce}
           />
           <PillIcon
             icon={<X size={16} color={ICON_INK} />}
             label={t("suggestion.cancel", { defaultValue: "Cancel" })}
             onPress={() => setEditing(false)}
+            reduce={reduce}
           />
-        </View>
+        </Animated.View>
       </Animated.View>
     );
   }
 
   // -------------------------------- ready ---------------------------------
-  const onApprove = () => {
-    // Success haptic on approve — carried over from the previous card UI
-    // (user-added); fire-and-forget, never throws.
-    hSuccess();
-    useSuggestionStore.getState().approve(thesisId, block.index);
+  // The store commit, deduped: fired by the choreography's completion callback
+  // AND a 400ms setTimeout fallback (Reanimated can drop a callback if the view
+  // unmounts mid-animation) — committedRef guarantees exactly one commit. The
+  // success haptic fires here (at commit), not at tap time.
+  const commitAction = (kind: "approve" | "reject") => {
+    if (committedRef.current) return;
+    committedRef.current = true;
+    if (kind === "approve") {
+      hSuccess();
+      useSuggestionStore.getState().approve(thesisId, block.index);
+    } else {
+      useSuggestionStore.getState().reject(block.index);
+    }
   };
-  const onReject = () => useSuggestionStore.getState().reject(block.index);
+  const commitApprove = () => commitAction("approve");
+  const commitReject = () => commitAction("reject");
+  const onApprove = () => {
+    if (leaving) return;
+    if (reduce) return commitAction("approve");
+    setLeaving("approve");
+    pillSink.value = withTiming(1, { duration: 260 });
+    flyV.value = withTiming(1, { duration: 280 }, (finished) => {
+      if (finished) runOnJS(commitApprove)();
+    });
+    setTimeout(commitApprove, 400); // dropped-callback fallback; committedRef dedupes
+  };
+  const onReject = () => {
+    if (leaving) return;
+    if (reduce) return commitAction("reject");
+    setLeaving("reject");
+    pillDrop.value = withTiming(1, { duration: 200 }, (finished) => {
+      if (finished) runOnJS(commitReject)();
+    });
+    setTimeout(commitReject, 400);
+  };
   const onAgain = () => {
+    if (leaving) return;
     // Reset local UI state — without this, a rerun that comes back "ready"
     // would resurrect a stale edit draft / open peek from the previous round.
     setPeekOpen(false);
@@ -243,12 +323,24 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
     void useSuggestionStore.getState().again(thesisId, block.index);
   };
   const onEdit = () => {
+    if (leaving) return;
     setDraft(sug.proposed);
     setEditing(true);
   };
 
   return (
-    <Animated.View layout={layout} entering={enter} exiting={FadeOut.duration(180)}>
+    // NOTE: entering/exiting on this ROOT only fire on a true mount/unmount of
+    // the whole component (status-branch switches reconcile as UPDATES of the
+    // same root, so they never replay these). State-to-state motion is carried
+    // by the CHILD wrappers (the action pill / thinking capsule) below.
+    // Overflow stays default (visible) so the flying ✓ can travel over the
+    // teaser/paragraph. onLayout feeds the ✓'s flight distance.
+    <Animated.View
+      layout={layout}
+      entering={enter}
+      exiting={FadeOut.duration(180)}
+      onLayout={(e) => setRootH(e.nativeEvent.layout.height)}
+    >
       {header}
       {trace}
 
@@ -302,17 +394,50 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
         </Text>
       </Pressable>
 
-      {/* Floating action pill: Approve dominates; the rest are icons. */}
-      <View style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+      {/* Floating action pill: Approve dominates; the rest are icons. The
+          wrapper carries the absorb choreography (pillFx) + the crossfade
+          against the editing branch's pill and the loading capsule. */}
+      <Animated.View
+        entering={FadeIn.duration(120)}
+        exiting={reduce ? FadeOut.duration(100) : ZoomOut.duration(160)}
+        style={[styles.pill, styles.pillFloat, { flexDirection: appRow }, pillFx]}
+      >
         <PillPrimary
           icon={<Check size={15} color={APPROVE_INK} />}
           label={t("suggestion.approve", { defaultValue: "Approve" })}
           onPress={onApprove}
+          reduce={reduce}
+          disabled={!!leaving}
         />
-        <PillIcon icon={<Pencil size={15} color={ICON_INK} />} label={t("suggestion.edit", { defaultValue: "Edit" })} onPress={onEdit} />
-        <PillIcon icon={<RotateCw size={15} color={ICON_INK} />} label={t("suggestion.again", { defaultValue: "Again" })} onPress={onAgain} />
-        <PillIcon icon={<X size={16} color={REJECT_INK} />} label={t("suggestion.reject", { defaultValue: "Reject" })} onPress={onReject} />
-      </View>
+        <PillIcon
+          icon={<Pencil size={15} color={ICON_INK} />}
+          label={t("suggestion.edit", { defaultValue: "Edit" })}
+          onPress={onEdit}
+          reduce={reduce}
+          disabled={!!leaving}
+        />
+        <PillIcon
+          icon={<RotateCw size={15} color={ICON_INK} />}
+          label={t("suggestion.again", { defaultValue: "Again" })}
+          onPress={onAgain}
+          reduce={reduce}
+          disabled={!!leaving}
+        />
+        <PillIcon
+          icon={<X size={16} color={REJECT_INK} />}
+          label={t("suggestion.reject", { defaultValue: "Reject" })}
+          onPress={onReject}
+          reduce={reduce}
+          disabled={!!leaving}
+        />
+      </Animated.View>
+      {/* The flying ✓ badge — absolute overlay, springs from the pill up into
+          the paragraph; its landing is the DocBlock settle flash. */}
+      {leaving === "approve" && !reduce && (
+        <Animated.View pointerEvents="none" style={[styles.flyCheck, flyFx]}>
+          <Check size={16} color="#FFFFFF" />
+        </Animated.View>
+      )}
     </Animated.View>
   );
 }
@@ -375,36 +500,95 @@ function SweepBand() {
   );
 }
 
+// ✦ spinner for the loading capsule (the rebuilt file dropped the old one).
+function SpinSparkle({ color, reduce }: { color: string; reduce: boolean }) {
+  const rot = useSharedValue(0);
+  useEffect(() => {
+    if (reduce) return;
+    rot.value = withRepeat(withTiming(360, { duration: 1000, easing: Easing.linear }), -1);
+  }, [reduce, rot]);
+  const st = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }));
+  return (
+    <Animated.View style={st}>
+      <Sparkles size={13} color={color} />
+    </Animated.View>
+  );
+}
+
 // Pill actions: the Pressable is a BARE hit-area and all visual styling lives
-// on a plain inner View. On this app's New-Arch iOS build, styles passed to
-// Pressable via the ({pressed}) => [...] function form intermittently fail to
-// apply AT ALL (observed on device: no background, no border, no
+// on an inner Animated.View. On this app's New-Arch iOS build, styles passed
+// to Pressable via the ({pressed}) => [...] function form intermittently fail
+// to apply AT ALL (observed on device: no background, no border, no
 // flexDirection — the Approve button rendered as a bare column of white icon +
-// label spilling out of the pill). Plain Views always paint, so the visuals
-// are safe here; press feedback is intentionally omitted rather than routed
-// back through the broken style-function path.
+// label spilling out of the pill). Inner Views always paint; press feedback is
+// therefore driven by onPressIn/onPressOut → a shared value (usePressFx), not
+// the broken style-function path.
+
+// Press feedback for pill buttons: scale squish + tint deepen driven by
+// onPressIn/onPressOut through a shared value on the inner Animated.View —
+// NEVER Pressable style-functions (they silently fail to apply on this app's
+// New-Arch iOS build; see the pill-motion spec). Reduce-motion: tint only.
+function usePressFx(reduce: boolean) {
+  const p = useSharedValue(0);
+  const onPressIn = () => {
+    hSelection();
+    p.value = reduce ? 1 : withSpring(1, { damping: 20, stiffness: 400 });
+  };
+  const onPressOut = () => {
+    p.value = reduce ? 0 : withSpring(0, { damping: 18, stiffness: 300 });
+  };
+  return { p, onPressIn, onPressOut };
+}
 
 // Primary pill action (Approve / Done / Again-on-error): tinted, bordered,
-// labeled — the one action that must always dominate and never vanish.
-function PillPrimary({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress: () => void }) {
+// labeled — must always dominate and never vanish.
+function PillPrimary({
+  icon, label, onPress, reduce, disabled,
+}: { icon: React.ReactNode; label: string; onPress: () => void; reduce: boolean; disabled?: boolean }) {
+  const { p, onPressIn, onPressOut } = usePressFx(reduce);
+  const fx = useAnimatedStyle(() => ({
+    transform: [{ scale: reduce ? 1 : 1 - 0.07 * p.value }],
+    backgroundColor: interpolateColor(p.value, [0, 1], [APPROVE_BG, "rgba(14,122,70,0.28)"]),
+  }));
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={6}>
-      <View style={styles.primaryBtn}>
+    <Pressable
+      onPress={disabled ? undefined : onPress}
+      onPressIn={disabled ? undefined : onPressIn}
+      onPressOut={onPressOut}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={6}
+    >
+      <Animated.View style={[styles.primaryBtn, fx]}>
         {icon}
         <Text numberOfLines={1} style={styles.primaryLabel}>
           {label}
         </Text>
-      </View>
+      </Animated.View>
     </Pressable>
   );
 }
 
 // Icon-only pill action (Edit / Again / Reject / Cancel) — 44pt effective
 // target via hitSlop, localized accessibilityLabel.
-function PillIcon({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress: () => void }) {
+function PillIcon({
+  icon, label, onPress, reduce, disabled,
+}: { icon: React.ReactNode; label: string; onPress: () => void; reduce: boolean; disabled?: boolean }) {
+  const { p, onPressIn, onPressOut } = usePressFx(reduce);
+  const fx = useAnimatedStyle(() => ({
+    transform: [{ scale: reduce ? 1 : 1 - 0.07 * p.value }],
+    backgroundColor: interpolateColor(p.value, [0, 1], ["rgba(60,70,84,0)", "rgba(60,70,84,0.10)"]),
+  }));
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={10}>
-      <View style={styles.iconBtn}>{icon}</View>
+    <Pressable
+      onPress={disabled ? undefined : onPress}
+      onPressIn={disabled ? undefined : onPressIn}
+      onPressOut={onPressOut}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={10}
+    >
+      <Animated.View style={[styles.iconBtn, fx]}>{icon}</Animated.View>
     </Pressable>
   );
 }
@@ -502,4 +686,21 @@ const styles = StyleSheet.create({
   editInput: { padding: 0 },
   band: { position: "absolute", top: 0, bottom: 0, width: 140 },
   bandFill: { flex: 1 },
+  // The approve ✓ badge that flies from the pill up into the paragraph.
+  flyCheck: {
+    position: "absolute",
+    bottom: 10,
+    alignSelf: "center",
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    backgroundColor: "#0E7A46",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+    elevation: 10,
+  },
+  // Again's "thinking" capsule content (rendered inside the pill shell).
+  thinkCapsule: { alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 14 },
+  thinkLabel: { color: CHIP_INK, fontSize: 12, fontFamily: "Inter_500Medium" },
 });
