@@ -44,7 +44,7 @@ import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit
 import { hWarn } from "@/lib/haptics";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
-import { rowIn, rowOut } from "@/lib/motion";
+import { layoutSpring, pillIn, pillOut, rowIn, rowOut } from "@/lib/motion";
 import type { FormatChange } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
@@ -124,7 +124,6 @@ export function BlockContextBar({
   const [busy, setBusy] = useState(false);
   const [cropIndex, setCropIndex] = useState<number | null>(null);
 
-  const showFull = keyboardOpen || pillExpanded;
   const canFormat = paragraphSelection.length > 0;
   const paraIndices = paragraphSelection.map((b) => b.index);
   const single = paragraphSelection.length === 1 ? paragraphSelection[0] : null;
@@ -573,67 +572,101 @@ export function BlockContextBar({
     );
   };
 
-  // ── Layout: floating pill vs full-width docked bar ──
-  if (!showFull) {
-    // Compact floating pill (keyboard closed).
+  // ── Layout: floating pill (morphs to full card) vs full-width docked bar ──
+  if (keyboardOpen) {
+    // Docked on the keyboard: instant swap BY DESIGN — animating it fights the OS
+    // keyboard animation and timing differs iOS vs Android (see animations spec).
     return (
-      <View style={styles.pillWrap} pointerEvents="box-none">
+      <View
+        style={[
+          styles.fullWrap,
+          { backgroundColor: colors.bgPrimary, borderTopColor: colors.borderSubtle, paddingBottom: 6 },
+        ]}
+      >
         {/* Must stay the FIRST child in both layout branches — the same tree position
-            keeps the expansion row mounted across pill/bar form switches (no spurious re-entering). */}
+            keeps the expansion row mounted across pill/bar form switches (no spurious
+            re-entering). */}
         {renderExpansion()}
-        <View style={[styles.pill, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle, flexDirection: rtl ? "row-reverse" : "row" }]}>
+        <View style={[styles.fullRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
-            style={styles.pillScroll}
-            contentContainerStyle={[styles.pillToolsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+            contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
+            style={styles.fullScroll}
           >
-            {compactTools}
+            {expandedTools}
           </ScrollView>
-          <View style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />
           {AskAI}
           {OutlineBtn}
         </View>
+        {saving ? <View style={[styles.savingDot, { backgroundColor: colors.brandPrimary }]} /> : null}
         {cropModal}
       </View>
     );
   }
 
-  // Full-width docked bar (keyboard open, or pill expanded).
+  // Keyboard closed: ONE container that morphs pill ⇄ full card (layoutSpring),
+  // springs in on block-select (pillIn) and drops away on deselect (pillOut).
   return (
-    <View
-      style={[
-        keyboardOpen ? styles.fullWrap : styles.fullCard,
-        {
-          backgroundColor: colors.bgPrimary,
-          borderColor: colors.borderSubtle,
-          borderTopColor: colors.borderSubtle,
-          paddingBottom: keyboardOpen ? 6 : 8,
-        },
-      ]}
-    >
+    <View style={styles.pillWrap} pointerEvents="box-none">
       {/* Must stay the FIRST child in both layout branches — the same tree position
-          keeps the expansion row mounted across pill/bar form switches (no spurious re-entering). */}
+          keeps the expansion row mounted across pill/bar form switches (no spurious
+          re-entering). */}
       {renderExpansion()}
-      <View style={[styles.fullRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="always"
-          contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
-          style={styles.fullScroll}
-        >
-          {expandedTools}
-          {/* Collapse the expanded pill back to compact (keyboard-closed only). */}
-          {!keyboardOpen
-            ? chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), onPress: () => setPillExpanded(false) })
-            : null}
-        </ScrollView>
-        {AskAI}
-        {OutlineBtn}
-      </View>
-      {saving ? <View style={[styles.savingDot, { backgroundColor: colors.brandPrimary }]} /> : null}
+      <Animated.View
+        entering={pillIn}
+        exiting={pillOut}
+        layout={layoutSpring}
+        style={
+          pillExpanded
+            ? [styles.fullCard, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]
+            : [
+                styles.pill,
+                {
+                  backgroundColor: colors.bgPrimary,
+                  borderColor: colors.borderSubtle,
+                  flexDirection: rtl ? "row-reverse" : "row",
+                },
+              ]
+        }
+      >
+        {pillExpanded ? (
+          <View style={[styles.fullRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="always"
+              contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
+              style={styles.fullScroll}
+            >
+              {expandedTools}
+              {/* Collapse back to the compact pill. */}
+              {chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), onPress: () => setPillExpanded(false) })}
+            </ScrollView>
+            {AskAI}
+            {OutlineBtn}
+          </View>
+        ) : (
+          <>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="always"
+              style={styles.pillScroll}
+              contentContainerStyle={[styles.pillToolsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+            >
+              {compactTools}
+            </ScrollView>
+            <View style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />
+            {AskAI}
+            {OutlineBtn}
+          </>
+        )}
+        {pillExpanded && saving ? (
+          <View style={[styles.savingDot, { backgroundColor: colors.brandPrimary }]} />
+        ) : null}
+      </Animated.View>
       {cropModal}
     </View>
   );
@@ -673,12 +706,13 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 10,
   },
-  // Expanded pill inline (keyboard closed) — a rounded floating card on the paper.
+  // Expanded pill inline (keyboard closed) — the morph target of the compact pill.
   fullCard: {
-    marginHorizontal: 8,
+    alignSelf: "stretch",
     marginTop: 2,
     paddingHorizontal: 10,
     paddingTop: 8,
+    paddingBottom: 8,
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     shadowColor: "#000",
