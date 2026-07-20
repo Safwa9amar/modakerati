@@ -21,12 +21,15 @@ export function isPillHandoff() {
   return Date.now() < handoffUntil;
 }
 
+const HANDOFF_MS = 250;
+
 function markPillHandoff() {
-  handoffUntil = Date.now() + 250;
+  handoffUntil = Date.now() + HANDOFF_MS;
   pillHandoffSV.value = 1;
+  // Aligned with handoffUntil — no trailing window where only the SV is set.
   setTimeout(() => {
     if (Date.now() >= handoffUntil) pillHandoffSV.value = 0;
-  }, 300);
+  }, HANDOFF_MS);
 }
 
 // Zustand listeners fire synchronously inside set(), BEFORE React re-renders —
@@ -34,11 +37,16 @@ function markPillHandoff() {
 // remount actually happens (same anchor row) is harmless: entering/exiting only
 // consult the flag when a mount/unmount occurs.
 useWorkspaceStore.subscribe((s, prev) => {
-  if (
-    s.selectedBlocks !== prev.selectedBlocks &&
-    s.selectedBlocks.length > 0 &&
-    prev.selectedBlocks.length > 0
-  ) {
+  if (s.selectedBlocks === prev.selectedBlocks) return;
+  if (s.selectedBlocks.length === 0) {
+    // Real deselect: cancel any pending handoff so the pill's exit drop-fades.
+    handoffUntil = 0;
+    pillHandoffSV.value = 0;
+    return;
+  }
+  // Single→single moves only — entering multi-select hides the pill and should
+  // keep its drop-fade; multi→single mounts a fresh pill and should spring in.
+  if (prev.selectedBlocks.length === 1 && s.selectedBlocks.length === 1) {
     markPillHandoff();
   }
 });

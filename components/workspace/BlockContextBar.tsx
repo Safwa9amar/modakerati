@@ -44,7 +44,7 @@ import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit
 import { hWarn } from "@/lib/haptics";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
-import { layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOut } from "@/lib/motion";
+import { layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff } from "@/lib/motion";
 import { isPillHandoff } from "@/lib/pill-handoff";
 import type { FormatChange } from "@/lib/thesis-ops";
 
@@ -559,7 +559,7 @@ export function BlockContextBar({
       <Animated.View
         key={"exp-" + activeCategory}
         entering={rowIn}
-        exiting={rowOut}
+        exiting={rowOutUnlessHandoff}
         style={[styles.expansion, { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle }]}
       >
         <ScrollView
