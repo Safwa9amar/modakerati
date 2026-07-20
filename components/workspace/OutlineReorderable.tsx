@@ -176,7 +176,8 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
+    // Edge-to-edge paper — no dark side gutters around the editor.
+    marginHorizontal: 0,
     marginTop: 8,
     borderRadius: 6,
     // Clip the bleed zones' square grey corners to the card's rounding.

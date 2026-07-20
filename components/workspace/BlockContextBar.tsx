@@ -261,8 +261,7 @@ export function BlockContextBar({
       accessibilityLabel={t("blockBar.askAi", { defaultValue: "Ask AI" })}
       style={[styles.askBtn, { backgroundColor: colors.brandPrimary }]}
     >
-      <Sparkles size={15} color={colors.bgPrimary} strokeWidth={2.2} />
-      <Text style={[styles.askText, { color: colors.bgPrimary }]}>{t("blockBar.askAi", { defaultValue: "Ask AI" })}</Text>
+      <Sparkles size={18} color={colors.bgPrimary} strokeWidth={2.2} />
     </Pressable>
   );
 
@@ -334,10 +333,18 @@ export function BlockContextBar({
   if (!showFull) {
     // Compact floating pill (keyboard closed).
     return (
-      <View style={[styles.pillWrap, { paddingBottom: bottomInset + 8 }]} pointerEvents="box-none">
+      <View style={styles.pillWrap} pointerEvents="box-none">
         {renderExpansion()}
         <View style={[styles.pill, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle, flexDirection: rtl ? "row-reverse" : "row" }]}>
-          {pillTools}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="always"
+            style={styles.pillScroll}
+            contentContainerStyle={[styles.pillToolsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+          >
+            {pillTools}
+          </ScrollView>
           <View style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />
           {AskAI}
         </View>
@@ -359,11 +366,6 @@ export function BlockContextBar({
     >
       {renderExpansion()}
       <View style={[styles.fullRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
-        <View style={[styles.scopePill, { backgroundColor: colors.brandPrimary + "1A" }]}>
-          <Text style={[styles.scopeText, { color: colors.brandPrimary }]} numberOfLines={1}>
-            {scopeLabel}
-          </Text>
-        </View>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -387,22 +389,25 @@ export function BlockContextBar({
 const CHIP = 40;
 
 const styles = StyleSheet.create({
-  // Floating pill
-  pillWrap: { paddingHorizontal: 14, alignItems: "center" },
+  // Floating pill (anchored under the block; tools scroll, ✦ Ask AI pinned so it never clips).
+  pillWrap: { paddingHorizontal: 8, paddingTop: 6, paddingBottom: 2, alignItems: "center" },
   pill: {
+    alignSelf: "center",
+    maxWidth: "100%",
     alignItems: "center",
     gap: 6,
     paddingHorizontal: 8,
     paddingVertical: 6,
-    borderRadius: 26,
+    borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.12,
     shadowRadius: 12,
     elevation: 8,
-    maxWidth: "100%",
   },
+  pillScroll: { flexShrink: 1 },
+  pillToolsRow: { alignItems: "center", gap: 6 },
 
   // Full-width docked bar
   fullWrap: {
@@ -431,14 +436,12 @@ const styles = StyleSheet.create({
   sep: { width: StyleSheet.hairlineWidth, height: 22, marginHorizontal: 2 },
 
   askBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
+    width: CHIP,
     height: CHIP,
-    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: CHIP / 2,
   },
-  askText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 
   scopePill: {
     maxWidth: 120,
