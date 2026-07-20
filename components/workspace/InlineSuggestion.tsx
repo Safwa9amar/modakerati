@@ -98,6 +98,10 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
       sug?.status === "ready" ? diffWords(sug.original, sug.proposed) : [],
     [sug?.status, sug?.original, sug?.proposed],
   );
+  // No common words (the >400-token cap's degenerate [del, add] output, or a
+  // total rewrite) → word marks would tint/strike ENTIRE paragraphs; both the
+  // proposal and the expanded original render as plain text instead.
+  const hasMarks = segs.some((s) => s.kind === "same");
 
   // "Absorb" choreography state: while leaving, all pill presses are disabled
   // and the store commit fires at animation end (400ms fallback — exactly once).
@@ -186,6 +190,10 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
         rtl={I18nManager.isRTL}
         ScrollComponent={ScrollView}
         surfaceColor={PAPER}
+        // Fixed on-white inks — the trace sits on the white paper slip, where
+        // the theme's dark-mode (light) inks would vanish.
+        ink={ICON_INK}
+        accent={CHIP_INK}
       />
     </View>
   ) : null;
@@ -409,67 +417,80 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
       {trace}
 
       {/* The proposed rewrite IS the paragraph. Added words tint green while
-          the compare view is open (brief brighter flash on expand). */}
+          the compare view is open (brief brighter flash on expand). When the
+          diff carries no common words — the >400-token perf cap, or a total
+          rewrite — word marks are noise (they'd tint/strike ENTIRE paragraphs),
+          so both sides render as plain text instead. */}
       <View style={[styles.paraWrap, edgeSide]}>
         <Text style={[baseTextStyle, contentTextStyle]}>
-          {segs
-            .filter((s) => s.kind !== "del")
-            .map((s, k) =>
-              s.kind === "add" ? (
-                <AddSpan
-                  key={k}
-                  text={s.text + " "}
-                  active={peekOpen}
-                  reduce={reduce}
-                />
-              ) : (
-                <Text key={k}>{s.text + " "}</Text>
-              ),
-            )}
+          {hasMarks
+            ? segs
+                .filter((s) => s.kind !== "del")
+                .map((s, k) =>
+                  s.kind === "add" ? (
+                    <AddSpan
+                      key={k}
+                      text={s.text + " "}
+                      active={peekOpen}
+                      reduce={reduce}
+                    />
+                  ) : (
+                    <Text key={k}>{s.text + " "}</Text>
+                  ),
+                )
+            : sug.proposed}
         </Text>
       </View>
 
-      {/* Peek teaser: the original's first line, always visible under a fade
-          gradient; tap to unfold the full original with del-words struck. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t(
-          peekOpen ? "suggestion.hideOriginal" : "suggestion.showOriginal",
-          {
-            defaultValue: peekOpen
-              ? "Hide original text"
-              : "Show original text",
-          },
-        )}
-        onPress={() => setPeekOpen((v) => !v)}
-        style={styles.teaser}
-      >
-        {/* Collapsed = the original's FIRST line via native numberOfLines
+      {/* Peek teaser: the original's first line, always visible; tap to unfold
+          the full original with del-words struck. Hidden entirely when the
+          original is empty (a suggestion on a blank paragraph — nothing to
+          compare). Toggling is locked during the leaving choreography so the
+          layout can't reflow under the flying ✓. */}
+      {!!sug.original.trim() && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t(
+            peekOpen ? "suggestion.hideOriginal" : "suggestion.showOriginal",
+            {
+              defaultValue: peekOpen
+                ? "Hide original text"
+                : "Show original text",
+            },
+          )}
+          onPress={() => {
+            if (leaving) return;
+            setPeekOpen((v) => !v);
+          }}
+          style={styles.teaser}
+        >
+          {/* Collapsed = the original's FIRST line via native numberOfLines
             truncation (the ellipsis is the "there's more" affordance). A
             maxHeight clip + layout transition is NOT used here: Reanimated
             animates layout via size/transform, which combined with an
             overflow clip can leave the window showing the BOTTOM of the
             text. The root's layout transition still springs the container
             height when this toggles. */}
-        <Text
-          numberOfLines={peekOpen ? undefined : 1}
-          style={[styles.teaserText, contentTextStyle]}
-        >
-          {peekOpen
-            ? segs
-                .filter((s) => s.kind !== "add")
-                .map((s, k) =>
-                  s.kind === "del" ? (
-                    <Text key={k} style={styles.delSpan}>
-                      {s.text + " "}
-                    </Text>
-                  ) : (
-                    <Text key={k}>{s.text + " "}</Text>
-                  ),
-                )
-            : sug.original}
-        </Text>
-      </Pressable>
+          <Text
+            numberOfLines={peekOpen ? undefined : 1}
+            style={[styles.teaserText, contentTextStyle]}
+          >
+            {peekOpen && hasMarks
+              ? segs
+                  .filter((s) => s.kind !== "add")
+                  .map((s, k) =>
+                    s.kind === "del" ? (
+                      <Text key={k} style={styles.delSpan}>
+                        {s.text + " "}
+                      </Text>
+                    ) : (
+                      <Text key={k}>{s.text + " "}</Text>
+                    ),
+                  )
+              : sug.original}
+          </Text>
+        </Pressable>
+      )}
 
       {/* Floating action pill in the shared anchor: Approve dominates; the rest
           are icons. The anchor carries the absorb choreography (pillFx) and

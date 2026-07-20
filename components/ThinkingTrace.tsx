@@ -32,6 +32,12 @@ interface Props {
   /** Background the live-window top-fade blends into (its parent's bg). Defaults
    *  to bgCard; callers pass their actual surface (chat bubble / composer box). */
   surfaceColor?: string;
+  /** Fixed muted ink for label/chevrons/reasoning text. Callers on an
+   *  always-light surface (the document paper) pass a dark ink — the theme's
+   *  textSecondary is LIGHT in dark mode and vanishes on white. */
+  ink?: string;
+  /** Fixed accent ink (spinner + streaming label + live rail); same rationale. */
+  accent?: string;
 }
 
 /** A ✻ that spins while the model is reasoning. */
@@ -75,9 +81,16 @@ export function ThinkingTrace({
   rtl = false,
   ScrollComponent,
   surfaceColor,
+  ink,
+  accent,
 }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  // Theme inks unless the caller pinned fixed ones (on-paper surfaces).
+  const mutedInk = ink ?? colors.textSecondary;
+  const accentInk = accent ?? colors.brandPrimaryLight;
+  const railInk = accent ?? colors.brandPrimary;
+  const doneRail = ink ?? colors.borderDefault;
   const [open, setOpen] = useState(defaultOpen);
 
   // Auto-collapse to the chip when a turn ends; re-open when a new turn starts.
@@ -110,29 +123,29 @@ export function ThinkingTrace({
         style={[styles.header, { flexDirection: rtl ? "row-reverse" : "row" }]}
       >
         {streaming ? (
-          <SpinningAsterisk color={colors.brandPrimaryLight} />
+          <SpinningAsterisk color={accentInk} />
         ) : (
-          <Asterisk size={13} color={colors.textSecondary} strokeWidth={2.5} />
+          <Asterisk size={13} color={mutedInk} strokeWidth={2.5} />
         )}
-        <Text style={[styles.label, { color: streaming ? colors.brandPrimaryLight : colors.textSecondary }]}>
+        <Text style={[styles.label, { color: streaming ? accentInk : mutedInk }]}>
           {label}
         </Text>
         <View style={styles.spacer} />
         {open ? (
-          <ChevronUp size={14} color={colors.textSecondary} strokeWidth={2} />
+          <ChevronUp size={14} color={mutedInk} strokeWidth={2} />
         ) : (
-          <ChevronDown size={14} color={colors.textSecondary} strokeWidth={2} />
+          <ChevronDown size={14} color={mutedInk} strokeWidth={2} />
         )}
       </Pressable>
 
       {/* Live: last N lines, top-faded, no inner scroll (never fights the sheet). */}
       {streaming && open && hasText ? (
-        <View style={[styles.rail, { borderColor: colors.brandPrimary }]}>
+        <View style={[styles.rail, { borderColor: railInk }]}>
           <View style={styles.liveWindow}>
             {liveLines.map((line, i) => (
               <Text
                 key={i}
-                style={[styles.line, { color: colors.textSecondary, opacity: i === liveLines.length - 1 ? 0.95 : 0.45 }]}
+                style={[styles.line, { color: mutedInk, opacity: i === liveLines.length - 1 ? 0.95 : 0.45 }]}
               >
                 {line}
               </Text>
@@ -144,9 +157,9 @@ export function ThinkingTrace({
 
       {/* Done + expanded: full reasoning, scrollable via the injected container. */}
       {!streaming && open && hasText ? (
-        <View style={[styles.rail, { borderColor: colors.borderDefault }]}>
+        <View style={[styles.rail, { borderColor: doneRail }]}>
           <Scroll style={styles.doneScroll} contentContainerStyle={styles.doneScrollContent}>
-            <Text selectable style={[styles.line, { color: colors.textSecondary }]}>
+            <Text selectable style={[styles.line, { color: mutedInk }]}>
               {text.trim()}
             </Text>
           </Scroll>

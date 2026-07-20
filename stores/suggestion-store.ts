@@ -137,9 +137,12 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
       set((s) => {
         const cur = s.byIndex[index];
         if (!isMine(cur)) return {};
-        // An empty rewrite (e.g. the model only "thought") is an error, not a
-        // ready suggestion — don't show a blank green card.
-        if (!finalText) return { byIndex: { ...s.byIndex, [index]: { ...cur!, reasoning, reasoningMs, status: "error" } } };
+        // An empty rewrite (the model only "thought") or an UNCHANGED one (the
+        // model returned the text verbatim) is an error, not a ready suggestion
+        // — a "suggestion" with zero visible change would still offer an
+        // Approve that pushes a no-op edit through the op queue.
+        if (!finalText || finalText === cur!.original)
+          return { byIndex: { ...s.byIndex, [index]: { ...cur!, reasoning, reasoningMs, status: "error" } } };
         return { byIndex: { ...s.byIndex, [index]: { ...cur!, proposed: finalText, reasoning, reasoningMs, status: "ready" } } };
       });
     } catch {
