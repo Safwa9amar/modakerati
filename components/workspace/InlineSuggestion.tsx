@@ -15,7 +15,6 @@ import Animated, {
   FadeInDown,
   FadeOut,
   LinearTransition,
-  ZoomOut,
   cancelAnimation,
   interpolate,
   interpolateColor,
@@ -104,6 +103,11 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
   const [leaving, setLeaving] = useState<null | "approve" | "reject">(null);
   const [rootH, setRootH] = useState(0);
   const committedRef = useRef(false);
+  // The delayed commit (~280-400ms after tap) must target the block's CURRENT
+  // engine index — a concurrent reorder of OTHER blocks renumbers indices, so
+  // the tap-time closure value can go stale inside that window.
+  const indexRef = useRef(block.index);
+  indexRef.current = block.index;
   const pillSink = useSharedValue(0); // approve: sink+shrink+fade
   const pillDrop = useSharedValue(0); // reject: tip+drop+fade
   const flyV = useSharedValue(0); // the ✓ badge's flight progress
@@ -191,18 +195,23 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
           <Text style={[baseTextStyle, contentTextStyle, styles.thinkingText]}>{block.text || sug.original}</Text>
           {!reduce && <SweepBand />}
         </View>
-        {/* Thinking capsule anchored at the pill position — Again's pill morphs
-            into this and it fades back out when the rerun resolves. Plain
-            eased fade — a springy zoom bounced annoyingly (device feedback). */}
-        <Animated.View
-          entering={FadeIn.duration(150).easing(Easing.out(Easing.quad))}
-          exiting={FadeOut.duration(120)}
-          style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}
-        >
-          <View style={[styles.thinkCapsule, { flexDirection: appRow }]}>
+        {/* Thinking capsule in the SHARED pill anchor — the same key="pill-anchor"
+            wrapper persists across all four status branches, so React reconciles
+            it against the pill (not whatever sibling happens to share its index;
+            unkeyed positional matching landed the capsule in the TEASER's slot —
+            review finding). The anchor's layout spring morphs the box between
+            pill and capsule; the keyed INNER content carries the crossfade.
+            Plain eased fades — springs bounced annoyingly (device feedback). */}
+        <Animated.View key="pill-anchor" layout={layout} style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+          <Animated.View
+            key="acts-thinking"
+            entering={FadeIn.duration(150).easing(Easing.out(Easing.quad))}
+            exiting={FadeOut.duration(120)}
+            style={[styles.thinkCapsule, { flexDirection: appRow }]}
+          >
             <SpinSparkle color={CHIP_INK} reduce={reduce} />
             <Text style={styles.thinkLabel}>{t("suggestion.thinking", { defaultValue: "Thinking…" })}</Text>
-          </View>
+          </Animated.View>
         </Animated.View>
       </Animated.View>
     );
@@ -220,20 +229,27 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             {t("suggestion.failed", { defaultValue: "Couldn't generate a suggestion." })}
           </Text>
         </View>
-        <View style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
-          <PillPrimary
-            icon={<RotateCw size={15} color={APPROVE_INK} />}
-            label={t("suggestion.again", { defaultValue: "Again" })}
-            onPress={() => void useSuggestionStore.getState().again(thesisId, block.index)}
-            reduce={reduce}
-          />
-          <PillIcon
-            icon={<X size={16} color={REJECT_INK} />}
-            label={t("suggestion.reject", { defaultValue: "Reject" })}
-            onPress={() => useSuggestionStore.getState().reject(block.index)}
-            reduce={reduce}
-          />
-        </View>
+        <Animated.View key="pill-anchor" layout={layout} style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+          <Animated.View
+            key="acts-error"
+            entering={FadeIn.duration(120)}
+            exiting={FadeOut.duration(100)}
+            style={[styles.pillRow, { flexDirection: appRow }]}
+          >
+            <PillPrimary
+              icon={<RotateCw size={15} color={APPROVE_INK} />}
+              label={t("suggestion.again", { defaultValue: "Again" })}
+              onPress={() => void useSuggestionStore.getState().again(thesisId, block.index)}
+              reduce={reduce}
+            />
+            <PillIcon
+              icon={<X size={16} color={REJECT_INK} />}
+              label={t("suggestion.reject", { defaultValue: "Reject" })}
+              onPress={() => useSuggestionStore.getState().reject(block.index)}
+              reduce={reduce}
+            />
+          </Animated.View>
+        </Animated.View>
       </Animated.View>
     );
   }
@@ -259,25 +275,29 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             style={[baseTextStyle, contentTextStyle, styles.editInput]}
           />
         </View>
-        {/* Crossfade wrapper: only the pill row swaps between ready (4 actions)
-            and editing (Done/Cancel); the paragraph area stays put. */}
-        <Animated.View
-          entering={FadeIn.duration(120)}
-          exiting={FadeOut.duration(120)}
-          style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}
-        >
-          <PillPrimary
-            icon={<Check size={15} color={APPROVE_INK} />}
-            label={t("suggestion.done", { defaultValue: "Done" })}
-            onPress={done}
-            reduce={reduce}
-          />
-          <PillIcon
-            icon={<X size={16} color={ICON_INK} />}
-            label={t("suggestion.cancel", { defaultValue: "Cancel" })}
-            onPress={() => setEditing(false)}
-            reduce={reduce}
-          />
+        {/* Shared pill anchor (persists across branches by key); the keyed inner
+            row crossfades ready's 4 actions ↔ Done/Cancel while the paragraph
+            area stays put. */}
+        <Animated.View key="pill-anchor" layout={layout} style={[styles.pill, styles.pillFloat, { flexDirection: appRow }]}>
+          <Animated.View
+            key="acts-editing"
+            entering={FadeIn.duration(120)}
+            exiting={FadeOut.duration(120)}
+            style={[styles.pillRow, { flexDirection: appRow }]}
+          >
+            <PillPrimary
+              icon={<Check size={15} color={APPROVE_INK} />}
+              label={t("suggestion.done", { defaultValue: "Done" })}
+              onPress={done}
+              reduce={reduce}
+            />
+            <PillIcon
+              icon={<X size={16} color={ICON_INK} />}
+              label={t("suggestion.cancel", { defaultValue: "Cancel" })}
+              onPress={() => setEditing(false)}
+              reduce={reduce}
+            />
+          </Animated.View>
         </Animated.View>
       </Animated.View>
     );
@@ -293,9 +313,9 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
     committedRef.current = true;
     if (kind === "approve") {
       hSuccess();
-      useSuggestionStore.getState().approve(thesisId, block.index);
+      useSuggestionStore.getState().approve(thesisId, indexRef.current);
     } else {
-      useSuggestionStore.getState().reject(block.index);
+      useSuggestionStore.getState().reject(indexRef.current);
     }
   };
   const commitApprove = () => commitAction("approve");
@@ -399,15 +419,23 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
         </Text>
       </Pressable>
 
-      {/* Floating action pill: Approve dominates; the rest are icons. The
-          wrapper carries the absorb choreography (pillFx) + the crossfade
-          against the editing branch's pill and the loading capsule. */}
+      {/* Floating action pill in the shared anchor: Approve dominates; the rest
+          are icons. The anchor carries the absorb choreography (pillFx) and
+          persists by key across branches (its box morphs via the layout
+          spring); the keyed inner row carries the crossfade against the
+          thinking capsule / Done-Cancel. */}
       <Animated.View
-        entering={FadeIn.duration(120)}
-        exiting={reduce ? FadeOut.duration(100) : ZoomOut.duration(160)}
+        key="pill-anchor"
+        layout={layout}
         style={[styles.pill, styles.pillFloat, { flexDirection: appRow }, pillFx]}
       >
-        <PillPrimary
+        <Animated.View
+          key="acts-ready"
+          entering={FadeIn.duration(120)}
+          exiting={FadeOut.duration(100)}
+          style={[styles.pillRow, { flexDirection: appRow }]}
+        >
+          <PillPrimary
           icon={<Check size={15} color={APPROVE_INK} />}
           label={t("suggestion.approve", { defaultValue: "Approve" })}
           onPress={onApprove}
@@ -435,6 +463,7 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
           reduce={reduce}
           disabled={!!leaving}
         />
+        </Animated.View>
       </Animated.View>
       {/* The flying ✓ badge — absolute overlay, springs from the pill up into
           the paragraph; its landing is the DocBlock settle flash. */}
@@ -511,6 +540,9 @@ function SpinSparkle({ color, reduce }: { color: string; reduce: boolean }) {
   useEffect(() => {
     if (reduce) return;
     rot.value = withRepeat(withTiming(360, { duration: 1000, easing: Easing.linear }), -1);
+    // Stop the infinite repeat on unmount — an orphaned UI-thread loop keeps
+    // ticking otherwise (same fix as SweepBand).
+    return () => cancelAnimation(rot);
   }, [reduce, rot]);
   const st = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }));
   return (
@@ -562,6 +594,7 @@ function PillPrimary({
       onPressOut={onPressOut}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
       hitSlop={6}
     >
       <Animated.View style={[styles.primaryBtn, fx]}>
@@ -591,6 +624,7 @@ function PillIcon({
       onPressOut={onPressOut}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
       hitSlop={10}
     >
       <Animated.View style={[styles.iconBtn, fx]}>{icon}</Animated.View>
@@ -688,6 +722,9 @@ const styles = StyleSheet.create({
   },
   primaryLabel: { color: APPROVE_INK, fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
   iconBtn: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 999 },
+  // Inner content row inside the shared pill anchor — carries the per-branch
+  // crossfade (the anchor itself persists by key across branches).
+  pillRow: { alignItems: "center", gap: 2 },
   editInput: { padding: 0 },
   band: { position: "absolute", top: 0, bottom: 0, width: 140 },
   bandFill: { flex: 1 },
