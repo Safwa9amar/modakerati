@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Dimensions, Keyboard, Pressable, StyleSheet, View } from "react-native";
+import React, { useEffect, useMemo } from "react";
+import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
@@ -8,6 +8,7 @@ import Animated, {
   withSpring,
   withTiming,
   ZoomIn,
+  ZoomOut,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
@@ -64,16 +65,6 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const expanded = useFloatingPillStore((s) => s.expanded);
   const anchorY = useFloatingPillStore((s) => s.anchorY);
   const colors = useThemeColors();
-
-  // Local keyboard tracking — hide the floating form while the docked bar is up.
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener("keyboardWillShow", () => setKeyboardVisible(true));
-    const hide = Keyboard.addListener("keyboardWillHide", () => setKeyboardVisible(false));
-    const showA = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
-    const hideA = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
-    return () => { show.remove(); hide.remove(); showA.remove(); hideA.remove(); };
-  }, []);
 
   // ── Selection derivations (mirror BlockToolbarPill) ──
   const ordered = useMemo(
@@ -154,9 +145,23 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const minY = insets.top + 100;
   const maxY = Math.max(minY, height - insets.bottom - PILL_H - 8);
 
+  // Guards re-anchoring against unrelated re-renders. Declared here (above dismiss)
+  // so dismiss can clear it — see the anchor effect below.
+  const lastAnchoredIndex = React.useRef<number | null>(null);
+
+  // Re-clamp X when the form grows/shrinks (bubble⇄pill) so the wider pill can't
+  // hang off-screen from a near-edge anchor.
+  useEffect(() => {
+    const clamped = Math.min(Math.max(tx.value, minX), maxX);
+    if (clamped !== tx.value) tx.value = withSpring(clamped, SPRING);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curW]);
+
   const dismiss = () => {
     useFloatingPillStore.getState().hide();
     useWorkspaceStore.getState().clearSelection();
+    // Reset so re-selecting the SAME block re-anchors beside it (not over the X).
+    lastAnchoredIndex.current = null;
   };
   // JS-thread wrapper: reanimated must persist via runOnJS(persistPos) — NOT
   // runOnJS(useFloatingPillStore.getState().setPos), which would evaluate
@@ -223,27 +228,29 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   }));
 
   // Spawn/re-anchor beside the selected block: when the selected INDEX changes and
-  // we have a tap Y, spring the pill to a screen-side position at that height. A ref
-  // guards against re-anchoring on unrelated re-renders (drag, prop churn). Drag
-  // overrides until the next selection change; scrolling does not re-anchor.
-  const lastAnchoredIndex = React.useRef<number | null>(null);
+  // we have a tap Y, place the pill at a screen-side position at that height. The
+  // FIRST anchor (and the first after a dismiss, where the ref was cleared) is a
+  // DIRECT set — no diagonal slide from the center-bottom default. Subsequent
+  // re-anchors spring across. Drag overrides until the next selection change;
+  // scrolling does not re-anchor.
   const soleIndex = selectedBlock ? selectedBlock.index : count === 1 ? indices[0] ?? null : null;
   useEffect(() => {
     if (soleIndex == null) return;
     if (soleIndex === lastAnchoredIndex.current) return;
+    const isFirst = lastAnchoredIndex.current == null;
     lastAnchoredIndex.current = soleIndex;
     if (anchorY == null) return;
     const w = expanded ? PILL_W : BUBBLE_SIZE;
     const sideX = rtl ? minX : Math.max(minX, width - w - 12);
     const yy = Math.min(Math.max(anchorY - BUBBLE_SIZE / 2, minY), maxY);
-    tx.value = withSpring(sideX, SPRING);
-    ty.value = withSpring(yy, SPRING);
+    if (isFirst) { tx.value = sideX; ty.value = yy; }
+    else { tx.value = withSpring(sideX, SPRING); ty.value = withSpring(yy, SPRING); }
     useFloatingPillStore.getState().setPos({ x: sideX, y: yy });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [soleIndex, anchorY]);
 
   const suppressed =
-    keyboardVisible || askAiOpen || aiGateActive || soleSuggested ||
+    askAiOpen || aiGateActive || soleSuggested ||
     count === 0 || !composerOpen || previewMode != null;
   if (!visible || suppressed) {
     // Still render the target host? No — nothing to show when suppressed.
@@ -274,6 +281,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
             <Bubble
               colors={colors}
               kind={selectedBlock?.kind}
+              label={t("blockBar.formattingTools", { defaultValue: "Formatting tools" })}
               onPress={() => useFloatingPillStore.getState().setExpanded(true)}
             />
           )}
@@ -288,19 +296,24 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
 function Bubble({
   colors,
   kind,
+  label,
   onPress,
 }: {
   colors: ReturnType<typeof useThemeColors>;
   kind: DocBlockDTO["kind"] | undefined;
+  label: string;
   onPress: () => void;
 }) {
   const Icon = kind === "image" ? ImageIcon : kind === "table" ? Table : Type;
   return (
-    <Animated.View entering={ZoomIn.springify().damping(30).stiffness(700)}>
+    <Animated.View
+      entering={ZoomIn.springify().damping(30).stiffness(700)}
+      exiting={ZoomOut.springify().damping(30).stiffness(700)}
+    >
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel="Formatting tools"
+        accessibilityLabel={label}
         style={[styles.bubble, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
       >
         <Icon size={22} color={colors.bgPrimary} strokeWidth={2.2} />
