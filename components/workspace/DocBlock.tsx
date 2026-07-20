@@ -195,7 +195,10 @@ export function DocBlock({
       onLongPress={() => longPickBlock(block.index, block.text)}
       style={[
         styles.paraWrap,
-        isSelected && { backgroundColor: hi + "18", borderColor: hi },
+        // While this paragraph is being inline-edited the keyboard is up and the
+        // caret is the focus — suppress the selection box/highlight so only the
+        // caret shows. A selected-but-not-editing block keeps its highlight.
+        isSelected && !isEditing && { backgroundColor: hi + "18", borderColor: hi },
       ]}
     >
       {isEditing ? (
