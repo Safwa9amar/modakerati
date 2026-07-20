@@ -17,11 +17,15 @@ interface FloatingPillState {
   /** Screen Y of the selecting tap → where the bubble spawns beside the block.
    *  null until a tap reports one. */
   anchorY: number | null;
+  /** The dock's inline Ask input (on-demand variant). Opened by the Ask… chip
+   *  or the pill's ✦; closed on send/hide/reset. */
+  inputOpen: boolean;
   show: () => void;
   hide: () => void;
   setPos: (pos: Pos) => void;
   setExpanded: (expanded: boolean) => void;
   setAnchorY: (y: number) => void;
+  setInputOpen: (v: boolean) => void;
   reset: () => void;
 }
 
@@ -30,10 +34,12 @@ export const useFloatingPillStore = create<FloatingPillState>((set) => ({
   pos: null,
   expanded: false,
   anchorY: null,
+  inputOpen: false,
   show: () => set({ visible: true }),
-  hide: () => set({ visible: false, expanded: false }),
+  hide: () => set({ visible: false, expanded: false, inputOpen: false }),
   setPos: (pos) => set({ pos }),
   setExpanded: (expanded) => set({ expanded }),
   setAnchorY: (y) => set({ anchorY: y }),
-  reset: () => set({ visible: false, pos: null, expanded: false, anchorY: null }),
+  setInputOpen: (v) => set({ inputOpen: v }),
+  reset: () => set({ visible: false, pos: null, expanded: false, anchorY: null, inputOpen: false }),
 }));
