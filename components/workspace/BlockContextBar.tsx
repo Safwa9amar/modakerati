@@ -724,7 +724,7 @@ export function BlockContextBar({
                 {expandedTools}
               </Animated.View>
               {/* Static collapse control — outside the keyed row so toolset morphs don't tear it down. */}
-              {chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), onPress: () => setPillExpanded(false) })}
+              {chip({ keyProp: "collapse", Icon: X, accessibilityLabel: t("common.close", { defaultValue: "Close" }), enterIndex: 12, onPress: () => setPillExpanded(false) })}
             </ScrollView>
             {AskAI}
             {OutlineBtn}
