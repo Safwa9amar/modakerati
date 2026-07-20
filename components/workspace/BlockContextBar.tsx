@@ -1,7 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, Alert, Keyboard } from "react-native";
 import type { ScrollView as RNScrollView } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 // Horizontal tool rows use gesture-handler's ScrollView so they scroll even when
 // nested inside the reorderable list (RN's ScrollView loses the horizontal pan to
 // the list's gesture handler).
@@ -45,7 +52,7 @@ import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit
 import { hWarn } from "@/lib/haptics";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
-import { chipOut, layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff } from "@/lib/motion";
+import { chipOut, layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff, SPRING_SOFT } from "@/lib/motion";
 import { isPillHandoff } from "@/lib/pill-handoff";
 import type { FormatChange } from "@/lib/thesis-ops";
 
@@ -67,6 +74,48 @@ const DIRECTION_OPTIONS: { value: "rtl" | "ltr"; Icon: LucideIcon }[] = [
   { value: "rtl", Icon: PilcrowLeft },
   { value: "ltr", Icon: PilcrowRight },
 ];
+
+const CHIP = 40;
+
+/** One-shot ring pulse behind ✦ Ask AI when the selection changes — deliberately
+ *  not an infinite loop (battery). `trigger` = the selection identity string. */
+function AskAIGlow({ trigger, color }: { trigger: string; color: string }) {
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    scale.value = 1;
+    opacity.value = 0.5;
+    scale.value = withSpring(1.5, SPRING_SOFT);
+    opacity.value = withTiming(0, { duration: 500 });
+  }, [trigger, scale, opacity]);
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, { borderRadius: CHIP / 2, backgroundColor: color }, style]}
+    />
+  );
+}
+
+/** Saving-in-flight dot: gentle repeat pulse; the loop dies with the unmount. */
+function PulsingDot({ color }: { color: string }) {
+  const v = useSharedValue(0.4);
+  useEffect(() => {
+    v.value = withRepeat(
+      withSequence(withTiming(1, { duration: 600 }), withTiming(0.4, { duration: 600 })),
+      -1,
+      false,
+    );
+  }, [v]);
+  const style = useAnimatedStyle(() => ({
+    opacity: v.value,
+    transform: [{ scale: 0.7 + v.value * 0.5 }],
+  }));
+  return <Animated.View style={[styles.savingDot, { backgroundColor: color }, style]} />;
+}
 
 interface Props {
   thesisId: string;
@@ -429,6 +478,7 @@ export function BlockContextBar({
       accessibilityLabel={t("blockBar.askAi", { defaultValue: "Ask AI" })}
       style={[styles.askBtn, { backgroundColor: colors.brandPrimary }]}
     >
+      <AskAIGlow trigger={selectedIndices.join(",")} color={colors.brandPrimary} />
       <Sparkles size={18} color={colors.bgPrimary} strokeWidth={2.2} />
     </Pressable>
   );
@@ -622,7 +672,7 @@ export function BlockContextBar({
           {AskAI}
           {OutlineBtn}
         </View>
-        {saving ? <View style={[styles.savingDot, { backgroundColor: colors.brandPrimary }]} /> : null}
+        {saving ? <PulsingDot color={colors.brandPrimary} /> : null}
         {cropModal}
       </View>
     );
@@ -702,16 +752,12 @@ export function BlockContextBar({
             {OutlineBtn}
           </>
         )}
-        {pillExpanded && saving ? (
-          <View style={[styles.savingDot, { backgroundColor: colors.brandPrimary }]} />
-        ) : null}
+        {pillExpanded && saving ? <PulsingDot color={colors.brandPrimary} /> : null}
       </Animated.View>
       {cropModal}
     </View>
   );
 }
-
-const CHIP = 40;
 
 const styles = StyleSheet.create({
   // Floating pill (anchored under the block; tools scroll, ✦ Ask AI pinned so it never clips).
