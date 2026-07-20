@@ -1,5 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, Image, StyleSheet, Platform, TextInput, type TextStyle } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  Image,
+  StyleSheet,
+  Platform,
+  TextInput,
+  type TextStyle,
+  type GestureResponderEvent,
+} from "react-native";
 import Animated, {
   interpolateColor,
   runOnJS,
@@ -15,6 +25,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
+import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { thesisBlockImageUrl, type DocBlockDTO } from "@/lib/api";
 import { hSelection, hMedium } from "@/lib/haptics";
 
@@ -166,7 +177,7 @@ function DocBlockInner({
     ) : null;
 
     const figText = caption || "figure";
-    const onSelect = () => pickBlock(block.index, figText);
+    const onSelect = (e: GestureResponderEvent) => pickBlock(block.index, figText, e.nativeEvent.pageY);
     const onLong = onLongPressDrag ?? (() => longPickBlock(block.index, figText));
     const ratio =
       block.width && block.height && block.height > 0 ? block.width / block.height : undefined;
@@ -209,7 +220,7 @@ function DocBlockInner({
   if (block.kind === "table") {
     return (
       <Pressable
-        onPress={() => pickBlock(block.index, tableToText(block.rows))}
+        onPress={(e) => pickBlock(block.index, tableToText(block.rows), e.nativeEvent.pageY)}
         onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, tableToText(block.rows)))}
         style={[
           styles.tableWrap,
@@ -323,7 +334,7 @@ function DocBlockInner({
 
   return (
     <Pressable
-      onPress={() => enterOrSelect(block.index, block.text)}
+      onPress={(e) => enterOrSelect(block.index, block.text, e.nativeEvent.pageY)}
       onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, block.text))}
       // No selection box on paragraphs — the caret (while editing) or the floating
       // pill (when the keyboard is dismissed) is the selection indicator.
@@ -527,7 +538,7 @@ function FigureImage({
   ratio?: number;
   isSelected: boolean;
   hi: string;
-  onSelect: () => void;
+  onSelect: (e: GestureResponderEvent) => void;
   onLong: () => void;
   captionNode: React.ReactNode;
 }) {
@@ -591,7 +602,7 @@ function FigurePlaceholder({
 }: {
   isSelected: boolean;
   hi: string;
-  onSelect: () => void;
+  onSelect: (e: GestureResponderEvent) => void;
   onLong: () => void;
   captionNode: React.ReactNode;
 }) {
@@ -619,11 +630,14 @@ function tableToText(rows: string[][]): string {
 // Tap: in multi-select mode toggle this block in/out of the set; otherwise it's a
 // single-select (replace). Read mode at press time via getState() so the press
 // handlers don't need to subscribe.
-function pickBlock(index: number, text: string): void {
+function pickBlock(index: number, text: string, pageY?: number): void {
   hSelection();
   const ws = useWorkspaceStore.getState();
   if (ws.multiSelect) ws.toggleBlock(index, text);
-  else ws.selectBlock(index, text);
+  else {
+    ws.selectBlock(index, text);
+    if (pageY != null) useFloatingPillStore.getState().setAnchorY(pageY);
+  }
 }
 
 // Long-press: enter multi-select mode and add this block (keeping any current one).
@@ -636,13 +650,14 @@ function longPickBlock(index: number, text: string): void {
 // up, the docked toolbar — no intermediate selection-box state. (Select it too so
 // the toolbar / ✦ Ask AI target this block.) Multi-select mode still just toggles
 // membership; during an AI turn we only select (don't open the editor).
-function enterOrSelect(index: number, text: string): void {
+function enterOrSelect(index: number, text: string, pageY?: number): void {
   const ws = useWorkspaceStore.getState();
   if (ws.multiSelect) {
     ws.toggleBlock(index, text);
     return;
   }
   ws.selectBlock(index, text);
+  if (pageY != null) useFloatingPillStore.getState().setAnchorY(pageY);
   if (!useChatStore.getState().isGenerating) ws.setEditingBlock(index);
 }
 
