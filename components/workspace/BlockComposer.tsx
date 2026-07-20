@@ -168,13 +168,14 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || isGenerating) return;
-    // Block-scoped "✦ Ask AI" on EXACTLY ONE block → propose an inline rewrite of
-    // that paragraph (approve/edit/reject inline on the block) instead of routing
-    // through the chat flow that applies the change directly. Whole-memoir
-    // (count === 0) and multi-block (count > 1) keep the sendMessageToAI path.
-    if (askAiOpen && count === 1) {
-      const idx = indices[0];
-      const original = paragraphSelection[0]?.text ?? selectedBlocks[0]?.text ?? "";
+    // Block-scoped "✦ Ask AI" on exactly one PARAGRAPH → propose an inline rewrite
+    // of that paragraph (approve/edit/reject inline on the block). Only paragraphs:
+    // a figure/table has no text to rewrite, so those (and whole-memoir / multi-
+    // block) go through the tool-based chat flow, which can act on them directly
+    // (e.g. set a figure caption) rather than producing a bogus "rewrite".
+    if (askAiOpen && count === 1 && paragraphSelection.length === 1) {
+      const idx = paragraphSelection[0].index;
+      const original = paragraphSelection[0].text;
       setInputText("");
       Keyboard.dismiss();
       useWorkspaceStore.getState().setAskAiOpen(false);
