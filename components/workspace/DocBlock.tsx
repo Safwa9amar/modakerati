@@ -26,6 +26,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
+import { useSearchStore } from "@/stores/search-store";
 import { thesisBlockImageUrl, type DocBlockDTO } from "@/lib/api";
 import { hSelection, hMedium } from "@/lib/haptics";
 
@@ -33,6 +34,11 @@ import { hSelection, hMedium } from "@/lib/haptics";
 const INK = "#1A1A1A";
 const MUTED = "#8A8A8A";
 const BORDER = "#D8D8DE";
+
+// Search-hit highlight on the always-white paper: soft amber for every hit,
+// strong amber for the CURRENT hit the ↑↓ cursor is on.
+const SEARCH_HIT_BG = "#FFE08A";
+const SEARCH_HIT_CURRENT_BG = "#FFB300";
 
 // Heading level → text style. Level 0 is justified body; 1 is the largest.
 const HEADING_SIZE: Record<1 | 2 | 3 | 4, number> = { 1: 22, 2: 19, 3: 16, 4: 14 };
@@ -126,6 +132,17 @@ function DocBlockInner({
   // True right after this block's suggestion was approved — plays a one-shot
   // green settle flash on the (freshly patched) paragraph text below.
   const justApplied = useSuggestionStore((s) => s.justApplied === block.index);
+  // Search-hit spans for THIS block (undefined for most blocks). The per-block
+  // array ref is rebuilt only inside setMatches, so this stays Object.is-stable
+  // across unrelated search-store updates.
+  const searchMatches = useSearchStore((s) => (s.open ? s.matchesByBlock[block.index] : undefined));
+  // Original-text start offset of the CURRENT hit when it's in this block, else
+  // -1 — a primitive, so safe for zustand's Object.is.
+  const searchCurrentStart = useSearchStore((s) => {
+    if (!s.open) return -1;
+    const m = s.matches[s.current];
+    return m && m.blockIndex === block.index ? m.start : -1;
+  });
   const hi = colors.brandPrimary;
 
   if (block.kind === "other") {
@@ -332,6 +349,33 @@ function DocBlockInner({
     );
   }
 
+  // While searching, hits render as amber spans and take precedence over the
+  // per-run formatting branch (search is transient; runs come back on close).
+  const searchSegs =
+    !empty && searchMatches?.length
+      ? (() => {
+          const out: React.ReactNode[] = [];
+          let pos = 0;
+          for (const m of searchMatches) {
+            if (m.start > pos) out.push(block.text.slice(pos, m.start));
+            out.push(
+              <Text
+                key={`h${m.start}`}
+                style={{
+                  backgroundColor:
+                    m.start === searchCurrentStart ? SEARCH_HIT_CURRENT_BG : SEARCH_HIT_BG,
+                }}
+              >
+                {block.text.slice(m.start, m.end)}
+              </Text>,
+            );
+            pos = m.end;
+          }
+          if (pos < block.text.length) out.push(block.text.slice(pos));
+          return out;
+        })()
+      : null;
+
   return (
     <Pressable
       onPress={(e) => enterOrSelect(block.index, block.text, e.nativeEvent.pageY)}
@@ -362,13 +406,15 @@ function DocBlockInner({
         >
           {empty
             ? "·"
-            : useRuns && runs
-              ? runs.map((r, i) => (
-                  <Text key={i} style={runTextStyle(r)}>
-                    {r.text}
-                  </Text>
-                ))
-              : block.text}
+            : searchSegs
+              ? searchSegs
+              : useRuns && runs
+                ? runs.map((r, i) => (
+                    <Text key={i} style={runTextStyle(r)}>
+                      {r.text}
+                    </Text>
+                  ))
+                : block.text}
         </Text>
       </SettleFlash>
     </Pressable>
