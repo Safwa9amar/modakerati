@@ -14,7 +14,9 @@ export type SearchMatch = {
 export const MIN_QUERY = 2; // 1-char queries are noise (thousands of hits)
 export const MAX_MATCHES = 500; // perf guard; the counter shows "500+" when hit
 
-/** The searchable text of a block (same extraction as GlobalDockBar's textOf). */
+/** The searchable text of a block. Like GlobalDockBar's textOf, but tables
+ * flatten ALL rows — search must cover the whole grid, while textOf only
+ * samples the first row for a label. */
 export function blockSearchText(b: DocBlockDTO): string {
   if (b.kind === "paragraph") return b.text;
   if (b.kind === "image") return b.caption ?? "";
