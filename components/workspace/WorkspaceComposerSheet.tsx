@@ -323,6 +323,12 @@ export function WorkspaceComposerSheet({
     void sendMessageToAI(thesisId, answer, focusOpts);
   };
 
+  // The user always has the right to walk away from a question unanswered —
+  // the ask lives only in memory, so clearing it is the whole dismissal.
+  const handleDismissAsk = () => {
+    useChatStore.getState().setPendingAsk(null);
+  };
+
   // Approve / decline a gated destructive AI action. These call dedicated
   // endpoints (NOT a chat message) that run — or discard — the server-stored args.
   const handleApprove = () => {
@@ -541,6 +547,7 @@ export function WorkspaceComposerSheet({
           <ComposerAsk
             ask={pendingAsk}
             onAnswer={handleAnswer}
+            onDismiss={handleDismissAsk}
             rtl={rtl}
             onInputFocus={markInputFocused}
             onInputBlur={markInputBlurred}

@@ -5,6 +5,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 // keyboard docking (see WorkspaceComposerSheet).
 import { TextInput } from "react-native-gesture-handler";
 import { useTranslation } from "react-i18next";
+import { X } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import type { AskPayload } from "@/types/chat";
 
@@ -12,6 +13,8 @@ interface Props {
   ask: AskPayload;
   onAnswer: (answer: string) => void;
   rtl: boolean;
+  /** The user always has the right to dismiss the question unanswered. */
+  onDismiss?: () => void;
   /** Focus tracking for the sheet's keyboard docking. */
   onInputFocus?: () => void;
   onInputBlur?: () => void;
@@ -22,7 +25,7 @@ interface Props {
  * (replaces the standalone AskBottomSheet). Tapping an option answers
  * immediately; the free-text row (when allowed) submits typed answers.
  */
-export function ComposerAsk({ ask, onAnswer, rtl, onInputFocus, onInputBlur }: Props) {
+export function ComposerAsk({ ask, onAnswer, rtl, onDismiss, onInputFocus, onInputBlur }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const [text, setText] = useState("");
@@ -34,9 +37,21 @@ export function ComposerAsk({ ask, onAnswer, rtl, onInputFocus, onInputBlur }: P
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.question, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}>
-        {ask.question}
-      </Text>
+      <View style={[styles.header, rtl && styles.headerRtl]}>
+        <Text style={[styles.question, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}>
+          {ask.question}
+        </Text>
+        {onDismiss && (
+          <Pressable
+            onPress={onDismiss}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={t("chat.dismissQuestion", { defaultValue: "Dismiss question" })}
+          >
+            <X size={18} color={colors.textSecondary} strokeWidth={2} />
+          </Pressable>
+        )}
+      </View>
 
       <View style={styles.options}>
         {ask.options.map((opt) => (
@@ -74,7 +89,9 @@ export function ComposerAsk({ ask, onAnswer, rtl, onInputFocus, onInputBlur }: P
 
 const styles = StyleSheet.create({
   container: { gap: 12, paddingTop: 4 },
-  question: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  header: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  headerRtl: { flexDirection: "row-reverse" },
+  question: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold" },
   options: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   option: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1 },
   optionText: { fontSize: 13, fontFamily: "Inter_500Medium" },

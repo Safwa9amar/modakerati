@@ -7,6 +7,8 @@ import {
   BottomSheetTextInput,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
+import { useTranslation } from "react-i18next";
+import { X } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import type { AskPayload } from "@/types/chat";
@@ -18,6 +20,7 @@ interface Props {
 }
 
 export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const isOpen = useBottomSheet((s) => s.openSheets.has("ask"));
   const sheetRef = useRef<BottomSheetModal>(null);
@@ -33,19 +36,22 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
     sheetRef.current?.dismiss();
   }, [isOpen]);
 
-  // While the question is open, swallow the Android hardware back press so it
-  // can't dismiss the sheet. No-op on iOS (no hardware back).
+  // The user always has the right to dismiss the question unanswered — Android
+  // hardware back closes the sheet instead of leaking to the screen behind it.
+  // No-op on iOS (no hardware back).
   useEffect(() => {
     if (!isOpen) return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      sheetRef.current?.dismiss();
+      return true;
+    });
     return () => sub.remove();
   }, [isOpen]);
 
-  // Blocking sheet: the question must be answered, so tapping the backdrop
-  // does nothing (no dismiss).
+  // Tapping the backdrop dismisses the question (onDismiss → onClose clears it).
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} pressBehavior="none" />
+      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} pressBehavior="close" />
     ),
     []
   );
@@ -63,8 +69,8 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
       ref={sheetRef}
       snapPoints={["50%"]}
       enableDynamicSizing={false}
-      // Can't be swiped down or back-dismissed — only answering closes it.
-      enablePanDownToClose={false}
+      // Dismissible without answering: swipe down, backdrop tap, back press, or ✕.
+      enablePanDownToClose
       // Keep the focused free-text input above the keyboard instead of hidden
       // behind it. `interactive` shifts the sheet up by the keyboard height;
       // adjustResize lets Android resize the window so the shift has room.
@@ -77,7 +83,17 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
       backgroundStyle={{ backgroundColor: colors.bgModal }}
     >
       <BottomSheetView style={styles.content}>
-        <Text style={[styles.question, { color: colors.textPrimary }]}>{ask.question}</Text>
+        <View style={styles.header}>
+          <Text style={[styles.question, { color: colors.textPrimary }]}>{ask.question}</Text>
+          <Pressable
+            onPress={() => sheetRef.current?.dismiss()}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={t("chat.dismissQuestion", { defaultValue: "Dismiss question" })}
+          >
+            <X size={20} color={colors.textSecondary} strokeWidth={2} />
+          </Pressable>
+        </View>
 
         <View style={styles.chips}>
           {ask.options.map((opt) => (
@@ -117,7 +133,8 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
 
 const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 20, paddingTop: 24 },
-  question: { fontSize: 18, fontFamily: "Inter_600SemiBold", marginBottom: 16 },
+  header: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 16 },
+  question: { flex: 1, fontSize: 18, fontFamily: "Inter_600SemiBold" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
   chip: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1 },
   chipText: { fontSize: 14, fontFamily: "Inter_500Medium" },
