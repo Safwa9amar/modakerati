@@ -77,7 +77,7 @@ const theme = {
 };
 
 const CSS = `
-/* Use the GENERIC `sans-serif` keyword, inherited by all content, NOT concrete
+/* Use the GENERIC sans-serif keyword, inherited by all content, NOT concrete
    font names: on this WebView a concrete-first stack (Roboto/-apple-system/…)
    fails to fall back to an Arabic font and renders .notdef tofu, whereas the
    generic keyword chains to the system Arabic font (verified on-device). */
