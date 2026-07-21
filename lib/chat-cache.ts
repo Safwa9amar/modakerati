@@ -6,13 +6,14 @@ import type { ChatMessage } from "@/types/chat";
 // the createdAt of the newest message confirmed from the server, used to fetch
 // only the delta on the next sync (GET /api/chat/:id?since=...).
 //
+// Messages are UPSERTED (by id), never replace-all: infinite scroll pages older
+// history into this table over time, and a windowed in-memory view must never
+// cause the older cached rows to be deleted. Reads are paginated (latest page /
+// older-than-cursor page) to mirror the server's infinite-scroll contract.
+//
 // SQLite (not AsyncStorage) so large conversations — generated chapters, long
 // histories — aren't capped by the key-value store's size limit, and per-thesis
 // reads stay fast via an index.
-export interface ChatCache {
-  messages: ChatMessage[];
-  lastSyncedAt: string | null;
-}
 
 interface MessageRow {
   id: string;
@@ -56,44 +57,71 @@ function getDb(): Promise<SQLite.SQLiteDatabase> {
   return dbPromise;
 }
 
-export async function getCache(thesisId: string): Promise<ChatCache | null> {
+function rowToMessage(r: MessageRow): ChatMessage {
+  return {
+    id: r.id,
+    thesisId: r.thesis_id,
+    role: r.role as ChatMessage["role"],
+    content: r.content,
+    chapterId: r.chapter_id ?? undefined,
+    sectionId: r.section_id ?? undefined,
+    pending: r.pending === 1 ? true : undefined,
+    createdAt: r.created_at,
+  };
+}
+
+// A paginated read result: the page in chronological (oldest→newest) order, plus
+// whether the cache holds still-older messages beyond it.
+export interface CachePage {
+  messages: ChatMessage[];
+  hasMore: boolean;
+}
+
+// The newest `limit` messages for a thesis (chronological). `hasMore` is true when
+// older messages exist in the cache beyond this page — detected by over-fetching
+// one row.
+export async function getLatestMessages(thesisId: string, limit: number): Promise<CachePage> {
   try {
     const db = await getDb();
     const rows = await db.getAllAsync<MessageRow>(
-      `SELECT * FROM chat_messages WHERE thesis_id = ? ORDER BY created_at ASC`,
-      [thesisId]
+      `SELECT * FROM chat_messages WHERE thesis_id = ? ORDER BY created_at DESC LIMIT ?`,
+      [thesisId, limit + 1]
     );
-    const sync = await db.getFirstAsync<{ last_synced_at: string | null }>(
-      `SELECT last_synced_at FROM chat_sync WHERE thesis_id = ?`,
-      [thesisId]
-    );
-    if (rows.length === 0 && !sync) return null;
-
-    const messages: ChatMessage[] = rows.map((r) => ({
-      id: r.id,
-      thesisId: r.thesis_id,
-      role: r.role as ChatMessage["role"],
-      content: r.content,
-      chapterId: r.chapter_id ?? undefined,
-      sectionId: r.section_id ?? undefined,
-      pending: r.pending === 1 ? true : undefined,
-      createdAt: r.created_at,
-    }));
-    return { messages, lastSyncedAt: sync?.last_synced_at ?? null };
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit).reverse(); // DESC → chronological
+    return { messages: page.map(rowToMessage), hasMore };
   } catch {
-    return null;
+    return { messages: [], hasMore: false };
   }
 }
 
-export async function setCache(thesisId: string, cache: ChatCache): Promise<void> {
+// The newest `limit` messages OLDER than the `before` ISO cursor (chronological).
+// Used to reveal earlier history on scroll-to-top (offline / cache-warm path).
+export async function getOlderMessages(thesisId: string, before: string, limit: number): Promise<CachePage> {
   try {
     const db = await getDb();
-    // Mirror the in-memory snapshot: replace this thesis's rows in one transaction.
+    const rows = await db.getAllAsync<MessageRow>(
+      `SELECT * FROM chat_messages WHERE thesis_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`,
+      [thesisId, before, limit + 1]
+    );
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit).reverse();
+    return { messages: page.map(rowToMessage), hasMore };
+  } catch {
+    return { messages: [], hasMore: false };
+  }
+}
+
+// Insert-or-replace messages by id in one transaction. Additive — leaves rows
+// outside this set (older pages, other theses) untouched. Best-effort.
+export async function upsertMessages(thesisId: string, messages: ChatMessage[]): Promise<void> {
+  if (messages.length === 0) return;
+  try {
+    const db = await getDb();
     await db.withTransactionAsync(async () => {
-      await db.runAsync(`DELETE FROM chat_messages WHERE thesis_id = ?`, [thesisId]);
-      for (const m of cache.messages) {
+      for (const m of messages) {
         await db.runAsync(
-          `INSERT INTO chat_messages
+          `INSERT OR REPLACE INTO chat_messages
              (id, thesis_id, role, content, chapter_id, section_id, pending, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -108,14 +136,47 @@ export async function setCache(thesisId: string, cache: ChatCache): Promise<void
           ]
         );
       }
-      await db.runAsync(
-        `INSERT INTO chat_sync (thesis_id, last_synced_at) VALUES (?, ?)
-         ON CONFLICT(thesis_id) DO UPDATE SET last_synced_at = excluded.last_synced_at`,
-        [thesisId, cache.lastSyncedAt ?? null]
-      );
     });
   } catch {
     // Cache is best-effort; failing to persist must never break the chat.
+  }
+}
+
+// Drop optimistic (client-id, not-yet-server-confirmed) rows. Called when a sync
+// brings the authoritative server copies, so the local-id placeholders don't
+// linger as duplicates alongside their server-id versions.
+export async function deletePending(thesisId: string): Promise<void> {
+  try {
+    const db = await getDb();
+    await db.runAsync(`DELETE FROM chat_messages WHERE thesis_id = ? AND pending = 1`, [thesisId]);
+  } catch {
+    // ignore
+  }
+}
+
+export async function getLastSyncedAt(thesisId: string): Promise<string | null> {
+  try {
+    const db = await getDb();
+    const sync = await db.getFirstAsync<{ last_synced_at: string | null }>(
+      `SELECT last_synced_at FROM chat_sync WHERE thesis_id = ?`,
+      [thesisId]
+    );
+    return sync?.last_synced_at ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setLastSyncedAt(thesisId: string, lastSyncedAt: string | null): Promise<void> {
+  try {
+    const db = await getDb();
+    await db.runAsync(
+      `INSERT INTO chat_sync (thesis_id, last_synced_at) VALUES (?, ?)
+       ON CONFLICT(thesis_id) DO UPDATE SET last_synced_at = excluded.last_synced_at`,
+      [thesisId, lastSyncedAt ?? null]
+    );
+  } catch {
+    // ignore
   }
 }
 

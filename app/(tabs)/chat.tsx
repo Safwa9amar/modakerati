@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard, Image } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard, Image, ActivityIndicator } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
@@ -8,11 +8,11 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useChatHead } from "@/stores/chat-head-store";
-import { sendMessageToAI, loadInitialMessages, regenerateLastResponse, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
+import { sendMessageToAI, loadInitialMessages, loadOlderMessages, regenerateLastResponse, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { ComposerConfirm } from "@/components/workspace/ComposerConfirm";
 import { Send, Plus, Home, List, Paperclip, Image as ImageIcon, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw } from "lucide-react-native";
 import { useRouter } from "expo-router";
-import { ThesisStructureSheet } from "@/components/ThesisStructureSheet";
+import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { Markdown } from "@/components/Markdown";
 import { MessageViewer } from "@/components/MessageViewer";
@@ -231,6 +231,9 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // the chat stranded mid-history. Only a real drag hands scroll control over.
   const userHasScrolledRef = useRef(false);
   const messages = useChatStore((s) => s.getMessages(thesisId));
+  // Infinite scroll: whether earlier messages remain and whether a page is loading.
+  const hasMoreOlder = useChatStore((s) => s.getHasMoreOlder(thesisId));
+  const loadingOlder = useChatStore((s) => s.getLoadingOlder(thesisId));
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
   const streamingId = useChatStore((s) => s.streamingId);
@@ -356,7 +359,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
     rotation.value = withTiming(0, { duration: 200 });
     switch (tool) {
       case "structure":
-        useBottomSheet.getState().openSheet("structure");
+        useNavDrawerStore.getState().openDrawer();
         break;
       case "file":
         try {
@@ -441,6 +444,26 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
             keyboardShouldPersistTaps="handled"
             onScroll={handleScroll}
             scrollEventThrottle={32}
+            // Fetch the previous page from the server when the reader reaches the
+            // top. Gated on a real drag so the opening auto-scroll to the bottom
+            // (which passes through offset 0) doesn't fire a spurious load;
+            // loadOlderMessages itself guards against double-loads and end-of-history.
+            onStartReached={() => {
+              if (!userHasScrolledRef.current) return;
+              void loadOlderMessages(thesisId);
+            }}
+            onStartReachedThreshold={0.5}
+            // Keep the on-screen content anchored when older messages are prepended,
+            // so paging in earlier history doesn't jump the reader (New Architecture).
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            // Spinner at the top while an older page is loading or more remain.
+            ListHeaderComponent={
+              loadingOlder || hasMoreOlder ? (
+                <View style={styles.loadOlder}>
+                  <ActivityIndicator size="small" color={colors.textSecondary} />
+                </View>
+              ) : null
+            }
             // A real finger-drag is what hands scroll control to the user; from
             // here on, position decides whether we stick to the bottom.
             onScrollBeginDrag={() => { userHasScrolledRef.current = true; }}
@@ -627,8 +650,6 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
         </View>
       </KeyboardAvoidingView>
 
-      {active && <ThesisStructureSheet />}
-
       {active && (
         <AskBottomSheet
           ask={pendingAsk}
@@ -704,6 +725,7 @@ const styles = StyleSheet.create({
   topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
   topTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", flex: 1, textAlign: "center" },
   messageList: { padding: 16, paddingBottom: 10, gap: 14, flexGrow: 1 },
+  loadOlder: { paddingVertical: 10, alignItems: "center" },
   messageRow: { flexDirection: "row", gap: 8 },
   userRow: { justifyContent: "flex-end" },
   aiRow: { justifyContent: "flex-start", alignItems: "flex-start" },

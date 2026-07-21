@@ -162,6 +162,18 @@ export async function getChatHistory(thesisId: string, since?: string | null) {
   return apiGet<any[]>(`/api/chat/${thesisId}${query}`);
 }
 
+// Fetch one page of history for infinite scroll: the newest `limit` messages,
+// optionally older than the `before` ISO cursor. Returns a chronological array;
+// a full-length page means older messages still remain.
+export async function getChatHistoryPage(
+  thesisId: string,
+  opts: { limit: number; before?: string | null }
+) {
+  const params = new URLSearchParams({ limit: String(opts.limit) });
+  if (opts.before) params.set("before", opts.before);
+  return apiGet<any[]>(`/api/chat/${thesisId}?${params.toString()}`);
+}
+
 export interface ChatStreamHandlers {
   onDelta: (chunk: string) => void;
   onAsk?: (ask: AskPayload) => void;
@@ -639,6 +651,24 @@ export type OutlineDTO =
 
 export async function getThesisOutline(id: string): Promise<OutlineDTO> {
   return apiGet<OutlineDTO>(`/api/thesis/${id}/outline`);
+}
+
+// Semantic in-document search ("search by meaning"): the server embeds `q` and
+// cosine-searches the thesis's RAG block index. `blockIndex` is the engine
+// block index — feed it straight to requestScrollToBlock. `indexing: true`
+// means the index is (re)building in the background; try again shortly.
+export type ThesisSearchHit = {
+  blockIndex: number;
+  headingPath: string | null;
+  snippet: string;
+  score: number;
+};
+export async function searchThesisSemantic(
+  id: string,
+  q: string,
+  k = 8,
+): Promise<{ results: ThesisSearchHit[]; indexing?: boolean }> {
+  return apiGet(`/api/thesis/${id}/search?q=${encodeURIComponent(q)}&k=${k}`);
 }
 
 // OnlyOffice Docs editor config (signed DocEditor config + the public Document

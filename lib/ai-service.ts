@@ -1,7 +1,26 @@
 import { useChatStore } from "@/stores/chat-store";
-import { chatSend, chatSendStream, chatConfirmAction, chatCancelAction, getChatHistory } from "./api";
-import { getCache, setCache } from "./chat-cache";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { chatSend, chatSendStream, chatConfirmAction, chatCancelAction, getChatHistory, getChatHistoryPage } from "./api";
+import { getLatestMessages, getOlderMessages, upsertMessages, deletePending, getLastSyncedAt, setLastSyncedAt } from "./chat-cache";
 import type { ChatMessage } from "@/types/chat";
+
+// The first view shows only the most recent few messages; scrolling to the top
+// pages in older history a larger batch at a time.
+const INITIAL_PAGE_SIZE = 5;
+const OLDER_PAGE_SIZE = 20;
+
+// Map a raw server chat row into the app's ChatMessage shape.
+function mapServerMessages(rows: any[], thesisId: string): ChatMessage[] {
+  return (rows ?? []).map((m: any) => ({
+    id: m.id,
+    thesisId,
+    role: m.role,
+    content: m.content,
+    chapterId: m.chapterId ?? undefined,
+    sectionId: m.sectionId ?? undefined,
+    createdAt: m.createdAt,
+  }));
+}
 
 const WELCOME =
   "Hello! I'm your thesis assistant. Let's work on your thesis together.\n\nWhat would you like to focus on? You can:\n\n- Tell me about a chapter to draft\n- Ask me to suggest a structure\n- Request help with your methodology";
@@ -48,6 +67,14 @@ async function runAssistantTurn(
   userMessage: string,
   opts?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[] }
 ): Promise<void> {
+  // The AI edits the SERVER copy of the .docx. Any locally-held manual edits
+  // (the composing gate defers their sync) must land first, or the AI works on
+  // a stale doc AND the held ops' positional indices get poisoned by its edits
+  // (flush-time rejection would drop the user's local work). The turn needs the
+  // network anyway; a failed drain (offline) just proceeds to fail like the
+  // chat call itself would.
+  await useThesisDocStore.getState().flushOps(thesisId).catch(() => {});
+
   const store = useChatStore.getState();
   store.setPendingConfirm(null);
   store.setDocChanges(thesisId, null);
@@ -172,16 +199,17 @@ export async function loadInitialMessages(thesisId: string) {
   // Already loaded in memory this session — nothing to do.
   if (store.getMessages(thesisId).length > 0) return;
 
-  // 1. Instant: show cached messages from the device (also works offline).
-  const cached = await getCache(thesisId);
-  if (cached?.messages?.length) {
+  // 1. Instant: show the latest page from the device cache (also works offline).
+  const cached = await getLatestMessages(thesisId, INITIAL_PAGE_SIZE);
+  if (cached.messages.length) {
     store.setMessages(thesisId, cached.messages);
+    store.setHasMoreOlder(thesisId, cached.hasMore);
   }
 
-  // 2. Reconcile with the server (incremental when possible). On failure the
-  //    cached messages simply remain visible.
+  // 2. Reconcile the newest messages with the server (latest page on first sync,
+  //    delta after). On failure the cached messages simply remain visible.
   try {
-    await syncFromServer(thesisId);
+    await syncLatestFromServer(thesisId);
   } catch {
     // offline / backend unavailable
   }
@@ -192,54 +220,87 @@ export async function loadInitialMessages(thesisId: string) {
   }
 }
 
-// Fetch from the server and merge into the store + cache. Uses the cached
-// `lastSyncedAt` to pull only the delta; on the first sync it does a full load.
-async function syncFromServer(thesisId: string): Promise<void> {
+// Reconcile the newest messages with the server. First sync (no cursor yet) pulls
+// the latest page and marks whether older history exists; afterwards it pulls only
+// the delta created since. Older history already paged in is never touched here —
+// that grows through loadOlderMessages.
+async function syncLatestFromServer(thesisId: string): Promise<void> {
   const store = useChatStore.getState();
-  const cached = await getCache(thesisId);
-  const since = cached?.lastSyncedAt ?? null;
+  const lastSyncedAt = await getLastSyncedAt(thesisId);
 
-  const server = await getChatHistory(thesisId, since); // throws when offline
-  const fromServer: ChatMessage[] = (server ?? []).map((m: any) => ({
-    id: m.id,
-    thesisId,
-    role: m.role,
-    content: m.content,
-    chapterId: m.chapterId ?? undefined,
-    sectionId: m.sectionId ?? undefined,
-    createdAt: m.createdAt,
-  }));
-
-  let merged: ChatMessage[];
-  if (!since) {
-    // First sync: server is the source of truth. If it's empty, keep whatever
-    // is local (e.g. a brand-new thesis the user just started typing in).
+  if (!lastSyncedAt) {
+    // First sync: the server's latest page is authoritative for the tail.
+    const server = await getChatHistoryPage(thesisId, { limit: INITIAL_PAGE_SIZE }); // throws when offline
+    const fromServer = mapServerMessages(server, thesisId);
+    // Empty server → keep whatever is local (e.g. a brand-new thesis just started).
     if (fromServer.length === 0) return;
-    merged = fromServer;
-  } else {
-    // Incremental: drop un-synced optimistic messages (their authoritative
-    // copies arrive below) and append anything new, deduped by server id.
-    const synced = store.getMessages(thesisId).filter((m) => !m.pending);
-    const have = new Set(synced.map((m) => m.id));
-    const additions = fromServer.filter((m) => !have.has(m.id));
-    if (additions.length === 0) return; // nothing new to apply
-    merged = [...synced, ...additions].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    await upsertMessages(thesisId, fromServer);
+    await deletePending(thesisId); // clear stale optimistic rows now superseded
+    store.setMessages(thesisId, fromServer);
+    store.setHasMoreOlder(thesisId, server.length >= INITIAL_PAGE_SIZE);
+    await setLastSyncedAt(thesisId, fromServer[fromServer.length - 1].createdAt);
+    return;
   }
 
+  // Incremental: fetch messages created after the last confirmed timestamp,
+  // replace optimistic copies with their server-id versions, append new ones.
+  const server = await getChatHistory(thesisId, lastSyncedAt);
+  const additions = mapServerMessages(server, thesisId);
+  if (additions.length === 0) return; // nothing new to apply
+  await upsertMessages(thesisId, additions);
+  await deletePending(thesisId);
+  const synced = store.getMessages(thesisId).filter((m) => !m.pending);
+  const have = new Set(synced.map((m) => m.id));
+  const merged = [...synced, ...additions.filter((m) => !have.has(m.id))].sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt)
+  );
   store.setMessages(thesisId, merged);
-  const lastSyncedAt = merged.length ? merged[merged.length - 1].createdAt : since;
-  await setCache(thesisId, { messages: merged, lastSyncedAt });
+  await setLastSyncedAt(thesisId, merged[merged.length - 1].createdAt);
 }
 
-// Persist the current in-memory messages to the device cache, preserving the
-// last confirmed server timestamp.
+// Reveal the previous page of history (scroll-to-top). Server-authoritative with a
+// device-cache fallback when offline; the store's loadingOlder/hasMoreOlder guards
+// keep it from double-loading or paging past the beginning.
+export async function loadOlderMessages(thesisId: string): Promise<void> {
+  const store = useChatStore.getState();
+  if (store.getLoadingOlder(thesisId) || !store.getHasMoreOlder(thesisId)) return;
+
+  const current = store.getMessages(thesisId);
+  // Cursor = oldest loaded message with a server row. Optimistic (pending) rows
+  // carry a client clock and have no server row to page against, so skip them.
+  const cursor = current.find((m) => !m.pending) ?? current[0];
+  if (!cursor) return;
+  const before = cursor.createdAt;
+
+  store.setLoadingOlder(thesisId, true);
+  try {
+    let older: ChatMessage[];
+    let hasMore: boolean;
+    try {
+      const server = await getChatHistoryPage(thesisId, { before, limit: OLDER_PAGE_SIZE });
+      older = mapServerMessages(server, thesisId);
+      hasMore = server.length >= OLDER_PAGE_SIZE; // a full page → older messages may remain
+      if (older.length) await upsertMessages(thesisId, older);
+    } catch {
+      // Offline → serve the older page from the device cache instead.
+      const page = await getOlderMessages(thesisId, before, OLDER_PAGE_SIZE);
+      older = page.messages;
+      hasMore = page.hasMore;
+    }
+    if (older.length) store.prependMessages(thesisId, older);
+    // Stop paging once a page comes back empty or short (reached the beginning).
+    store.setHasMoreOlder(thesisId, older.length > 0 && hasMore);
+  } finally {
+    store.setLoadingOlder(thesisId, false);
+  }
+}
+
+// Persist the current in-memory window to the device cache. Upsert (not
+// replace-all) so older pages already cached survive; optimistic rows reconcile to
+// their server ids on the next open (see syncLatestFromServer).
 async function persistCache(thesisId: string): Promise<void> {
   const store = useChatStore.getState();
-  const prev = await getCache(thesisId);
-  await setCache(thesisId, {
-    messages: store.getMessages(thesisId),
-    lastSyncedAt: prev?.lastSyncedAt ?? null,
-  });
+  await upsertMessages(thesisId, store.getMessages(thesisId));
 }
 
 // Approve or decline a parked destructive action. The continuation streams into

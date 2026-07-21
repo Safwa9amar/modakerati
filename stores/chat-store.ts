@@ -17,7 +17,11 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 export type GeneratingPhase = "idle" | "thinking" | "writing";
 
 interface ChatState {
-  messages: Record<string, ChatMessage[]>; // keyed by thesisId
+  messages: Record<string, ChatMessage[]>; // keyed by thesisId — the loaded window, oldest→newest
+  // Infinite scroll: whether earlier messages exist before the loaded window, and
+  // whether an older page is currently being fetched. Both keyed by thesisId.
+  hasMoreOlder: Record<string, boolean>;
+  loadingOlder: Record<string, boolean>;
   isGenerating: boolean;
   generatingStep: number;
   generatingPhase: GeneratingPhase;
@@ -30,6 +34,12 @@ interface ChatState {
 
   getMessages: (thesisId: string) => ChatMessage[];
   setMessages: (thesisId: string, messages: ChatMessage[]) => void;
+  // Insert an older page at the FRONT of the loaded window (deduped by id).
+  prependMessages: (thesisId: string, older: ChatMessage[]) => void;
+  getHasMoreOlder: (thesisId: string) => boolean;
+  setHasMoreOlder: (thesisId: string, value: boolean) => void;
+  getLoadingOlder: (thesisId: string) => boolean;
+  setLoadingOlder: (thesisId: string, value: boolean) => void;
   addMessage: (thesisId: string, role: "user" | "assistant", content: string, opts?: { chapterId?: string; pending?: boolean }) => string;
   appendToMessage: (thesisId: string, id: string, chunk: string) => void;
   appendToThinking: (thesisId: string, id: string, chunk: string) => void;
@@ -49,6 +59,8 @@ interface ChatState {
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: {},
+  hasMoreOlder: {},
+  loadingOlder: {},
   isGenerating: false,
   generatingStep: 0,
   generatingPhase: "idle",
@@ -62,6 +74,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setMessages: (thesisId, messages) =>
     set((s) => ({ messages: { ...s.messages, [thesisId]: messages } })),
+
+  // Prepend an older page, skipping any ids already loaded. `older` is
+  // chronological and strictly older than the current window, so front-concat
+  // keeps the whole list ordered oldest→newest.
+  prependMessages: (thesisId, older) =>
+    set((s) => {
+      const existing = s.messages[thesisId] ?? [];
+      const have = new Set(existing.map((m) => m.id));
+      const fresh = older.filter((m) => !have.has(m.id));
+      if (fresh.length === 0) return s;
+      return { messages: { ...s.messages, [thesisId]: [...fresh, ...existing] } };
+    }),
+
+  getHasMoreOlder: (thesisId) => get().hasMoreOlder[thesisId] ?? false,
+  setHasMoreOlder: (thesisId, value) =>
+    set((s) => (s.hasMoreOlder[thesisId] === value ? s : { hasMoreOlder: { ...s.hasMoreOlder, [thesisId]: value } })),
+  getLoadingOlder: (thesisId) => get().loadingOlder[thesisId] ?? false,
+  setLoadingOlder: (thesisId, value) =>
+    set((s) => (s.loadingOlder[thesisId] === value ? s : { loadingOlder: { ...s.loadingOlder, [thesisId]: value } })),
 
   addMessage: (thesisId, role, content, opts) => {
     const id = generateId();
