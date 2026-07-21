@@ -253,19 +253,24 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // horizontal drags yield to the inner chip ScrollView (failOffsetX); only a
   // vertical drag activates the pill move (activeOffsetY) — and the X sits at
   // bottom-center, so you drag DOWN to it. A zero-offset tap never activates.
-  const pan = useMemo(
-    () =>
-      Gesture.Pan()
-        // Collapsed bubble gets a generous grab margin (BUBBLE_SLOP) so drags that
-        // start just outside the 52px circle still catch it. The expanded pill gets
-        // none — slop there would steal taps meant for the document around it.
-        .hitSlop(
-          expanded
-            ? { left: 0, right: 0, top: 0, bottom: 0 }
-            : { left: BUBBLE_SLOP, right: BUBBLE_SLOP, top: BUBBLE_SLOP, bottom: BUBBLE_SLOP },
-        )
-        .activeOffsetY([-12, 12])
-        .failOffsetX([-16, 16])
+  const pan = useMemo(() => {
+    const base = Gesture.Pan()
+      // Collapsed bubble gets a generous grab margin (BUBBLE_SLOP) so drags that
+      // start just outside the 52px circle still catch it. The expanded pill gets
+      // none — slop there would steal taps meant for the document around it.
+      .hitSlop(
+        expanded
+          ? { left: 0, right: 0, top: 0, bottom: 0 }
+          : { left: BUBBLE_SLOP, right: BUBBLE_SLOP, top: BUBBLE_SLOP, bottom: BUBBLE_SLOP },
+      );
+    // Arbitration differs per form: the EXPANDED pill must yield horizontal drags
+    // to its inner chip ScrollView (vertical-only activation), but the collapsed
+    // BUBBLE has no inner scroll — it drags freely in EVERY direction; minDistance
+    // keeps plain taps reaching its Pressable (expand).
+    const configured = expanded
+      ? base.activeOffsetY([-12, 12]).failOffsetX([-16, 16])
+      : base.minDistance(10);
+    return configured
         .onStart(() => {
           startTX.value = tx.value;
           startTY.value = ty.value;
@@ -303,10 +308,9 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           // that never reaches onEnd — otherwise the X target stays visible.
           dragActive.value = withTiming(0, { duration: 140 });
           overTarget.value = 0;
-        }),
+        });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [width, height, insets.top, insets.bottom, curW, keyboardHeight],
-  );
+  }, [width, height, insets.top, insets.bottom, curW, keyboardHeight]);
 
   const pillStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }],
