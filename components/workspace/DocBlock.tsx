@@ -336,9 +336,15 @@ function DocBlockInner({
     <Pressable
       onPress={(e) => enterOrSelect(block.index, block.text, e.nativeEvent.pageY)}
       onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, block.text))}
-      // No selection box on paragraphs — the caret (while editing) or the floating
-      // pill (when the keyboard is dismissed) is the selection indicator.
-      style={styles.paraWrap}
+      // Selected paragraphs show the border + tint box (same recipe as image/table
+      // blocks) — with selection now surviving keyboard dismiss, the bubble alone
+      // isn't enough of an indicator (user request). While EDITING the caret takes
+      // over (the editing branch above renders without the box).
+      style={[
+        styles.paraWrap,
+        { borderColor: isSelected ? hi : "transparent" },
+        isSelected && { backgroundColor: hi + "18" },
+      ]}
     >
       <SettleFlash active={justApplied}>
         <Text
