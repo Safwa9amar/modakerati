@@ -17,6 +17,7 @@ import { useSearchStore } from "@/stores/search-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { computeMatches } from "@/lib/search-match";
+import { normalize } from "@/lib/text-normalize";
 import { searchThesisSemantic, type DocBlockDTO } from "@/lib/api";
 import { hSelection } from "@/lib/haptics";
 
@@ -102,6 +103,11 @@ export function SearchPanel({ thesisId, blocks }: { thesisId: string; blocks: Do
     const s = useSearchStore.getState();
     const m = s.matches[s.current];
     if (!m || !curBlock || curBlock.kind !== "paragraph") return;
+    // The span was computed against the last recomputed text. If the block
+    // changed since (a prior replace's optimistic patch the 150ms debounce
+    // hasn't re-matched yet), applying a stale span would corrupt the text —
+    // bail until the recompute catches up.
+    if (normalize(curBlock.text.slice(m.start, m.end)) !== normalize(query)) return;
     const text = curBlock.text.slice(0, m.start) + s.replaceText + curBlock.text.slice(m.end);
     void useThesisDocStore.getState().mutate(thesisId, { type: "editText", index: m.blockIndex, text });
     // Matches recompute from the fresh blocks; `current` stays put, so the
@@ -156,9 +162,22 @@ export function SearchPanel({ thesisId, blocks }: { thesisId: string; blocks: Do
       // server doc (same contract as AI turns).
       await useThesisDocStore.getState().flushOps(thesisId, { timeoutMs: 15_000 });
       const res = await searchThesisSemantic(thesisId, q);
-      useSearchStore.getState().semanticDone(res.results, res.indexing ?? false);
-    } catch {
-      useSearchStore.getState().semanticFail();
+      const s2 = useSearchStore.getState();
+      // Superseded (query changed) or panel closed while in flight → drop the
+      // result and release the loading flag so the button re-enables.
+      if (!s2.open || s2.query.trim() !== q) {
+        useSearchStore.setState({ semanticLoading: false });
+        return;
+      }
+      s2.semanticDone(res.results, res.indexing ?? false);
+    } catch (e) {
+      console.warn("semantic search failed:", e);
+      const s2 = useSearchStore.getState();
+      if (!s2.open || s2.query.trim() !== q) {
+        useSearchStore.setState({ semanticLoading: false });
+        return;
+      }
+      s2.semanticFail();
     }
   };
 
@@ -245,6 +264,8 @@ export function SearchPanel({ thesisId, blocks }: { thesisId: string; blocks: Do
           <Pressable
             onPress={replaceCurrent}
             disabled={!canReplace}
+            accessibilityRole="button"
+            accessibilityLabel={t("workspace.replace", { defaultValue: "Replace" })}
             style={[
               styles.btn,
               { borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
@@ -258,6 +279,8 @@ export function SearchPanel({ thesisId, blocks }: { thesisId: string; blocks: Do
           <Pressable
             onPress={replaceAll}
             disabled={matchCount === 0}
+            accessibilityRole="button"
+            accessibilityLabel={t("workspace.replaceAll", { defaultValue: "All" })}
             style={[
               styles.btn,
               { borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
@@ -274,6 +297,8 @@ export function SearchPanel({ thesisId, blocks }: { thesisId: string; blocks: Do
       <Pressable
         onPress={() => void runSemantic()}
         disabled={semanticLoading || query.trim().length < 2}
+        accessibilityRole="button"
+        accessibilityLabel={t("workspace.searchByMeaning", { defaultValue: "Search by meaning" })}
         style={[
           styles.meaningRow,
           { flexDirection, borderColor: colors.brandPrimary + "66" },
@@ -312,6 +337,7 @@ export function SearchPanel({ thesisId, blocks }: { thesisId: string; blocks: Do
             <Pressable
               key={h.blockIndex}
               onPress={() => jumpSemantic(h.blockIndex)}
+              accessibilityRole="button"
               style={[styles.resRow, { borderStartColor: colors.brandPrimary }]}
             >
               {h.headingPath ? (
