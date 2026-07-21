@@ -39,6 +39,7 @@ import {
   Plus,
   Sparkles,
   ListTree,
+  Search,
   X,
   ChevronsDownUp,
   type LucideIcon,
@@ -49,6 +50,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
+import { useSearchStore } from "@/stores/search-store";
 import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
@@ -521,8 +523,22 @@ export function BlockContextBar({
     </>
   );
 
-  // ── TABLE block: minimal set (Move / Delete). No text/format tools apply. ──
-  const tableTools = <>{imageMoveDeleteChips(0)}</>;
+  // Open the top-pinned document search (Writer-only → close any preview first).
+  const openSearch = () => {
+    Keyboard.dismiss();
+    const ws = useWorkspaceStore.getState();
+    if (ws.previewMode != null) ws.closePreview();
+    useSearchStore.getState().openSearch();
+  };
+
+  // ── TABLE block: minimal set (Move / Delete + document Search). No text/format
+  // tools apply, but find-in-document is handy while a table is selected. ──
+  const tableTools = (
+    <>
+      {imageMoveDeleteChips(0)}
+      {chip({ keyProp: "tbl-search", Icon: Search, accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }), enterIndex: 3, onPress: openSearch })}
+    </>
+  );
 
   // ── CHART / OTHER block: same minimal Move/Delete set — no text/format tools
   // apply, and (unlike a real picture) there are no media bytes for the picture

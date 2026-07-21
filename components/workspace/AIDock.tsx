@@ -8,13 +8,15 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { ChevronsDownUp, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Send, type LucideIcon } from "lucide-react-native";
+import { ChevronsDownUp, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Search, Send, type LucideIcon } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { useChatStore } from "@/stores/chat-store";
 import { useNotificationStore } from "@/stores/notification-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useSearchStore } from "@/stores/search-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { sendMessageToAI } from "@/lib/ai-service";
 import { getComposerSuggestions, type ComposerSuggestion, type DocBlockDTO } from "@/lib/api";
@@ -194,6 +196,17 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock }: Pr
     Keyboard.dismiss();
   };
 
+  // Open the top-pinned document search (only offered in the whole-memoir scope —
+  // i.e. no block selected). Collapse the dock and drop any preview (Writer-only).
+  const openSearch = () => {
+    const ws = useWorkspaceStore.getState();
+    if (ws.previewMode != null) ws.closePreview();
+    useFloatingPillStore.getState().setInputOpen(false);
+    useFloatingPillStore.getState().setExpanded(false);
+    Keyboard.dismiss();
+    useSearchStore.getState().openSearch();
+  };
+
   const showSuggested = aiSuggestionsEnabled && (loadingSuggestions || suggestions.length > 0);
   const askDisabled = !askText.trim() || isGenerating;
 
@@ -213,6 +226,24 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock }: Pr
         >
           <ChevronsDownUp size={15} color={colors.textPrimary} strokeWidth={2} />
         </AnimatedChip>
+        {/* Document search — global bubble only (no block selected). Opens the
+            top-pinned find/replace + semantic panel; not an AI prompt. */}
+        {scopeIndices.length === 0 ? (
+          <AnimatedChip
+            onPress={openSearch}
+            accessibilityLabel={t("dockBar.search", { defaultValue: "Search" })}
+            enterIndex={1}
+            style={[
+              styles.actionChip,
+              { flexDirection, borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
+            ]}
+          >
+            <Search size={15} color={colors.textPrimary} strokeWidth={2} />
+            <Text numberOfLines={1} style={[styles.actionChipText, { color: colors.textPrimary }]}>
+              {t("dockBar.search", { defaultValue: "Search" })}
+            </Text>
+          </AnimatedChip>
+        ) : null}
         {quickActions.map(({ key, Icon, label, prompt }, i) => (
           <AnimatedChip
             key={key}
