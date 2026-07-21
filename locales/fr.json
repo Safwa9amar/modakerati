@@ -21,6 +21,11 @@
     "soonTitle": "Bientôt disponible",
     "soonBody": "La mise en forme du texte arrive dans une prochaine mise à jour."
   },
+  "dockBar": {
+    "dismissKeyboard": "Masquer le clavier",
+    "prevBlock": "Bloc précédent",
+    "nextBlock": "Bloc suivant"
+  },
   "common": {
     "continue": "Continuer",
     "cancel": "Annuler",

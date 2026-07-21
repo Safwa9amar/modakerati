@@ -16,7 +16,7 @@ import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { ComposerAsk } from "./ComposerAsk";
 import { ComposerConfirm } from "./ComposerConfirm";
 import { IdleAIBar } from "./IdleAIBar";
-import { BlockContextBar } from "./BlockContextBar";
+import { GlobalDockBar } from "./GlobalDockBar";
 
 /** Initial reserved bottom inset (before the bar measures itself). */
 export const BLOCK_COMPOSER_MIN_INSET = 150;
@@ -38,10 +38,15 @@ interface Props {
  *   • nothing selected → the whole-memoir AI input (IdleAIBar, docked) — but only
  *     as a FALLBACK once the floating AI bubble has been drag-to-X dismissed; while
  *     the bubble is alive it owns whole-memoir AI input instead (see FloatingPill).
- *   • a block selected → the block-anchored BlockContextBar (floating pill when the
- *     keyboard is down, full-width docked bar when it's up); tapping ✦ Ask AI swaps
- *     in a block-scoped IdleAIBar — again only once the bubble is dismissed; with
- *     the bubble alive, its own ✦ opens the dock's inline input instead (AIDock).
+ *   • a block selected, keyboard DOWN → nothing docks here; the block-anchored
+ *     BlockContextBar floats inline on the block instead (it owns ALL block
+ *     formatting tools, keyboard up or down — see OutlineReorderable's Row).
+ *   • a block selected, keyboard UP → the GLOBAL keyboard-docked toolbar
+ *     (GlobalDockBar): block-agnostic document tools only (undo/redo, outline,
+ *     prev/next block, page break/setup, thesis-ready) + the pinned ✦ Ask AI.
+ *     Tapping ✦ Ask AI swaps in a block-scoped IdleAIBar — again only once the
+ *     bubble is dismissed; with the bubble alive, its own ✦ opens the dock's
+ *     inline input instead (AIDock).
  * Positioned absolutely at the container bottom; the parent's KeyboardAvoidingView
  * lifts it above the keyboard, so its own detent/docking math isn't needed.
  */
@@ -382,34 +387,14 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
       />
     );
   } else if (blockKeyboardOpen) {
-    // Keyboard UP with a block selected → the full-width formatting bar docked above
-    // the keyboard (the pill can't float on a block that's scrolled behind the
-    // keyboard). Keyboard DOWN → nothing docks here: the pill now floats inline on
-    // the selected block in the outline (see OutlineReorderable's Row), so `surface`
-    // stays null and the reserved bottom inset collapses (the doc reclaims height).
-    surface = (
-      <BlockContextBar
-        thesisId={thesisId}
-        rtl={rtl}
-        paragraphSelection={paragraphSelection}
-        selectedIndices={indices}
-        count={count}
-        blockCount={blocks.length}
-        keyboardOpen
-        scopeLabel={blockScopeLabel}
-        onAskAI={() => {
-          // Bubble alive → the dock's inline input owns AI asking (block-scoped).
-          // Bubble dismissed → legacy fallback input as before.
-          if (useFloatingPillStore.getState().visible) {
-            useFloatingPillStore.getState().setExpanded(true);
-            useFloatingPillStore.getState().setInputOpen(true);
-          } else {
-            useWorkspaceStore.getState().setAskAiOpen(true);
-          }
-        }}
-        bottomInset={insets.bottom}
-      />
-    );
+    // Keyboard UP → the GLOBAL keyboard-docked toolbar (undo/redo, outline,
+    // prev/next block, page break/setup, thesis-ready) + the pinned ✦ Ask AI.
+    // Block FORMATTING tools (bold/align/style/…) are product-decision EXCLUDED
+    // here — the floating bubble owns those exclusively, keyboard up or down.
+    // Keyboard DOWN → nothing docks here: the pill floats inline on the selected
+    // block in the outline (see OutlineReorderable's Row), so `surface` stays null
+    // and the reserved bottom inset collapses (the doc reclaims height).
+    surface = <GlobalDockBar thesisId={thesisId} blocks={blocks} />;
   }
 
   // Legacy / unseeded docs have no blocks → only the whole-memoir AI input ever

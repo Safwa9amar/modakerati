@@ -21,6 +21,11 @@
     "soonTitle": "قريباً",
     "soonBody": "تنسيق النص المضمّن سيتوفر في تحديث لاحق."
   },
+  "dockBar": {
+    "dismissKeyboard": "إخفاء لوحة المفاتيح",
+    "prevBlock": "الكتلة السابقة",
+    "nextBlock": "الكتلة التالية"
+  },
   "common": {
     "continue": "متابعة",
     "cancel": "إلغاء",

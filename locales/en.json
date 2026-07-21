@@ -21,6 +21,11 @@
     "soonTitle": "Coming soon",
     "soonBody": "Inline text styling arrives in a later update."
   },
+  "dockBar": {
+    "dismissKeyboard": "Dismiss keyboard",
+    "prevBlock": "Previous block",
+    "nextBlock": "Next block"
+  },
   "common": {
     "continue": "Continue",
     "cancel": "Cancel",
