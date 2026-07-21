@@ -24,7 +24,8 @@
   "dockBar": {
     "dismissKeyboard": "Masquer le clavier",
     "prevBlock": "Bloc précédent",
-    "nextBlock": "Bloc suivant"
+    "nextBlock": "Bloc suivant",
+    "search": "Recherche"
   },
   "common": {
     "continue": "Continuer",
@@ -597,7 +598,23 @@
     "cropApply": "Appliquer",
     "pdfFailed": "Impossible de générer le PDF. Veuillez réessayer.",
     "pdfUnavailable": "L'aperçu PDF n'est pas disponible pour ce document.",
-    "milestoneWords": "🎉 {{count}} mots !"
+    "milestoneWords": "🎉 {{count}} mots !",
+    "searchTitle": "Recherche",
+    "searchPlaceholder": "Rechercher dans le document",
+    "searchPrev": "Résultat précédent",
+    "searchNext": "Résultat suivant",
+    "searchClose": "Fermer la recherche",
+    "searchReplaceToggle": "Rechercher et remplacer",
+    "replacePlaceholder": "Remplacer par",
+    "replace": "Remplacer",
+    "replaceAll": "Tout",
+    "searchByMeaning": "Recherche par sens",
+    "searchMeaningEmpty": "Aucun passage pertinent trouvé",
+    "searchMeaningError": "Recherche impossible — vérifiez votre connexion",
+    "searchIndexing": "Préparation de l'index de recherche — réessayez dans un instant",
+    "replaceDoneTitle": "Tout remplacer",
+    "replaceDone": "{{n}} remplacement(s) dans {{blocks}} paragraphe(s)",
+    "replaceSkipped": "{{n}} occurrence(s) non modifiable(s) ignorée(s)"
   },
   "history": {
     "title": "Historique du document",

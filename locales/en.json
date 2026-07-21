@@ -24,7 +24,8 @@
   "dockBar": {
     "dismissKeyboard": "Dismiss keyboard",
     "prevBlock": "Previous block",
-    "nextBlock": "Next block"
+    "nextBlock": "Next block",
+    "search": "Search"
   },
   "common": {
     "continue": "Continue",
@@ -597,7 +598,23 @@
     "cropApply": "Apply",
     "pdfFailed": "Couldn't generate the PDF. Please try again.",
     "pdfUnavailable": "PDF preview isn't available for this document.",
-    "milestoneWords": "🎉 {{count}} words!"
+    "milestoneWords": "🎉 {{count}} words!",
+    "searchTitle": "Search",
+    "searchPlaceholder": "Find in document",
+    "searchPrev": "Previous match",
+    "searchNext": "Next match",
+    "searchClose": "Close search",
+    "searchReplaceToggle": "Find and replace",
+    "replacePlaceholder": "Replace with",
+    "replace": "Replace",
+    "replaceAll": "All",
+    "searchByMeaning": "Search by meaning",
+    "searchMeaningEmpty": "No related passages found",
+    "searchMeaningError": "Couldn't search — check your connection",
+    "searchIndexing": "Preparing the search index — try again in a moment",
+    "replaceDoneTitle": "Replace all",
+    "replaceDone": "Replaced {{n}} in {{blocks}} paragraphs",
+    "replaceSkipped": "{{n}} non-editable hits skipped"
   },
   "history": {
     "title": "Document history",

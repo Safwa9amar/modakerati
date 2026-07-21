@@ -24,7 +24,8 @@
   "dockBar": {
     "dismissKeyboard": "إخفاء لوحة المفاتيح",
     "prevBlock": "الكتلة السابقة",
-    "nextBlock": "الكتلة التالية"
+    "nextBlock": "الكتلة التالية",
+    "search": "بحث"
   },
   "common": {
     "continue": "متابعة",
@@ -597,7 +598,23 @@
     "cropApply": "تطبيق",
     "pdfFailed": "تعذّر إنشاء ملف PDF. يرجى المحاولة مرة أخرى.",
     "pdfUnavailable": "معاينة PDF غير متاحة لهذا المستند.",
-    "milestoneWords": "🎉 {{count}} كلمة!"
+    "milestoneWords": "🎉 {{count}} كلمة!",
+    "searchTitle": "بحث",
+    "searchPlaceholder": "ابحث في المستند",
+    "searchPrev": "النتيجة السابقة",
+    "searchNext": "النتيجة التالية",
+    "searchClose": "إغلاق البحث",
+    "searchReplaceToggle": "بحث واستبدال",
+    "replacePlaceholder": "استبدال بـ",
+    "replace": "استبدال",
+    "replaceAll": "الكل",
+    "searchByMeaning": "البحث بالمعنى",
+    "searchMeaningEmpty": "لا توجد مقاطع ذات صلة",
+    "searchMeaningError": "تعذر البحث — تحقق من اتصالك",
+    "searchIndexing": "جارٍ تجهيز فهرس البحث — حاول بعد قليل",
+    "replaceDoneTitle": "استبدال الكل",
+    "replaceDone": "تم {{n}} استبدالًا في {{blocks}} فقرة",
+    "replaceSkipped": "تم تجاهل {{n}} نتيجة غير قابلة للتعديل"
   },
   "history": {
     "title": "سجل المستند",
