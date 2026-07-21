@@ -1,6 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, StyleSheet, type FlatList, type ScrollViewProps, type ViewToken } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from "react-native-reanimated";
+import { View, StyleSheet, type FlatList, type ViewToken } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+  type useAnimatedScrollHandler,
+} from "react-native-reanimated";
 import ReorderableList, {
   useReorderableDrag,
   reorderItems,
@@ -148,10 +154,12 @@ function OutlineReorderableInner({
   // Pending "scroll to this block" request from the outline navigator (nonce
   // bumps per request so the same heading re-scrolls).
   scrollTarget?: { index: number; nonce: number } | null;
-  // Scroll passthrough for the workspace's auto-hiding header. Safe to pass a
-  // Reanimated handler: react-native-reorderable-list composes it with its own
-  // internal scroll worklet (useComposedEventHandler in ReorderableListCore).
-  onScroll?: ScrollViewProps["onScroll"];
+  // Scroll passthrough for the workspace's auto-hiding header. MUST be a
+  // Reanimated handler (useAnimatedScrollHandler result — a plain JS handler
+  // would misbehave inside the library's worklet composition):
+  // react-native-reorderable-list composes it with its own internal scroll
+  // worklet (useComposedEventHandler in ReorderableListCore).
+  onScroll?: ReturnType<typeof useAnimatedScrollHandler>;
 }) {
   const { t } = useTranslation();
   const [data, setData] = useState(blocks);

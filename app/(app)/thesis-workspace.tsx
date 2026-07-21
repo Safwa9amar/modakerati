@@ -33,6 +33,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useOutlineStore } from "@/stores/outline-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
+import { useSearchStore } from "@/stores/search-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -47,6 +48,7 @@ import { BlockComposer, BLOCK_COMPOSER_MIN_INSET } from "@/components/workspace/
 import { FloatingPill } from "@/components/workspace/FloatingPill";
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
 import { HeaderMenuButton } from "@/components/workspace/WorkspaceHeaderMenu";
+import { SearchPanel } from "@/components/workspace/SearchPanel";
 import { countWords } from "@/lib/word-count";
 import { MilestoneToast } from "@/components/workspace/MilestoneToast";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
@@ -79,7 +81,7 @@ const HEADER_HIDE_AFTER = 30;
 // …but only once the offset is past the top zone; any offset below SHOW_NEAR_TOP pins it shown.
 const HEADER_MIN_OFFSET = 64;
 const HEADER_SHOW_NEAR_TOP = 48;
-// A single upward gesture of at least this much brings it back.
+// Accumulated upward travel that brings it back (any deliberate upward drag).
 const HEADER_SHOW_UP = 12;
 
 // Flat text of a block for tap→index matching in the docx-preview fallback view.
@@ -155,6 +157,9 @@ export default function ThesisWorkspaceScreen() {
   const [pdfDoc, setPdfDoc] = useState<ThesisPdfDTO | undefined>(undefined);
 
   const previewMode = useWorkspaceStore((s) => s.previewMode);
+  // Document search open? The top-pinned SearchPanel rides just below the header,
+  // so while it's up the header must stay shown (see the pin effect below).
+  const searchOpen = useSearchStore((s) => s.open);
 
   // ── Auto-hiding header ──
   // The header row collapses (height + slide + fade, one clipped Animated.View)
@@ -168,23 +173,39 @@ export default function ThesisWorkspaceScreen() {
   const headerTarget = useSharedValue(1); // last commanded target (dedupe)
   const headerLastY = useSharedValue(0);
   const headerDownAccum = useSharedValue(0);
+  const headerUpAccum = useSharedValue(0);
+  // 1 while document search is open → the scroll worklet stops hiding the header
+  // (the SearchPanel sits directly below it; a collapsing header would shift it).
+  const headerSearchPinned = useSharedValue(0);
 
   const onWriterScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
       const y = e.contentOffset.y;
       if (y < 0) return; // iOS rubber-band — never react to bounce
+      // Search open → keep the header pinned shown. Still track position and clear
+      // both accumulators so closing search doesn't read the interim scroll as
+      // one big accumulated gesture.
+      if (headerSearchPinned.value === 1) {
+        headerLastY.value = y;
+        headerDownAccum.value = 0;
+        headerUpAccum.value = 0;
+        return;
+      }
       const dy = y - headerLastY.value;
       headerLastY.value = y;
       let target = headerTarget.value;
       if (y < HEADER_SHOW_NEAR_TOP) {
         target = 1;
         headerDownAccum.value = 0;
+        headerUpAccum.value = 0;
       } else if (dy > 0 && y > HEADER_MIN_OFFSET) {
+        headerUpAccum.value = 0;
         headerDownAccum.value += dy;
         if (headerDownAccum.value > HEADER_HIDE_AFTER) target = 0;
-      } else if (dy < -HEADER_SHOW_UP) {
+      } else if (dy < 0) {
         headerDownAccum.value = 0;
-        target = 1;
+        headerUpAccum.value += -dy;
+        if (headerUpAccum.value > HEADER_SHOW_UP) target = 1;
       }
       if (target !== headerTarget.value) {
         headerTarget.value = target;
@@ -193,17 +214,32 @@ export default function ThesisWorkspaceScreen() {
     },
   });
 
-  // Leaving the Writer (Word/PDF preview) → header always visible; their scroll
-  // lives inside WebViews (out of scope v1). Also resets when the thesis changes.
+  // Any preview switch or thesis change → header visible with fresh scroll
+  // tracking (Word/PDF scroll lives in WebViews — out of scope v1 — and a new
+  // thesis must never open with the header stuck hidden).
   useEffect(() => {
-    if (previewMode !== null) {
-      headerTarget.value = 1;
-      headerDownAccum.value = 0;
-      headerShown.value = withTiming(1, { duration: HEADER_HIDE_MS, easing: HEADER_EASING });
-    }
+    headerTarget.value = 1;
+    headerDownAccum.value = 0;
+    headerUpAccum.value = 0;
+    headerShown.value = withTiming(1, { duration: HEADER_HIDE_MS, easing: HEADER_EASING });
     // Shared values are stable refs — deps are the real triggers only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewMode, thesisId]);
+
+  // Opening document search pins the header shown (the SearchPanel is mounted just
+  // below it) and flags the scroll worklet to stop hiding it while open. Mirrors
+  // the preview pin above.
+  useEffect(() => {
+    headerSearchPinned.value = searchOpen ? 1 : 0;
+    if (searchOpen) {
+      headerTarget.value = 1;
+      headerDownAccum.value = 0;
+      headerUpAccum.value = 0;
+      headerShown.value = withTiming(1, { duration: HEADER_HIDE_MS, easing: HEADER_EASING });
+    }
+    // Shared values are stable refs — searchOpen is the real trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchOpen]);
 
   const headerAnimStyle = useAnimatedStyle(() => {
     const h = headerRowH.value;
@@ -669,6 +705,10 @@ export default function ThesisWorkspaceScreen() {
             {liveDoc ? (
               <HeaderMenuButton
                 onOpenOutline={handleOutlineToggle}
+                onOpenSearch={() => {
+                  useWorkspaceStore.getState().closePreview();
+                  useSearchStore.getState().openSearch();
+                }}
                 onOpenSources={() => useBottomSheet.getState().openSheet("thesis-sources")}
                 onExport={() => {
                   if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
@@ -687,6 +727,12 @@ export default function ThesisWorkspaceScreen() {
 
       {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}
       {liveDoc && <PreviewBar />}
+
+      {/* Top-pinned document search (find/replace + semantic). Sits between the
+          header and the doc area so it survives keyboard dismissal. Mounted OUTSIDE
+          the auto-hiding header wrapper (it must never collapse with the header;
+          searchOpen also pins the header shown above). */}
+      {liveDoc && <SearchPanel thesisId={thesisId} blocks={liveDoc.blocks} />}
 
       {/* White base so the composer's reserved bottom clearance (and the small top
           gap above the paper) render as paper, not the dark app background. */}
