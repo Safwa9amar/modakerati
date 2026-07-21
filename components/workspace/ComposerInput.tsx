@@ -1,13 +1,23 @@
-import { useState, useEffect } from "react";
-import { View, Pressable, StyleSheet } from "react-native";
+import { useState, useEffect, useRef } from "react";
+import { View, Pressable, StyleSheet, Alert } from "react-native";
+import { useTranslation } from "react-i18next";
 // Deliberately NOT BottomSheetTextInput: registering the input activates gorhom's
 // own keyboard repositioning, which fights the sheet's manual keyboard docking
 // (see WorkspaceComposerSheet). A plain gesture-handler TextInput keeps gorhom's
 // keyboard machinery inert while still cooperating with the sheet's pan gesture.
 import { TextInput } from "react-native-gesture-handler";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated, {
+  FadeIn,
+  FadeOut,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  cancelAnimation,
+} from "react-native-reanimated";
 import { Send, Square, Mic } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useVoiceDictation } from "@/lib/voice";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -53,6 +63,7 @@ export function ComposerInput({
   micLabel,
 }: Props) {
   const colors = useThemeColors();
+  const { t } = useTranslation();
   const hasText = value.trim().length > 0;
   const [inputHeight, setInputHeight] = useState<number | undefined>(undefined);
   // Collapse back to one line when the parent clears the text (e.g. after sending).
@@ -60,11 +71,52 @@ export function ComposerInput({
     if (!value) setInputHeight(undefined);
   }, [value]);
 
+  // ——— Voice dictation ———
+  // Live transcript appends to whatever was in the input when dictation began.
+  const { supported, listening, start, stop } = useVoiceDictation();
+  const baseTextRef = useRef("");
+
+  const handleMic = async () => {
+    if (listening) {
+      stop();
+      return;
+    }
+    // Not linked yet (needs a native rebuild) → keep the existing "coming soon".
+    if (!supported) {
+      onMicPress();
+      return;
+    }
+    baseTextRef.current = value;
+    const ok = await start((transcript) => {
+      const base = baseTextRef.current;
+      onChangeText(base ? `${base} ${transcript}` : transcript);
+    });
+    if (!ok) {
+      Alert.alert(
+        t("composer.micDenied", {
+          defaultValue: "Microphone/speech permission is needed to dictate.",
+        }),
+      );
+    }
+  };
+
+  // Pulse the mic while listening so it reads as a live recording indicator.
+  const pulse = useSharedValue(1);
+  useEffect(() => {
+    if (listening) {
+      pulse.value = withRepeat(withTiming(0.4, { duration: 700 }), -1, true);
+    } else {
+      cancelAnimation(pulse);
+      pulse.value = 1;
+    }
+  }, [listening, pulse]);
+  const micAnimStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
   return (
     <View style={[styles.wrapper, { backgroundColor: colors.bgInput }]}>
       <TextInput
         style={[styles.input, { color: colors.textPrimary }, inputHeight != null && { height: inputHeight }]}
-        placeholder={placeholder}
+        placeholder={listening ? t("composer.listening", { defaultValue: "Listening…" }) : placeholder}
         placeholderTextColor={colors.textPlaceholder}
         value={value}
         onChangeText={onChangeText}
@@ -80,15 +132,20 @@ export function ComposerInput({
         maxLength={2000}
       />
       {!isGenerating && (
-        <Pressable
-          onPress={onMicPress}
+        <AnimatedPressable
+          onPress={handleMic}
           hitSlop={8}
           accessibilityRole="button"
-          accessibilityLabel={micLabel}
-          style={[styles.micBtn, { backgroundColor: colors.bgSurface }]}
+          accessibilityLabel={listening ? t("composer.listening", { defaultValue: "Listening…" }) : micLabel}
+          accessibilityState={{ selected: listening }}
+          style={[
+            styles.micBtn,
+            { backgroundColor: listening ? colors.brandPrimary : colors.bgSurface },
+            listening && micAnimStyle,
+          ]}
         >
-          <Mic size={16} color={colors.textSecondary} strokeWidth={2} />
-        </Pressable>
+          <Mic size={16} color={listening ? "#FFFFFF" : colors.textSecondary} strokeWidth={2} />
+        </AnimatedPressable>
       )}
       {isGenerating ? (
         <AnimatedPressable
