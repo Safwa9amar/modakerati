@@ -441,13 +441,22 @@ export default function TemplatePickerScreen() {
               onPress={() => handleSelectTemplate(tpl)}
               style={[
                 styles.profileCard,
+                styles.templateCard,
                 {
                   backgroundColor: colors.bgCard,
                   borderColor: colors.brandPrimary + "33",
                 },
               ]}
             >
-              <View style={styles.docThumb}>
+              <View
+                style={[
+                  styles.docThumb,
+                  {
+                    backgroundColor: colors.bgSurface,
+                    borderRightColor: colors.borderSubtle,
+                  },
+                ]}
+              >
                 {tpl.config.thumbUrl ? (
                   <Image
                     source={{ uri: tpl.config.thumbUrl }}
@@ -455,35 +464,16 @@ export default function TemplatePickerScreen() {
                     resizeMode="cover"
                   />
                 ) : (
-                  <FileText size={18} color={colors.textSecondary} strokeWidth={1.6} />
+                  <FileText size={30} color={colors.textSecondary} strokeWidth={1.4} />
                 )}
               </View>
               <View style={styles.profileContent}>
-                <View style={styles.nameRow}>
-                  <Text
-                    style={[styles.profileName, { color: colors.textPrimary }]}
-                    numberOfLines={2}
-                  >
-                    {tpl.name}
-                  </Text>
-                  {tpl.config.pdfUrl ? (
-                    <View
-                      style={[
-                        styles.pdfTag,
-                        { backgroundColor: colors.semanticSuccess + "22" },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.pdfTagText,
-                          { color: colors.semanticSuccess },
-                        ]}
-                      >
-                        PDF
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
+                <Text
+                  style={[styles.profileName, { color: colors.textPrimary }]}
+                  numberOfLines={2}
+                >
+                  {tpl.name}
+                </Text>
 
                 <View style={styles.badgeRow}>
                   <Badge
@@ -734,45 +724,29 @@ const styles = StyleSheet.create({
   // Profile cards
   profileCard: {
     flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 14,
+    alignItems: "stretch",
+    borderRadius: 16,
     borderWidth: 1,
-    padding: 14,
-    gap: 10,
+    overflow: "hidden",
+  },
+  // Template cards add a full-height cover thumbnail on the left
+  templateCard: {
+    minHeight: 128,
   },
   profileContent: {
     flex: 1,
     gap: 8,
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
   },
   docThumb: {
-    width: 34,
-    height: 44,
-    borderRadius: 5,
-    backgroundColor: "#FFFFFF",
+    width: 96,
+    alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  pdfTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-  },
-  pdfTagText: {
-    fontSize: 9,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 0.4,
+    borderRightWidth: 1,
   },
   profileName: {
     fontSize: 15,
@@ -797,6 +771,7 @@ const styles = StyleSheet.create({
   },
   profileChevron: {
     alignSelf: "center",
+    marginRight: 14,
   },
 
   // Empty
