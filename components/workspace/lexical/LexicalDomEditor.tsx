@@ -79,8 +79,11 @@ const theme = {
 const CSS = `
 .lx-root { position: relative; height: 100%; background: #ffffff; }
 .lx-content { outline: none; min-height: 100%; padding: 16px 18px 140px; color: #1a1a1a;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  font-size: 15px; line-height: 1.6; -webkit-user-select: text; }
+  /* Name Arabic-capable system fonts explicitly — the bare Latin stack rendered
+     Arabic as .notdef tofu boxes (Geeza Pro = iOS, Noto Naskh/Sans Arabic = Android). */
+  font-family: -apple-system, system-ui, "Segoe UI", Roboto, "Geeza Pro",
+    "Noto Naskh Arabic", "Noto Sans Arabic", Tahoma, Arial, sans-serif;
+  font-size: 15px; line-height: 1.7; -webkit-user-select: text; }
 .lx-ph { position: absolute; top: 16px; inset-inline-start: 18px; color: #8a8a8a; pointer-events: none; font-size: 15px; }
 .lx-p { margin: 0 0 10px; }
 .lx-h1 { font-size: 24px; font-weight: 700; margin: 6px 0 10px; }

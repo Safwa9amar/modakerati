@@ -50,7 +50,12 @@ export default function LexicalLabScreen() {
           <LexicalDomEditor
             command={command}
             onState={onState}
-            dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false }}
+            dom={{
+              style: { flex: 1 },
+              scrollEnabled: true,
+              keyboardDisplayRequiresUserAction: false,
+              hideKeyboardAccessoryView: true,
+            }}
           />
         </View>
         <LexicalBubble active={active} onCommand={send} />
