@@ -39,6 +39,9 @@ interface Props {
 const PILL_W = 320; // approximate — used only for the initial center + clamp math
 const PILL_H = 56;
 const BUBBLE_SIZE = 52;
+// Extra tap/drag margin around the collapsed bubble — touches this far outside
+// the visible circle still grab it (small circles are hard targets).
+const BUBBLE_SLOP = 18;
 // Dock panel height + margin — how far above the keyboard the inline Ask input
 // needs to clear so it isn't occluded once it opens.
 const DOCK_CLEARANCE = 240;
@@ -253,6 +256,14 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const pan = useMemo(
     () =>
       Gesture.Pan()
+        // Collapsed bubble gets a generous grab margin (BUBBLE_SLOP) so drags that
+        // start just outside the 52px circle still catch it. The expanded pill gets
+        // none — slop there would steal taps meant for the document around it.
+        .hitSlop(
+          expanded
+            ? { left: 0, right: 0, top: 0, bottom: 0 }
+            : { left: BUBBLE_SLOP, right: BUBBLE_SLOP, top: BUBBLE_SLOP, bottom: BUBBLE_SLOP },
+        )
         .activeOffsetY([-12, 12])
         .failOffsetX([-16, 16])
         .onStart(() => {
@@ -425,6 +436,9 @@ function Bubble({
     >
       <Pressable
         onPress={onPress}
+        // Generous tap margin matching the pan's grab slop — the 52px circle is a
+        // small target; touches just outside it should still expand the bubble.
+        hitSlop={BUBBLE_SLOP}
         accessibilityRole="button"
         accessibilityLabel={label}
         style={[styles.bubble, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
