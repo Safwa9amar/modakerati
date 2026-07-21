@@ -343,7 +343,6 @@ function DocBlockInner({
               ? { ...styles.heading, fontSize: HEADING_SIZE[Math.min(block.level, 4) as 1 | 2 | 3 | 4] }
               : styles.body
           }
-          textAlign={textAlign}
         />
       </View>
     );
@@ -435,18 +434,37 @@ function EditableParagraph({
   rtl,
   thesisId,
   textStyle,
-  textAlign,
 }: {
   block: Extract<DocBlockDTO, { kind: "paragraph" }>;
   rtl: boolean;
   thesisId: string;
   textStyle: TextStyle;
-  textAlign: "left" | "right" | "center" | "justify";
 }) {
   const isGenerating = useChatStore((s) => s.isGenerating);
-  const dir = block.direction ?? detectDir(block.text, rtl);
 
   const [value, setValue] = useState(block.text);
+  // Direction + alignment are derived from the LIVE value (not the mount-time
+  // block.text) so the paragraph flips to the correct side on the first strong
+  // character typed. An explicit paragraph direction (bubble → w:bidi) overrides.
+  const dir = block.direction ?? detectDir(value, rtl);
+  const isHeading = block.level >= 1;
+  // Mirror the read-path w:jc rule, but with the live dir: explicit alignment wins;
+  // else headings align to the start edge, body justifies (justify's last line is
+  // start-aligned, so there's no jarring edit↔read switch).
+  const textAlign: "left" | "right" | "center" | "justify" =
+    block.alignment === "center"
+      ? "center"
+      : block.alignment === "left"
+        ? "left"
+        : block.alignment === "right"
+          ? "right"
+          : block.alignment === "both"
+            ? "justify"
+            : isHeading
+              ? dir === "rtl"
+                ? "right"
+                : "left"
+              : "justify";
   const baselineRef = useRef(block.text);
   const selRef = useRef({ start: block.text.length, end: block.text.length });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -566,7 +584,10 @@ function EditableParagraph({
       textAlignVertical="top"
       style={[
         textStyle,
-        { textAlign, padding: 0, ...(Platform.OS === "android" ? null : { writingDirection: dir }) },
+        // writingDirection on BOTH platforms: the live editing input is never
+        // justified while composing, so the read-path Android-justify conflict
+        // doesn't apply here — setting it fixes the Arabic caret starting side.
+        { textAlign, padding: 0, writingDirection: dir },
       ]}
     />
   );
