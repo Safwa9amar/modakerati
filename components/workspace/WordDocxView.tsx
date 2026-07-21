@@ -3,6 +3,7 @@ import { View, ActivityIndicator, Text, StyleSheet } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { onThesisDocOp } from "@/stores/thesis-doc-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 
 // Pinned CDN builds. docx-preview renders OOXML to Word-like HTML pages (cover,
 // borders, tables, images, numbering, headers/footers); jszip is its peer dep.
@@ -33,13 +34,12 @@ export interface DocTapBlock {
  * the change is visible the instant it's made — the confirm-time silent refresh
  * then reconciles the exact Word layout (run styling, pagination) underneath.
  */
-export function WordDocxView({
+function WordDocxViewInner({
   url,
   blocks,
   onSelect,
   onLongPress,
-  selectedIndices,
-  scrollToIndex,
+  scrollTarget,
   rtl = false,
   thesisId,
   editable = true,
@@ -54,13 +54,12 @@ export function WordDocxView({
   // multi-selection. The parent decides single-vs-toggle from the store's mode.
   onSelect: (index: number, text: string) => void;
   onLongPress: (index: number, text: string) => void;
-  // Every currently-selected engine block index (0, 1, or many). Drives multi-highlight.
-  selectedIndices: number[];
-  // Deep-link target: on first render, scroll this engine block into view (e.g.
-  // when opened from the detail screen's outline). Fired ONCE per value so a
-  // later shell rebuild (rtl flip) doesn't yank the reader back to the
-  // originally-linked heading.
-  scrollToIndex?: number;
+  // Scroll request from the outline navigator (and cold deep-links): bring this
+  // engine block into view. `nonce` bumps per request so re-tapping the same
+  // heading re-scrolls; a request that arrives before the shell is ready is
+  // applied once "ready" fires. Applied at most once per nonce, so a shell
+  // rebuild (rtl flip) doesn't yank the reader back to the last target.
+  scrollTarget?: { index: number; nonce: number } | null;
   // Base page direction. docx-preview renders Arabic runs RTL via bidi, but the
   // block-level layout (indents, justification anchor, header tab stops, table
   // column order) stays LTR unless the container is dir="rtl". True for Arabic
@@ -89,9 +88,20 @@ export function WordDocxView({
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // The block index we've already scrolled to, so a shell rebuild (which fires
-  // "ready" again with the same target) doesn't re-scroll.
-  const scrolledToRef = useRef<number | null>(null);
+  // The scroll-request nonce we've already applied, so a shell rebuild (which
+  // fires "ready" again with the same target) doesn't re-scroll on its own.
+  const lastScrollNonceRef = useRef<number | null>(null);
+  // Latest scroll request, readable from the stable ready handler / scroll effect.
+  const scrollTargetRef = useRef(scrollTarget);
+  scrollTargetRef.current = scrollTarget;
+
+  // Selection is read straight from the store here (NOT passed down as a prop) so a
+  // tap doesn't re-render the whole workspace screen — only this layer reacts, and
+  // it only injects a cheap highlight update into its WebView. Select a primitive
+  // (the joined index string) to avoid a fresh-array selector loop; derive the array
+  // from it.
+  const selKey = useWorkspaceStore((s) => s.selectedBlocks.map((b) => b.index).join(","));
+  const selectedIndices = useMemo(() => (selKey ? selKey.split(",").map(Number) : []), [selKey]);
 
   // Latest props, readable from the stable refresh callback: updates flow into
   // the page via injection, not via rebuilding the WebView source.
@@ -147,6 +157,25 @@ export function WordDocxView({
     maybeRefresh();
   }, [url, maybeRefresh]);
 
+  // Scroll to the requested block. No-op until the shell is ready (the 'ready'
+  // handler calls this again) and once per nonce, so a shell rebuild doesn't
+  // re-yank the reader. docx-preview has no stable per-block id, so __scrollTo
+  // matches by the block's (unique) heading text.
+  const maybeScroll = useCallback(() => {
+    if (!shellReadyRef.current) return;
+    const target = scrollTargetRef.current;
+    if (!target || lastScrollNonceRef.current === target.nonce) return;
+    lastScrollNonceRef.current = target.nonce;
+    webRef.current?.injectJavaScript(
+      `window.__scrollTo && window.__scrollTo(${target.index}); true;`,
+    );
+  }, []);
+
+  // On-demand scroll: fire when a new request arrives while already mounted.
+  React.useEffect(() => {
+    maybeScroll();
+  }, [scrollTarget?.nonce, maybeScroll]);
+
   // Instant in-place patch: forward each optimistic edit op to the page the
   // moment it's made (the store emits before the network flush). Ops that land
   // before the shell's first render are skipped — that render already fetches
@@ -161,11 +190,8 @@ export function WordDocxView({
     });
   }, [thesisId]);
 
-  // Stable key for the selection set so the highlight effect runs only when the
-  // set of indices actually changes (a fresh array ref every render otherwise).
-  const selKey = selectedIndices.join(",");
-
   // Keep the highlight in sync without a refresh when only the selection changes.
+  // (`selKey` — the stable primitive that gates this — is derived above.)
   React.useEffect(() => {
     webRef.current?.injectJavaScript(
       `window.__setSelected && window.__setSelected(${JSON.stringify(selectedIndices)}); true;`,
@@ -190,18 +216,9 @@ export function WordDocxView({
       if (msg.type === "ready") {
         shellReadyRef.current = true;
         setLoading(false);
-        // First successful render: honour the deep-link scroll target once (the
-        // doc is fully laid out here, so scrollIntoView lands on the heading).
-        if (
-          typeof scrollToIndex === "number" &&
-          Number.isFinite(scrollToIndex) &&
-          scrolledToRef.current !== scrollToIndex
-        ) {
-          scrolledToRef.current = scrollToIndex;
-          webRef.current?.injectJavaScript(
-            `window.__scrollTo && window.__scrollTo(${scrollToIndex}); true;`,
-          );
-        }
+        // First successful render: apply any pending scroll request now that the
+        // doc is fully laid out (so scrollIntoView lands on the heading).
+        maybeScroll();
         // The url may have moved on while the shell was still loading.
         maybeRefresh();
       } else if (msg.type === "refreshed") {
@@ -293,6 +310,11 @@ export function WordDocxView({
     </View>
   );
 }
+
+// Memoized so an unrelated re-render of the workspace screen (e.g. an AI turn
+// flipping isGenerating) doesn't reconcile this heavy WebView layer. Selection is
+// read from the store internally, so it stays fresh without a prop.
+export const WordDocxView = React.memo(WordDocxViewInner);
 
 // The WebView shell: loads docx-preview, fetches the .docx, renders it, wires
 // tap + long-press selection, and posts lifecycle/selection messages back to RN.

@@ -57,6 +57,23 @@ interface WorkspaceState {
   // block toolbar pill (rendered on the selected block) can open it, and so the
   // pill hides itself while the AI input is up. Reset on deselect / workspace leave.
   askAiOpen: boolean;
+  // Pending "scroll the active doc view to this block" request. The active doc
+  // layer (native outline / docx-preview) watches it and scrolls to `index`;
+  // `nonce` bumps on every request so re-tapping the SAME heading re-scrolls.
+  // Set by the outline sheet (tap a heading) and by a cold deep-link; null =
+  // nothing pending. Reset on workspace leave.
+  scrollTarget: { index: number; nonce: number } | null;
+  // True while a heading-navigation jump is in flight. The workspace masks the
+  // raw scroll with a fade + loader (so the user never sees the fly-through), then
+  // clears this and flashes the target. Set by requestScrollToBlock.
+  navigating: boolean;
+  // One-shot "flash this block" pulse, fired when the jump lands so the eye finds
+  // the heading. `nonce` re-fires it for a repeat navigation to the same block.
+  flashTarget: { index: number; nonce: number } | null;
+  // The block index currently at the top of the doc view (from the outline view's
+  // viewability / scroll). The Structure drawer highlights the heading at/above it
+  // so the user always sees where they are — a table-of-contents "you are here".
+  activeBlockIndex: number | null;
 
   setThesis: (id: string) => void;
   // Single-select: replace the whole selection with just this block and exit
@@ -86,6 +103,12 @@ interface WorkspaceState {
   setFocusMode: (v: boolean) => void;
   toggleFocusMode: () => void;
   setAskAiOpen: (v: boolean) => void;
+  // Ask the active doc view to scroll to `index` (bumps the request nonce so a
+  // repeat request for the same block still fires). Also raises `navigating`.
+  requestScrollToBlock: (index: number) => void;
+  setNavigating: (v: boolean) => void;
+  flashBlock: (index: number) => void;
+  setActiveBlockIndex: (index: number | null) => void;
   reset: () => void;
 }
 
@@ -105,6 +128,10 @@ const INITIAL = {
   composerInputFocused: false,
   focusMode: false,
   askAiOpen: false,
+  scrollTarget: null as { index: number; nonce: number } | null,
+  navigating: false,
+  flashTarget: null as { index: number; nonce: number } | null,
+  activeBlockIndex: null as number | null,
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -184,6 +211,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
 
   setAskAiOpen: (v) => set({ askAiOpen: v }),
+
+  requestScrollToBlock: (index) =>
+    set((s) => ({
+      scrollTarget: { index, nonce: (s.scrollTarget?.nonce ?? 0) + 1 },
+      navigating: true,
+    })),
+
+  setNavigating: (v) => set({ navigating: v }),
+
+  flashBlock: (index) =>
+    set((s) => ({ flashTarget: { index, nonce: (s.flashTarget?.nonce ?? 0) + 1 } })),
+
+  setActiveBlockIndex: (index) =>
+    set((s) => (s.activeBlockIndex === index ? {} : { activeBlockIndex: index })),
 
   reset: () => set(INITIAL),
 }));

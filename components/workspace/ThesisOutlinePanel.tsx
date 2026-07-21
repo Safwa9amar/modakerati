@@ -11,24 +11,12 @@ import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useOutlineStore } from "@/stores/outline-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { type OutlineNodeDTO } from "@/lib/api";
+import { normalize } from "@/lib/text-normalize";
 
 // Whether any heading title contains Arabic/Hebrew letters → render right-to-left.
 // thesis.language is unreliable for imports, so detect direction from the content.
 function isRtlText(s: string): boolean {
   return /[֐-ࣿ]/.test(s);
-}
-
-// Fold case + Arabic orthographic variants so search matches regardless of
-// tashkeel, tatweel, or alef/ya/ta-marbuta spelling.
-function normalize(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[ً-ْٰـ]/g, "")
-    .replace(/[أإآٱ]/g, "ا")
-    .replace(/[ىئ]/g, "ي")
-    .replace(/ؤ/g, "و")
-    .replace(/ة/g, "ه")
-    .trim();
 }
 
 const INDENT_STEP = 16;
