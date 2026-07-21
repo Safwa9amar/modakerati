@@ -133,7 +133,12 @@ export function coalesceEditText(queue: ThesisOp[], op: ThesisOp): ThesisOp[] {
 // ── Optimistic patches (DTO-level mirror of the server's effect) ─────────────
 
 // Reindex after a structural change — the DTO `index` is a block's position.
-const reindex = (blocks: DocBlockDTO[]): DocBlockDTO[] => blocks.map((b, i) => ({ ...b, index: i }));
+// Preserve a block's REFERENCE when its index didn't move, so React.memo(DocBlock)
+// skips the unchanged prefix instead of reconciling the whole document on every
+// split/move/delete. splitParagraph re-creates its before/after blocks (with new
+// text) BEFORE calling reindex, so an unchanged index never returns stale text.
+const reindex = (blocks: DocBlockDTO[]): DocBlockDTO[] =>
+  blocks.map((b, i) => (b.index === i ? b : { ...b, index: i }));
 
 // Whether a format change carries any inline character mark (the pill's Bold/
 // Italic/Underline/Color) — those need the block's `runs` repainted optimistically.
