@@ -584,9 +584,10 @@ function EditableParagraph({
       textAlignVertical="top"
       style={[
         textStyle,
-        // writingDirection on BOTH platforms: the live editing input is never
-        // justified while composing, so the read-path Android-justify conflict
-        // doesn't apply here — setting it fixes the Arabic caret starting side.
+        // Apply writingDirection on both platforms so the editing caret starts on
+        // the correct side (RTL for Arabic). iOS honours it directly; on Android
+        // TextInput its effect is version-dependent and may be inert — device-QA
+        // gated, with a leading-mark / explicit-textAlign fallback for empty RTL.
         { textAlign, padding: 0, writingDirection: dir },
       ]}
     />
