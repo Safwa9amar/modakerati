@@ -1,21 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, StyleSheet, Alert, Keyboard, Platform } from "react-native";
+import { View, StyleSheet, Keyboard, Platform } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTranslation } from "react-i18next";
-import { FileText, SquarePen } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
-import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { sendMessageToAI, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { type DocBlockDTO } from "@/lib/api";
-import { deriveThinkingMs } from "@/lib/thinking";
-import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { ComposerAsk } from "./ComposerAsk";
 import { ComposerConfirm } from "./ComposerConfirm";
-import { IdleAIBar } from "./IdleAIBar";
 import { GlobalDockBar } from "./GlobalDockBar";
 
 /** Initial reserved bottom inset (before the bar measures itself). */
@@ -25,7 +19,7 @@ interface Props {
   thesisId: string;
   rtl: boolean;
   /** The doc area reserves this many px at the bottom so content clears the
-   *  composer at any state (idle bar / pill / docked bar). Written on every layout. */
+   *  composer at any state (pill / docked bar). Written on every layout. */
   insetValue: SharedValue<number>;
   /** Live-.docx block model — powers the block formatting tools. */
   blocks: DocBlockDTO[];
@@ -35,23 +29,16 @@ interface Props {
  * The context-aware action zone that replaces the old always-present composer
  * sheet. Its shape follows selection + keyboard state:
  *   • pending confirm / ask → the AI's gate surface (docked).
- *   • nothing selected → the whole-memoir AI input (IdleAIBar, docked) — but only
- *     as a FALLBACK once the floating AI bubble has been drag-to-X dismissed; while
- *     the bubble is alive it owns whole-memoir AI input instead (see FloatingPill).
- *   • a block selected, keyboard DOWN → nothing docks here; the floating bubble
- *     (FloatingPill screen overlay) owns ALL block formatting tools, keyboard
- *     up or down — expand it to reach the block's toolset.
  *   • a block selected, keyboard UP → the GLOBAL keyboard-docked toolbar
- *     (GlobalDockBar): block-agnostic document tools only (undo/redo, outline,
- *     prev/next block, page break/setup, thesis-ready) + the pinned ✦ Ask AI.
- *     Tapping ✦ Ask AI swaps in a block-scoped IdleAIBar — again only once the
- *     bubble is dismissed; with the bubble alive, its own ✦ opens the dock's
- *     inline input instead (AIDock).
+ *     (GlobalDockBar): undo/redo, outline, prev/next block, page break/setup,
+ *     thesis-ready + the pinned ✦ Ask AI.
+ *   • otherwise → nothing docks here. The floating ✦ bubble (FloatingPill/AIDock)
+ *     is the ONLY idle AI surface — there is no bottom fallback bar anymore; if
+ *     the bubble was drag-to-X dismissed, the dock's ✦ re-arms it (GlobalDockBar).
  * Positioned absolutely at the container bottom; the parent's KeyboardAvoidingView
  * lifts it above the keyboard, so its own detent/docking math isn't needed.
  */
 export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
-  const { t } = useTranslation();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
 
@@ -60,52 +47,11 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   const inlineEditing = useWorkspaceStore((s) => s.inlineEditing);
   const composerOpen = useWorkspaceStore((s) => s.composerOpen);
   const composerInputFocused = useWorkspaceStore((s) => s.composerInputFocused);
-  // The block-scoped "✦ Ask AI" input lives in the store now (the inline block pill
-  // can open it, and it must survive across the pill/bar swaps).
-  const askAiOpen = useWorkspaceStore((s) => s.askAiOpen);
-  // The floating AI bubble now owns AI input. These legacy inputs (whole-memoir
-  // IdleAIBar + the block-scoped Ask-AI bar) are the FALLBACK for when the bubble
-  // has been drag-to-X dismissed — otherwise the bubble's dock/inline input takes
-  // over (see FloatingPill/AIDock). Primitive selector only (zustand v5).
-  const pillAlive = useFloatingPillStore((s) => s.visible);
 
   const isGenerating = useChatStore((s) => s.isGenerating);
-  const generatingPhase = useChatStore((s) => s.generatingPhase);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
   const pendingConfirm = useChatStore((s) => s.pendingConfirm);
 
-  // Reasoning to surface: the live streaming turn's, else the last turn's (for
-  // review). Both selectors return primitives → no fresh-object selector loop.
-  const thinking = useChatStore((s) => {
-    const list = s.messages[thesisId];
-    if (!list) return "";
-    if (s.streamingId) return list.find((m) => m.id === s.streamingId)?.thinking ?? "";
-    if (s.isGenerating) return "";
-    for (let i = list.length - 1; i >= 0; i--) {
-      if (list[i].role === "assistant" && list[i].thinking) return list[i].thinking ?? "";
-    }
-    return "";
-  });
-  const thinkingMs = useChatStore((s) => {
-    const list = s.messages[thesisId];
-    if (!list) return undefined;
-    let msg: (typeof list)[number] | undefined;
-    if (s.streamingId) {
-      msg = list.find((m) => m.id === s.streamingId);
-    } else if (s.isGenerating) {
-      return undefined;
-    } else {
-      for (let i = list.length - 1; i >= 0; i--) {
-        if (list[i].role === "assistant" && list[i].thinking) {
-          msg = list[i];
-          break;
-        }
-      }
-    }
-    return msg ? deriveThinkingMs(msg) : undefined;
-  });
-
-  const [inputText, setInputText] = useState("");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   // ——— Selection derivations ———
@@ -118,26 +64,6 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     const joined = parts.join("\n\n");
     return joined.length > 6000 ? joined.slice(0, 6000) + "…" : joined;
   }, [ordered]);
-
-  // The selected PARAGRAPH blocks (format tools act on these), in doc order.
-  const paragraphSelection = useMemo(() => {
-    if (!ordered.length) return [] as Extract<DocBlockDTO, { kind: "paragraph" }>[];
-    const byIndex = new Map(blocks.map((b) => [b.index, b]));
-    return ordered
-      .map((s) => byIndex.get(s.index))
-      .filter((b): b is Extract<DocBlockDTO, { kind: "paragraph" }> => !!b && b.kind === "paragraph");
-  }, [ordered, blocks]);
-
-  // The selected IMAGE blocks (Ask-AI on a lone figure → caption suggestion).
-  // paragraphSelection never includes an image, so we resolve the image DTOs
-  // separately to route a single-figure Ask-AI to the caption action.
-  const imageSelection = useMemo(() => {
-    if (!ordered.length) return [] as Extract<DocBlockDTO, { kind: "image" }>[];
-    const byIndex = new Map(blocks.map((b) => [b.index, b]));
-    return ordered
-      .map((s) => byIndex.get(s.index))
-      .filter((b): b is Extract<DocBlockDTO, { kind: "image" }> => !!b && b.kind === "image");
-  }, [ordered, blocks]);
 
   // ——— Keyboard tracking ———
   useEffect(() => {
@@ -188,21 +114,12 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     if (isGenerating || pendingAsk || pendingConfirm) useWorkspaceStore.getState().setComposerOpen(true);
   }, [isGenerating, pendingAsk, pendingConfirm]);
 
-  // Deselecting drops the Ask-AI panel back to nothing (idle bar takes over).
-  useEffect(() => {
-    if (count === 0 && askAiOpen) useWorkspaceStore.getState().setAskAiOpen(false);
-  }, [count, askAiOpen]);
-
   // Whether ANY bottom surface renders (mirrors the surface chain in the render
-  // below: confirm > ask > idle bar > block Ask-AI > keyboard-docked block bar).
-  // A block selected with the keyboard down renders nothing here — its pill
-  // floats inline on the block in the outline.
-  // The idle bar / block Ask-AI branches are the bubble-dismissed fallback, so
-  // while the bubble is alive they contribute no surface (the doc shouldn't
-  // reserve inset space for bars that aren't showing).
+  // below: confirm > ask > keyboard-docked block bar). A block selected with the
+  // keyboard down renders nothing here — its pill floats inline on the block in
+  // the outline.
   const blockKeyboardOpen = keyboardVisible && (inlineEditing || composerInputFocused);
-  const hasSurface =
-    !!pendingConfirm || !!pendingAsk || blockKeyboardOpen || (!pillAlive && (count === 0 || askAiOpen));
+  const hasSurface = !!pendingConfirm || !!pendingAsk || blockKeyboardOpen;
 
   // Collapse the reserved inset imperatively whenever nothing renders at the
   // bottom (hidden via the header ⋯ toggle, or the floating-pill state above).
@@ -221,12 +138,6 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   const hasSurfaceRef = useRef(false);
   hasSurfaceRef.current = composerOpen && hasSurface;
 
-  // AI quick-action chips — grounded in the conversation + current selection.
-  const { suggestions } = useComposerSuggestions(thesisId, {
-    enabled: !pendingAsk && !pendingConfirm,
-    selectedBlocks,
-  });
-
   // Focus payload: combined text + every selected index (empty → whole memoir).
   const focusOpts = {
     selection: combinedSelection,
@@ -238,40 +149,6 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   const markInputBlurred = useCallback(() => {
     useWorkspaceStore.getState().setComposerInputFocused(false);
   }, []);
-
-  const handleSend = async () => {
-    const text = inputText.trim();
-    if (!text || isGenerating) return;
-    // Block-scoped "✦ Ask AI" on exactly one PARAGRAPH → propose an inline rewrite
-    // of that paragraph (approve/edit/reject inline on the block).
-    if (askAiOpen && count === 1 && paragraphSelection.length === 1) {
-      const idx = paragraphSelection[0].index;
-      const original = paragraphSelection[0].text;
-      setInputText("");
-      Keyboard.dismiss();
-      useWorkspaceStore.getState().setAskAiOpen(false);
-      void useSuggestionStore.getState().request(thesisId, idx, original, text);
-      return;
-    }
-    // Block-scoped "✦ Ask AI" on exactly one IMAGE → propose a figure caption
-    // (kind:"image" → the server returns a setCaption action; Approve applies it
-    // via the setCaption op). The proposal renders inline BELOW the figure. A
-    // table still has no inline action, so it (and whole-memoir / multi-block)
-    // falls through to the tool-based chat flow.
-    if (askAiOpen && count === 1 && imageSelection.length === 1) {
-      const idx = imageSelection[0].index;
-      const originalCaption = imageSelection[0].caption ?? "";
-      setInputText("");
-      Keyboard.dismiss();
-      useWorkspaceStore.getState().setAskAiOpen(false);
-      void useSuggestionStore.getState().request(thesisId, idx, originalCaption, text, "image");
-      return;
-    }
-    setInputText("");
-    Keyboard.dismiss();
-    useWorkspaceStore.getState().setAskAiOpen(false);
-    await sendMessageToAI(thesisId, text, focusOpts);
-  };
 
   const handleAnswer = (answer: string) => {
     useChatStore.getState().setPendingAsk(null);
@@ -299,17 +176,10 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     insetValue.value = h;
   };
 
-  const blockScopeLabel =
-    count === 1
-      ? (selectedBlocks[0]?.text?.replace(/\s+/g, " ").trim().slice(0, 32) || t("workspace.selectedBlock", { defaultValue: "Selected section" }))
-      : t("workspace.nSelected", { count, defaultValue: `${count} selected` });
-
-  // Which surface: confirm > ask > (block Ask-AI | keyboard-open block bar | idle).
-  // The idle-bar and block Ask-AI branches only fire once the floating AI bubble
-  // has been dismissed (!pillAlive) — while it's alive it owns AI input instead.
-  // Default null: a block selected with the keyboard DOWN docks nothing here — its
-  // formatting pill floats inline on the block in the outline instead. Keep this
-  // chain in sync with `hasSurface` above.
+  // Which surface: confirm > ask > keyboard-open block bar. Default null: a block
+  // selected with the keyboard DOWN docks nothing here — its formatting pill
+  // floats inline on the block in the outline instead. Keep this chain in sync
+  // with `hasSurface` above.
   let surface: React.ReactNode = null;
   if (pendingConfirm) {
     surface = (
@@ -323,69 +193,6 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         <ComposerAsk ask={pendingAsk} onAnswer={handleAnswer} onDismiss={handleDismissAsk} rtl={rtl} onInputFocus={markInputFocused} onInputBlur={markInputBlurred} />
       </Dock>
     );
-  } else if (!pillAlive && count === 0) {
-    // Fallback only: the floating AI bubble owns whole-memoir AI input while
-    // alive; this whole-memoir bar returns once the bubble is drag-to-X dismissed.
-    surface = (
-      <IdleAIBar
-        rtl={rtl}
-        scopeLabel={t("workspace.wholeMemoir", { defaultValue: "Whole memoir" })}
-        scopeIcon={FileText}
-        inputText={inputText}
-        onChangeText={setInputText}
-        onSend={handleSend}
-        onStop={() => useChatStore.getState().stopGenerating()}
-        onMicPress={() => Alert.alert(t("composer.voiceComingSoon", { defaultValue: "Voice input is coming soon." }))}
-        onFocus={markInputFocused}
-        onBlur={markInputBlurred}
-        isGenerating={isGenerating}
-        placeholder={t("workspace.askPlaceholder", { defaultValue: "Ask the AI to write or edit…" })}
-        sendLabel={t("chat.send", { defaultValue: "Send" })}
-        stopLabel={t("chat.stop", { defaultValue: "Stop" })}
-        micLabel={t("composer.micLabel", { defaultValue: "Voice input" })}
-        generatingPhase={generatingPhase}
-        thinking={thinking}
-        thinkingMs={thinkingMs}
-        statusReady={t("composer.status.ready", { defaultValue: "Ready — ask me to write or edit." })}
-        suggestions={suggestions}
-        onPreset={(prompt) => setInputText(prompt)}
-        keyboardVisible={keyboardVisible}
-        focused={composerInputFocused}
-        bottomInset={insets.bottom}
-      />
-    );
-  } else if (!pillAlive && askAiOpen) {
-    // Fallback only: with the bubble alive, its ✦ opens the dock's inline input
-    // (scoped to the block) instead of this bar (see FloatingPill/AIDock).
-    surface = (
-      <IdleAIBar
-        rtl={rtl}
-        scopeLabel={blockScopeLabel}
-        scopeIcon={SquarePen}
-        onScopeClose={() => useWorkspaceStore.getState().setAskAiOpen(false)}
-        inputText={inputText}
-        onChangeText={setInputText}
-        onSend={handleSend}
-        onStop={() => useChatStore.getState().stopGenerating()}
-        onMicPress={() => Alert.alert(t("composer.voiceComingSoon", { defaultValue: "Voice input is coming soon." }))}
-        onFocus={markInputFocused}
-        onBlur={markInputBlurred}
-        isGenerating={isGenerating}
-        placeholder={t("workspace.askPlaceholder", { defaultValue: "Ask the AI to write or edit…" })}
-        sendLabel={t("chat.send", { defaultValue: "Send" })}
-        stopLabel={t("chat.stop", { defaultValue: "Stop" })}
-        micLabel={t("composer.micLabel", { defaultValue: "Voice input" })}
-        generatingPhase={generatingPhase}
-        thinking={thinking}
-        thinkingMs={thinkingMs}
-        statusReady={t("composer.status.ready", { defaultValue: "Ready — ask me to write or edit." })}
-        suggestions={suggestions}
-        onPreset={(prompt) => setInputText(prompt)}
-        keyboardVisible={keyboardVisible}
-        focused={composerInputFocused}
-        bottomInset={insets.bottom}
-      />
-    );
   } else if (blockKeyboardOpen) {
     // Keyboard UP → the GLOBAL keyboard-docked toolbar (undo/redo, outline,
     // prev/next block, page break/setup, thesis-ready) + the pinned ✦ Ask AI.
@@ -397,8 +204,6 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     surface = <GlobalDockBar thesisId={thesisId} blocks={blocks} />;
   }
 
-  // Legacy / unseeded docs have no blocks → only the whole-memoir AI input ever
-  // shows (there's nothing to select), so no live-doc guard is needed here.
   return (
     <View
       style={styles.host}

@@ -217,12 +217,12 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
 
   // ── ✦ Ask AI (pinned) — same routing as the block pill's ✦ ──
   const askAi = () => {
-    if (useFloatingPillStore.getState().visible) {
-      useFloatingPillStore.getState().setExpanded(true);
-      useFloatingPillStore.getState().setInputOpen(true);
-    } else {
-      useWorkspaceStore.getState().setAskAiOpen(true);
-    }
+    // The bubble is the ONLY AI surface now (the bottom fallback bar is gone):
+    // if it was drag-to-X dismissed, re-arm it and open its inline input.
+    const fp = useFloatingPillStore.getState();
+    fp.show();
+    fp.setExpanded(true);
+    fp.setInputOpen(true);
   };
 
   // ── Small building blocks (mirrors BlockContextBar's chip()/sep()) ──
