@@ -18,6 +18,7 @@ import { Send, Square } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useChatStore } from "@/stores/chat-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { sendMessageToAI } from "@/lib/ai-service";
 import { getThesisDocument } from "@/lib/api";
 import { BackButton } from "@/components/BackButton";
@@ -52,6 +53,19 @@ export default function BlockEditorScreen() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
+
+  // This screen is a composing surface too: while it's mounted (and local-first
+  // editing is on) the doc store's flush pump is held, so Save applies locally
+  // and syncs in the background after the user leaves. Pairs with the
+  // workspace's own hold — the counted gate keeps the thesis held across the
+  // push/pop transition between the two screens.
+  const syncWhileEditing = useSettingsStore((s) => s.syncWhileEditing);
+  useEffect(() => {
+    if (!thesisId || syncWhileEditing) return;
+    const store = useThesisDocStore.getState();
+    store.holdSync(thesisId);
+    return () => store.releaseSync(thesisId);
+  }, [thesisId, syncWhileEditing]);
 
   // Load the paragraph's current text. Prefer the doc store (already loaded by the
   // workspace) so the editor opens instantly with no fetch; fall back to the server
@@ -117,10 +131,14 @@ export default function BlockEditorScreen() {
     Keyboard.dismiss();
     // Persist the current manual text first (through the store, so the workspace
     // reflects it) so the AI edits on top of it and the post-turn reload doesn't
-    // discard unsaved changes. Awaited here so the save lands before the AI turn
-    // (offline it waits — the AI call needs the network anyway).
+    // discard unsaved changes. The composing gate may be holding the queue, so
+    // force a flush alongside the mutate — awaiting the bare mutate would
+    // deadlock (its promise only resolves when the server confirms the op).
     try {
-      await useThesisDocStore.getState().mutate(thesisId, { type: "editText", index, text });
+      const store = useThesisDocStore.getState();
+      const saved = store.mutate(thesisId, { type: "editText", index, text });
+      void store.flushOps(thesisId);
+      await saved;
     } catch {
       Alert.alert(t("blockEditor.saveError", { defaultValue: "Couldn't save. Please try again." }));
       return;

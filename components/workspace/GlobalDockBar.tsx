@@ -106,6 +106,7 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
   const canUndo = useThesisDocStore((s) => s.history[thesisId]?.canUndo ?? false);
   const canRedo = useThesisDocStore((s) => s.history[thesisId]?.canRedo ?? false);
   const pendingOps = useThesisDocStore((s) => s.pending[thesisId] ?? 0);
+  const syncHeld = useThesisDocStore((s) => s.held[thesisId] ?? false);
   const isGenerating = useChatStore((s) => s.isGenerating);
 
   const [historyBusy, setHistoryBusy] = useState(false);
@@ -126,9 +127,16 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
   // ── Dismiss keyboard ──
   const dismissKeyboard = () => Keyboard.dismiss();
 
-  // ── Undo / redo (server-side history restores — mirrors thesis-workspace's runHistory) ──
+  // ── Undo / redo (local-first — mirrors thesis-workspace's runHistory) ──
+  // Local steps unwind the on-device op queue synchronously (works mid-compose,
+  // offline, zero network); the server snapshot restore is the fallback once
+  // the queue has flushed.
+  const localUndo = useThesisDocStore((s) => s.localUndo[thesisId] ?? 0);
+  const localRedo = useThesisDocStore((s) => s.localRedo[thesisId] ?? 0);
   const runHistory = async (kind: "undo" | "redo") => {
     if (historyBusy) return;
+    const store = useThesisDocStore.getState();
+    if (kind === "undo" ? store.undoLocal(thesisId) : store.redoLocal(thesisId)) return;
     setHistoryBusy(true);
     try {
       const res = kind === "undo" ? await undoThesisHistory(thesisId) : await redoThesisHistory(thesisId);
@@ -139,8 +147,8 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
       setHistoryBusy(false);
     }
   };
-  const undoDisabled = !canUndo || pendingOps > 0 || historyBusy || isGenerating;
-  const redoDisabled = !canRedo || pendingOps > 0 || historyBusy || isGenerating;
+  const undoDisabled = historyBusy || isGenerating || (localUndo === 0 && (!canUndo || pendingOps > 0));
+  const redoDisabled = historyBusy || isGenerating || (localRedo === 0 && (!canRedo || pendingOps > 0));
 
   // ── Outline (the root Thesis Structure push-drawer) ──
   const openOutline = () => {
@@ -257,7 +265,10 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
     </View>
   );
 
-  const saving = pendingOps > 0;
+  // Pulse only while ops are actually flushing to the server. While the composing
+  // gate holds them (local-first editing) nothing is in flight — the header
+  // shows no passive sync indicator anymore, so no dot here either.
+  const saving = pendingOps > 0 && !syncHeld;
 
   const renderPageSetupExpansion = () => {
     if (!pageSetupOpen) return null;

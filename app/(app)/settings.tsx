@@ -13,7 +13,7 @@ import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import {
   Globe, Moon, Sun, Bell, Sparkles, Clock,
-  Trash2, AlertTriangle,
+  Trash2, AlertTriangle, RefreshCw,
   Info, FileText, Shield, ChevronRight, ChevronDown, Check,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
@@ -51,6 +51,8 @@ export default function SettingsScreen() {
   const language = useSettingsStore((s) => s.language);
   const setTheme = useSettingsStore((s) => s.setTheme);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
+  const syncWhileEditing = useSettingsStore((s) => s.syncWhileEditing);
+  const setSyncWhileEditing = useSettingsStore((s) => s.setSyncWhileEditing);
 
   const preferences = useNotificationStore((s) => s.preferences);
   const updatePreferences = useNotificationStore((s) => s.updatePreferences);
@@ -119,6 +121,28 @@ export default function SettingsScreen() {
           icon: theme === "dark" ? Moon : Sun, iconColor: colors.brandAccent, label: t("settings.theme"),
           type: "toggle", toggleValue: theme === "dark",
           onToggle: (v) => setTheme(v ? "dark" : "light"),
+        },
+        // OFF (default) = local-first editing: document edits save on-device and
+        // sync in the background when the user leaves the composer. ON = every
+        // edit syncs to the server immediately while editing — noticeably slower,
+        // so turning it ON asks for confirmation first (OFF applies silently).
+        {
+          icon: RefreshCw, iconColor: colors.brandPrimary, label: t("settings.syncWhileEditing"),
+          type: "toggle", toggleValue: syncWhileEditing,
+          onToggle: (v) => {
+            if (!v) {
+              setSyncWhileEditing(false);
+              return;
+            }
+            Alert.alert(
+              t("settings.syncWhileEditingWarnTitle"),
+              t("settings.syncWhileEditingWarnMessage"),
+              [
+                { text: t("common.cancel"), style: "cancel" },
+                { text: t("settings.syncWhileEditingWarnConfirm"), onPress: () => setSyncWhileEditing(true) },
+              ],
+            );
+          },
         },
       ],
     },
