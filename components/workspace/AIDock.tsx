@@ -15,8 +15,9 @@ import { useRTL } from "@/hooks/useRTL";
 import { useChatStore } from "@/stores/chat-store";
 import { useNotificationStore } from "@/stores/notification-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
+import { useSuggestionStore } from "@/stores/suggestion-store";
 import { sendMessageToAI } from "@/lib/ai-service";
-import { getComposerSuggestions, type ComposerSuggestion } from "@/lib/api";
+import { getComposerSuggestions, type ComposerSuggestion, type DocBlockDTO } from "@/lib/api";
 import { AnimatedChip } from "./AnimatedChip";
 
 interface Props {
@@ -25,6 +26,11 @@ interface Props {
   scopeLabel: string;
   /** Doc-block indices the fixed/suggested chips and the Ask input target. Empty → whole memoir. */
   scopeIndices: number[];
+  /** The sole selected block when scopeIndices.length === 1 — lets a single-block ask
+   *  route through the inline-suggestion path (mirrors BlockComposer's legacy
+   *  askAiOpen branch) instead of the plain chat/tool-loop send. Null/undefined for
+   *  the whole-memoir or multi-block scope, where the plain send is always used. */
+  selectedBlock?: DocBlockDTO | null;
 }
 
 interface QuickAction {
@@ -61,7 +67,7 @@ function ShimmerBar({ color }: { color: string }) {
  *      text + send) once tapped — the store's `inputOpen` drives which form shows,
  *      so the pill's own ✦ can also open it in block mode.
  */
-export function AIDock({ thesisId, scopeLabel, scopeIndices }: Props) {
+export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   // The dock is APP UI (labels are in the UI locale), so its layout follows the
@@ -151,8 +157,27 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices }: Props) {
   // Shared send path: block-scoped when scopeIndices is non-empty, whole-memoir
   // otherwise (mirrors BlockComposer's focusOpts). Collapses the dock — the
   // bubble's own spinner (FloatingPill) takes over from here.
+  //
+  // A single selected PARAGRAPH or IMAGE is special-cased: it mirrors
+  // BlockComposer's legacy askAiOpen branch and routes through the suggestion
+  // store's `request` instead of the plain chat/tool-loop send, so the ask
+  // produces an in-place proposal on the block (peek/diff/approve/reject via
+  // InlineSuggestion) rather than a direct edit. Whole-memoir (empty scope) and
+  // multi-block asks are unaffected — they keep the plain send.
   const sendPrompt = (prompt: string) => {
     if (isGenerating) return;
+    if (scopeIndices.length === 1 && selectedBlock?.kind === "paragraph") {
+      void useSuggestionStore.getState().request(thesisId, selectedBlock.index, selectedBlock.text, prompt);
+      useFloatingPillStore.getState().setExpanded(false);
+      return;
+    }
+    if (scopeIndices.length === 1 && selectedBlock?.kind === "image") {
+      void useSuggestionStore
+        .getState()
+        .request(thesisId, selectedBlock.index, selectedBlock.caption ?? "", prompt, "image");
+      useFloatingPillStore.getState().setExpanded(false);
+      return;
+    }
     void sendMessageToAI(thesisId, prompt, {
       docBlockIndex: scopeIndices.length ? scopeIndices[0] : null,
       docBlockIndices: scopeIndices.length > 1 ? scopeIndices : undefined,

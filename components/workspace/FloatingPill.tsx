@@ -343,7 +343,12 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
             count === 0 || inputOpen ? (
               <View style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}>
                 {/* AIDock lays out by APP language (useRTL inside), not thesis rtl. */}
-                <AIDock thesisId={thesisId} scopeLabel={scopeLabel} scopeIndices={indices} />
+                <AIDock
+                  thesisId={thesisId}
+                  scopeLabel={scopeLabel}
+                  scopeIndices={indices}
+                  selectedBlock={selectedBlock}
+                />
               </View>
             ) : (
               <BlockContextBar
