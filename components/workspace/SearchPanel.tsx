@@ -16,7 +16,7 @@ import { useRTL } from "@/hooks/useRTL";
 import { useSearchStore } from "@/stores/search-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
-import { computeMatches } from "@/lib/search-match";
+import { computeMatches, type SearchMatch } from "@/lib/search-match";
 import { normalize } from "@/lib/text-normalize";
 import { searchThesisSemantic, type DocBlockDTO } from "@/lib/api";
 import { hSelection } from "@/lib/haptics";
@@ -116,10 +116,18 @@ export function SearchPanel({ thesisId, blocks }: { thesisId: string; blocks: Do
 
   const replaceAll = () => {
     const s = useSearchStore.getState();
+    // Recompute matches from the SAME blocks array we splice into. The store's
+    // matchesByBlock can lag a generation behind the prop after a prior replace's
+    // optimistic patch (the 150ms debounce hasn't re-matched yet); splicing those
+    // stale spans into the fresh text would corrupt it. Regrouping here keeps
+    // spans and text on the same generation.
+    const { matches } = computeMatches(blocks, s.query);
+    const byBlock: Record<number, SearchMatch[]> = {};
+    for (const m of matches) (byBlock[m.blockIndex] ??= []).push(m);
     let replaced = 0;
     let blocksTouched = 0;
     let skipped = 0;
-    for (const [indexStr, ms] of Object.entries(s.matchesByBlock)) {
+    for (const [indexStr, ms] of Object.entries(byBlock)) {
       const index = Number(indexStr);
       const block = blocks.find((b) => b.index === index);
       if (!block || block.kind !== "paragraph") {
