@@ -28,6 +28,7 @@ import { useOutlineStore } from "@/stores/outline-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { BackButton } from "@/components/BackButton";
 import { WordDocxView, type DocTapBlock } from "@/components/workspace/WordDocxView";
 import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
@@ -39,8 +40,7 @@ import { BlockComposer, BLOCK_COMPOSER_MIN_INSET } from "@/components/workspace/
 import { FloatingPill } from "@/components/workspace/FloatingPill";
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
 import { HeaderMenuButton } from "@/components/workspace/WorkspaceHeaderMenu";
-import { SyncStatusChip } from "@/components/workspace/SyncStatusChip";
-import { DocProgress, countWords } from "@/components/workspace/DocProgress";
+import { countWords } from "@/lib/word-count";
 import { MilestoneToast } from "@/components/workspace/MilestoneToast";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
 import { NavOverlay } from "@/components/workspace/NavOverlay";
@@ -79,12 +79,11 @@ export default function ThesisWorkspaceScreen() {
   const { thesisId, blockIndex } = useLocalSearchParams<{ thesisId: string; blockIndex?: string }>();
 
   const thesis = useThesisStore((s) => s.theses.find((th) => th.id === thesisId));
-  // Select primitives individually — an object-literal selector hands
-  // useSyncExternalStore a fresh reference every render → "Maximum update depth
-  // exceeded".
-  const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
-  // Indices feed the Word view's multi-highlight. Derived once per selection change.
-  const selectedIndices = useMemo(() => selectedBlocks.map((b) => b.index), [selectedBlocks]);
+  // NOTE: this screen deliberately does NOT subscribe to `selectedBlocks`. A tap to
+  // select/edit a block must not re-render the whole workspace tree (two WebView
+  // layers + the reorderable list) — that re-render storm was what delayed inline
+  // edit mode by seconds. The Word view reads the selection from the store itself;
+  // the outline's blocks react per-block via their own primitive selectors.
   // Drives the live block refresh below: while a turn is generating the AI
   // commits .docx edits mid-turn, so we re-fetch the document to show them.
   const isGenerating = useChatStore((s) => s.isGenerating);
@@ -120,6 +119,11 @@ export default function ThesisWorkspaceScreen() {
   const canUndo = useThesisDocStore((s) => s.history[thesisId]?.canUndo ?? false);
   const canRedo = useThesisDocStore((s) => s.history[thesisId]?.canRedo ?? false);
   const pendingOps = useThesisDocStore((s) => s.pending[thesisId] ?? 0);
+  // Depth of the LOCAL undo/redo stacks (on-device, instant, no network) —
+  // available precisely while edits are queued locally, which is when the
+  // server restore is unavailable. Together the buttons always have a path.
+  const localUndo = useThesisDocStore((s) => s.localUndo[thesisId] ?? 0);
+  const localRedo = useThesisDocStore((s) => s.localRedo[thesisId] ?? 0);
 
   // OnlyOffice editor config for the live-docx view. `undefined` while loading;
   // `{ enabled:false }` when the Document Server isn't configured (or the fetch
@@ -202,6 +206,11 @@ export default function ThesisWorkspaceScreen() {
   const runHistory = useCallback(
     async (kind: "undo" | "redo") => {
       if (!thesisId || historyBusy) return;
+      // Local-first: while composing, undo/redo step through the on-device op
+      // queue synchronously (zero network). Only when nothing is locally
+      // steppable do we fall back to the server-side snapshot restore.
+      const store = useThesisDocStore.getState();
+      if (kind === "undo" ? store.undoLocal(thesisId) : store.redoLocal(thesisId)) return;
       setHistoryBusy(true);
       try {
         const res = kind === "undo" ? await undoThesisHistory(thesisId) : await redoThesisHistory(thesisId);
@@ -214,6 +223,10 @@ export default function ThesisWorkspaceScreen() {
     },
     [thesisId, historyBusy, t],
   );
+  // Enabled when a LOCAL step exists (instant, works mid-compose/offline), or —
+  // once the queue is flushed — when the server history has a step.
+  const undoReady = !historyBusy && !isGenerating && (localUndo > 0 || (canUndo && pendingOps === 0));
+  const redoReady = !historyBusy && !isGenerating && (localRedo > 0 || (canRedo && pendingOps === 0));
 
   // Convert + fetch the PDF render. Clears to `undefined` first so the view shows
   // a spinner while the Document Server (re)renders. Only called when the PDF
@@ -244,6 +257,29 @@ export default function ThesisWorkspaceScreen() {
       if (thesisId) void useThesisDocStore.getState().refreshHistoryState(thesisId);
     }, [thesisId, refreshEditorCfg]),
   );
+
+  // ── Composing gate (local-first editing) ────────────────────────────────────
+  // While the user is actually composing — this screen focused, on the Writer
+  // (outline) view, and "sync while editing" off — the doc store's flush pump is
+  // HELD: every edit applies locally (memory + SQLite) with zero network traffic.
+  // The hold releases (and the queue background-syncs, then the drain effect
+  // below refreshes editor-config/history/outline) when the user leaves the
+  // composer: screen blur, switch to the Word/PDF preview, or navigation away.
+  // App-background flush is handled centrally in the doc store.
+  const [screenFocused, setScreenFocused] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setScreenFocused(true);
+      return () => setScreenFocused(false);
+    }, []),
+  );
+  const syncWhileEditing = useSettingsStore((s) => s.syncWhileEditing);
+  useEffect(() => {
+    if (!thesisId || syncWhileEditing || !screenFocused || previewMode !== null) return;
+    const store = useThesisDocStore.getState();
+    store.holdSync(thesisId);
+    return () => store.releaseSync(thesisId);
+  }, [thesisId, syncWhileEditing, screenFocused, previewMode]);
 
   // When the durable edit queue fully drains, the .docx bytes changed on the
   // server → re-fetch the editor config so the OnlyOffice layer (document.key)
@@ -316,17 +352,20 @@ export default function ThesisWorkspaceScreen() {
   // Entering the thesis → sync the Thesis Structure outline into the cache once the
   // live doc is loaded and idle, so the navigator sheet later opens INSTANTLY from
   // cache (no fetch on open). Once per thesis; heading changes re-sync below.
+  // Skipped entirely while the composing gate is held — the drawer renders the
+  // on-device cached outline until the document itself syncs (drain re-syncs it).
+  const syncHeld = useThesisDocStore((s) => s.held[thesisId] ?? false);
   const outlineWarmedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isLiveDoc || !thesisId) return;
-    if (isGenerating || pendingOps > 0) return;
+    if (isGenerating || pendingOps > 0 || syncHeld) return;
     if (outlineWarmedRef.current === thesisId) return;
     const id = setTimeout(() => {
       outlineWarmedRef.current = thesisId;
       void useOutlineStore.getState().sync(thesisId);
     }, 1500);
     return () => clearTimeout(id);
-  }, [isLiveDoc, thesisId, isGenerating, pendingOps]);
+  }, [isLiveDoc, thesisId, isGenerating, pendingOps, syncHeld]);
 
   // Base text direction for rendering. The thesis `language` field is unreliable
   // (imports default to "fr" even for Arabic docs), so detect from the actual
@@ -505,31 +544,30 @@ export default function ThesisWorkspaceScreen() {
           <>
             <Pressable
               onPress={() => void runHistory("undo")}
-              onLongPress={() => setHistoryOpen(true)}
+              // The sheet restores SERVER snapshots — opening it with unflushed
+              // local ops would restore over them, so it stays gated on a clean
+              // queue (as it effectively was before local undo enabled the button).
+              onLongPress={() => {
+                if (pendingOps === 0) setHistoryOpen(true);
+              }}
               delayLongPress={400}
-              disabled={!canUndo || pendingOps > 0 || historyBusy || isGenerating}
+              disabled={!undoReady}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={t("workspace.undo", { defaultValue: "Undo" })}
               style={styles.expandBtn}
             >
-              <Undo2
-                size={20}
-                color={canUndo && pendingOps === 0 && !historyBusy && !isGenerating ? colors.textPrimary : colors.textPlaceholder}
-              />
+              <Undo2 size={20} color={undoReady ? colors.textPrimary : colors.textPlaceholder} />
             </Pressable>
             <Pressable
               onPress={() => void runHistory("redo")}
-              disabled={!canRedo || pendingOps > 0 || historyBusy || isGenerating}
+              disabled={!redoReady}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={t("workspace.redo", { defaultValue: "Redo" })}
               style={styles.expandBtn}
             >
-              <Redo2
-                size={20}
-                color={canRedo && pendingOps === 0 && !historyBusy && !isGenerating ? colors.textPrimary : colors.textPlaceholder}
-              />
+              <Redo2 size={20} color={redoReady ? colors.textPrimary : colors.textPlaceholder} />
             </Pressable>
           </>
         )}
@@ -553,15 +591,6 @@ export default function ThesisWorkspaceScreen() {
           <View style={styles.expandBtn} />
         )}
       </View>
-
-      {/* Status strip: live doc progress (left) + per-thesis sync state (right).
-          Thin, themed, live-docs only. Sits above the preview toolbar. */}
-      {liveDoc && (
-        <View style={[styles.statusStrip, { borderBottomColor: colors.borderDefault }]}>
-          <DocProgress blocks={liveDoc.blocks} />
-          <SyncStatusChip thesisId={thesisId} />
-        </View>
-      )}
 
       {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}
       {liveDoc && <PreviewBar />}
@@ -614,7 +643,6 @@ export default function ThesisWorkspaceScreen() {
                   url={`${liveDoc.downloadUrl}${liveDoc.downloadUrl.includes("?") ? "&" : "?"}_v=${docTick}`}
                   thesisId={thesisId}
                   blocks={tapBlocks}
-                  selectedIndices={selectedIndices}
                   scrollTarget={scrollTarget}
                   rtl={docRtl}
                   onSelect={(index, text) => {
@@ -772,16 +800,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   expandIcon: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
-  // Thin status strip under the top bar: progress on the leading edge, sync chip
-  // on the trailing edge (space-between mirrors correctly under an RTL app UI).
-  statusStrip: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 6,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
   // Full-width, centered overlay host for the milestone toast (top offset applied
   // inline from the safe-area inset). box-none so only the pill itself is a target.
   milestoneHost: { position: "absolute", left: 0, right: 0, alignItems: "center", zIndex: 100 },

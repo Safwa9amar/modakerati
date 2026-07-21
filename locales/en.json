@@ -205,6 +205,10 @@
     "general": "General",
     "language": "Language",
     "theme": "Theme",
+    "syncWhileEditing": "Sync while editing",
+    "syncWhileEditingWarnTitle": "Sync every edit?",
+    "syncWhileEditingWarnMessage": "Your work is always saved on your device and syncs automatically when you leave the editor. Turning this on sends every single edit to the server as you type, which can make editing feel slower. (Beta)",
+    "syncWhileEditingWarnConfirm": "Turn on anyway",
     "aiModel": "AI Model",
     "notificationsSection": "Notifications",
     "pushNotifications": "Push Notifications",
@@ -292,6 +296,7 @@
   },
   "chat": {
     "askPlaceholder": "Ask about your thesis...",
+    "dismissQuestion": "Dismiss question",
     "aiWriting": "AI is writing...",
     "thinking": "Thinking",
     "thinkingEllipsis": "Thinking…",
@@ -592,10 +597,6 @@
     "cropApply": "Apply",
     "pdfFailed": "Couldn't generate the PDF. Please try again.",
     "pdfUnavailable": "PDF preview isn't available for this document.",
-    "syncSaved": "Saved ✓",
-    "syncSyncing": "Syncing…",
-    "syncOffline": "Offline · saved locally",
-    "progressSummary": "{{words}} words · {{pages}} pages · {{sections}} sections",
     "milestoneWords": "🎉 {{count}} words!"
   },
   "history": {
@@ -676,6 +677,8 @@
     },
     "micLabel": "Voice input",
     "voiceComingSoon": "Voice input is coming soon.",
+    "listening": "Listening…",
+    "micDenied": "Microphone/speech permission is needed to dictate.",
     "modeAi": "AI",
     "modeEdit": "Edit",
     "edit": {

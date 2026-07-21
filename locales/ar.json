@@ -205,6 +205,10 @@
     "general": "عام",
     "language": "اللغة",
     "theme": "المظهر",
+    "syncWhileEditing": "المزامنة أثناء التحرير",
+    "syncWhileEditingWarnTitle": "مزامنة كل تعديل؟",
+    "syncWhileEditingWarnMessage": "عملك محفوظ دائمًا على جهازك ويُزامَن تلقائيًا عند مغادرة المحرر. تفعيل هذا الخيار يرسل كل تعديل إلى الخادم أثناء الكتابة، مما قد يجعل التحرير أبطأ. (تجريبي)",
+    "syncWhileEditingWarnConfirm": "التفعيل على أي حال",
     "aiModel": "نموذج الذكاء",
     "notificationsSection": "الإشعارات",
     "pushNotifications": "الإشعارات الفورية",
@@ -292,6 +296,7 @@
   },
   "chat": {
     "askPlaceholder": "اسأل عن مذكرتك...",
+    "dismissQuestion": "تجاهل السؤال",
     "aiWriting": "الذكاء الاصطناعي يكتب...",
     "thinking": "يفكر",
     "thinkingEllipsis": "يفكر…",
@@ -592,10 +597,6 @@
     "cropApply": "تطبيق",
     "pdfFailed": "تعذّر إنشاء ملف PDF. يرجى المحاولة مرة أخرى.",
     "pdfUnavailable": "معاينة PDF غير متاحة لهذا المستند.",
-    "syncSaved": "تم الحفظ ✓",
-    "syncSyncing": "جارٍ المزامنة…",
-    "syncOffline": "غير متصل · محفوظ محليًا",
-    "progressSummary": "{{words}} كلمة · {{pages}} صفحة · {{sections}} قسم",
     "milestoneWords": "🎉 {{count}} كلمة!"
   },
   "history": {
@@ -676,6 +677,8 @@
     },
     "micLabel": "الإدخال الصوتي",
     "voiceComingSoon": "الإدخال الصوتي قادم قريبًا.",
+    "listening": "جارٍ الاستماع…",
+    "micDenied": "يلزم إذن الميكروفون والتعرّف على الكلام لإملاء النص.",
     "modeAi": "ذكاء",
     "modeEdit": "تحرير",
     "edit": {

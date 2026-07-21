@@ -205,6 +205,10 @@
     "general": "General",
     "language": "Langue",
     "theme": "Theme",
+    "syncWhileEditing": "Synchroniser pendant l'édition",
+    "syncWhileEditingWarnTitle": "Synchroniser chaque modification ?",
+    "syncWhileEditingWarnMessage": "Votre travail est toujours enregistré sur votre appareil et se synchronise automatiquement quand vous quittez l'éditeur. Activer cette option envoie chaque modification au serveur pendant la frappe, ce qui peut ralentir l'édition. (Bêta)",
+    "syncWhileEditingWarnConfirm": "Activer quand même",
     "aiModel": "Modele IA",
     "notificationsSection": "Notifications",
     "pushNotifications": "Notifications push",
@@ -292,6 +296,7 @@
   },
   "chat": {
     "askPlaceholder": "Posez une question sur votre memoire...",
+    "dismissQuestion": "Ignorer la question",
     "aiWriting": "L'IA ecrit...",
     "thinking": "Reflexion",
     "thinkingEllipsis": "Réflexion…",
@@ -592,10 +597,6 @@
     "cropApply": "Appliquer",
     "pdfFailed": "Impossible de générer le PDF. Veuillez réessayer.",
     "pdfUnavailable": "L'aperçu PDF n'est pas disponible pour ce document.",
-    "syncSaved": "Enregistré ✓",
-    "syncSyncing": "Synchronisation…",
-    "syncOffline": "Hors ligne · enregistré localement",
-    "progressSummary": "{{words}} mots · {{pages}} pages · {{sections}} sections",
     "milestoneWords": "🎉 {{count}} mots !"
   },
   "history": {
@@ -676,6 +677,8 @@
     },
     "micLabel": "Saisie vocale",
     "voiceComingSoon": "La saisie vocale arrive bientôt.",
+    "listening": "Écoute…",
+    "micDenied": "L'autorisation du microphone et de la reconnaissance vocale est nécessaire pour dicter.",
     "modeAi": "IA",
     "modeEdit": "Éditer",
     "edit": {
