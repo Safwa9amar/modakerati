@@ -85,6 +85,8 @@ const CSS = `
     "Noto Naskh Arabic", "Noto Sans Arabic", Tahoma, Arial, sans-serif;
   font-size: 15px; line-height: 1.7; -webkit-user-select: text; }
 .lx-ph { position: absolute; top: 16px; inset-inline-start: 18px; color: #8a8a8a; pointer-events: none; font-size: 15px; }
+.lx-diag { font-family: sans-serif; font-size: 13px; color: #b00020; padding: 8px 18px; background: #fff7f7; border-bottom: 1px solid #eee; }
+.lx-diag div { margin: 2px 0; }
 .lx-p { margin: 0 0 10px; }
 .lx-h1 { font-size: 24px; font-weight: 700; margin: 6px 0 10px; }
 .lx-h2 { font-size: 20px; font-weight: 700; margin: 6px 0 8px; }
@@ -218,6 +220,15 @@ export default function LexicalDomEditor({
   return (
     <LexicalComposer initialConfig={initialConfig}>
       <style>{CSS}</style>
+      {/* TEMP DIAGNOSTIC — pinpoint Arabic tofu: font issue vs bundle-encoding issue.
+          Both lines are plain sans-serif. If (2) renders but (1) is boxes → the raw
+          literal is being corrupted in the bundle (encoding). If BOTH are boxes →
+          the WebView can't draw Arabic at all (font). If both render → the editor's
+          own font stack is the problem. Remove after diagnosis. */}
+      <div className="lx-diag">
+        <div>1 · raw literal: مرحبا بالعالم</div>
+        <div>2 · from codepoints: {String.fromCharCode(0x645, 0x631, 0x62d, 0x628, 0x627, 0x20, 0x628, 0x627, 0x644, 0x639, 0x627, 0x644, 0x645)}</div>
+      </div>
       <div className="lx-root">
         <RichTextPlugin
           contentEditable={<ContentEditable className="lx-content" dir="auto" />}
