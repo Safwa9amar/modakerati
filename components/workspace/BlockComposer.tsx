@@ -38,9 +38,9 @@ interface Props {
  *   • nothing selected → the whole-memoir AI input (IdleAIBar, docked) — but only
  *     as a FALLBACK once the floating AI bubble has been drag-to-X dismissed; while
  *     the bubble is alive it owns whole-memoir AI input instead (see FloatingPill).
- *   • a block selected, keyboard DOWN → nothing docks here; the block-anchored
- *     BlockContextBar floats inline on the block instead (it owns ALL block
- *     formatting tools, keyboard up or down — see OutlineReorderable's Row).
+ *   • a block selected, keyboard DOWN → nothing docks here; the floating bubble
+ *     (FloatingPill screen overlay) owns ALL block formatting tools, keyboard
+ *     up or down — expand it to reach the block's toolset.
  *   • a block selected, keyboard UP → the GLOBAL keyboard-docked toolbar
  *     (GlobalDockBar): block-agnostic document tools only (undo/redo, outline,
  *     prev/next block, page break/setup, thesis-ready) + the pinned ✦ Ask AI.
@@ -391,8 +391,8 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     // prev/next block, page break/setup, thesis-ready) + the pinned ✦ Ask AI.
     // Block FORMATTING tools (bold/align/style/…) are product-decision EXCLUDED
     // here — the floating bubble owns those exclusively, keyboard up or down.
-    // Keyboard DOWN → nothing docks here: the pill floats inline on the selected
-    // block in the outline (see OutlineReorderable's Row), so `surface` stays null
+    // Keyboard DOWN → nothing docks here: the floating bubble (FloatingPill,
+    // screen-level overlay) carries the block tools, so `surface` stays null
     // and the reserved bottom inset collapses (the doc reclaims height).
     surface = <GlobalDockBar thesisId={thesisId} blocks={blocks} />;
   }
