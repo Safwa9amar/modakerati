@@ -137,6 +137,10 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
     if (historyBusy) return;
     const store = useThesisDocStore.getState();
     if (kind === "undo" ? store.undoLocal(thesisId) : store.redoLocal(thesisId)) return;
+    // Server restore requires a clean queue (applyRestoredDoc contract): with ops
+    // still flushing, restoring would race the in-flight echo. The local path
+    // above already handled everything undoable mid-flight — just bail.
+    if ((store.pending[thesisId] ?? 0) > 0) return;
     setHistoryBusy(true);
     try {
       const res = kind === "undo" ? await undoThesisHistory(thesisId) : await redoThesisHistory(thesisId);
