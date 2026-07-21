@@ -11,7 +11,14 @@ import {
   Platform,
   ScrollView,
 } from "react-native";
-import Animated, { useSharedValue, useAnimatedStyle } from "react-native-reanimated";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  useAnimatedScrollHandler,
+  withTiming,
+  interpolate,
+  Easing,
+} from "react-native-reanimated";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useFocusEffect } from "expo-router";
 import * as Device from "expo-device";
@@ -63,6 +70,17 @@ const MUTED = "#777777";
 
 // Round word-count milestones celebrated (once each) as the student writes.
 const WORD_MILESTONES = [500, 1000, 2500, 5000, 10000];
+
+// Auto-hiding header motion (spec: docs/superpowers/specs/2026-07-21-workspace-header-cleanup-design.md §3).
+const HEADER_EASING = Easing.bezier(0.4, 0, 0.2, 1);
+const HEADER_HIDE_MS = 260;
+// Scroll thresholds: hide after this much accumulated downward travel…
+const HEADER_HIDE_AFTER = 30;
+// …but only once the offset is past the top zone; any offset below SHOW_NEAR_TOP pins it shown.
+const HEADER_MIN_OFFSET = 64;
+const HEADER_SHOW_NEAR_TOP = 48;
+// A single upward gesture of at least this much brings it back.
+const HEADER_SHOW_UP = 12;
 
 // Flat text of a block for tap→index matching in the docx-preview fallback view.
 function blockTapText(b: DocBlockDTO): string {
@@ -137,6 +155,66 @@ export default function ThesisWorkspaceScreen() {
   const [pdfDoc, setPdfDoc] = useState<ThesisPdfDTO | undefined>(undefined);
 
   const previewMode = useWorkspaceStore((s) => s.previewMode);
+
+  // ── Auto-hiding header ──
+  // The header row collapses (height + slide + fade, one clipped Animated.View)
+  // while the user scrolls DOWN the Writer, and returns on any real upward
+  // scroll or near the top. Driven entirely on the UI thread: the Writer list's
+  // scroll worklet writes these shared values; JS only forces "shown" on
+  // preview switches. The safe-area spacer above it is static, so the paper
+  // never slides under the status bar.
+  const headerRowH = useSharedValue(0); // natural row height, measured onLayout
+  const headerShown = useSharedValue(1); // animated 0..1
+  const headerTarget = useSharedValue(1); // last commanded target (dedupe)
+  const headerLastY = useSharedValue(0);
+  const headerDownAccum = useSharedValue(0);
+
+  const onWriterScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      const y = e.contentOffset.y;
+      if (y < 0) return; // iOS rubber-band — never react to bounce
+      const dy = y - headerLastY.value;
+      headerLastY.value = y;
+      let target = headerTarget.value;
+      if (y < HEADER_SHOW_NEAR_TOP) {
+        target = 1;
+        headerDownAccum.value = 0;
+      } else if (dy > 0 && y > HEADER_MIN_OFFSET) {
+        headerDownAccum.value += dy;
+        if (headerDownAccum.value > HEADER_HIDE_AFTER) target = 0;
+      } else if (dy < -HEADER_SHOW_UP) {
+        headerDownAccum.value = 0;
+        target = 1;
+      }
+      if (target !== headerTarget.value) {
+        headerTarget.value = target;
+        headerShown.value = withTiming(target, { duration: HEADER_HIDE_MS, easing: HEADER_EASING });
+      }
+    },
+  });
+
+  // Leaving the Writer (Word/PDF preview) → header always visible; their scroll
+  // lives inside WebViews (out of scope v1). Also resets when the thesis changes.
+  useEffect(() => {
+    if (previewMode !== null) {
+      headerTarget.value = 1;
+      headerDownAccum.value = 0;
+      headerShown.value = withTiming(1, { duration: HEADER_HIDE_MS, easing: HEADER_EASING });
+    }
+    // Shared values are stable refs — deps are the real triggers only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewMode, thesisId]);
+
+  const headerAnimStyle = useAnimatedStyle(() => {
+    const h = headerRowH.value;
+    if (h === 0) return {}; // not measured yet → natural layout, fully shown
+    const p = headerShown.value;
+    return {
+      height: h * p,
+      opacity: interpolate(p, [0, 0.35, 1], [0, 0, 1]),
+      transform: [{ translateY: -h * (1 - p) }],
+    };
+  }, []);
 
   // The three live-.docx views stay mounted at once (see the layered doc area), so
   // switching keeps each view's scroll. The PDF is the exception: its render is a
@@ -535,65 +613,76 @@ export default function ThesisWorkspaceScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View style={styles.container}>
-      {/* Top bar */}
-      <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
-        <BackButton />
-        <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-          {title}
-        </Text>
-        {/* Undo / redo: server-side history restores. Disabled while queue ops are
-            pending (positional indices would replay against the restored doc) or
-            while an AI turn is running. */}
-        {liveDoc && (
-          <>
-            <Pressable
-              onPress={() => void runHistory("undo")}
-              // The sheet restores SERVER snapshots — opening it with unflushed
-              // local ops would restore over them, so it stays gated on a clean
-              // queue (as it effectively was before local undo enabled the button).
-              onLongPress={() => {
-                if (pendingOps === 0) setHistoryOpen(true);
-              }}
-              delayLongPress={400}
-              disabled={!undoReady}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={t("workspace.undo", { defaultValue: "Undo" })}
-              style={styles.expandBtn}
-            >
-              <Undo2 size={20} color={undoReady ? colors.textPrimary : colors.textPlaceholder} />
-            </Pressable>
-            <Pressable
-              onPress={() => void runHistory("redo")}
-              disabled={!redoReady}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={t("workspace.redo", { defaultValue: "Redo" })}
-              style={styles.expandBtn}
-            >
-              <Redo2 size={20} color={redoReady ? colors.textPrimary : colors.textPlaceholder} />
-            </Pressable>
-          </>
-        )}
-        {/* Read-only preview (Word / PDF), live docs only — editing is the Writer. */}
-        {liveDoc && <PreviewButton />}
-        {/* Secondary actions (Navigator, Focus, Sources, Export, Composer show/hide,
-            Maximize) collapsed into a single ⋯ overflow menu to declutter the header. */}
-        {liveDoc ? (
-          <HeaderMenuButton
-            onOpenOutline={handleOutlineToggle}
-            onOpenSources={() => useBottomSheet.getState().openSheet("thesis-sources")}
-            onExport={() => {
-              if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
+      {/* Top bar — auto-hides on scroll down in the Writer, returns on scroll up
+          or near the top. The static spacer keeps the safe area (dark background
+          behind the notch); the row itself clips + slides up behind it. */}
+      <View style={{ paddingTop: insets.top }}>
+        <Animated.View style={[styles.topBarClip, headerAnimStyle]}>
+          <View
+            style={styles.topBar}
+            onLayout={(e) => {
+              headerRowH.value = e.nativeEvent.layout.height;
             }}
-            onMaximize={() => {
-              if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
-            }}
-            downloadUrl={liveDoc.downloadUrl}
-          />
-        ) : (
-          <View style={styles.expandBtn} />
-        )}
+          >
+            <BackButton />
+            <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+              {title}
+            </Text>
+            {/* Undo / redo: server-side history restores. Disabled while queue ops are
+                pending (positional indices would replay against the restored doc) or
+                while an AI turn is running. */}
+            {liveDoc && (
+              <>
+                <Pressable
+                  onPress={() => void runHistory("undo")}
+                  // The sheet restores SERVER snapshots — opening it with unflushed
+                  // local ops would restore over them, so it stays gated on a clean
+                  // queue (as it effectively was before local undo enabled the button).
+                  onLongPress={() => {
+                    if (pendingOps === 0) setHistoryOpen(true);
+                  }}
+                  delayLongPress={400}
+                  disabled={!undoReady}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("workspace.undo", { defaultValue: "Undo" })}
+                  style={styles.expandBtn}
+                >
+                  <Undo2 size={20} color={undoReady ? colors.textPrimary : colors.textPlaceholder} />
+                </Pressable>
+                <Pressable
+                  onPress={() => void runHistory("redo")}
+                  disabled={!redoReady}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("workspace.redo", { defaultValue: "Redo" })}
+                  style={styles.expandBtn}
+                >
+                  <Redo2 size={20} color={redoReady ? colors.textPrimary : colors.textPlaceholder} />
+                </Pressable>
+              </>
+            )}
+            {/* Read-only preview (Word / PDF), live docs only — editing is the Writer. */}
+            {liveDoc && <PreviewButton />}
+            {/* Secondary actions (Navigator, Focus, Sources, Export, Composer show/hide,
+                Maximize) collapsed into a single ⋯ overflow menu to declutter the header. */}
+            {liveDoc ? (
+              <HeaderMenuButton
+                onOpenOutline={handleOutlineToggle}
+                onOpenSources={() => useBottomSheet.getState().openSheet("thesis-sources")}
+                onExport={() => {
+                  if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
+                }}
+                onMaximize={() => {
+                  if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
+                }}
+                downloadUrl={liveDoc.downloadUrl}
+              />
+            ) : (
+              <View style={styles.expandBtn} />
+            )}
+          </View>
+        </Animated.View>
       </View>
 
       {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}
@@ -694,6 +783,7 @@ export default function ThesisWorkspaceScreen() {
                 paddingBottom={16}
                 version={docTick}
                 scrollTarget={scrollTarget}
+                onScroll={onWriterScroll}
               />
             </View>
 
@@ -804,6 +894,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   expandIcon: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
+  // Clip container for the auto-hiding header row (height animates; the row
+  // slides up out of it). Measured height comes from the INNER row's onLayout,
+  // which stays at natural size regardless of the clip.
+  topBarClip: { overflow: "hidden" },
   // Full-width, centered overlay host for the milestone toast (top offset applied
   // inline from the safe-area inset). box-none so only the pill itself is a target.
   milestoneHost: { position: "absolute", left: 0, right: 0, alignItems: "center", zIndex: 100 },

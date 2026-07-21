@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, StyleSheet, type FlatList, type ViewToken } from "react-native";
+import { View, StyleSheet, type FlatList, type ScrollViewProps, type ViewToken } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from "react-native-reanimated";
 import ReorderableList, {
   useReorderableDrag,
@@ -136,6 +136,7 @@ function OutlineReorderableInner({
   paddingBottom,
   version,
   scrollTarget,
+  onScroll,
 }: {
   thesisId: string;
   blocks: DocBlockDTO[];
@@ -147,6 +148,10 @@ function OutlineReorderableInner({
   // Pending "scroll to this block" request from the outline navigator (nonce
   // bumps per request so the same heading re-scrolls).
   scrollTarget?: { index: number; nonce: number } | null;
+  // Scroll passthrough for the workspace's auto-hiding header. Safe to pass a
+  // Reanimated handler: react-native-reorderable-list composes it with its own
+  // internal scroll worklet (useComposedEventHandler in ReorderableListCore).
+  onScroll?: ScrollViewProps["onScroll"];
 }) {
   const { t } = useTranslation();
   const [data, setData] = useState(blocks);
@@ -252,6 +257,10 @@ function OutlineReorderableInner({
       style={styles.list}
       contentContainerStyle={[styles.content, { paddingBottom }]}
       showsVerticalScrollIndicator={false}
+      // NOTE: react-native-reorderable-list omits `scrollEventThrottle` from its
+      // props (it hardcodes its own internal throttle) and composes this handler
+      // with its own scroll worklet via useComposedEventHandler.
+      onScroll={onScroll}
       // Keep the keyboard up when tapping straight from one editing block to
       // another (or onto a toolbar button); a tap on empty space dismisses it.
       keyboardShouldPersistTaps="handled"
