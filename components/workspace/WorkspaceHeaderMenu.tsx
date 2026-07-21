@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   MoreHorizontal,
   ListTree,
+  Search,
   Focus,
   Library,
   Download,
@@ -29,12 +30,14 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
  */
 export function HeaderMenuButton({
   onOpenOutline,
+  onOpenSearch,
   onOpenSources,
   onExport,
   onMaximize,
   downloadUrl,
 }: {
   onOpenOutline: () => void;
+  onOpenSearch: () => void;
   onOpenSources: () => void;
   onExport: () => void;
   onMaximize: () => void;
@@ -87,6 +90,12 @@ export function HeaderMenuButton({
               label={t("workspace.outline", { defaultValue: "Outline" })}
               color={colors.textPrimary}
               onPress={run(onOpenOutline)}
+            />
+            <Row
+              icon={Search}
+              label={t("workspace.searchTitle", { defaultValue: "Search" })}
+              color={colors.textPrimary}
+              onPress={run(onOpenSearch)}
             />
             <Row
               icon={Focus}

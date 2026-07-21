@@ -15,6 +15,7 @@ import {
   SquareSplitVertical,
   RectangleHorizontal,
   BadgeCheck,
+  Search,
   Sparkles,
   RotateCw,
   Scaling,
@@ -30,6 +31,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useSearchStore } from "@/stores/search-store";
 import {
   undoThesisHistory,
   redoThesisHistory,
@@ -158,6 +160,14 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
   const openOutline = () => {
     Keyboard.dismiss();
     useNavDrawerStore.getState().toggleDrawer();
+  };
+
+  // ── Document search (top-pinned panel; Writer-only v1 → closes any preview) ──
+  const openSearch = () => {
+    Keyboard.dismiss();
+    const ws = useWorkspaceStore.getState();
+    if (ws.previewMode != null) ws.closePreview();
+    useSearchStore.getState().openSearch();
   };
 
   // ── Prev / next block navigation ──
@@ -421,20 +431,27 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
               enterIndex: 5,
               onPress: () => navigate("next"),
             })}
+            {chip({
+              keyProp: "search",
+              Icon: Search,
+              accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }),
+              enterIndex: 6,
+              onPress: openSearch,
+            })}
             {sep("s3")}
             {chip({
               keyProp: "pageBreak",
               Icon: SquareSplitVertical,
               accessibilityLabel: t("ribbon.tools.pageBreak", { defaultValue: "Page break" }),
               disabled: !pageBreakIndices.length,
-              enterIndex: 6,
+              enterIndex: 7,
               onPress: insertPageBreak,
             })}
             {chip({
               keyProp: "pageSetup",
               Icon: RectangleHorizontal,
               accessibilityLabel: t("ribbon.grp.pageSetup", { defaultValue: "Page setup" }),
-              enterIndex: 7,
+              enterIndex: 8,
               onPress: () => setPageSetupOpen((v) => !v),
             })}
             {chip({
@@ -442,7 +459,7 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
               Icon: BadgeCheck,
               accessibilityLabel: t("ribbon.tools.thesisReady", { defaultValue: "Thesis-ready" }),
               busy: formatting,
-              enterIndex: 8,
+              enterIndex: 9,
               onPress: () => void runFormatThesis(),
             })}
           </View>
