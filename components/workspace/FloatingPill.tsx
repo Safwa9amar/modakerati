@@ -270,13 +270,19 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     const configured = expanded
       ? base.activeOffsetY([-12, 12]).failOffsetX([-16, 16])
       : base.minDistance(10);
+    // Explicit "worklet" directives: splitting the builder chain across variables
+    // (base/configured) defeats the Babel plugin's auto-workletization, which only
+    // recognizes callbacks chained directly on Gesture.Xxx() — without these the
+    // callbacks silently run on the JS thread (RNGH warns).
     return configured
         .onStart(() => {
+          "worklet";
           startTX.value = tx.value;
           startTY.value = ty.value;
           dragActive.value = withTiming(1, { duration: 140 });
         })
         .onUpdate((e) => {
+          "worklet";
           tx.value = startTX.value + e.translationX;
           ty.value = startTY.value + e.translationY;
           // Hit test: pill center vs target center.
@@ -290,6 +296,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           }
         })
         .onEnd(() => {
+          "worklet";
           if (overTarget.value > 0.5) {
             overTarget.value = 0;
             runOnJS(dismiss)();
@@ -304,6 +311,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           runOnJS(persistPos)({ x: clampedX, y: clampedY });
         })
         .onFinalize(() => {
+          "worklet";
           // Always settle the target chrome, even on a cancelled/interrupted drag
           // that never reaches onEnd — otherwise the X target stays visible.
           dragActive.value = withTiming(0, { duration: 140 });
