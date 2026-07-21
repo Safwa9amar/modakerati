@@ -17,6 +17,7 @@ export default function AppLayout() {
     <Stack.Screen name="thesis-detail" />
     <Stack.Screen name="thesis-workspace" />
     <Stack.Screen name="block-editor" />
+    <Stack.Screen name="lexical-lab" />
     <Stack.Screen name="news" />
     <Stack.Screen name="news-detail" />
     <Stack.Screen name="export" />

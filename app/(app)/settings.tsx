@@ -14,7 +14,7 @@ import { Card } from "@/components/ui/Card";
 import {
   Globe, Moon, Sun, Bell, Sparkles, Clock,
   Trash2, AlertTriangle, RefreshCw,
-  Info, FileText, Shield, ChevronRight, ChevronDown, Check,
+  Info, FileText, Shield, ChevronRight, ChevronDown, Check, FlaskConical,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 
@@ -169,6 +169,23 @@ export default function SettingsScreen() {
         { icon: Shield, iconColor: colors.textSecondary, label: t("settings.privacy"), type: "chevron", onPress: () => router.push("/(app)/privacy-policy" as any) },
       ],
     },
+    // Dev-only: reach the Lexical rich-text spike (native bubble ⇄ web editor).
+    ...(__DEV__
+      ? [
+          {
+            title: "Developer",
+            rows: [
+              {
+                icon: FlaskConical,
+                iconColor: colors.brandPrimary,
+                label: "Lexical Lab",
+                type: "chevron" as const,
+                onPress: () => router.push("/(app)/lexical-lab" as any),
+              },
+            ],
+          },
+        ]
+      : []),
   ];
 
   return (
