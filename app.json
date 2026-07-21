@@ -34,7 +34,14 @@
           "color": "#5C6BFF"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Modakerati uses your microphone to dictate text into your thesis.",
+          "speechRecognitionPermission": "Modakerati uses speech recognition to turn your voice into text in your thesis."
+        }
+      ]
     ]
   }
 }
