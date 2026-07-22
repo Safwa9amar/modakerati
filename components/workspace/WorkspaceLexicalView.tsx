@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, AppState } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
@@ -70,14 +70,16 @@ export function WorkspaceLexicalView({
   // Outline-drawer navigation target (heading tapped in the Structure drawer).
   const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
   // Inline-AI: the pending AI proposal (if any) to render as an in-flow node in
-  // Lexical. Streams as the AI writes (proposed/status update).
-  const suggestion = useSuggestionStore((s) => {
-    const keys = Object.keys(s.byIndex);
+  // Lexical. Select the STABLE byIndex ref (a fresh-object selector loops — see
+  // the zustand Object.is trap) and derive the proposal in useMemo.
+  const byIndex = useSuggestionStore((s) => s.byIndex);
+  const suggestion = useMemo(() => {
+    const keys = Object.keys(byIndex);
     if (!keys.length) return null;
     const idx = Number(keys[0]);
-    const p = s.byIndex[idx];
+    const p = byIndex[idx];
     return { index: idx, original: p.original, proposed: p.proposed, status: p.status as string };
-  });
+  }, [byIndex]);
   const suggestionActiveRef = useRef(false);
   suggestionActiveRef.current = !!suggestion;
 
