@@ -137,6 +137,16 @@ export function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: Thes
       }
       pos++;
     } else if (step.op === "del") {
+      // NEVER delete a structural block (table/image/other) through the text-sync
+      // path. The Writer has no text-level gesture that legitimately removes one —
+      // deletion is explicit via the bubble (op queue). So a `del` on a non-paragraph
+      // is always a serialize artifact (a decorator momentarily dropped from the
+      // tree, e.g. a stray backspace), and emitting deleteBlocks here would wipe the
+      // table/image from the .docx. Keep it: leave it in `sim` and step past it — the
+      // next reseed restores it in the editor. (Mirrors the insert branch, which
+      // already refuses non-paragraphs.)
+      const delB = sim[pos];
+      if (delB && delB.kind !== "paragraph") { unsupported.push(`skip-delete ${delB.kind} @${pos}`); pos++; continue; }
       emit({ type: "deleteBlocks", indices: [pos] });
     } else {
       const newB = target[step.bi!];
