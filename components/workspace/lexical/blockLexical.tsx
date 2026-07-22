@@ -16,6 +16,8 @@ import {
   $getRoot,
   $createParagraphNode,
   $createTextNode,
+  $createNodeSelection,
+  $setSelection,
   $isParagraphNode,
   $isTextNode,
   createCommand,
@@ -106,10 +108,15 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
   // Render the real content (table grid / inline image) so a real thesis LOOKS
   // right — while the block stays opaque to editing and round-trips verbatim via
   // __block. Large figures (media not inlined as dataUri) show a placeholder.
-  decorate(): React.ReactNode {
+  // Wrapped in a tap-to-SELECT surface: a structural block can't hold a text caret,
+  // so tapping it sets a NodeSelection → the native side shows THIS block's kind
+  // tools (image/table/…), just like tapping a paragraph shows the text tools.
+  decorate(editor: LexicalEditor): React.ReactNode {
     const b = this.__block;
+    const key = this.getKey();
+    let content: React.ReactNode;
     if (b.kind === "table") {
-      return React.createElement(
+      content = React.createElement(
         "table",
         { style: { borderCollapse: "collapse", width: "100%", fontSize: "13px", margin: "6px 0" } },
         React.createElement(
@@ -126,11 +133,18 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
           ),
         ),
       );
+    } else if (b.kind === "image") {
+      content = React.createElement(Figure, { block: b });
+    } else {
+      content = React.createElement("div", { style: PLACEHOLDER }, `⋯ ${b.kind === "other" ? b.tag : b.kind}`);
     }
-    if (b.kind === "image") {
-      return React.createElement(Figure, { block: b });
-    }
-    return React.createElement("div", { style: PLACEHOLDER }, `⋯ ${b.kind === "other" ? b.tag : b.kind}`);
+    const pick = () =>
+      editor.update(() => {
+        const ns = $createNodeSelection();
+        ns.add(key);
+        $setSelection(ns);
+      });
+    return React.createElement("div", { className: "lx-blockpick", onClick: pick }, content);
   }
   exportJSON(): SerializedBlockDataNode {
     return { ...super.exportJSON(), type: "block-data", version: 1, block: this.__block };

@@ -177,6 +177,10 @@ const CSS = `
    reads as a continuous band across the small inter-paragraph gaps without
    reflowing the text. */
 .lx-selected { background: rgba(52, 120, 246, 0.20); border-radius: 3px; box-shadow: 0 0 0 4px rgba(52, 120, 246, 0.20); }
+/* Tappable structural block (table/image/other) — tap to select it and reveal its
+   kind tools; a pressed ring gives feedback that it's an interactive target. */
+.lx-blockpick { cursor: pointer; border-radius: 6px; transition: box-shadow 120ms ease; }
+.lx-blockpick:active { box-shadow: 0 0 0 3px rgba(52, 120, 246, 0.28); }
 /* Floating per-block bubble — a kind-icon bubble that expands to the pill of that
    block's tools (mirrors the native FloatingPill → BlockContextBar). */
 .lx-tb-anchor { position: fixed; z-index: 40; }
@@ -413,6 +417,19 @@ function EditorBridge({
       let payload: LexicalState = { bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, alignment: null, index: -1, text: "", y: -1 };
       editorState.read(() => {
         const sel = $getSelection();
+        // A structural block (table/image/other) tapped → NodeSelection on its
+        // BlockDataNode. Report it as a single-block selection of THAT block's kind
+        // so the native pill shows the image/table/… toolset.
+        if ($isNodeSelection(sel)) {
+          const nodes = sel.getNodes();
+          const bd = nodes.length === 1 && $isBlockDataNode(nodes[0]) ? nodes[0] : null;
+          if (bd) {
+            const idx = $rootChildBlockIndex(bd);
+            key = bd.getKey();
+            payload = { bold: false, italic: false, underline: false, blockType: bd.getBlock().kind, isRTL: false, alignment: null, index: idx, text: "", blocks: [{ index: idx, text: "" }], y: -1 };
+          }
+          return;
+        }
         if (!$isRangeSelection(sel)) return;
         const anchor = sel.anchor.getNode();
         const top = anchor.getKey() === "root" ? null : anchor.getTopLevelElement();
@@ -653,6 +670,17 @@ function $nodeAtBlockIndex(idx: number): ElementNode | null {
   }
   return null;
 }
+// Block-model index (lists expanded) of a DIRECT root child — e.g. a structural
+// BlockDataNode (table/image/other) that a NodeSelection targets.
+function $rootChildBlockIndex(node: LexicalNode): number {
+  let acc = 0;
+  for (const child of $getRoot().getChildren()) {
+    if (child === node) return acc;
+    acc += $isListNode(child) ? listItemsOf(child).length : 1;
+  }
+  return -1;
+}
+
 // Block-model index (lists expanded) of the block CONTAINING a node — its list
 // item if it sits inside a list, else its top-level element. -1 if detached.
 function $blockIndexOfNode(node: LexicalNode): number {
