@@ -63,6 +63,8 @@ export function WorkspaceLexicalView({
   const doc = useThesisDocStore((s) => s.byId[thesisId]);
   const syncedDocRef = useRef<DocumentDTO | undefined>(undefined);
   const inited = useRef(false);
+  // Outline-drawer navigation target (heading tapped in the Structure drawer).
+  const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
 
   const send = useCallback((type: string, value?: string) => {
     setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
@@ -172,6 +174,7 @@ export function WorkspaceLexicalView({
           onState={onState}
           onBlocks={onBlocks}
           reseed={reseed}
+          scrollToIndex={scrollTarget ? { index: scrollTarget.index, nonce: scrollTarget.nonce } : undefined}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />
         {/* Auto-save status (no manual button — background sync on pause / exit). */}

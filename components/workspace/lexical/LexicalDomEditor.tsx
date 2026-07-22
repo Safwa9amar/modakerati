@@ -144,11 +144,13 @@ function EditorBridge({
   onState,
   onBlocks,
   reseed,
+  scrollToIndex,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
   onBlocks?: (blocks: DocBlockDTO[]) => void;
   reseed?: { blocks: DocBlockDTO[]; nonce: number };
+  scrollToIndex?: { index: number; nonce: number };
 }) {
   const [editor] = useLexicalComposerContext();
 
@@ -160,6 +162,18 @@ function EditorBridge({
     editor.update(() => { $blocksToLexical(reseed.blocks); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reseed?.nonce]);
+
+  // Outline-drawer navigation: scroll the block at `index` into view.
+  useEffect(() => {
+    if (!scrollToIndex || scrollToIndex.index < 0) return;
+    let key: string | null = null;
+    editor.getEditorState().read(() => {
+      const n = $getRoot().getChildren()[scrollToIndex.index];
+      key = n ? n.getKey() : null;
+    });
+    if (key) editor.getElementByKey(key)?.scrollIntoView({ block: "start" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToIndex?.nonce]);
 
   // Apply the latest command. Keyed on nonce so a repeated tap re-fires.
   useEffect(() => {
@@ -401,6 +415,7 @@ export default function LexicalDomEditor({
   onBlocks,
   initialBlocks,
   reseed,
+  scrollToIndex,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -411,6 +426,8 @@ export default function LexicalDomEditor({
   // In-place reconcile trigger: on nonce change, rebuild content from `blocks`
   // WITHOUT remounting (used to reflect external native/AI edits).
   reseed?: { blocks: DocBlockDTO[]; nonce: number };
+  // Outline-drawer navigation: on nonce change, scroll the block at `index` into view.
+  scrollToIndex?: { index: number; nonce: number };
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -434,7 +451,7 @@ export default function LexicalDomEditor({
         />
         <HistoryPlugin />
         <ListPlugin />
-        <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} />
+        <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} scrollToIndex={scrollToIndex} />
       </div>
     </LexicalComposer>
   );
