@@ -134,13 +134,18 @@ const CSS = `
 .lx-tb-sw { width: 16px; height: 16px; border-radius: 8px; border: 1px solid #d8d8de; display: block; }
 .lx-tb-lbl { font-size: 11px; color: #8a8a8a; padding: 0 6px; flex: 0 0 auto; }
 /* Inline AI suggestion node (in the content flow, under its block). */
-.lx-sug { border: 1px solid #c9d2f0; border-radius: 10px; padding: 10px 12px; margin: 6px 0; background: #f6f8ff; }
-.lx-sug-head { font-size: 11px; font-weight: 700; color: #4b57c4; letter-spacing: .04em; margin-bottom: 6px; }
-.lx-sug-body { font-size: 15px; color: #1a1a1a; line-height: 1.6; border-inline-start: 3px solid #22c07a; padding-inline-start: 10px; }
-.lx-sug-bar { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
-.lx-sug-btn { border: 1px solid #d8d8de; background: #fff; color: #333; border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
-.lx-sug-btn:disabled { opacity: .5; }
-.lx-sug-ok { background: #22c07a; border-color: #22c07a; color: #fff; }
+/* Inline AI suggestion — matches native InlineSuggestion: no box, proposal reads
+   as the paragraph with a green edge, original as a faded teaser, clean pill. */
+.lx-sug { margin: 8px 0; }
+.lx-sug-proposed { font-size: 15px; line-height: 1.7; color: #16171d; border-inline-start: 3px solid #22c07a; padding-inline-start: 12px; }
+.lx-sug-proposed.lx-sug-loading { color: #9a9aa2; }
+.lx-sug-add { background: rgba(34,192,122,.16); border-radius: 4px; padding: 0 1px; }
+.lx-sug-orig { font-size: 12.5px; line-height: 1.55; color: #9a9aa2; padding-inline-start: 12px; margin-top: 5px; }
+.lx-sug-note { font-size: 12.5px; color: #b0562f; padding-inline-start: 12px; margin-top: 5px; }
+.lx-sug-bar { display: flex; align-items: center; gap: 8px; padding-inline-start: 12px; margin-top: 10px; }
+.lx-sug-approve { display: inline-flex; align-items: center; gap: 5px; background: #22c07a; color: #fff; border: none; border-radius: 999px; padding: 8px 18px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.lx-sug-approve:disabled { opacity: .5; }
+.lx-sug-reject { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; background: #fff; border: 1px solid #e4e5ee; color: #8a8a92; border-radius: 999px; font-size: 15px; cursor: pointer; }
 `;
 
 // Seed a little bilingual content so RTL auto-detection is visible immediately.
@@ -428,9 +433,26 @@ function FloatingToolbar() {
   );
 }
 
-// Renders a pending AI proposal as an IN-FLOW node right after its block (not an
-// absolute overlay), driven by the native suggestion store via the `suggestion`
-// prop; Approve/Reject dispatch commands that call back to native `onSuggestAction`.
+// Rebuild the original block node from a suggestion's captured type/text — used to
+// restore it when a proposal is rejected (approve routes through the sync layer,
+// which reseeds the whole doc from server truth anyway).
+function rebuildOriginal(text: string, origType: string) {
+  const el =
+    origType === "h1" || origType === "h2" || origType === "h3"
+      ? $createHeadingNode(origType as HeadingTagType)
+      : origType === "quote"
+        ? $createQuoteNode()
+        : $createParagraphNode();
+  if (text) el.append($createTextNode(text));
+  return el;
+}
+
+// Renders a pending AI proposal IN PLACE OF its block (matching the native
+// InlineSuggestion — proposal as the paragraph, original teaser, ✓ Approve / ✕
+// pill), driven by the native suggestion store via the `suggestion` prop. The
+// SuggestionNode captures the replaced block's type so reject can restore it, and
+// $lexicalToBlocks reports the original text for it (so a flush never drops the
+// block). Approve/Reject dispatch commands that call back to `onSuggestAction`.
 function SuggestionPlugin({
   suggestion,
   onSuggestAction,
@@ -451,11 +473,23 @@ function SuggestionPlugin({
     editor.update(() => {
       const root = $getRoot();
       const existing = root.getChildren().find($isSuggestionNode);
-      if (!suggestion || suggestion.index < 0) { if (existing) existing.remove(); return; }
+      // Cleared (approve or reject): restore the original block. On approve the
+      // ensuing sync-layer reseed overwrites this with server truth; on reject it stands.
+      if (!suggestion || suggestion.index < 0) {
+        if (existing) existing.replace(rebuildOriginal(existing.__sug.original, existing.__origType));
+        return;
+      }
       const data = { original: suggestion.original, proposed: suggestion.proposed, status: suggestion.status };
-      if (existing) { existing.getWritable().__sug = data; return; }
+      if (existing) { existing.getWritable().__sug = data; return; } // stream in place
       const target = root.getChildren()[suggestion.index];
-      if (target) target.insertAfter($createSuggestionNode(data));
+      if (target) {
+        const origType = $isHeadingNode(target)
+          ? target.getTag()
+          : target.getType() === "quote"
+            ? "quote"
+            : "paragraph";
+        target.replace($createSuggestionNode(data, origType));
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.index, suggestion?.proposed, suggestion?.status]);

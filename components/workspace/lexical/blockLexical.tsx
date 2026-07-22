@@ -133,46 +133,70 @@ export function $isBlockDataNode(node: LexicalNode | null | undefined): node is 
   return node instanceof BlockDataNode;
 }
 
-// ── AI suggestion node (transient inline proposal, in the content flow) ───────
+// ── AI suggestion node (in-place proposal, replaces its block; matches the
+// native InlineSuggestion look — proposal as the paragraph with a green edge, the
+// original as a faded teaser, and a clean ✓ Approve / ✕ pill). ─────────────────
 export const SUGGEST_APPROVE_COMMAND: LexicalCommand<void> = createCommand("SUGGEST_APPROVE");
 export const SUGGEST_REJECT_COMMAND: LexicalCommand<void> = createCommand("SUGGEST_REJECT");
 export type SugData = { original: string; proposed: string; status: string };
-type SerializedSuggestionNode = SerializedLexicalNode & { sug: SugData };
+type SerializedSuggestionNode = SerializedLexicalNode & { sug: SugData; origType: string };
+
+// Word-level diff → highlight added words in the proposal (green) so the change
+// reads at a glance, like the native diff marks.
+function diffedProposed(original: string, proposed: string): React.ReactNode {
+  const o = new Set(original.split(/\s+/).filter(Boolean));
+  const words = proposed.split(/(\s+)/);
+  return words.map((w, i) =>
+    w.trim() && !o.has(w.trim())
+      ? React.createElement("span", { key: i, className: "lx-sug-add" }, w)
+      : w,
+  );
+}
 
 function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }) {
   const loading = sug.status === "loading" && !sug.proposed;
   const err = sug.status === "error";
+  const showDiff = !err && !!sug.proposed && sug.original !== sug.proposed;
   return React.createElement(
     "div",
     { className: "lx-sug" },
-    React.createElement("div", { className: "lx-sug-head" }, "✦ AI suggestion"),
-    React.createElement("div", { className: "lx-sug-body" }, err ? "Couldn’t generate a suggestion." : loading ? "thinking…" : sug.proposed || sug.original),
+    React.createElement(
+      "div",
+      { className: "lx-sug-proposed" + (loading ? " lx-sug-loading" : ""), dir: "auto" },
+      err ? sug.original : loading ? "…" : showDiff ? diffedProposed(sug.original, sug.proposed) : sug.proposed || sug.original,
+    ),
+    err
+      ? React.createElement("div", { className: "lx-sug-note" }, "Couldn’t generate a suggestion — reject to dismiss.")
+      : showDiff
+        ? React.createElement("div", { className: "lx-sug-orig", dir: "auto" }, sug.original)
+        : null,
     React.createElement(
       "div",
       { className: "lx-sug-bar" },
-      React.createElement("button", { className: "lx-sug-btn", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) }, "Reject"),
       React.createElement(
         "button",
-        { className: "lx-sug-btn lx-sug-ok", disabled: loading || err, onClick: () => editor.dispatchCommand(SUGGEST_APPROVE_COMMAND, undefined) },
-        "Approve",
+        { className: "lx-sug-approve", disabled: loading || err, onClick: () => editor.dispatchCommand(SUGGEST_APPROVE_COMMAND, undefined) },
+        "✓ Approve",
       ),
+      React.createElement("button", { className: "lx-sug-reject", title: "Reject", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) }, "✕"),
     ),
   );
 }
 
 export class SuggestionNode extends DecoratorNode<React.ReactNode> {
   __sug: SugData;
+  __origType: string; // the replaced block's type (paragraph|h1|h2|h3|quote) — for restore/serialize
   static getType(): string { return "ai-suggestion"; }
-  static clone(n: SuggestionNode): SuggestionNode { return new SuggestionNode(n.__sug, n.__key); }
-  constructor(sug: SugData, key?: NodeKey) { super(key); this.__sug = sug; }
+  static clone(n: SuggestionNode): SuggestionNode { return new SuggestionNode(n.__sug, n.__origType, n.__key); }
+  constructor(sug: SugData, origType: string, key?: NodeKey) { super(key); this.__sug = sug; this.__origType = origType; }
   createDOM(): HTMLElement { const el = document.createElement("div"); el.style.margin = "4px 0"; return el; }
   updateDOM(): false { return false; }
   isInline(): false { return false; }
   decorate(editor: LexicalEditor): React.ReactNode { return React.createElement(SuggestionView, { sug: this.getLatest().__sug, editor }); }
-  exportJSON(): SerializedSuggestionNode { return { ...super.exportJSON(), type: "ai-suggestion", version: 1, sug: this.__sug }; }
-  static importJSON(j: SerializedSuggestionNode): SuggestionNode { return new SuggestionNode(j.sug); }
+  exportJSON(): SerializedSuggestionNode { return { ...super.exportJSON(), type: "ai-suggestion", version: 1, sug: this.__sug, origType: this.__origType }; }
+  static importJSON(j: SerializedSuggestionNode): SuggestionNode { return new SuggestionNode(j.sug, j.origType ?? "paragraph"); }
 }
-export function $createSuggestionNode(sug: SugData): SuggestionNode { return new SuggestionNode(sug); }
+export function $createSuggestionNode(sug: SugData, origType = "paragraph"): SuggestionNode { return new SuggestionNode(sug, origType); }
 export function $isSuggestionNode(n: LexicalNode | null | undefined): n is SuggestionNode { return n instanceof SuggestionNode; }
 
 // ── Alignment mapping (engine "both" == Lexical "justify") ───────────────────
@@ -225,7 +249,14 @@ export function $blocksToLexical(blocks: DocBlockDTO[]): void {
 export function $lexicalToBlocks(): DocBlockDTO[] {
   const out: DocBlockDTO[] = [];
   for (const node of $getRoot().getChildren()) {
-    if ($isSuggestionNode(node)) continue; // transient AI proposal — not a document block
+    if ($isSuggestionNode(node)) {
+      // A pending proposal occupies its block's slot — serialize the ORIGINAL block
+      // (unapplied) so a flush while it's showing never drops or mutates the block.
+      const st = node.__origType;
+      const level = st === "h1" ? 1 : st === "h2" ? 2 : st === "h3" ? 3 : 0;
+      out.push({ index: 0, kind: "paragraph", text: node.__sug.original, styleId: level ? `Heading${level}` : "Normal", level, alignment: null, direction: null });
+      continue;
+    }
     if ($isBlockDataNode(node)) {
       out.push({ ...node.getBlock() });
       continue;

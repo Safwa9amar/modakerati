@@ -225,8 +225,6 @@ export function WorkspaceLexicalView({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#ffffff" },
   editorWrap: { flex: 1, position: "relative" },
-  // Covers the suggested block on the paper with the native inline-suggestion UI.
-  sugOverlay: { position: "absolute", left: 0, right: 0, paddingHorizontal: 12, backgroundColor: "#ffffff" },
   saveRow: { position: "absolute", top: 8, right: 10, flexDirection: "row", alignItems: "center", gap: 8 },
   banner: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, maxWidth: 220 },
   bannerText: { fontSize: 11, fontFamily: "Inter_500Medium" },
