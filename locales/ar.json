@@ -1,4 +1,26 @@
 {
+  "tableAI": {
+    "proposal": "اقتراح الذكاء الاصطناعي",
+    "original": "الأصل — قبل التعديل",
+    "thought": "فكّر لمدة {s} ث",
+    "thinking": "يفكر…",
+    "approve": "موافق",
+    "compare": "قارن",
+    "showProposal": "الاقتراح",
+    "again": "مجددًا",
+    "reject": "رفض",
+    "send": "إرسال",
+    "notePlaceholder": "ملاحظة للمحاولة الجديدة…",
+    "failed": "فشل الاقتراح",
+    "retry": "إعادة المحاولة"
+  },
+  "aiDock": {
+    "table": {
+      "checkNumbers": "تحقّق من الأرقام",
+      "addTotals": "أضف صف المجموع",
+      "format": "نسّق الجدول"
+    }
+  },
   "blockBar": {
     "style": "النمط",
     "align": "المحاذاة",
@@ -266,6 +288,16 @@
     "completed": "مكتملة",
     "archived": "مؤرشفة",
     "thesisStructure": "هيكل المذكرة",
+    "tabContents": "المحتويات",
+    "tabTables": "الجداول",
+    "tabFigures": "الأشكال",
+    "tableN": "جدول {{n}}",
+    "figureN": "شكل {{n}}",
+    "tableSize": "{{rows}} × {{cols}}",
+    "noTables": "لا توجد جداول في هذا المستند بعد.",
+    "noFigures": "لا توجد أشكال في هذا المستند بعد.",
+    "searchTables": "البحث في الجداول",
+    "searchFigures": "البحث في الأشكال",
     "addChapter": "إضافة",
     "done": "مكتمل",
     "inProgress": "قيد التنفيذ",

@@ -92,11 +92,52 @@ export interface TableProposalData {
   originalRows: string[][];
   newRows: string[][];
   diff: TableDiff;
+  /** How long the model reasoned, ms — the "Thought for Xs" chip. */
+  thoughtMs?: number | null;
 }
+// Every user-visible proposal string, resolved NATIVE-side via i18next (the DOM
+// bundle has no i18n instance) and passed through the tableLabels prop — the app
+// is trilingual (ar/fr/en). English here is only the standalone fallback.
+export interface TableAILabels {
+  proposal: string;
+  original: string;
+  /** "{s}" is replaced with the whole seconds the model reasoned. */
+  thought: string;
+  thinking: string;
+  approve: string;
+  compare: string;
+  showProposal: string;
+  again: string;
+  reject: string;
+  send: string;
+  notePlaceholder: string;
+  failed: string;
+  retry: string;
+}
+export const TABLE_AI_LABELS_EN: TableAILabels = {
+  proposal: "AI suggestion",
+  original: "Original — before changes",
+  thought: "Thought for {s}s",
+  thinking: "Thinking…",
+  approve: "Approve",
+  compare: "Compare",
+  showProposal: "Proposal",
+  again: "Again",
+  reject: "Reject",
+  send: "Send",
+  notePlaceholder: "Note for the retry…",
+  failed: "Suggestion failed",
+  retry: "Retry",
+};
 export const TableProposalContext = React.createContext<{
   proposal: TableProposalData | null;
   loadingIndex: number | null;
-  onAction: (action: "approve" | "reject" | "again", note?: string) => void;
+  /** Reasoning streamed so far for the in-flight request (live thinking panel). */
+  thinking: string;
+  /** Block index the last failed request targeted → inline error + retry. */
+  errorIndex: number | null;
+  labels: TableAILabels;
+  onAction: (action: "approve" | "reject" | "again" | "retry", note?: string) => void;
 } | null>(null);
 
 const FIGURE_STYLE: React.CSSProperties = { maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", display: "block", margin: "8px auto" };
@@ -161,6 +202,47 @@ function PillBtn({ label, tone, onPress }: { label: string; tone?: "ok" | "no"; 
   );
 }
 
+// Live reasoning while the model works — a small auto-scrolling trace under the
+// dimmed table, mirroring the paragraph inline suggestion's ThinkingTrace.
+function ThinkingPanel({ text, label }: { text: string; label: string }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [text]);
+  return React.createElement(
+    "div",
+    { style: { margin: "6px 0" } },
+    React.createElement(
+      "div",
+      { style: { display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11.5px", color: "#4f46e5", background: "#eef2ff", borderRadius: "999px", padding: "3px 10px", marginBottom: "4px" } },
+      `✦ ${label}`,
+    ),
+    text
+      ? React.createElement(
+          "div",
+          {
+            ref,
+            dir: "auto",
+            style: {
+              maxHeight: "84px",
+              overflowY: "auto",
+              border: "1px solid #e4e4ea",
+              borderRadius: "8px",
+              padding: "6px 10px",
+              fontSize: "11.5px",
+              lineHeight: 1.5,
+              color: "#6b7280",
+              fontStyle: "italic",
+              whiteSpace: "pre-wrap",
+            },
+          },
+          text,
+        )
+      : null,
+  );
+}
+
 // DIFF MODE: the proposed grid with cell-level highlights + the action pill.
 // Added rows/cols green; edited cells amber with the struck old value inside;
 // removed rows/cols as red struck ghosts at their mapped positions. Compare
@@ -169,12 +251,14 @@ function ProposalDiffTable({
   proposal,
   dir,
   loading,
+  labels: L,
   onAction,
 }: {
   proposal: TableProposalData;
   dir?: "rtl" | "ltr";
   loading: boolean;
-  onAction: (action: "approve" | "reject" | "again", note?: string) => void;
+  labels: TableAILabels;
+  onAction: (action: "approve" | "reject" | "again" | "retry", note?: string) => void;
 }) {
   const [compare, setCompare] = React.useState(false);
   const [againOpen, setAgainOpen] = React.useState(false);
@@ -283,16 +367,20 @@ function ProposalDiffTable({
     React.createElement(
       "div",
       { style: { display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11.5px", color: "#4f46e5", background: "#eef2ff", borderRadius: "999px", padding: "3px 10px", marginBottom: "2px" } },
-      compare ? "✦ الأصل — قبل التعديل" : "✦ اقتراح الذكاء الاصطناعي",
+      compare
+        ? `✦ ${L.original}`
+        : proposal.thoughtMs != null
+          ? `✦ ${L.thought.replace("{s}", String(Math.max(1, Math.round(proposal.thoughtMs / 1000))))}`
+          : `✦ ${L.proposal}`,
     ),
     grid,
     React.createElement(
       "div",
       { style: { display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" } },
-      React.createElement(PillBtn, { label: "✓ موافق", tone: "ok", onPress: () => onAction("approve") }),
-      React.createElement(PillBtn, { label: compare ? "⇄ الاقتراح" : "⇄ قارن", onPress: () => setCompare((v) => !v) }),
-      React.createElement(PillBtn, { label: "↻ مجددًا", onPress: () => setAgainOpen((v) => !v) }),
-      React.createElement(PillBtn, { label: "✕ رفض", tone: "no", onPress: () => onAction("reject") }),
+      React.createElement(PillBtn, { label: `✓ ${L.approve}`, tone: "ok", onPress: () => onAction("approve") }),
+      React.createElement(PillBtn, { label: `⇄ ${compare ? L.showProposal : L.compare}`, onPress: () => setCompare((v) => !v) }),
+      React.createElement(PillBtn, { label: `↻ ${L.again}`, onPress: () => setAgainOpen((v) => !v) }),
+      React.createElement(PillBtn, { label: `✕ ${L.reject}`, tone: "no", onPress: () => onAction("reject") }),
     ),
     againOpen
       ? React.createElement(
@@ -300,15 +388,16 @@ function ProposalDiffTable({
           { style: { display: "flex", gap: "6px", marginTop: "6px" } },
           React.createElement("input", {
             value: note,
-            placeholder: "ملاحظة للمحاولة الجديدة…",
+            placeholder: L.notePlaceholder,
+            dir: "auto",
             onChange: (e: React.ChangeEvent<HTMLInputElement>) => setNote(e.target.value),
             onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
             onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
               if (e.key === "Enter") { e.preventDefault(); setAgainOpen(false); onAction("again", note); }
             },
-            style: { flex: 1, border: "1px solid #d4d4dc", borderRadius: "8px", padding: "5px 10px", font: "inherit", fontSize: "12.5px", direction: "rtl" },
+            style: { flex: 1, border: "1px solid #d4d4dc", borderRadius: "8px", padding: "5px 10px", font: "inherit", fontSize: "12.5px" },
           }),
-          React.createElement(PillBtn, { label: "إرسال", tone: "ok", onPress: () => { setAgainOpen(false); onAction("again", note); } }),
+          React.createElement(PillBtn, { label: L.send, tone: "ok", onPress: () => { setAgainOpen(false); onAction("again", note); } }),
         )
       : null,
   );
@@ -347,16 +436,25 @@ function EditableTable({
   const fills = t.fills;
   const dir = t.direction ?? undefined;
 
-  // AI proposal targeting THIS table → diff mode (loading dims it in place).
+  // AI proposal targeting THIS table → diff mode (loading dims it in place; an
+  // "Again" re-ask keeps the old proposal showing dimmed with the live thinking
+  // under it until the new one lands).
   const proposalHere = tp?.proposal && tp.proposal.index === block.index ? tp.proposal : null;
   const loadingHere = tp?.loadingIndex === block.index;
+  const errorHere = tp && tp.errorIndex === block.index && !proposalHere && !loadingHere;
   if (proposalHere && tp) {
-    return React.createElement(ProposalDiffTable, {
-      proposal: proposalHere,
-      dir,
-      loading: loadingHere,
-      onAction: tp.onAction,
-    });
+    return React.createElement(
+      "div",
+      null,
+      React.createElement(ProposalDiffTable, {
+        proposal: proposalHere,
+        dir,
+        loading: loadingHere,
+        labels: tp.labels,
+        onAction: tp.onAction,
+      }),
+      loadingHere ? React.createElement(ThinkingPanel, { text: tp.thinking, label: tp.labels.thinking }) : null,
+    );
   }
 
   const tableStyle: Record<string, unknown> = {
@@ -395,7 +493,7 @@ function EditableTable({
     setEditing({ r, c });
   };
 
-  return React.createElement(
+  const tableEl = React.createElement(
     "table",
     // While the AI request is thinking, dim + disable the grid in place.
     { style: tableStyle, dir, className: loadingHere ? "lx-tbl-loading" : undefined },
@@ -471,6 +569,36 @@ function EditableTable({
       ),
     ),
   );
+
+  // In-flight request → live thinking under the dimmed grid; a failed request →
+  // inline error strip with retry (not just a transient banner).
+  if (loadingHere && tp) {
+    return React.createElement(
+      "div",
+      null,
+      tableEl,
+      React.createElement(ThinkingPanel, { text: tp.thinking, label: tp.labels.thinking }),
+    );
+  }
+  if (errorHere && tp) {
+    return React.createElement(
+      "div",
+      null,
+      React.createElement(
+        "div",
+        {
+          style: { display: "flex", alignItems: "center", gap: "8px", border: "1px solid #fca5a5", background: "#fff1f1", borderRadius: "10px", padding: "6px 10px", margin: "6px 0" },
+          onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
+          onClick: (e: React.MouseEvent) => e.stopPropagation(),
+        },
+        React.createElement("span", { style: { fontSize: "12px", color: "#b91c1c", flex: 1 } }, `⚠ ${tp.labels.failed}`),
+        React.createElement(PillBtn, { label: `↻ ${tp.labels.retry}`, onPress: () => tp.onAction("retry") }),
+        React.createElement(PillBtn, { label: "✕", tone: "no", onPress: () => tp.onAction("reject") }),
+      ),
+      tableEl,
+    );
+  }
+  return tableEl;
 }
 
 export class BlockDataNode extends DecoratorNode<React.ReactNode> {

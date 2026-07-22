@@ -1,4 +1,26 @@
 {
+  "tableAI": {
+    "proposal": "AI suggestion",
+    "original": "Original — before changes",
+    "thought": "Thought for {s}s",
+    "thinking": "Thinking…",
+    "approve": "Approve",
+    "compare": "Compare",
+    "showProposal": "Proposal",
+    "again": "Again",
+    "reject": "Reject",
+    "send": "Send",
+    "notePlaceholder": "Note for the retry…",
+    "failed": "Suggestion failed",
+    "retry": "Retry"
+  },
+  "aiDock": {
+    "table": {
+      "checkNumbers": "Check numbers",
+      "addTotals": "Add totals row",
+      "format": "Format table"
+    }
+  },
   "blockBar": {
     "style": "Style",
     "align": "Align",
@@ -266,6 +288,16 @@
     "completed": "Completed",
     "archived": "Archived",
     "thesisStructure": "Thesis Structure",
+    "tabContents": "Contents",
+    "tabTables": "Tables",
+    "tabFigures": "Figures",
+    "tableN": "Table {{n}}",
+    "figureN": "Figure {{n}}",
+    "tableSize": "{{rows}} × {{cols}}",
+    "noTables": "No tables in this document yet.",
+    "noFigures": "No figures in this document yet.",
+    "searchTables": "Search tables",
+    "searchFigures": "Search figures",
     "addChapter": "Add",
     "done": "Done",
     "inProgress": "In Progress",

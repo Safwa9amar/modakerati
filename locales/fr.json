@@ -1,4 +1,26 @@
 {
+  "tableAI": {
+    "proposal": "Suggestion de l'IA",
+    "original": "L'original — avant modification",
+    "thought": "A réfléchi {s} s",
+    "thinking": "Réflexion…",
+    "approve": "Approuver",
+    "compare": "Comparer",
+    "showProposal": "Proposition",
+    "again": "Encore",
+    "reject": "Rejeter",
+    "send": "Envoyer",
+    "notePlaceholder": "Note pour le nouvel essai…",
+    "failed": "La suggestion a échoué",
+    "retry": "Réessayer"
+  },
+  "aiDock": {
+    "table": {
+      "checkNumbers": "Vérifier les chiffres",
+      "addTotals": "Ajouter une ligne de totaux",
+      "format": "Mettre en forme le tableau"
+    }
+  },
   "blockBar": {
     "style": "Style",
     "align": "Alignement",
@@ -266,6 +288,16 @@
     "completed": "Terminés",
     "archived": "Archivés",
     "thesisStructure": "Structure du mémoire",
+    "tabContents": "Sommaire",
+    "tabTables": "Tableaux",
+    "tabFigures": "Figures",
+    "tableN": "Tableau {{n}}",
+    "figureN": "Figure {{n}}",
+    "tableSize": "{{rows}} × {{cols}}",
+    "noTables": "Aucun tableau dans ce document pour l'instant.",
+    "noFigures": "Aucune figure dans ce document pour l'instant.",
+    "searchTables": "Rechercher des tableaux",
+    "searchFigures": "Rechercher des figures",
     "addChapter": "Ajouter",
     "done": "Terminé",
     "inProgress": "En cours",

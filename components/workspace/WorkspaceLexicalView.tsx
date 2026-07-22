@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { View, Text, StyleSheet, AppState } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
@@ -363,21 +364,50 @@ export function WorkspaceLexicalView({
   // reconciles via plain setDoc — the reseed re-renders the approved table
   // (scroll is pinned by the reseed path). Reject/dismiss just clears the store.
   // Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
+  const { t } = useTranslation();
   const tblProposal = useTableSuggestionStore((s) => s.proposal);
   const tblLoadingIndex = useTableSuggestionStore((s) => s.loadingIndex);
-  const tblError = useTableSuggestionStore((s) => s.error);
+  const tblThinking = useTableSuggestionStore((s) => s.thinking);
+  const tblErrorIndex = useTableSuggestionStore((s) => s.errorIndex);
   const tableProposal = useMemo(
     () =>
       tblProposal && tblProposal.thesisId === thesisId
-        ? { index: tblProposal.index, originalRows: tblProposal.originalRows, newRows: tblProposal.newRows, diff: tblProposal.diff }
+        ? {
+            index: tblProposal.index,
+            originalRows: tblProposal.originalRows,
+            newRows: tblProposal.newRows,
+            diff: tblProposal.diff,
+            thoughtMs: tblProposal.thoughtMs,
+          }
         : null,
     [tblProposal, thesisId],
+  );
+  // Proposal UI strings resolved HERE (the DOM bundle has no i18n instance) —
+  // the app is trilingual ar/fr/en, so every visible label rides this prop.
+  const tableLabels = useMemo(
+    () => ({
+      proposal: t("tableAI.proposal", { defaultValue: "AI suggestion" }),
+      original: t("tableAI.original", { defaultValue: "Original — before changes" }),
+      thought: t("tableAI.thought", { defaultValue: "Thought for {s}s" }),
+      thinking: t("tableAI.thinking", { defaultValue: "Thinking…" }),
+      approve: t("tableAI.approve", { defaultValue: "Approve" }),
+      compare: t("tableAI.compare", { defaultValue: "Compare" }),
+      showProposal: t("tableAI.showProposal", { defaultValue: "Proposal" }),
+      again: t("tableAI.again", { defaultValue: "Again" }),
+      reject: t("tableAI.reject", { defaultValue: "Reject" }),
+      send: t("tableAI.send", { defaultValue: "Send" }),
+      notePlaceholder: t("tableAI.notePlaceholder", { defaultValue: "Note for the retry…" }),
+      failed: t("tableAI.failed", { defaultValue: "Suggestion failed" }),
+      retry: t("tableAI.retry", { defaultValue: "Retry" }),
+    }),
+    [t],
   );
   const onTableProposalAction = useCallback(
     (action: string, note?: string) => {
       const store = useTableSuggestionStore.getState();
       const p = store.proposal;
       if (action === "again") { void store.again(note); return; }
+      if (action === "retry") { void store.retry(); return; }
       if (action === "reject" || !p || p.thesisId !== thesisId) { store.clear(); return; }
       if (action !== "approve") return;
       void (async () => {
@@ -412,13 +442,8 @@ export function WorkspaceLexicalView({
     },
     [thesisId],
   );
-  // Surface a failed suggest via the existing save banner (store keeps `error`).
-  useEffect(() => {
-    if (!tblError) return;
-    setBanner("AI table suggestion failed");
-    const t = setTimeout(() => setBanner(null), 2600);
-    return () => clearTimeout(t);
-  }, [tblError]);
+  // A failed suggest shows INLINE on the table (error strip + retry via
+  // tableErrorIndex) — no transient banner needed.
   // Invalidation: any doc change that alters the target table (an outside edit,
   // undo, AI turn) silently drops the proposal — its diff no longer applies.
   useEffect(() => {
@@ -484,6 +509,9 @@ export function WorkspaceLexicalView({
           onEditCell={onEditCell}
           tableProposal={tableProposal}
           tableLoadingIndex={tblLoadingIndex}
+          tableThinking={tblThinking}
+          tableErrorIndex={tblErrorIndex}
+          tableLabels={tableLabels}
           onTableProposalAction={onTableProposalAction}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />

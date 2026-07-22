@@ -72,7 +72,9 @@ import {
   MediaContext,
   EditCellContext,
   TableProposalContext,
+  TABLE_AI_LABELS_EN,
   type TableProposalData,
+  type TableAILabels,
   SuggestionNode,
   $createSuggestionNode,
   $isSuggestionNode,
@@ -1076,6 +1078,9 @@ export default function LexicalDomEditor({
   onEditCell,
   tableProposal,
   tableLoadingIndex,
+  tableThinking,
+  tableErrorIndex,
+  tableLabels,
   onTableProposalAction,
 }: {
   command?: LexicalCommand | null;
@@ -1112,6 +1117,13 @@ export default function LexicalDomEditor({
   // Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
   tableProposal?: TableProposalData | null;
   tableLoadingIndex?: number | null;
+  // The reasoning streamed so far (live thinking under the dimmed table) and the
+  // block index of a failed request (inline error + retry strip).
+  tableThinking?: string;
+  tableErrorIndex?: number | null;
+  // Proposal UI strings resolved native-side via i18next (the DOM bundle has no
+  // i18n instance) — the app is trilingual ar/fr/en. Defaults to English.
+  tableLabels?: Partial<TableAILabels>;
   onTableProposalAction?: (action: string, note?: string) => void;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
@@ -1134,6 +1146,9 @@ export default function LexicalDomEditor({
         value={{
           proposal: tableProposal ?? null,
           loadingIndex: tableLoadingIndex ?? null,
+          thinking: tableThinking ?? "",
+          errorIndex: tableErrorIndex ?? null,
+          labels: { ...TABLE_AI_LABELS_EN, ...(tableLabels ?? {}) },
           onAction: (action, note) => onTableProposalAction?.(action, note),
         }}
       >
