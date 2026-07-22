@@ -205,9 +205,15 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
   const [peek, setPeek] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState("");
+  // Play the exit animation, THEN dispatch (which settles/removes the node) — so
+  // the absorb/drop motion is visible (native pillSink/pillDrop choreography).
+  const [leaving, setLeaving] = React.useState<"" | "approve" | "reject">("");
   const loading = sug.status === "loading";
   const err = sug.status === "error";
   const ready = sug.status === "ready";
+  const rootCls = "lx-sug" + (leaving ? " lx-leaving-" + leaving : "");
+  const doApprove = () => { if (leaving) return; setLeaving("approve"); setTimeout(() => editor.dispatchCommand(SUGGEST_APPROVE_COMMAND, undefined), 190); };
+  const doReject = () => { if (leaving) return; setLeaving("reject"); setTimeout(() => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined), 170); };
 
   const segs = ready ? diffWords(sug.original, sug.proposed) : [];
   const hasMarks = segs.some((s) => s.kind === "same");
@@ -272,14 +278,14 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
   if (err) {
     return React.createElement(
       "div",
-      { className: "lx-sug" },
+      { className: rootCls },
       chip,
       trace,
       React.createElement("div", { className: "lx-sug-proposed", dir: "auto" }, sug.original),
       React.createElement("div", { className: "lx-sug-err" }, "Couldn’t generate a suggestion."),
       pill([
         pillBtn("again", { primary: true, icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
-        pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) }),
+        pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
       ]),
     );
   }
@@ -287,7 +293,7 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
   // ---- ready ----
   return React.createElement(
     "div",
-    { className: "lx-sug" },
+    { className: rootCls },
     chip,
     trace,
     React.createElement(
@@ -307,10 +313,10 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
         )
       : null,
     pill([
-      pillBtn("approve", { primary: true, icon: ICON_CHECK, label: "Approve", onClick: () => editor.dispatchCommand(SUGGEST_APPROVE_COMMAND, undefined) }),
+      pillBtn("approve", { primary: true, icon: ICON_CHECK, label: "Approve", onClick: doApprove }),
       pillBtn("edit", { icon: ICON_PENCIL, label: "Edit", onClick: () => { setDraft(sug.proposed); setEditing(true); } }),
       pillBtn("again", { icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
-      pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) }),
+      pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
     ]),
   );
 }
