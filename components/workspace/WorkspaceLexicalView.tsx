@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, AppState } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
 import { applyThesisOps, type DocBlockDTO } from "@/lib/api";
@@ -48,6 +48,18 @@ export function WorkspaceLexicalView({
   const wrapRef = useRef<View>(null);
   const editorTopRef = useRef(0);
   const lastIndexRef = useRef(-1);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  const send = useCallback((type: string, value?: string) => {
+    setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
+  }, []);
+  const flushNow = useCallback(() => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    pendingSave.current = true;
+    send("serialize");
+  }, [send]);
 
   // Re-seed from the latest server truth when the user ENTERS the Lexical view (so
   // it reflects edits made elsewhere), but never mid-session (that would clobber the
@@ -59,17 +71,33 @@ export function WorkspaceLexicalView({
       baselineRef.current = latest;
       setSeed(latest);
       setSeedNonce((n) => n + 1);
+    } else if (!active && wasActive.current) {
+      flushNow(); // leaving the Writer (e.g. opening a preview) → flush edits
     }
     wasActive.current = active;
-  }, [active, thesisId, blocks]);
+  }, [active, thesisId, blocks, flushNow]);
 
-  const send = useCallback((type: string, value?: string) => {
-    setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
-  }, []);
-  // Bridge Lexical's selection to the NATIVE tools: set the workspace selection
-  // (so the reused FloatingPill / BlockContextBar / AI dock render + target this
-  // block) and anchor the pill to the block's screen position.
+  // App going to background = the user stopped composing → flush (no local
+  // durability for Lexical edits, so this matters).
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st !== "active" && activeRef.current) flushNow();
+    });
+    return () => sub.remove();
+  }, [flushNow]);
+
+  // Auto-sync (no manual Save): mirror the native gate — hold while actively
+  // editing, then background-flush shortly after the user pauses. (Debounced,
+  // because Lexical edits — unlike the durable op-queue — aren't in SQLite, so a
+  // pause-save avoids losing work if the app is backgrounded/killed.)
+  const scheduleSave = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => { saveTimer.current = null; pendingSave.current = true; send("serialize"); }, 1500);
+  }, [send]);
+
+  // Bridge Lexical's selection to the NATIVE tools + schedule a background sync.
   const onState = useCallback((s: LexicalState) => {
+    scheduleSave();
     if (s.index < 0) return;
     if (s.index !== lastIndexRef.current) {
       lastIndexRef.current = s.index;
@@ -78,18 +106,15 @@ export function WorkspaceLexicalView({
     if (typeof s.y === "number" && s.y >= 0) {
       useFloatingPillStore.getState().setAnchorY(editorTopRef.current + s.y);
     }
-  }, []);
+  }, [scheduleSave]);
 
   const onBlocks = useCallback(async (serialized: DocBlockDTO[]) => {
     if (!pendingSave.current) return;
     pendingSave.current = false;
-    const { ops, unsupported } = planOps(baselineRef.current, serialized);
-    if (ops.length === 0) {
-      setBanner(unsupported.length ? "No saveable changes" : "Saved · no changes");
-      setTimeout(() => setBanner(null), 2000);
-      return;
-    }
+    const { ops } = planOps(baselineRef.current, serialized);
+    if (ops.length === 0) return; // nothing changed — stay silent (auto-save runs on every pause)
     setSaving(true);
+    setBanner("Syncing…");
     try {
       const res = await applyThesisOps(thesisId, ops); // ONE batch call
       if (res.document) {
@@ -104,12 +129,6 @@ export function WorkspaceLexicalView({
       setTimeout(() => setBanner(null), 2600);
     }
   }, [thesisId]);
-
-  const doSave = useCallback(() => {
-    if (saving) return;
-    pendingSave.current = true;
-    send("serialize");
-  }, [saving, send]);
 
   return (
     <View
@@ -126,17 +145,14 @@ export function WorkspaceLexicalView({
           onBlocks={onBlocks}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />
-        {/* Save action + status, floating over the editor. */}
-        <View style={styles.saveRow} pointerEvents="box-none">
-          {banner ? (
+        {/* Auto-save status (no manual button — background sync on pause / exit). */}
+        {banner ? (
+          <View style={styles.saveRow} pointerEvents="none">
             <View style={[styles.banner, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}>
               <Text style={[styles.bannerText, { color: colors.textSecondary }]}>{banner}</Text>
             </View>
-          ) : null}
-          <Pressable onPress={doSave} disabled={saving} style={[styles.saveBtn, { backgroundColor: colors.brandPrimary }]}>
-            {saving ? <ActivityIndicator color={colors.bgPrimary} size="small" /> : <Text style={[styles.saveText, { color: colors.bgPrimary }]}>Save</Text>}
-          </Pressable>
-        </View>
+          </View>
+        ) : null}
       </View>
     </View>
   );
