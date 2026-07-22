@@ -72,6 +72,13 @@ export const MediaContext = React.createContext<{ base: string; token: string; t
   base: "", token: "", thesisId: "", version: "",
 });
 
+// Provided by LexicalDomEditor (wired to the native silent table-op sync). A
+// table cell calls it on commit → the block-model editCell op → server. null when
+// editing isn't available (read-only contexts).
+export const EditCellContext = React.createContext<
+  ((blockIndex: number, row: number, col: number, text: string) => void) | null
+>(null);
+
 const FIGURE_STYLE: React.CSSProperties = { maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", display: "block", margin: "8px auto" };
 
 // A figure: inline dataUri when the server sent it (small), else the authed media
@@ -84,6 +91,124 @@ function Figure({ block }: { block: Extract<DocBlockDTO, { kind: "image" }> }) {
     return React.createElement("img", { src: url, style: FIGURE_STYLE, alt: block.caption ?? "", referrerPolicy: "no-referrer" });
   }
   return React.createElement("div", { style: PLACEHOLDER }, `🖼 figure${block.caption ? ` · ${block.caption}` : ""}`);
+}
+
+// A Word-styled, in-place editable table. Renders the DTO's alignment / header /
+// per-cell fills / direction (see server parseTableStyle) and lets the user edit a
+// cell's text: DOUBLE-TAP a cell → inline input → commit (Enter / blur) routes an
+// editCell op through EditCellContext. SINGLE-tap still bubbles to the block-pick
+// handler (selects the whole table → structure tools), so both gestures coexist.
+function EditableTable({
+  block,
+}: {
+  block: Extract<DocBlockDTO, { kind: "table" }>;
+}) {
+  const onEditCell = React.useContext(EditCellContext);
+  const [editing, setEditing] = React.useState<{ r: number; c: number } | null>(null);
+  const [draft, setDraft] = React.useState("");
+  const t = block as typeof block & TableStyleExtra;
+  const align = t.align ?? null;
+  const header = !!t.header;
+  const fills = t.fills;
+  const dir = t.direction ?? undefined;
+
+  const tableStyle: Record<string, unknown> = {
+    borderCollapse: "collapse",
+    fontSize: "13px",
+    margin: "6px 0",
+    width: align ? "auto" : "100%",
+  };
+  if (align === "center") {
+    tableStyle.marginLeft = "auto";
+    tableStyle.marginRight = "auto";
+  } else if (align === "right") {
+    tableStyle.marginLeft = "auto";
+    tableStyle.marginRight = "0";
+  }
+
+  const commit = () => {
+    setEditing((cur) => {
+      if (cur) {
+        const orig = block.rows[cur.r]?.[cur.c] ?? "";
+        if (draft !== orig && onEditCell) onEditCell(block.index, cur.r, cur.c, draft);
+      }
+      return null;
+    });
+  };
+  const startEdit = (r: number, c: number) => {
+    if (!onEditCell) return;
+    setDraft(block.rows[r]?.[c] ?? "");
+    setEditing({ r, c });
+  };
+
+  return React.createElement(
+    "table",
+    { style: tableStyle, dir },
+    React.createElement(
+      "tbody",
+      null,
+      block.rows.map((row, ri) =>
+        React.createElement(
+          "tr",
+          { key: ri },
+          row.map((cell, ci) => {
+            const isHeader = header && ri === 0;
+            const isEditing = editing?.r === ri && editing?.c === ci;
+            const fill = fills?.[ri]?.[ci] ?? null;
+            const cellStyle: Record<string, unknown> = {
+              border: "1px solid #c8c8d0",
+              padding: "4px 8px",
+              cursor: onEditCell ? "text" : "default",
+            };
+            if (fill) cellStyle.backgroundColor = fill;
+            else if (isHeader) cellStyle.backgroundColor = "#f0f0f3";
+            if (isHeader) cellStyle.fontWeight = 600;
+            const content = isEditing
+              ? React.createElement("input", {
+                  value: draft,
+                  autoFocus: true,
+                  onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft(e.target.value),
+                  onBlur: commit,
+                  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (e.key === "Enter") { e.preventDefault(); commit(); }
+                    else if (e.key === "Escape") setEditing(null);
+                  },
+                  // Keep clicks inside the input from re-triggering select/edit.
+                  onClick: (e: React.MouseEvent) => e.stopPropagation(),
+                  onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
+                  style: {
+                    width: "100%",
+                    boxSizing: "border-box",
+                    border: "none",
+                    outline: "2px solid #5b6cff",
+                    borderRadius: "3px",
+                    padding: "2px 4px",
+                    font: "inherit",
+                    fontWeight: isHeader ? 600 : 400,
+                    background: "#ffffff",
+                    color: "#111114",
+                    textAlign: dir === "rtl" ? "right" : "left",
+                    direction: dir,
+                  },
+                })
+              : cell;
+            return React.createElement(
+              isHeader ? "th" : "td",
+              {
+                key: ci,
+                style: cellStyle,
+                // Double-tap edits this cell; single-tap falls through to the
+                // outer block-pick (table select). stopPropagation on the
+                // double-tap so it doesn't also re-select mid-edit.
+                onDoubleClick: (e: React.MouseEvent) => { e.stopPropagation(); startEdit(ri, ci); },
+              },
+              content,
+            );
+          }),
+        ),
+      ),
+    ),
+  );
 }
 
 export class BlockDataNode extends DecoratorNode<React.ReactNode> {
@@ -105,6 +230,11 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
   createDOM(): HTMLElement {
     const el = document.createElement("div");
     el.style.cssText = "margin:8px 0;";
+    // Atomic island: the block is not rich-text-editable, so Lexical won't try to
+    // manage a caret inside it. Form controls (the table cell <input>) inside a
+    // contenteditable=false region stay interactive and keep their own focus, so
+    // in-cell editing doesn't fight the editor for the selection.
+    el.contentEditable = "false";
     return el;
   }
   updateDOM(): false {
@@ -124,57 +254,9 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
     const key = this.getKey();
     let content: React.ReactNode;
     if (b.kind === "table") {
-      // Word table styling (alignment, header row, per-cell shading) rides on
-      // the DTO next to the plain cell grid — render it so the Lexical table
-      // matches the .docx instead of a flat bordered grid. See server
-      // parseTableStyle().
-      const t = b as typeof b & TableStyleExtra;
-      const align = t.align ?? null;
-      const header = !!t.header;
-      const fills = t.fills;
-      const tableStyle: Record<string, unknown> = {
-        borderCollapse: "collapse",
-        fontSize: "13px",
-        margin: "6px 0",
-        width: align ? "auto" : "100%",
-      };
-      if (align === "center") {
-        tableStyle.marginLeft = "auto";
-        tableStyle.marginRight = "auto";
-      } else if (align === "right") {
-        tableStyle.marginLeft = "auto";
-        tableStyle.marginRight = "0";
-      }
-      content = React.createElement(
-        "table",
-        // `dir` reflects the table's Word direction (w:bidiVisual). Setting it
-        // explicitly flips the visual column order (RTL = first column on the
-        // right) and overrides the inherited root direction, so the RTL/LTR tools
-        // take visible effect.
-        { style: tableStyle, dir: t.direction ?? undefined },
-        React.createElement(
-          "tbody",
-          null,
-          b.rows.map((row, ri) =>
-            React.createElement(
-              "tr",
-              { key: ri },
-              row.map((cell, ci) => {
-                const isHeader = header && ri === 0;
-                const fill = fills?.[ri]?.[ci] ?? null;
-                const cellStyle: Record<string, unknown> = {
-                  border: "1px solid #c8c8d0",
-                  padding: "4px 8px",
-                };
-                if (fill) cellStyle.backgroundColor = fill;
-                else if (isHeader) cellStyle.backgroundColor = "#f0f0f3";
-                if (isHeader) cellStyle.fontWeight = 600;
-                return React.createElement(isHeader ? "th" : "td", { key: ci, style: cellStyle }, cell);
-              }),
-            ),
-          ),
-        ),
-      );
+      // Word-styled + in-place editable table (alignment / header / per-cell fills
+      // / direction from the DTO; double-tap a cell to edit). See EditableTable.
+      content = React.createElement(EditableTable, { block: b });
     } else if (b.kind === "image") {
       content = React.createElement(Figure, { block: b });
     } else {

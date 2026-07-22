@@ -64,7 +64,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSearchStore } from "@/stores/search-store";
-import { removeThesisBlockBg, type DocBlockDTO, type DocumentDTO } from "@/lib/api";
+import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
 import { resolveBubbleKind, type BubbleKind } from "@/lib/bubble-configs";
@@ -72,7 +72,7 @@ import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
 import { chipOut, layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff, SPRING_SOFT } from "@/lib/motion";
 import { isPillHandoff, shouldGlow } from "@/lib/pill-handoff";
-import { applyOpToDoc, executeOp, type FormatChange, type ParaRun, type ThesisOp } from "@/lib/thesis-ops";
+import type { FormatChange, ParaRun, ThesisOp } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
@@ -325,31 +325,11 @@ export function BlockContextBar({
   const tableAlign = tableStyle?.align ?? null;
   const tableDirection = tableStyle?.direction ?? null;
   const tableHeader = !!tableStyle?.header;
-  const tableEdit = async (op: Omit<Extract<ThesisOp, { type: "tableOp" }>, "type" | "index">) => {
+  const tableEdit = (op: Omit<Extract<ThesisOp, { type: "tableOp" }>, "type" | "index">) => {
     if (soleIndex == null) return;
-    const full: ThesisOp = { type: "tableOp", index: soleIndex, ...op };
-    const store = useThesisDocStore.getState();
-    // Silent sync (like the Lexical text auto-save): optimistically patch the
-    // doc, send the op straight to the server, and reconcile via setDoc — which
-    // bumps `tick` only, so the reseed re-renders the table WITHOUT firing the
-    // durable-queue `drainTick` refetch cascade (editor-config/outline/PDF).
-    // Fall back to the ordered durable queue when other ops are still pending,
-    // since table ops are positional and must land after them.
-    if ((store.pending[thesisId] ?? 0) > 0) {
-      void store.mutate(thesisId, full);
-      return;
-    }
-    const cur = store.byId[thesisId];
-    if (cur?.available) store.setDoc(thesisId, applyOpToDoc(cur, full));
-    try {
-      const res = await executeOp(thesisId, full);
-      if (res && typeof res === "object" && "document" in res && res.document) {
-        store.setDoc(thesisId, res.document as DocumentDTO);
-      }
-      void store.refreshHistoryState(thesisId);
-    } catch {
-      void store.revalidate(thesisId);
-    }
+    // Silent sync (shared with in-cell editing): optimistic patch + direct server
+    // apply, no durable-queue drainTick refetch cascade. See the store method.
+    void useThesisDocStore.getState().applyTableOpSilent(thesisId, { type: "tableOp", index: soleIndex, ...op });
   };
 
   const move = (dir: "up" | "down") => {

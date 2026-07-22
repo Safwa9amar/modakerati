@@ -185,6 +185,13 @@ interface ThesisDocState {
   // Resolves when the server confirms; rejects only on a permanent (non-network)
   // rejection — never on offline (the op stays queued). Safe to ignore the result.
   mutate: (thesisId: string, op: ThesisOp) => Promise<void>;
+  // Apply a table op the "silent" way (like the Lexical text auto-save): optimistic
+  // patch + a direct server apply + a setDoc reconcile that bumps `tick` only — so
+  // the table reseeds WITHOUT the durable-queue `drainTick` refetch cascade
+  // (editor-config/outline/PDF). Falls back to the ordered queue while other ops
+  // are pending (positional-index correctness). Used by the table bubble tools and
+  // in-cell editing.
+  applyTableOpSilent: (thesisId: string, op: ThesisOp) => Promise<void>;
   setHistoryState: (thesisId: string, h: { canUndo: boolean; canRedo: boolean }) => void;
   refreshHistoryState: (thesisId: string) => Promise<void>;
   // Replace the doc after a server-side restore (undo/redo/history sheet): full
@@ -507,6 +514,26 @@ export const useThesisDocStore = create<ThesisDocState>((set, get) => {
         get().setHistoryState(thesisId, { canUndo: st.canUndo, canRedo: st.canRedo });
       } catch {
         // Endpoint missing (old server) or offline — leave buttons as they were.
+      }
+    },
+
+    applyTableOpSilent: async (thesisId, op) => {
+      // Ordered queue when other ops are still in flight — table ops are
+      // positional and must land after them.
+      if ((get().pending[thesisId] ?? 0) > 0) {
+        void get().mutate(thesisId, op);
+        return;
+      }
+      const cur = get().byId[thesisId];
+      if (cur?.available) get().setDoc(thesisId, applyOpToDoc(cur, op)); // optimistic (tick reseed, no cascade)
+      try {
+        const res = await executeOp(thesisId, op);
+        if (res && typeof res === "object" && "document" in res && res.document) {
+          get().setDoc(thesisId, res.document as DocumentDTO);
+        }
+        void get().refreshHistoryState(thesisId);
+      } catch {
+        void get().revalidate(thesisId);
       }
     },
 

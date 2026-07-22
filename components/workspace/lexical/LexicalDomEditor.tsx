@@ -70,6 +70,7 @@ import {
   BlockDataNode,
   $isBlockDataNode,
   MediaContext,
+  EditCellContext,
   SuggestionNode,
   $createSuggestionNode,
   $isSuggestionNode,
@@ -331,7 +332,9 @@ function EditorBridge({
     if (!scrollToIndex || scrollToIndex.index < 0) return;
     let key: string | null = null;
     editor.getEditorState().read(() => {
-      const n = $nodeAtBlockIndex(scrollToIndex.index);
+      // Resolve ANY block kind — a table/figure is a structural node, not a
+      // heading/paragraph, so $nodeAtBlockIndex would return null and never scroll.
+      const n = $anyNodeAtBlockIndex(scrollToIndex.index);
       key = n ? n.getKey() : null;
     });
     if (key) editor.getElementByKey(key)?.scrollIntoView({ block: "start" });
@@ -671,6 +674,25 @@ function $nodeAtBlockIndex(idx: number): ElementNode | null {
       acc += items.length;
     } else {
       if (idx === acc) return $isHeadingNode(child) || $isParagraphNode(child) ? (child as ElementNode) : null;
+      acc += 1;
+    }
+  }
+  return null;
+}
+// Like $nodeAtBlockIndex, but returns the node at `idx` REGARDLESS of kind —
+// including a structural BlockDataNode (table/image/other), which $nodeAtBlockIndex
+// deliberately skips (it only yields editable heading/paragraph/list-item nodes).
+// Used for scroll-into-view, where we just need the element to scroll to, so
+// navigating to a table or figure from the outline drawer works too.
+function $anyNodeAtBlockIndex(idx: number): LexicalNode | null {
+  let acc = 0;
+  for (const child of $getRoot().getChildren()) {
+    if ($isListNode(child)) {
+      const items = listItemsOf(child);
+      if (idx < acc + items.length) return items[idx - acc];
+      acc += items.length;
+    } else {
+      if (idx === acc) return child;
       acc += 1;
     }
   }
@@ -1046,6 +1068,7 @@ export default function LexicalDomEditor({
   selectedIndices,
   media,
   search,
+  onEditCell,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -1072,6 +1095,9 @@ export default function LexicalDomEditor({
   media?: { base: string; token: string; thesisId: string; version: string | number };
   // Document-search matches to tint (+ the current one), driven by the search store.
   search?: SearchInput;
+  // Commit an in-cell table edit → native routes it through the silent table-op
+  // sync (a DOM→native async function prop, like onState).
+  onEditCell?: (blockIndex: number, row: number, col: number, text: string) => void;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -1088,6 +1114,7 @@ export default function LexicalDomEditor({
     <LexicalComposer initialConfig={initialConfig}>
       <style>{CSS}</style>
       <MediaContext.Provider value={media ?? { base: "", token: "", thesisId: "", version: "" }}>
+      <EditCellContext.Provider value={onEditCell ?? null}>
       <div className="lx-root">
         <RichTextPlugin
           contentEditable={<ContentEditable className="lx-content" dir="auto" />}
@@ -1102,6 +1129,7 @@ export default function LexicalDomEditor({
         <SelectionHighlightPlugin indices={selectedIndices} />
         <SearchHighlightPlugin search={search} />
       </div>
+      </EditCellContext.Provider>
       </MediaContext.Provider>
     </LexicalComposer>
   );

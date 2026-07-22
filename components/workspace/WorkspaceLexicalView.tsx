@@ -354,6 +354,19 @@ export function WorkspaceLexicalView({
     }
   }, [thesisId]);
 
+  // In-cell table edit (double-tap a cell in the WebView) → the block-model
+  // editCell op via the SAME silent table-op sync as the bubble tools (optimistic
+  // patch + direct server apply, no drainTick refetch cascade). The server echo
+  // reconciles and the reseed re-renders the cell.
+  const onEditCell = useCallback(
+    (blockIndex: number, row: number, col: number, text: string) => {
+      void useThesisDocStore
+        .getState()
+        .applyTableOpSilent(thesisId, { type: "tableOp", index: blockIndex, action: "editCell", row, col, text });
+    },
+    [thesisId],
+  );
+
   return (
     <View
       style={styles.container}
@@ -376,6 +389,7 @@ export function WorkspaceLexicalView({
           selectedIndices={highlightIndices}
           media={media}
           search={search}
+          onEditCell={onEditCell}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />
         {/* Auto-save status (no manual button — background sync on pause / exit). */}
