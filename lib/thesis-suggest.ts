@@ -31,6 +31,32 @@ export async function proposeBlockEdit(
   return res.json();
 }
 
+// Ask the server for a FULL proposed table grid (+ optional layout) per an
+// instruction, WITHOUT applying it. The caller (table-suggestion-store) diffs
+// old vs new (lib/table-diff.ts) and shows the in-place diff; approval applies
+// the diff as a tableOp batch. Mirrors POST /api/thesis/:id/table-suggest.
+// Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
+export interface TableSuggestResult {
+  rows: string[][];
+  layout?: { alignment?: "left" | "center" | "right"; direction?: "rtl" | "ltr"; headerRow?: boolean; borders?: boolean };
+  original: { rows: string[][]; layout: { align: "left" | "center" | "right" | null; direction: "rtl" | "ltr"; header: boolean } };
+}
+export async function suggestTable(
+  thesisId: string,
+  index: number,
+  instruction: string,
+  signal?: AbortSignal,
+): Promise<TableSuggestResult> {
+  const res = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/thesis/${thesisId}/table-suggest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+    body: JSON.stringify({ index, instruction }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`table-suggest ${res.status}`);
+  return res.json();
+}
+
 // ---------------------------------------------------------------------------
 // Streaming variant — POST /api/thesis/:id/paragraphs/:index/suggest/stream.
 // The server streams the model's REASONING between [[MODK_THINK]] … [[/MODK_THINK]]
@@ -186,6 +212,122 @@ export async function proposeBlockEditStream(
   } finally {
     reader.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Range rewrite — POST /api/thesis/:id/blocks/rewrite-range/stream (READ-ONLY).
+// Rewrites a CONTIGUOUS range of paragraph blocks into a DYNAMIC number of new
+// paragraphs: the model decides whether the passage becomes one big paragraph or
+// several, based on the instruction + content (e.g. "summarize" may collapse to
+// one, "expand" may produce several). Same THINK-framed stream as the per-block
+// suggest above, minus the action header (always a rewrite). The proposed passage
+// streams as plain text with paragraphs separated by BLANK LINES; the caller splits
+// on blank lines. Nothing is applied — approval goes through applyThesisRangeReplace.
+// ---------------------------------------------------------------------------
+export interface RangeRewriteHandlers {
+  /** A chunk of reasoning ("thinking") text. */
+  onReasoning: (delta: string) => void;
+  /** A chunk of the proposed passage text. */
+  onProposed: (delta: string) => void;
+}
+
+export async function proposeRangeRewriteStream(
+  thesisId: string,
+  indices: number[],
+  instruction: string,
+  handlers: RangeRewriteHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await expoFetch(
+    `${process.env.EXPO_PUBLIC_API_URL}/api/thesis/${thesisId}/blocks/rewrite-range/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+      body: JSON.stringify({ indices, instruction }),
+      signal,
+    },
+  );
+  if (!res.ok || !res.body) throw new Error(`rewrite-range stream ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = ""; // trailing partial \uXXXX escape held across a chunk boundary
+  let mode: "answer" | "think" = "answer";
+  let buf = ""; // unescaped text awaiting routing
+
+  const pump = (chunk: string, isFinal: boolean) => {
+    buf += chunk;
+    while (true) {
+      if (mode === "answer") {
+        const ti = buf.indexOf(THINK_OPEN);
+        if (ti === -1) {
+          const hold = isFinal ? 0 : heldLen(buf, [THINK_OPEN]);
+          const out = buf.slice(0, buf.length - hold);
+          if (out) handlers.onProposed(out);
+          buf = buf.slice(buf.length - hold);
+          break;
+        }
+        const before = buf.slice(0, ti);
+        if (before) handlers.onProposed(before);
+        buf = buf.slice(ti + THINK_OPEN.length);
+        mode = "think";
+        continue;
+      } else {
+        const ci = buf.indexOf(THINK_CLOSE);
+        if (ci === -1) {
+          const hold = isFinal ? 0 : heldLen(buf, [THINK_CLOSE]);
+          const out = buf.slice(0, buf.length - hold);
+          if (out) handlers.onReasoning(out);
+          buf = buf.slice(buf.length - hold);
+          break;
+        }
+        const reason = buf.slice(0, ci);
+        if (reason) handlers.onReasoning(reason);
+        buf = buf.slice(ci + THINK_CLOSE.length);
+        mode = "answer";
+        continue;
+      }
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const cut = safeEscapeBoundary(pending);
+      const ready = pending.slice(0, cut);
+      pending = pending.slice(cut);
+      if (ready) pump(unescapeUnicode(ready), false);
+    }
+    pending += decoder.decode();
+    pump(pending ? unescapeUnicode(pending) : "", true);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// Apply an approved range rewrite: replace blocks [start..end] with `paragraphs`
+// (dynamic count). The server deletes the old range, writes the new paragraphs
+// (inheriting the first block's style/direction/alignment), and echoes the mutated
+// document so the doc store reconciles. Mirrors setThesisFigureCaption's plain-fetch
+// + Supabase-bearer style.
+export async function applyThesisRangeReplace(
+  thesisId: string,
+  start: number,
+  end: number,
+  paragraphs: string[],
+): Promise<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  const res = await fetch(
+    `${process.env.EXPO_PUBLIC_API_URL}/api/thesis/${thesisId}/blocks/replace-range`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+      body: JSON.stringify({ start, end, paragraphs }),
+    },
+  );
+  if (!res.ok) throw new Error(`replace-range ${res.status}`);
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------
