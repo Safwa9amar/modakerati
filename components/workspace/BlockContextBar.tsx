@@ -316,9 +316,14 @@ export function BlockContextBar({
   // drive the active states in the Layout sub-pill.
   const tableStyle =
     selectedBlock?.kind === "table"
-      ? (selectedBlock as { align?: "left" | "center" | "right" | null; header?: boolean })
+      ? (selectedBlock as {
+          align?: "left" | "center" | "right" | null;
+          direction?: "rtl" | "ltr";
+          header?: boolean;
+        })
       : null;
   const tableAlign = tableStyle?.align ?? null;
+  const tableDirection = tableStyle?.direction ?? null;
   const tableHeader = !!tableStyle?.header;
   const tableEdit = async (op: Omit<Extract<ThesisOp, { type: "tableOp" }>, "type" | "index">) => {
     if (soleIndex == null) return;
@@ -922,8 +927,8 @@ export function BlockContextBar({
           {tblOpt("tl-al", AlignLeft, t("blockBar.alignLeft", { defaultValue: "Left" }), 1, () => void tableEdit({ action: "layout", opts: { alignment: "left" } }), { active: tableAlign === "left" })}
           {tblOpt("tl-ac", AlignCenter, t("blockBar.alignCenter", { defaultValue: "Center" }), 2, () => void tableEdit({ action: "layout", opts: { alignment: "center" } }), { active: tableAlign === "center" })}
           {tblOpt("tl-ar", AlignRight, t("blockBar.alignRight", { defaultValue: "Right" }), 3, () => void tableEdit({ action: "layout", opts: { alignment: "right" } }), { active: tableAlign === "right" })}
-          {tblOpt("tl-rtl", PilcrowLeft, t("blockBar.dirRtl", { defaultValue: "Right to left" }), 4, () => void tableEdit({ action: "layout", opts: { direction: "rtl" } }))}
-          {tblOpt("tl-ltr", PilcrowRight, t("blockBar.dirLtr", { defaultValue: "Left to right" }), 5, () => void tableEdit({ action: "layout", opts: { direction: "ltr" } }))}
+          {tblOpt("tl-rtl", PilcrowLeft, t("blockBar.dirRtl", { defaultValue: "Right to left" }), 4, () => void tableEdit({ action: "layout", opts: { direction: "rtl" } }), { active: tableDirection === "rtl" })}
+          {tblOpt("tl-ltr", PilcrowRight, t("blockBar.dirLtr", { defaultValue: "Left to right" }), 5, () => void tableEdit({ action: "layout", opts: { direction: "ltr" } }), { active: tableDirection === "ltr" })}
           {tblOpt("tl-bord-on", Grid2x2, t("blockBar.bordersOn", { defaultValue: "Borders" }), 6, () => void tableEdit({ action: "layout", opts: { borders: true } }))}
           {tblOpt("tl-bord-off", Square, t("blockBar.bordersOff", { defaultValue: "No borders" }), 7, () => void tableEdit({ action: "layout", opts: { borders: false } }))}
         </>

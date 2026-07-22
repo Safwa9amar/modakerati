@@ -323,6 +323,7 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
           // `list`/`runs`), so patch them on via a cast.
           const patched: Record<string, unknown> = { ...b, rows };
           if (op.opts?.alignment) patched.align = op.opts.alignment;
+          if (op.opts?.direction) patched.direction = op.opts.direction;
           if (op.opts?.headerRow) patched.header = true;
           return patched as unknown as DocBlockDTO;
         }

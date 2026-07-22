@@ -46,6 +46,7 @@ export type ParaRun = { text: string; bold?: boolean; italic?: boolean; underlin
 // server parseTableStyle) — not on the base `lib/api` DocBlockDTO type.
 export type TableStyleExtra = {
   align?: "left" | "center" | "right" | null;
+  direction?: "rtl" | "ltr";
   header?: boolean;
   fills?: (string | null)[][];
 };
@@ -146,7 +147,11 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
       }
       content = React.createElement(
         "table",
-        { style: tableStyle },
+        // `dir` reflects the table's Word direction (w:bidiVisual). Setting it
+        // explicitly flips the visual column order (RTL = first column on the
+        // right) and overrides the inherited root direction, so the RTL/LTR tools
+        // take visible effect.
+        { style: tableStyle, dir: t.direction ?? undefined },
         React.createElement(
           "tbody",
           null,
