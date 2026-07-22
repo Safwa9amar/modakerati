@@ -8,7 +8,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { ChevronsDownUp, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Search, Send, type LucideIcon } from "lucide-react-native";
+import { Calculator, ChevronsDownUp, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Rows3, Search, Send, Table2, type LucideIcon } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
@@ -18,6 +18,8 @@ import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useSearchStore } from "@/stores/search-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
+import { useTableSuggestionStore } from "@/stores/table-suggestion-store";
+import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { sendMessageToAI } from "@/lib/ai-service";
 import { getComposerSuggestions, type ComposerSuggestion, type DocBlockDTO } from "@/lib/api";
 import { AnimatedChip } from "./AnimatedChip";
@@ -33,6 +35,16 @@ interface Props {
    *  askAiOpen branch) instead of the plain chat/tool-loop send. Null/undefined for
    *  the whole-memoir or multi-block scope, where the plain send is always used. */
   selectedBlock?: DocBlockDTO | null;
+  /** Combined text of the selected blocks (in document order), sent as `selection`
+   *  so a multi-block ask is grounded on the actual content — the server previews it
+   *  to the model and says "apply to ALL of these blocks as a set". Empty for the
+   *  whole-memoir scope. */
+  scopeText?: string;
+  /** The selected PARAGRAPH blocks (index + text + level). When 2+ are selected and
+   *  the Lexical editor is the active surface, a multi-block ask becomes a DYNAMIC
+   *  range rewrite (one inline proposal over the whole range) instead of a plain
+   *  chat send. */
+  scopeBlocks?: { index: number; text: string; level: number }[];
 }
 
 interface QuickAction {
@@ -69,7 +81,7 @@ function ShimmerBar({ color }: { color: string }) {
  *      text + send) once tapped — the store's `inputOpen` drives which form shows,
  *      so the pill's own ✦ can also open it in block mode.
  */
-export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock }: Props) {
+export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scopeText, scopeBlocks }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   // The dock is APP UI (labels are in the UI locale), so its layout follows the
@@ -129,30 +141,70 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock }: Pr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thesisId, scopeKey, aiSuggestionsEnabled]);
 
-  const quickActions: QuickAction[] = [
+  // When one or more blocks are selected the quick actions target the SELECTION
+  // (the whole point of selecting first); with nothing selected they act on the
+  // whole memoir. The server already frames the selected set to the model
+  // ("apply to ALL of these blocks as a set"); the prompt names it too so intent
+  // isn't ambiguous.
+  const hasScope = scopeIndices.length > 0;
+  const multi = scopeIndices.length > 1;
+  const sectionWord = multi
+    ? t("aiDock.theseSections", { defaultValue: "the selected sections" })
+    : t("aiDock.thisSection", { defaultValue: "the selected section" });
+  // A sole selected TABLE gets table-aware quick actions — each produces an
+  // in-place diff proposal on the table (table-suggestion store), not a chat
+  // turn. Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
+  const soleTable = scopeIndices.length === 1 && selectedBlock?.kind === "table";
+  const tableActions: QuickAction[] = [
+    {
+      key: "tbl-check",
+      Icon: Calculator,
+      label: t("aiDock.table.checkNumbers", { defaultValue: "Check numbers" }),
+      prompt: "Check the table's numbers for consistency (sums, percentages, totals) and fix any that are wrong. Keep everything else unchanged.",
+    },
+    {
+      key: "tbl-totals",
+      Icon: Rows3,
+      label: t("aiDock.table.addTotals", { defaultValue: "Add totals row" }),
+      prompt: "Add a totals row at the bottom of the table summing/aggregating the numeric columns, labeled appropriately in the table's language. Keep existing cells unchanged.",
+    },
+    {
+      key: "tbl-format",
+      Icon: Table2,
+      label: t("aiDock.table.format", { defaultValue: "Format table" }),
+      prompt: "Tidy the table: consistent number formats, a proper header row, and the correct direction/alignment for its language. Keep the cell contents' meaning unchanged.",
+    },
+  ];
+  const quickActions: QuickAction[] = soleTable ? tableActions : [
     {
       key: "summarize",
       Icon: FileText,
       label: t("aiDock.summarize", { defaultValue: "Summarize" }),
-      prompt: "Summarize the current state of this thesis and its chapters.",
+      prompt: hasScope
+        ? `Summarize ${sectionWord} into a concise summary.`
+        : "Summarize the current state of this thesis and its chapters.",
     },
     {
       key: "improve",
       Icon: PenLine,
       label: t("aiDock.improve", { defaultValue: "Improve writing" }),
-      prompt: "Review the writing quality and improve weak passages.",
+      prompt: hasScope
+        ? `Improve the writing quality of ${sectionWord}.`
+        : "Review the writing quality and improve weak passages.",
     },
     {
       key: "format",
       Icon: LayoutPanelTop,
       label: t("aiDock.format", { defaultValue: "Fix formatting" }),
-      prompt: "Check and fix formatting, numbering and layout issues in the document.",
+      prompt: hasScope
+        ? `Fix the formatting of ${sectionWord}.`
+        : "Check and fix formatting, numbering and layout issues in the document.",
     },
     {
       key: "translate",
       Icon: Languages,
       label: t("aiDock.translate", { defaultValue: "Translate" }),
-      prompt: "Help me translate parts of this thesis.",
+      prompt: hasScope ? `Translate ${sectionWord}.` : "Help me translate parts of this thesis.",
     },
   ];
 
@@ -164,27 +216,58 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock }: Pr
   // BlockComposer's legacy askAiOpen branch and routes through the suggestion
   // store's `request` instead of the plain chat/tool-loop send, so the ask
   // produces an in-place proposal on the block (peek/diff/approve/reject via
-  // InlineSuggestion) rather than a direct edit. Whole-memoir (empty scope) and
-  // multi-block asks are unaffected — they keep the plain send.
+  // InlineSuggestion) rather than a direct edit.
+  //
+  // 2+ selected paragraphs in the LEXICAL editor become a DYNAMIC range rewrite:
+  // one AI pass over the whole selection returns a passage (1..N paragraphs, count
+  // follows the content), shown as one inline proposal that replaces the range on
+  // approve. Elsewhere (native view, non-paragraph selection, whole memoir) the
+  // plain chat send is kept.
   const sendPrompt = (prompt: string) => {
     if (isGenerating) return;
+    const pill = useFloatingPillStore.getState();
     if (scopeIndices.length === 1 && selectedBlock?.kind === "paragraph") {
       void useSuggestionStore.getState().request(thesisId, selectedBlock.index, selectedBlock.text, prompt);
-      useFloatingPillStore.getState().setExpanded(false);
+      pill.setExpanded(false);
       return;
     }
     if (scopeIndices.length === 1 && selectedBlock?.kind === "image") {
       void useSuggestionStore
         .getState()
         .request(thesisId, selectedBlock.index, selectedBlock.caption ?? "", prompt, "image");
-      useFloatingPillStore.getState().setExpanded(false);
+      pill.setExpanded(false);
+      return;
+    }
+    // A sole TABLE routes to the table-suggestion store → in-place diff proposal
+    // (full proposed grid from /table-suggest, approved as a tableOp batch).
+    if (soleTable && selectedBlock) {
+      void useTableSuggestionStore.getState().request(thesisId, selectedBlock.index, prompt);
+      pill.setExpanded(false);
+      pill.setInputOpen(false);
+      return;
+    }
+    // Multi-block range rewrite — only when the Lexical editor is the active surface
+    // (it renders the range node) and every selected block is a paragraph.
+    if (
+      scopeIndices.length > 1 &&
+      useLexicalEditorStore.getState().active &&
+      scopeBlocks &&
+      scopeBlocks.length === scopeIndices.length &&
+      scopeBlocks.length >= 2
+    ) {
+      void useSuggestionStore.getState().requestRange(thesisId, scopeBlocks, prompt);
+      pill.setExpanded(false);
+      pill.setInputOpen(false);
       return;
     }
     void sendMessageToAI(thesisId, prompt, {
       docBlockIndex: scopeIndices.length ? scopeIndices[0] : null,
       docBlockIndices: scopeIndices.length > 1 ? scopeIndices : undefined,
+      // Ground the ask on the selected text (server previews it to the model);
+      // only for a block scope — whole-memoir asks carry no selection.
+      selection: scopeIndices.length ? scopeText || undefined : undefined,
     });
-    useFloatingPillStore.getState().setExpanded(false);
+    pill.setExpanded(false);
   };
 
   const handleAskSend = () => {

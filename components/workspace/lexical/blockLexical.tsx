@@ -138,11 +138,14 @@ function PillBtn({ label, tone, onPress }: { label: string; tone?: "ok" | "no"; 
   const style: React.CSSProperties = {
     borderRadius: "999px",
     padding: "5px 14px",
-    fontSize: "12px",
     border: "1px solid #d4d4dc",
     background: "#fff",
     color: "#222",
     cursor: "pointer",
+    // Buttons do NOT inherit the page font — the iOS WebView UA button font
+    // can't shape Arabic and tofus the labels (see webview-arabic-font).
+    font: "inherit",
+    fontSize: "12px",
   };
   if (tone === "ok") { style.background = "#16a34a"; style.borderColor = "#16a34a"; style.color = "#fff"; }
   if (tone === "no") { style.background = "#fff1f1"; style.borderColor = "#fca5a5"; style.color = "#b91c1c"; }
@@ -303,7 +306,7 @@ function ProposalDiffTable({
             onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
               if (e.key === "Enter") { e.preventDefault(); setAgainOpen(false); onAction("again", note); }
             },
-            style: { flex: 1, border: "1px solid #d4d4dc", borderRadius: "8px", padding: "5px 10px", fontSize: "12.5px", direction: "rtl" },
+            style: { flex: 1, border: "1px solid #d4d4dc", borderRadius: "8px", padding: "5px 10px", font: "inherit", fontSize: "12.5px", direction: "rtl" },
           }),
           React.createElement(PillBtn, { label: "إرسال", tone: "ok", onPress: () => { setAgainOpen(false); onAction("again", note); } }),
         )
