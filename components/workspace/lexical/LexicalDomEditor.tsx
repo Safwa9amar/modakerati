@@ -1020,8 +1020,11 @@ function SearchHighlightPlugin({ search }: { search?: SearchInput }) {
       });
     };
     apply();
-    const off = editor.registerUpdateListener(() => requestAnimationFrame(apply));
-    const onResize = () => requestAnimationFrame(apply);
+    // NB: the listener must return VOID — Lexical treats an update-listener's return
+    // value as a teardown to call later, so returning the rAF id crashed
+    // ("unregister is not a function, 'unregister' is 5"). Wrap in a block.
+    const off = editor.registerUpdateListener(() => { requestAnimationFrame(apply); });
+    const onResize = () => { requestAnimationFrame(apply); };
     window.addEventListener("resize", onResize);
     return () => { off(); window.removeEventListener("resize", onResize); clear(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
