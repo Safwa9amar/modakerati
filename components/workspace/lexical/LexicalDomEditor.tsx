@@ -35,7 +35,7 @@ import {
   INSERT_ORDERED_LIST_COMMAND,
   REMOVE_LIST_COMMAND,
 } from "@lexical/list";
-import { $setBlocksType } from "@lexical/selection";
+import { $setBlocksType, $patchStyleText } from "@lexical/selection";
 import {
   $getRoot,
   $getSelection,
@@ -59,6 +59,8 @@ export type LexicalCommand =
   | { type: "heading"; value: HeadingTagType | "paragraph"; nonce: number }
   | { type: "quote"; value?: undefined; nonce: number }
   | { type: "list"; value: "ul" | "ol" | "none"; nonce: number }
+  | { type: "color"; value: string; nonce: number } // 6-hex, or "clear"
+  | { type: "clearFormatting"; value?: undefined; nonce: number }
   | { type: "serialize"; value?: undefined; nonce: number };
 
 // The active-format snapshot reported back to the native bubble.
@@ -68,6 +70,8 @@ export type LexicalState = {
   underline: boolean;
   blockType: string; // paragraph | h1 | h2 | h3 | quote | bullet | number
   isRTL: boolean;
+  index: number; // position of the focused top-level block (-1 if none)
+  text: string; // the focused block's text (for the selection chip / AI targeting)
 };
 
 // Lexical maps active formats to THESE class names; the CSS below styles them.
@@ -167,6 +171,20 @@ function EditorBridge({
       case "redo":
         editor.dispatchCommand(REDO_COMMAND, undefined);
         break;
+      case "color":
+        editor.update(() => {
+          const sel = $getSelection();
+          if ($isRangeSelection(sel)) $patchStyleText(sel, { color: command.value === "clear" ? "" : `#${command.value.replace(/^#/, "")}` });
+        });
+        break;
+      case "clearFormatting":
+        editor.update(() => {
+          const sel = $getSelection();
+          if (!$isRangeSelection(sel)) return;
+          $patchStyleText(sel, { color: "" });
+          (["bold", "italic", "underline"] as const).forEach((f) => { if (sel.hasFormat(f)) sel.formatText(f); });
+        });
+        break;
       case "serialize":
         if (onBlocks) editor.getEditorState().read(() => onBlocks($lexicalToBlocks()));
         break;
@@ -180,7 +198,7 @@ function EditorBridge({
       editorState.read(() => {
         const sel = $getSelection();
         if (!$isRangeSelection(sel)) {
-          onState({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false });
+          onState({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, index: -1, text: "" });
           return;
         }
         const anchor = sel.anchor.getNode();
@@ -191,12 +209,15 @@ function EditorBridge({
           else if ($isListNode(top)) blockType = top.getListType() === "bullet" ? "bullet" : "number";
           else blockType = top.getType(); // "paragraph" | "quote"
         }
+        const index = top ? $getRoot().getChildren().indexOf(top) : -1;
         onState({
           bold: sel.hasFormat("bold"),
           italic: sel.hasFormat("italic"),
           underline: sel.hasFormat("underline"),
           blockType,
           isRTL: !!top && top.getDirection() === "rtl",
+          index,
+          text: top ? top.getTextContent() : "",
         });
       });
     });

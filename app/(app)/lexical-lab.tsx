@@ -17,6 +17,8 @@ export default function LexicalLabScreen() {
     underline: false,
     blockType: "paragraph",
     isRTL: false,
+    index: -1,
+    text: "",
   });
   const [command, setCommand] = useState<LexicalCommand | null>(null);
   const nonce = useRef(0);

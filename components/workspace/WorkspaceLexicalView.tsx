@@ -36,7 +36,7 @@ export function WorkspaceLexicalView({
   const baselineRef = useRef<DocBlockDTO[]>(stripMedia(blocks));
   const [seed, setSeed] = useState<DocBlockDTO[]>(baselineRef.current);
   const [seedNonce, setSeedNonce] = useState(0);
-  const [activeFmt, setActiveFmt] = useState<LexicalState>({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false });
+  const [activeFmt, setActiveFmt] = useState<LexicalState>({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, index: -1, text: "" });
   const [command, setCommand] = useState<LexicalCommand | null>(null);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);

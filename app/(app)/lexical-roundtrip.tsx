@@ -70,7 +70,7 @@ export default function LexicalRoundtripScreen() {
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState<{ shown: number; total: number } | null>(null);
 
-  const [active, setActive] = useState<LexicalState>({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false });
+  const [active, setActive] = useState<LexicalState>({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, index: -1, text: "" });
   const [command, setCommand] = useState<LexicalCommand | null>(null);
   const [roundtripped, setRoundtripped] = useState<DocBlockDTO[] | null>(null);
   const [showResults, setShowResults] = useState(false);
