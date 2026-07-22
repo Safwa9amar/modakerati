@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import LexicalDomEditor, { type LexicalCommand } from "@/components/workspace/lexical/LexicalDomEditor";
+import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
 import { applyThesisOps, type DocBlockDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { planOps, tally } from "@/lib/lexical-writeback";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
@@ -41,6 +43,11 @@ export function WorkspaceLexicalView({
   const nonce = useRef(0);
   const pendingSave = useRef(false);
   const wasActive = useRef(active);
+  // For anchoring the native pill/AI-dock over the WebView: the editor's absolute
+  // screen top + the block's reported in-WebView Y = the block's screen Y.
+  const wrapRef = useRef<View>(null);
+  const editorTopRef = useRef(0);
+  const lastIndexRef = useRef(-1);
 
   // Re-seed from the latest server truth when the user ENTERS the Lexical view (so
   // it reflects edits made elsewhere), but never mid-session (that would clobber the
@@ -59,9 +66,19 @@ export function WorkspaceLexicalView({
   const send = useCallback((type: string, value?: string) => {
     setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
   }, []);
-  // Formatting is handled by the in-editor floating toolbar now; the native side
-  // only needs the serialize round-trip for Save, so this is a no-op.
-  const onState = useCallback(() => {}, []);
+  // Bridge Lexical's selection to the NATIVE tools: set the workspace selection
+  // (so the reused FloatingPill / BlockContextBar / AI dock render + target this
+  // block) and anchor the pill to the block's screen position.
+  const onState = useCallback((s: LexicalState) => {
+    if (s.index < 0) return;
+    if (s.index !== lastIndexRef.current) {
+      lastIndexRef.current = s.index;
+      useWorkspaceStore.getState().selectBlock(s.index, s.text);
+    }
+    if (typeof s.y === "number" && s.y >= 0) {
+      useFloatingPillStore.getState().setAnchorY(editorTopRef.current + s.y);
+    }
+  }, []);
 
   const onBlocks = useCallback(async (serialized: DocBlockDTO[]) => {
     if (!pendingSave.current) return;
@@ -95,7 +112,11 @@ export function WorkspaceLexicalView({
   }, [saving, send]);
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      ref={wrapRef}
+      onLayout={() => wrapRef.current?.measureInWindow((_x, y) => { editorTopRef.current = y; })}
+    >
       <View style={styles.editorWrap}>
         <LexicalDomEditor
           key={`ws:${thesisId}:${seedNonce}`}

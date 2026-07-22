@@ -76,6 +76,7 @@ export type LexicalState = {
   isRTL: boolean;
   index: number; // position of the focused top-level block (-1 if none)
   text: string; // the focused block's text (for the selection chip / AI targeting)
+  y?: number; // the block's top in WebView-viewport px (for anchoring the native pill)
 };
 
 // Lexical maps active formats to THESE class names; the CSS below styles them.
@@ -209,15 +210,15 @@ function EditorBridge({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command?.nonce]);
 
-  // Report active formats to the native bubble on every editor update.
+  // Report the focused block (formats, index, text, screen-Y) to the native side
+  // so the reused native pill / AI dock can attach to the Lexical selection.
   useEffect(() => {
     return editor.registerUpdateListener(({ editorState }) => {
+      let key: string | null = null;
+      let payload: LexicalState = { bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, index: -1, text: "", y: -1 };
       editorState.read(() => {
         const sel = $getSelection();
-        if (!$isRangeSelection(sel)) {
-          onState({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, index: -1, text: "" });
-          return;
-        }
+        if (!$isRangeSelection(sel)) return;
         const anchor = sel.anchor.getNode();
         const top = anchor.getKey() === "root" ? null : anchor.getTopLevelElementOrThrow();
         let blockType = "paragraph";
@@ -226,17 +227,23 @@ function EditorBridge({
           else if ($isListNode(top)) blockType = top.getListType() === "bullet" ? "bullet" : "number";
           else blockType = top.getType(); // "paragraph" | "quote"
         }
-        const index = top ? $getRoot().getChildren().indexOf(top) : -1;
-        onState({
+        key = top ? top.getKey() : null;
+        payload = {
           bold: sel.hasFormat("bold"),
           italic: sel.hasFormat("italic"),
           underline: sel.hasFormat("underline"),
           blockType,
           isRTL: !!top && top.getDirection() === "rtl",
-          index,
+          index: top ? $getRoot().getChildren().indexOf(top) : -1,
           text: top ? top.getTextContent() : "",
-        });
+          y: -1,
+        };
       });
+      if (key) {
+        const el = editor.getElementByKey(key);
+        if (el) payload = { ...payload, y: el.getBoundingClientRect().top };
+      }
+      onState(payload);
     });
   }, [editor, onState]);
 
@@ -412,7 +419,6 @@ export default function LexicalDomEditor({
         />
         <HistoryPlugin />
         <ListPlugin />
-        <FloatingToolbar />
         <EditorBridge command={command} onState={onState} onBlocks={onBlocks} />
       </div>
     </LexicalComposer>
