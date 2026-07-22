@@ -5,7 +5,7 @@ export type ActivePanel = "sources" | "outline" | null;
 // preview overlay may sit on top of it: "docx" = Word-fidelity pages (OnlyOffice /
 // docx-preview), "pdf" = the OnlyOffice-converted PDF (PDF.js). null = writing
 // (the Writer is active, no preview).
-export type PreviewMode = "docx" | "pdf" | null;
+export type PreviewMode = "docx" | "pdf" | "lexical" | null;
 
 /** One selected document block: its engine index + a snippet of its text. */
 export interface SelectedBlock {
