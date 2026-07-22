@@ -8,16 +8,16 @@ import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/comp
 import { LexicalBubble } from "@/components/workspace/lexical/LexicalBubble";
 import { listTheses, getThesisDocument, type DocBlockDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { applyOpToBlocks, type ThesisOp } from "@/lib/thesis-ops";
 import type { Thesis } from "@/types/thesis";
 
-// WRITE-BACK proof: edit a REAL thesis in Lexical → serialize → diff vs the loaded
-// baseline → persist each changed paragraph through the EXISTING edit endpoint
-// (editThesisParagraph, the same call the durable op-queue's executeOp uses) →
-// verify against the document the endpoint echoes back. Confirm-gated because it
-// mutates real thesis content (undoable from the thesis History). Scope: text +
-// paragraph-level format (level/alignment/direction). Inline-run changes (bold a
-// word) need the deferred formatRange op; structural changes (Δ block count) need
-// split/insert/delete — both are DETECTED and reported, never silently applied.
+// WRITE-BACK proof (structural): edit a REAL thesis in Lexical → serialize → diff
+// the loaded baseline vs the edit into an OP SEQUENCE (editText / splitParagraph /
+// deleteBlocks / format) using the SAME applyOpToBlocks the store uses to keep
+// indices consistent → write through the durable op-queue (store.mutate) → flush →
+// verify against the reconciled doc. Confirm-gated (mutates real content; undoable
+// from thesis History). Reports what it can't express (inline runs → formatRange;
+// non-paragraph inserts) instead of writing something wrong.
 
 type ParaRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
 type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
@@ -39,55 +39,127 @@ function normMarks(runs: ParaRun[]): string {
 }
 const uiAlign = (a: ParagraphDTO["alignment"]) => (a === "both" ? "justify" : a === "left" || a === "center" || a === "right" ? a : undefined);
 
-type EditChange = { index: number; changes: { text?: string; level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr" } };
-type Skip = { index: number; reason: string };
-type Verify = { index: number; ok: boolean };
-
-// Diff one loaded block vs its serialized counterpart at the same index.
-function diffPair(o: DocBlockDTO, n: DocBlockDTO): { change?: EditChange; skip?: Skip } {
-  if (o.kind !== "paragraph" || n.kind !== "paragraph") {
-    return o.kind === n.kind ? {} : { skip: { index: o.index, reason: `kind changed ${o.kind}→${n.kind}` } };
-  }
-  const changes: EditChange["changes"] = {};
-  if (o.text !== n.text) changes.text = n.text;
-  if (o.level !== n.level) changes.level = n.level;
+// Content identity used to ALIGN blocks (structure). Text-only for paragraphs so a
+// format-only change stays "the same block" and is handled by the format pass.
+function tsig(b: DocBlockDTO): string {
+  if (b.kind === "paragraph") return "p|" + b.text;
+  if (b.kind === "table") return "t|" + JSON.stringify(b.rows);
+  if (b.kind === "image") return "i|" + (b.dataUri ?? "") + "|" + (b.caption ?? "") + "|" + (b.hasMedia ? 1 : 0);
+  return "o|" + b.tag;
+}
+type Fmt = { level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr" };
+function fmtChanges(o: ParagraphDTO, n: ParagraphDTO): Fmt | null {
+  const c: Fmt = {};
+  if (o.level !== n.level) c.level = n.level;
   if ((o.alignment ?? null) !== (n.alignment ?? null)) {
     const ui = uiAlign(n.alignment);
-    if (ui) changes.alignment = ui;
+    if (ui) c.alignment = ui;
   }
   const oDir = o.direction ?? detectDir(o.text, false);
   const nDir = n.direction ?? detectDir(n.text, false);
-  if (oDir !== nDir && (n.direction === "rtl" || n.direction === "ltr")) changes.direction = n.direction;
-  if (Object.keys(changes).length > 0) return { change: { index: o.index, changes } };
-  if (normMarks(runsOf(o)) !== normMarks(runsOf(n))) return { skip: { index: o.index, reason: "inline run formatting — needs formatRange op" } };
-  return {};
+  if (oDir !== nDir && (n.direction === "rtl" || n.direction === "ltr")) c.direction = n.direction;
+  return Object.keys(c).length ? c : null;
 }
+
+// Diff base → target into an op sequence. `sim` mirrors the doc as ops apply
+// (applyOpToBlocks == the store's optimistic patch), so op indices stay correct.
+function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: ThesisOp[]; unsupported: string[]; converged: boolean } {
+  let sim: DocBlockDTO[] = base.map((b, i) => ({ ...b, index: i }));
+  const ops: ThesisOp[] = [];
+  const unsupported: string[] = [];
+  const emit = (op: ThesisOp) => { ops.push(op); sim = applyOpToBlocks(sim, op); };
+
+  // ── structural pass: make sim match target by content/order ──
+  const MAX = base.length + target.length + 30;
+  let guard = 0;
+  while (guard++ < MAX) {
+    let p = -1;
+    for (let i = 0; i < target.length; i++) {
+      if (i >= sim.length || tsig(sim[i]) !== tsig(target[i])) { p = i; break; }
+    }
+    if (p === -1) {
+      if (sim.length > target.length) { emit({ type: "deleteBlocks", indices: [target.length] }); continue; }
+      break;
+    }
+    const tgt = target[p];
+    const cur: DocBlockDTO | undefined = sim[p];
+    const nextT = p + 1 < target.length ? tsig(target[p + 1]) : "\x00";
+    const nextS = p + 1 < sim.length ? tsig(sim[p + 1]) : "\x00";
+    const isInsert = cur != null && tsig(cur) === nextT;
+    const isDelete = cur != null && nextS === tsig(tgt);
+
+    if (cur == null || (isInsert && !isDelete)) {
+      if (tgt.kind !== "paragraph") {
+        unsupported.push(`insert ${tgt.kind} @${p}`);
+        sim = [...sim.slice(0, p), { ...tgt, index: p }, ...sim.slice(p)].map((b, i) => ({ ...b, index: i }));
+        continue;
+      }
+      if (p === 0) {
+        if (sim[0]?.kind !== "paragraph") { unsupported.push(`insert @0 needs a paragraph anchor`); break; }
+        emit({ type: "splitParagraph", index: 0, before: tgt.text, after: (sim[0] as ParagraphDTO).text });
+      } else {
+        const a = sim[p - 1];
+        if (a?.kind !== "paragraph") { unsupported.push(`insert @${p} needs a paragraph anchor`); break; }
+        emit({ type: "splitParagraph", index: p - 1, before: (a as ParagraphDTO).text, after: tgt.text });
+      }
+      continue;
+    }
+    if (isDelete && !isInsert) { emit({ type: "deleteBlocks", indices: [p] }); continue; }
+
+    // replace at p
+    if (cur.kind === "paragraph" && tgt.kind === "paragraph") {
+      if (cur.text !== tgt.text) emit({ type: "editText", index: p, text: tgt.text });
+      else sim = sim.map((b, i) => (i === p ? { ...tgt, index: i } : b));
+    } else {
+      unsupported.push(`${cur.kind}→${tgt.kind} change @${p}`);
+      sim = sim.map((b, i) => (i === p ? { ...tgt, index: i } : b));
+    }
+  }
+
+  const converged = sim.length === target.length && target.every((t, i) => sim[i] && tsig(sim[i]) === tsig(t));
+
+  // ── format pass (only when structure is aligned) ──
+  if (converged) {
+    for (let i = 0; i < target.length; i++) {
+      const s = sim[i], t = target[i];
+      if (s.kind === "paragraph" && t.kind === "paragraph") {
+        const fc = fmtChanges(s, t);
+        if (fc) emit({ type: "format", indices: [i], changes: fc });
+        if (normMarks(runsOf(s)) !== normMarks(runsOf(t))) unsupported.push(`inline run formatting @${i} (needs formatRange)`);
+      }
+    }
+  }
+  return { ops, unsupported, converged };
+}
+
+function tally(ops: ThesisOp[]): string {
+  const c: Record<string, number> = {};
+  for (const o of ops) c[o.type] = (c[o.type] ?? 0) + 1;
+  return Object.entries(c).map(([k, v]) => `${v} ${k}`).join(", ") || "none";
+}
+
+type ResultT = { ops: ThesisOp[]; unsupported: string[]; verified?: { matched: number; total: number; drained: boolean }; error?: string; note?: string };
 
 export default function LexicalWritebackScreen() {
   const colors = useThemeColors();
   const [theses, setTheses] = useState<Thesis[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [blocks, setBlocks] = useState<DocBlockDTO[]>([]);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [result, setResult] = useState<{ sent: EditChange[]; skipped: Skip[]; verified: Verify[]; structural?: string; error?: string } | null>(null);
+  const [result, setResult] = useState<ResultT | null>(null);
 
   const [active, setActive] = useState<LexicalState>({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false });
   const [command, setCommand] = useState<LexicalCommand | null>(null);
   const nonce = useRef(0);
-
-  // Save context read at serialize time (avoids stale closures in onBlocks).
   const ctx = useRef<{ baseline: DocBlockDTO[]; thesisId: string | null; title: string }>({ baseline: [], thesisId: null, title: "" });
   const pendingSave = useRef(false);
 
-  useEffect(() => {
-    listTheses().then(setTheses).catch(() => {});
-  }, []);
+  useEffect(() => { listTheses().then(setTheses).catch(() => {}); }, []);
 
-  const send = useCallback((type: string, value?: string) => {
-    setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
-  }, []);
+  const send = useCallback((type: string, value?: string) => { setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand); }, []);
   const onState = useCallback((s: LexicalState) => setActive(s), []);
 
   const select = useCallback(async (t: Thesis) => {
@@ -103,6 +175,7 @@ export default function LexicalWritebackScreen() {
       } else {
         const loaded = doc.blocks.slice(0, CAP);
         setBlocks(loaded);
+        setReloadNonce((n) => n + 1);
         ctx.current = { baseline: loaded, thesisId: t.id, title: t.title || "this thesis" };
       }
     } catch {
@@ -113,45 +186,27 @@ export default function LexicalWritebackScreen() {
     }
   }, []);
 
-  // Persist through the DURABLE OP-QUEUE (production path). Writing via the doc
-  // store's `mutate` updates the SAME cached doc the workspace reads (so it stops
-  // showing stale content), enqueues durable ops, and `flushOps` forces them to
-  // the server. Then we verify against the reconciled store doc.
-  const persist = useCallback(async (thesisId: string, sent: EditChange[]) => {
+  const persist = useCallback(async (thesisId: string, ops: ThesisOp[], unsupported: string[], target: DocBlockDTO[]) => {
     setSaving(true);
     const store = useThesisDocStore.getState();
     try {
-      // Share the same loaded doc as the workspace (optimistic base + sync target).
-      await store.load(thesisId);
-      for (const c of sent) {
-        if (c.changes.text != null) {
-          await store.mutate(thesisId, { type: "editText", index: c.index, text: c.changes.text });
-        }
-        const fmt: { level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr" } = {};
-        if (c.changes.level != null) fmt.level = c.changes.level;
-        if (c.changes.alignment) fmt.alignment = c.changes.alignment;
-        if (c.changes.direction) fmt.direction = c.changes.direction;
-        if (Object.keys(fmt).length > 0) {
-          await store.mutate(thesisId, { type: "format", indices: [c.index], changes: fmt });
-        }
-      }
-      const drained = await store.flushOps(thesisId, { timeoutMs: 20_000 });
+      await store.load(thesisId); // share the workspace's cached doc
+      for (const op of ops) await store.mutate(thesisId, op);
+      const drained = await store.flushOps(thesisId, { timeoutMs: 30_000 });
       const doc = useThesisDocStore.getState().byId[thesisId];
-      const verified: Verify[] = sent.map((c) => {
-        if (!doc || !doc.available) return { index: c.index, ok: false };
-        const blk = doc.blocks.find((b) => b.index === c.index);
-        const okText = c.changes.text == null || (blk?.kind === "paragraph" && blk.text === c.changes.text);
-        return { index: c.index, ok: drained && !!blk && okText };
-      });
-      // New baseline = reconciled server state so a second save diffs correctly.
-      if (doc && doc.available) {
+      let matched = 0;
+      if (doc?.available) {
+        for (let i = 0; i < target.length; i++) {
+          if (doc.blocks[i] && tsig(doc.blocks[i]) === tsig(target[i])) matched++;
+        }
         const nb = doc.blocks.slice(0, CAP);
         setBlocks(nb);
+        setReloadNonce((n) => n + 1); // reseed editor from the persisted server state
         ctx.current = { ...ctx.current, baseline: nb };
       }
-      setResult((r) => ({ sent, skipped: r?.skipped ?? [], verified, structural: r?.structural }));
+      setResult({ ops, unsupported, verified: { matched, total: target.length, drained } });
     } catch {
-      setResult((r) => ({ sent, skipped: r?.skipped ?? [], verified: [], error: "The write-back failed." }));
+      setResult({ ops, unsupported, error: "Write-back failed (a request errored)." });
     } finally {
       setSaving(false);
     }
@@ -162,28 +217,17 @@ export default function LexicalWritebackScreen() {
     pendingSave.current = false;
     const { baseline, thesisId, title } = ctx.current;
     if (!thesisId) return;
-
-    if (serialized.length !== baseline.length) {
-      setResult({ sent: [], skipped: [], verified: [], structural: `Block count changed ${baseline.length}→${serialized.length} — structural edits (split/insert/delete) aren't in this write-back spike.` });
-      return;
-    }
-    const sent: EditChange[] = [];
-    const skipped: Skip[] = [];
-    for (let i = 0; i < baseline.length; i++) {
-      const { change, skip } = diffPair(baseline[i], serialized[i]);
-      if (change) sent.push(change);
-      if (skip) skipped.push(skip);
-    }
-    if (sent.length === 0) {
-      setResult({ sent: [], skipped, verified: [] });
+    const { ops, unsupported, converged } = planOps(baseline, serialized);
+    if (ops.length === 0) {
+      setResult({ ops: [], unsupported, note: converged ? "No persistable changes detected." : "Couldn't reconcile the edit into ops." });
       return;
     }
     Alert.alert(
       "Persist to the real thesis?",
-      `Write ${sent.length} paragraph change(s) to "${title}". You can undo this from the thesis History.`,
+      `${ops.length} op(s): ${tally(ops)}. Written to "${title}", undoable from the thesis History.`,
       [
-        { text: "Cancel", style: "cancel", onPress: () => setResult({ sent: [], skipped, verified: [], error: "Cancelled." }) },
-        { text: "Persist", style: "destructive", onPress: () => { setResult({ sent, skipped, verified: [] }); void persist(thesisId, sent); } },
+        { text: "Cancel", style: "cancel", onPress: () => setResult({ ops: [], unsupported, note: "Cancelled." }) },
+        { text: "Persist", style: "destructive", onPress: () => { setResult({ ops, unsupported }); void persist(thesisId, ops, unsupported, serialized); } },
       ],
     );
   }, [persist]);
@@ -194,6 +238,9 @@ export default function LexicalWritebackScreen() {
     setResult(null);
     send("serialize");
   };
+
+  const verified = result?.verified;
+  const allOk = !!verified && verified.matched === verified.total && verified.drained;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
@@ -214,7 +261,7 @@ export default function LexicalWritebackScreen() {
         })}
       </ScrollView>
       <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-        {loading ? "Loading…" : error ? error : !selectedId ? "Pick a thesis, edit a paragraph, then Save to persist it." : `${blocks.length} blocks · edit, then Save`}
+        {loading ? "Loading…" : error ? error : !selectedId ? "Pick a thesis, edit freely (add/remove/change lines), then Save." : `${blocks.length} blocks · edit, then Save`}
       </Text>
 
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -225,7 +272,7 @@ export default function LexicalWritebackScreen() {
             <View style={styles.center}><Text style={{ color: colors.textPlaceholder }}>{error ?? "Pick a thesis above"}</Text></View>
           ) : (
             <LexicalDomEditor
-              key={`${selectedId}:${blocks.length}`}
+              key={`${selectedId}:${reloadNonce}`}
               initialBlocks={blocks}
               command={command}
               onState={onState}
@@ -235,11 +282,7 @@ export default function LexicalWritebackScreen() {
           )}
         </View>
         <LexicalBubble active={active} onCommand={send} />
-        <Pressable
-          onPress={runSave}
-          disabled={saving || blocks.length === 0}
-          style={[styles.runBtn, { backgroundColor: blocks.length > 0 && !saving ? colors.brandPrimary : colors.borderDefault }]}
-        >
+        <Pressable onPress={runSave} disabled={saving || blocks.length === 0} style={[styles.runBtn, { backgroundColor: blocks.length > 0 && !saving ? colors.brandPrimary : colors.borderDefault }]}>
           <Text style={[styles.runText, { color: colors.bgPrimary }]}>{saving ? "Saving…" : "Save to thesis  ↑"}</Text>
         </Pressable>
       </KeyboardAvoidingView>
@@ -248,38 +291,37 @@ export default function LexicalWritebackScreen() {
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: colors.bgPrimary }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Write-back result</Text>
+              <Text style={[styles.modalTitle, { color: allOk ? (colors.semanticSuccess ?? "#2f9e6f") : colors.textPrimary }]}>
+                {verified ? (allOk ? "✓ Persisted & verified" : "Persisted · partial") : "Write-back"}
+              </Text>
               <Pressable onPress={() => setResult(null)}><Text style={[styles.close, { color: colors.brandPrimary }]}>Done</Text></Pressable>
             </View>
             <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-              {result?.error && <Text style={[styles.big, { color: colors.semanticError ?? "#c0392b" }]}>{result.error}</Text>}
-              {result?.structural && <Text style={[styles.note, { color: colors.textSecondary }]}>{result.structural}</Text>}
-              {!result?.error && !result?.structural && result?.sent.length === 0 && (
-                <Text style={[styles.note, { color: colors.textSecondary }]}>No persistable changes detected.</Text>
-              )}
               {saving && <ActivityIndicator color={colors.brandPrimary} style={{ marginVertical: 12 }} />}
-              {result?.sent.map((c) => {
-                const v = result.verified.find((x) => x.index === c.index);
-                const ok = v?.ok;
-                return (
-                  <View key={`s${c.index}`} style={[styles.rowCard, { borderColor: colors.borderSubtle }]}>
-                    <Text style={[styles.rowTitle, { color: ok ? (colors.semanticSuccess ?? "#2f9e6f") : v ? (colors.semanticError ?? "#c0392b") : colors.textSecondary }]}>
-                      {ok ? "PERSISTED ✓ verified" : v ? "SENT · verify failed" : "SENT…"} · block {c.index}
-                    </Text>
-                    <Text style={[styles.code, { color: colors.textPrimary }]}>{JSON.stringify(c.changes)}</Text>
-                  </View>
-                );
-              })}
-              {result?.skipped.map((s) => (
-                <View key={`k${s.index}`} style={[styles.rowCard, { borderColor: colors.borderSubtle }]}>
-                  <Text style={[styles.rowTitle, { color: colors.textSecondary }]}>SKIPPED · block {s.index}</Text>
-                  <Text style={[styles.note, { color: colors.textSecondary }]}>{s.reason}</Text>
+              {result?.error && <Text style={[styles.big, { color: colors.semanticError ?? "#c0392b" }]}>{result.error}</Text>}
+              {result?.note && <Text style={[styles.note, { color: colors.textSecondary }]}>{result.note}</Text>}
+              {verified && (
+                <Text style={[styles.big, { color: allOk ? (colors.semanticSuccess ?? "#2f9e6f") : (colors.semanticError ?? "#c0392b") }]}>
+                  {verified.matched}/{verified.total} positions match the edit on the server{verified.drained ? "" : " (queue not fully drained)"}
+                </Text>
+              )}
+              {result && result.ops.length > 0 && (
+                <View style={[styles.rowCard, { borderColor: colors.borderSubtle }]}>
+                  <Text style={[styles.rowTitle, { color: colors.textPrimary }]}>{result.ops.length} op(s) · {tally(result.ops)}</Text>
+                  {result.ops.slice(0, 12).map((o, i) => (
+                    <Text key={i} style={[styles.code, { color: colors.textSecondary }]}>{opLine(o)}</Text>
+                  ))}
+                  {result.ops.length > 12 && <Text style={[styles.code, { color: colors.textPlaceholder }]}>… +{result.ops.length - 12} more</Text>}
+                </View>
+              )}
+              {result?.unsupported.map((u, i) => (
+                <View key={`u${i}`} style={[styles.rowCard, { borderColor: colors.borderSubtle }]}>
+                  <Text style={[styles.rowTitle, { color: colors.textSecondary }]}>SKIPPED</Text>
+                  <Text style={[styles.note, { color: colors.textSecondary }]}>{u}</Text>
                 </View>
               ))}
-              {result && result.verified.length > 0 && (
-                <Text style={[styles.note, { color: colors.textSecondary }]}>
-                  Verified against the document the server echoed back — reopen this thesis in the workspace to see it there too.
-                </Text>
+              {verified && (
+                <Text style={[styles.note, { color: colors.textSecondary }]}>Reopen this thesis in the workspace — the change is now in the shared doc cache and the .docx.</Text>
               )}
             </ScrollView>
           </View>
@@ -287,6 +329,14 @@ export default function LexicalWritebackScreen() {
       </Modal>
     </SafeAreaView>
   );
+}
+
+function opLine(o: ThesisOp): string {
+  if (o.type === "editText") return `editText @${o.index}: "${o.text.slice(0, 24)}${o.text.length > 24 ? "…" : ""}"`;
+  if (o.type === "splitParagraph") return `split @${o.index}  (+ "${o.after.slice(0, 20)}…")`;
+  if (o.type === "deleteBlocks") return `delete @${o.indices.join(",")}`;
+  if (o.type === "format") return `format @${o.indices.join(",")} ${JSON.stringify(o.changes)}`;
+  return o.type;
 }
 
 const styles = StyleSheet.create({
@@ -311,6 +361,6 @@ const styles = StyleSheet.create({
   big: { fontSize: 14, fontFamily: "Inter_600SemiBold", marginBottom: 8 },
   note: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18, marginTop: 4 },
   rowCard: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, padding: 10, marginBottom: 8 },
-  rowTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  code: { fontSize: 11, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", marginTop: 4 },
+  rowTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", marginBottom: 4 },
+  code: { fontSize: 11, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", marginTop: 2 },
 });
