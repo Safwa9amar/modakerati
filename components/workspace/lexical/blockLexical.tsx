@@ -40,6 +40,15 @@ type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
 // ── Opaque structural-block node (table / image / other) ─────────────────────
 type SerializedBlockDataNode = SerializedLexicalNode & { block: DocBlockDTO };
 
+const PLACEHOLDER: React.CSSProperties = {
+  border: "1px dashed #b9c0d8",
+  borderRadius: "8px",
+  padding: "10px",
+  color: "#5b6b8c",
+  fontSize: "13px",
+  background: "#f6f8ff",
+};
+
 export class BlockDataNode extends DecoratorNode<React.ReactNode> {
   __block: DocBlockDTO;
 
@@ -58,8 +67,7 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
   }
   createDOM(): HTMLElement {
     const el = document.createElement("div");
-    el.style.cssText =
-      "border:1px dashed #b9c0d8;border-radius:8px;padding:10px;margin:8px 0;color:#5b6b8c;font-size:13px;background:#f6f8ff;";
+    el.style.cssText = "margin:8px 0;";
     return el;
   }
   updateDOM(): false {
@@ -68,20 +76,44 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
   isInline(): false {
     return false;
   }
+  // Render the real content (table grid / inline image) so a real thesis LOOKS
+  // right — while the block stays opaque to editing and round-trips verbatim via
+  // __block. Large figures (media not inlined as dataUri) show a placeholder.
   decorate(): React.ReactNode {
     const b = this.__block;
-    const label =
-      b.kind === "table"
-        ? `▦ table · ${b.rows.length}×${b.rows[0]?.length ?? 0}`
-        : b.kind === "image"
-          ? `🖼 figure${b.caption ? ` · ${b.caption}` : ""}`
-          : `⋯ ${b.kind}`;
-    return React.createElement(
-      "span",
-      null,
-      `${label}  `,
-      React.createElement("em", { style: { opacity: 0.6 } }, "(opaque · preserved verbatim)"),
-    );
+    if (b.kind === "table") {
+      return React.createElement(
+        "table",
+        { style: { borderCollapse: "collapse", width: "100%", fontSize: "13px", margin: "6px 0" } },
+        React.createElement(
+          "tbody",
+          null,
+          b.rows.map((row, ri) =>
+            React.createElement(
+              "tr",
+              { key: ri },
+              row.map((cell, ci) =>
+                React.createElement("td", { key: ci, style: { border: "1px solid #d8d8de", padding: "4px 8px" } }, cell),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    if (b.kind === "image") {
+      if (b.dataUri) {
+        return React.createElement("img", {
+          src: b.dataUri,
+          style: { maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", display: "block", margin: "8px auto" },
+        });
+      }
+      return React.createElement(
+        "div",
+        { style: PLACEHOLDER },
+        `🖼 figure${b.caption ? ` · ${b.caption}` : ""} · media not inlined`,
+      );
+    }
+    return React.createElement("div", { style: PLACEHOLDER }, `⋯ ${b.kind === "other" ? b.tag : b.kind}`);
   }
   exportJSON(): SerializedBlockDataNode {
     return { ...super.exportJSON(), type: "block-data", version: 1, block: this.__block };
