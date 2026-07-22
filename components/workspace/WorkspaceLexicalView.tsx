@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, AppState } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
-import { applyThesisOps, type DocBlockDTO } from "@/lib/api";
+import { applyThesisOps, type DocBlockDTO, type DocumentDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
@@ -52,6 +52,15 @@ export function WorkspaceLexicalView({
   const activeRef = useRef(active);
   activeRef.current = active;
 
+  // SYNC LAYER (block model → Lexical): subscribe to this thesis's doc in the
+  // store. When it changes because of something OTHER than our own save — the
+  // native pill/BlockContextBar, the AI dock (Ask/Improve/Translate), undo/redo —
+  // re-seed Lexical so those edits show up here too. `syncedDocRef` tracks the doc
+  // Lexical currently matches, so our own save (setDoc) never triggers a reseed.
+  const doc = useThesisDocStore((s) => s.byId[thesisId]);
+  const syncedDocRef = useRef<DocumentDTO | undefined>(undefined);
+  const inited = useRef(false);
+
   const send = useCallback((type: string, value?: string) => {
     setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
   }, []);
@@ -66,11 +75,12 @@ export function WorkspaceLexicalView({
   // user's in-progress edits).
   useEffect(() => {
     if (active && !wasActive.current) {
-      const doc = useThesisDocStore.getState().byId[thesisId];
-      const latest = doc?.available ? stripMedia(doc.blocks) : stripMedia(blocks);
+      const cur = useThesisDocStore.getState().byId[thesisId];
+      const latest = cur?.available ? stripMedia(cur.blocks) : stripMedia(blocks);
       baselineRef.current = latest;
       setSeed(latest);
       setSeedNonce((n) => n + 1);
+      syncedDocRef.current = cur;
     } else if (!active && wasActive.current) {
       flushNow(); // leaving the Writer (e.g. opening a preview) → flush edits
     }
@@ -85,6 +95,21 @@ export function WorkspaceLexicalView({
     });
     return () => sub.remove();
   }, [flushNow]);
+
+  // Reflect external edits (native pill/BlockContextBar, AI dock, undo/redo) into
+  // Lexical by re-seeding — but never over the user's unsaved typing, and never
+  // from our own save (guarded by syncedDocRef).
+  useEffect(() => {
+    if (!inited.current) { inited.current = true; syncedDocRef.current = doc; return; }
+    if (!active || doc === syncedDocRef.current || saveTimer.current) return;
+    if (doc?.available) {
+      const latest = stripMedia(doc.blocks);
+      baselineRef.current = latest;
+      setSeed(latest);
+      setSeedNonce((n) => n + 1);
+      syncedDocRef.current = doc;
+    }
+  }, [doc, active]);
 
   // Auto-sync (no manual Save): mirror the native gate — hold while actively
   // editing, then background-flush shortly after the user pauses. (Debounced,
@@ -119,6 +144,7 @@ export function WorkspaceLexicalView({
       const res = await applyThesisOps(thesisId, ops); // ONE batch call
       if (res.document) {
         useThesisDocStore.getState().setDoc(thesisId, res.document);
+        syncedDocRef.current = res.document; // our own change — don't reseed from it
         if (res.document.available) baselineRef.current = stripMedia(res.document.blocks);
       }
       setBanner(`Saved · ${tally(ops)}${res.skipped?.length ? ` (${res.skipped.length} skipped)` : ""}`);
