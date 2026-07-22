@@ -987,6 +987,18 @@ export async function editThesisParagraphs(
   return apiPost<{ ok: true; changed: number; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/paragraphs/bulk`, { indices, ...changes });
 }
 
+// Batch several manual edit ops into ONE server call + ONE .docx save + ONE history
+// entry (the block-editor write-back path). Ops are POSITIONAL and replayed in order
+// under a single thesis lock, exactly like the per-op routes — turning N round-trips
+// into one. Echoes the mutated document so the caller reconciles without a re-GET.
+// `ops` is the durable ThesisOp[] shape (typed loosely here to avoid a circular import).
+export async function applyThesisOps(
+  thesisId: string,
+  ops: unknown[],
+): Promise<{ ok: true; applied: number; skipped: string[]; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost<{ ok: true; applied: number; skipped: string[]; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/ops`, { ops });
+}
+
 // Bulk-delete several live-.docx thesis blocks at once (the workspace multi-select).
 // `indices` are engine block indices; the server removes them high-to-low so they
 // stay valid as the list shrinks. Shares the AI's thesis lock.

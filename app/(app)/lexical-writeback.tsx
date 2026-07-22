@@ -6,7 +6,7 @@ import { BackButton } from "@/components/BackButton";
 import { detectDir } from "@/components/workspace/DocBlock";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
 import { LexicalBubble } from "@/components/workspace/lexical/LexicalBubble";
-import { listTheses, getThesisDocument, type DocBlockDTO } from "@/lib/api";
+import { listTheses, getThesisDocument, applyThesisOps, type DocBlockDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { applyOpToBlocks, type ThesisOp } from "@/lib/thesis-ops";
 import type { Thesis } from "@/types/thesis";
@@ -22,7 +22,7 @@ import type { Thesis } from "@/types/thesis";
 type ParaRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
 type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
 const CAP = 120;
-const MAX_OPS = 40; // safety: abort a diff this large rather than hammer the API / risk a cascade
+const MAX_OPS = 1000; // one batch call now handles many ops; cap matches the server
 
 function runsOf(b: ParagraphDTO): ParaRun[] {
   const r = (b as { runs?: ParaRun[] }).runs;
@@ -209,12 +209,12 @@ export default function LexicalWritebackScreen() {
 
   const persist = useCallback(async (thesisId: string, ops: ThesisOp[], unsupported: string[], target: DocBlockDTO[]) => {
     setSaving(true);
-    const store = useThesisDocStore.getState();
     try {
-      await store.load(thesisId);
-      for (const op of ops) await store.mutate(thesisId, op);
-      const drained = await store.flushOps(thesisId, { timeoutMs: 30_000 });
-      const doc = useThesisDocStore.getState().byId[thesisId];
+      // ONE call: the server replays all ops under a single lock and one .docx save.
+      const res = await applyThesisOps(thesisId, ops);
+      const doc = res.document;
+      // Sync the workspace's shared doc cache from the echoed document.
+      if (doc) useThesisDocStore.getState().setDoc(thesisId, doc);
       let matched = 0;
       if (doc?.available) {
         for (let i = 0; i < target.length; i++) {
@@ -225,9 +225,10 @@ export default function LexicalWritebackScreen() {
         setReloadNonce((n) => n + 1);
         ctx.current = { ...ctx.current, baseline: nb };
       }
-      setResult({ ops, unsupported, verified: { matched, total: target.length, drained } });
+      const serverSkipped = (res.skipped ?? []).map((s) => `server: ${s}`);
+      setResult({ ops, unsupported: [...unsupported, ...serverSkipped], verified: { matched, total: target.length, drained: res.applied >= ops.length } });
     } catch {
-      setResult({ ops, unsupported, error: "Write-back failed (a request errored)." });
+      setResult({ ops, unsupported, error: "Write-back failed (the batch request errored)." });
     } finally {
       setSaving(false);
     }
