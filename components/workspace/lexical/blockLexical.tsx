@@ -106,6 +106,13 @@ function EditableTable({
   const onEditCell = React.useContext(EditCellContext);
   const [editing, setEditing] = React.useState<{ r: number; c: number } | null>(null);
   const [draft, setDraft] = React.useState("");
+  // Local overlay of committed cell edits. Committing shows the new value from
+  // here IMMEDIATELY — the server sync then reconciles WITHOUT a full reseed
+  // (which would rebuild the whole doc and scroll to the top). A real reseed
+  // (structure edit / navigation) remounts this component, clearing the overlay;
+  // by then the store's block carries the same edits, so they agree.
+  const [edits, setEdits] = React.useState<Record<string, string>>({});
+  const cellText = (r: number, c: number) => edits[`${r},${c}`] ?? block.rows[r]?.[c] ?? "";
   const t = block as typeof block & TableStyleExtra;
   const align = t.align ?? null;
   const header = !!t.header;
@@ -129,15 +136,18 @@ function EditableTable({
   const commit = () => {
     setEditing((cur) => {
       if (cur) {
-        const orig = block.rows[cur.r]?.[cur.c] ?? "";
-        if (draft !== orig && onEditCell) onEditCell(block.index, cur.r, cur.c, draft);
+        const orig = cellText(cur.r, cur.c);
+        if (draft !== orig && onEditCell) {
+          setEdits((prev) => ({ ...prev, [`${cur.r},${cur.c}`]: draft })); // show it now, no reseed
+          onEditCell(block.index, cur.r, cur.c, draft);
+        }
       }
       return null;
     });
   };
   const startEdit = (r: number, c: number) => {
     if (!onEditCell) return;
-    setDraft(block.rows[r]?.[c] ?? "");
+    setDraft(cellText(r, c));
     setEditing({ r, c });
   };
 
@@ -151,7 +161,7 @@ function EditableTable({
         React.createElement(
           "tr",
           { key: ri },
-          row.map((cell, ci) => {
+          row.map((_cell, ci) => {
             const isHeader = header && ri === 0;
             const isEditing = editing?.r === ri && editing?.c === ci;
             const fill = fills?.[ri]?.[ci] ?? null;
@@ -191,7 +201,7 @@ function EditableTable({
                     direction: dir,
                   },
                 })
-              : cell;
+              : cellText(ri, ci);
             return React.createElement(
               isHeader ? "th" : "td",
               {

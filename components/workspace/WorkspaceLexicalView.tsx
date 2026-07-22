@@ -355,14 +355,28 @@ export function WorkspaceLexicalView({
   }, [thesisId]);
 
   // In-cell table edit (double-tap a cell in the WebView) → the block-model
-  // editCell op via the SAME silent table-op sync as the bubble tools (optimistic
-  // patch + direct server apply, no drainTick refetch cascade). The server echo
-  // reconciles and the reseed re-renders the cell.
+  // editCell op. The WebView cell already painted the new value from its local
+  // overlay, so we must NOT full-reseed here — that would rebuild the whole doc
+  // and scroll to the top (and trip Lexical's flushSync warning). Send the op,
+  // then reconcile the store/baseline with skipReseed set so the setDoc updates
+  // state WITHOUT rebuilding the editor. No optimistic setDoc for the same reason.
   const onEditCell = useCallback(
     (blockIndex: number, row: number, col: number, text: string) => {
-      void useThesisDocStore
-        .getState()
-        .applyTableOpSilent(thesisId, { type: "tableOp", index: blockIndex, action: "editCell", row, col, text });
+      void (async () => {
+        const store = useThesisDocStore.getState();
+        try {
+          const res = await applyThesisOps(thesisId, [
+            { type: "tableOp", index: blockIndex, action: "editCell", row, col, text },
+          ]);
+          if (res.document) {
+            useLexicalEditorStore.getState().requestSkipReseed();
+            store.setDoc(thesisId, res.document);
+          }
+          void store.refreshHistoryState(thesisId);
+        } catch {
+          void store.revalidate(thesisId);
+        }
+      })();
     },
     [thesisId],
   );
