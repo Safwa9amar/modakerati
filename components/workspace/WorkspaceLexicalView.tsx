@@ -9,6 +9,7 @@ import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useSearchStore } from "@/stores/search-store";
 import { planOps, tally } from "@/lib/lexical-writeback";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
@@ -100,6 +101,18 @@ export function WorkspaceLexicalView({
   const media = useMemo(
     () => ({ base: process.env.EXPO_PUBLIC_API_URL ?? "", token: mediaToken, thesisId, version: docTick }),
     [mediaToken, thesisId, docTick],
+  );
+  // Document-search hits → tint them (+ the current one) in the editor. Primitive
+  // selectors (no fresh-object loop); the array ref is stable until setMatches.
+  const searchOpen = useSearchStore((s) => s.open);
+  const searchMatches = useSearchStore((s) => s.matches);
+  const searchCurrent = useSearchStore((s) => s.current);
+  const search = useMemo(
+    () =>
+      searchOpen && searchMatches.length
+        ? { matches: searchMatches.map((m) => ({ blockIndex: m.blockIndex, start: m.start, end: m.end })), current: searchCurrent }
+        : undefined,
+    [searchOpen, searchMatches, searchCurrent],
   );
   // Outline-drawer navigation target (heading tapped in the Structure drawer).
   const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
@@ -362,6 +375,7 @@ export function WorkspaceLexicalView({
           onRangeAction={onRangeAction}
           selectedIndices={highlightIndices}
           media={media}
+          search={search}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />
         {/* Auto-save status (no manual button — background sync on pause / exit). */}

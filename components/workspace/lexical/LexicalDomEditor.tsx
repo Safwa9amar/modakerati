@@ -181,6 +181,10 @@ const CSS = `
    kind tools; a pressed ring gives feedback that it's an interactive target. */
 .lx-blockpick { cursor: pointer; border-radius: 6px; transition: box-shadow 120ms ease; }
 .lx-blockpick:active { box-shadow: 0 0 0 3px rgba(52, 120, 246, 0.28); }
+/* Document-search hit tints (CSS Custom Highlight API) — amber on all matches, a
+   stronger orange on the current one. */
+::highlight(search-all) { background-color: rgba(255, 213, 79, 0.45); }
+::highlight(search-current) { background-color: rgba(255, 138, 0, 0.72); color: #1a1a1a; }
 /* Floating per-block bubble — a kind-icon bubble that expands to the pill of that
    block's tools (mirrors the native FloatingPill → BlockContextBar). */
 .lx-tb-anchor { position: fixed; z-index: 40; }
@@ -946,6 +950,66 @@ function SelectionHighlightPlugin({ indices }: { indices?: number[] }) {
   return null;
 }
 
+// Document-search hit highlighting. Paints amber over every match + a stronger tint
+// on the CURRENT match using the CSS Custom Highlight API — NON-destructive (no
+// editor-state change → nothing to serialize/undo/reseed). Match spans arrive as
+// {blockIndex,start,end} in the block's ORIGINAL text; we resolve each to a DOM
+// Range by walking the block element's text nodes. Recomputed after every reconcile.
+// If the API is unavailable (older WebView), search still SCROLLS to the match — only
+// the tint is skipped.
+export type SearchInput = { matches: { blockIndex: number; start: number; end: number }[]; current: number };
+
+function charPosInEl(el: Element, offset: number): [Text, number] | null {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let acc = 0;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const len = node.textContent?.length ?? 0;
+    if (offset <= acc + len) return [node as Text, offset - acc];
+    acc += len;
+  }
+  return null;
+}
+
+function SearchHighlightPlugin({ search }: { search?: SearchInput }) {
+  const [editor] = useLexicalComposerContext();
+  const key = search ? `${search.current}|${search.matches.map((m) => `${m.blockIndex}.${m.start}.${m.end}`).join(",")}` : "";
+  useEffect(() => {
+    const hl = (typeof CSS !== "undefined" ? (CSS as unknown as { highlights?: { set: (k: string, v: unknown) => void; delete: (k: string) => void } }).highlights : null);
+    const HighlightCtor = typeof window !== "undefined" ? (window as unknown as { Highlight?: new (...r: Range[]) => unknown }).Highlight : undefined;
+    if (!hl || !HighlightCtor) return;
+    const clear = () => { hl.delete("search-all"); hl.delete("search-current"); };
+    if (!search || !search.matches.length) { clear(); return; }
+    const apply = () => {
+      const allRanges: Range[] = [];
+      let curRange: Range | null = null;
+      editor.getEditorState().read(() => {
+        search.matches.forEach((m, i) => {
+          const node = $nodeAtBlockIndex(m.blockIndex);
+          if (!node) return;
+          const el = editor.getElementByKey(node.getKey());
+          if (!el) return;
+          const s = charPosInEl(el, m.start);
+          const e = charPosInEl(el, m.end);
+          if (!s || !e) return;
+          const r = document.createRange();
+          try { r.setStart(s[0], s[1]); r.setEnd(e[0], e[1]); } catch { return; }
+          allRanges.push(r);
+          if (i === search.current) curRange = r;
+        });
+      });
+      clear();
+      if (allRanges.length) hl.set("search-all", new HighlightCtor(...allRanges));
+      if (curRange) hl.set("search-current", new HighlightCtor(curRange));
+    };
+    apply();
+    const off = editor.registerUpdateListener(() => apply());
+    return () => { off(); clear(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, key]);
+  return null;
+}
+
 export default function LexicalDomEditor({
   command,
   onState,
@@ -959,6 +1023,7 @@ export default function LexicalDomEditor({
   onRangeAction,
   selectedIndices,
   media,
+  search,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -983,6 +1048,8 @@ export default function LexicalDomEditor({
   // Figure media resolution: authed base URL + token so large figures (no inline
   // dataUri) load in the WebView via <img src=".../media/:index?token=...">.
   media?: { base: string; token: string; thesisId: string; version: string | number };
+  // Document-search matches to tint (+ the current one), driven by the search store.
+  search?: SearchInput;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -1011,6 +1078,7 @@ export default function LexicalDomEditor({
         <SuggestionPlugin suggestion={suggestion} onSuggestAction={onSuggestAction} />
         <RangeSuggestionPlugin rangeSuggestion={rangeSuggestion} onRangeAction={onRangeAction} />
         <SelectionHighlightPlugin indices={selectedIndices} />
+        <SearchHighlightPlugin search={search} />
       </div>
       </MediaContext.Provider>
     </LexicalComposer>
