@@ -11,6 +11,7 @@
 // BlockDataNode so they round-trip verbatim instead of being dropped.
 
 import * as React from "react";
+import { diffWords, type DiffSegment } from "@/lib/word-diff";
 import {
   $getRoot,
   $createParagraphNode,
@@ -133,70 +134,180 @@ export function $isBlockDataNode(node: LexicalNode | null | undefined): node is 
   return node instanceof BlockDataNode;
 }
 
-// ── AI suggestion node (in-place proposal, replaces its block; matches the
-// native InlineSuggestion look — proposal as the paragraph with a green edge, the
-// original as a faded teaser, and a clean ✓ Approve / ✕ pill). ─────────────────
+// ── AI suggestion node (in-place proposal, replaces its block) ────────────────
+// A faithful web port of the native InlineSuggestion: instruction chip, a
+// "Thought for Xs" trace, the proposal AS the paragraph with a green logical-edge
+// bar and word-level add-marks, the original as an expandable teaser (del-marks),
+// and a white floating pill — Approve (green tint + dark ink) / Edit / Again /
+// Reject; the error state swaps to Again / Reject. Same palette as the native.
 export const SUGGEST_APPROVE_COMMAND: LexicalCommand<void> = createCommand("SUGGEST_APPROVE");
 export const SUGGEST_REJECT_COMMAND: LexicalCommand<void> = createCommand("SUGGEST_REJECT");
-export type SugData = { original: string; proposed: string; status: string };
+export const SUGGEST_AGAIN_COMMAND: LexicalCommand<void> = createCommand("SUGGEST_AGAIN");
+export const SUGGEST_EDIT_COMMAND: LexicalCommand<string> = createCommand("SUGGEST_EDIT");
+export type SugData = {
+  original: string;
+  proposed: string;
+  status: string; // "loading" | "ready" | "error"
+  instruction: string;
+  label: string;
+  reasoning: string;
+  reasoningMs?: number;
+};
 type SerializedSuggestionNode = SerializedLexicalNode & { sug: SugData; origType: string };
 
-// Word-level diff → highlight added words in the proposal (green) so the change
-// reads at a glance, like the native diff marks.
-function diffedProposed(original: string, proposed: string): React.ReactNode {
-  const o = new Set(original.split(/\s+/).filter(Boolean));
-  const words = proposed.split(/(\s+)/);
-  return words.map((w, i) =>
-    w.trim() && !o.has(w.trim())
-      ? React.createElement("span", { key: i, className: "lx-sug-add" }, w)
-      : w,
-  );
-}
-
 // Inline SVG glyphs — the WebView font tofus bare ✓/✕ chars (they showed as "?"),
-// so draw them as stroked paths that always render.
+// so draw them as stroked paths (lucide geometry) that always render.
 function svgIcon(path: string, size: number) {
   return React.createElement(
     "svg",
-    { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.6, strokeLinecap: "round", strokeLinejoin: "round" },
-    React.createElement("path", { key: "p", d: path }),
+    { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round" },
+    ...path.split("|").map((d, i) => React.createElement("path", { key: i, d })),
   );
 }
 const ICON_CHECK = "M20 6 9 17l-5-5";
-const ICON_X = "M18 6 6 18M6 6l12 12";
+const ICON_X = "M18 6 6 18|M6 6l12 12";
+const ICON_PENCIL = "M12 20h9|M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z";
+const ICON_AGAIN = "M23 4v6h-6|M20.49 15a9 9 0 1 1-2.12-9.36L23 10";
+const ICON_SPARK = "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z";
+
+// A word-diff run in the proposal (add) / teaser (del), or plain same-text.
+function renderSegs(segs: DiffSegment[], kind: "add" | "del"): React.ReactNode {
+  const cls = kind === "add" ? "lx-sug-add" : "lx-sug-del";
+  return segs
+    .filter((s) => s.kind !== (kind === "add" ? "del" : "add"))
+    .map((s, k) =>
+      s.kind === kind
+        ? React.createElement("span", { key: k, className: cls }, s.text + " ")
+        : React.createElement(React.Fragment, { key: k }, s.text + " "),
+    );
+}
+
+function pillBtn(key: string, opts: { primary?: boolean; icon: string; label?: string; danger?: boolean; onClick: () => void }) {
+  return React.createElement(
+    "button",
+    {
+      key,
+      className: opts.primary ? "lx-sug-approve" : "lx-sug-icon" + (opts.danger ? " lx-sug-danger" : ""),
+      title: opts.label,
+      "aria-label": opts.label,
+      onClick: opts.onClick,
+    },
+    svgIcon(opts.icon, opts.primary ? 15 : 16),
+    opts.primary && opts.label ? React.createElement("span", { key: "t" }, opts.label) : null,
+  );
+}
 
 function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }) {
-  const loading = sug.status === "loading" && !sug.proposed;
+  const [peek, setPeek] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const loading = sug.status === "loading";
   const err = sug.status === "error";
-  const showDiff = !err && !!sug.proposed && sug.original !== sug.proposed;
+  const ready = sug.status === "ready";
+
+  const segs = ready ? diffWords(sug.original, sug.proposed) : [];
+  const hasMarks = segs.some((s) => s.kind === "same");
+
+  // header: the instruction chip (✦ + what the student asked for)
+  const chip = React.createElement(
+    "div",
+    { className: "lx-sug-chip", dir: "auto" },
+    svgIcon(ICON_SPARK, 12),
+    React.createElement("span", { key: "t" }, sug.instruction),
+  );
+  // "Thought for Xs" collapsible trace (native ThinkingTrace → <details>)
+  const trace = sug.reasoning.trim()
+    ? React.createElement(
+        "details",
+        { className: "lx-sug-trace" },
+        React.createElement(
+          "summary",
+          { key: "s" },
+          sug.reasoningMs ? `Thought for ${Math.max(1, Math.round(sug.reasoningMs / 1000))}s` : "Reasoning",
+        ),
+        React.createElement("div", { key: "b", className: "lx-sug-trace-body", dir: "auto" }, sug.reasoning),
+      )
+    : null;
+
+  const pill = (children: React.ReactNode) =>
+    React.createElement("div", { className: "lx-sug-pill" }, React.createElement("div", { className: "lx-sug-pillrow" }, children));
+
+  // ---- editing (in place) ----
+  if (ready && editing) {
+    return React.createElement(
+      "div",
+      { className: "lx-sug" },
+      chip,
+      React.createElement("textarea", {
+        className: "lx-sug-edit",
+        dir: "auto",
+        autoFocus: true,
+        value: draft,
+        onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
+      }),
+      pill([
+        pillBtn("done", { primary: true, icon: ICON_CHECK, label: "Done", onClick: () => { const t = draft.trim(); if (t) editor.dispatchCommand(SUGGEST_EDIT_COMMAND, t); setEditing(false); } }),
+        pillBtn("cancel", { icon: ICON_X, label: "Cancel", onClick: () => setEditing(false) }),
+      ]),
+    );
+  }
+
+  // ---- loading ----
+  if (loading) {
+    return React.createElement(
+      "div",
+      { className: "lx-sug" },
+      chip,
+      trace,
+      React.createElement("div", { className: "lx-sug-proposed lx-sug-loading", dir: "auto" }, sug.proposed || sug.original),
+      pill(React.createElement("div", { className: "lx-sug-think" }, svgIcon(ICON_SPARK, 13), React.createElement("span", { key: "t" }, "Thinking…"))),
+    );
+  }
+
+  // ---- error ----
+  if (err) {
+    return React.createElement(
+      "div",
+      { className: "lx-sug" },
+      chip,
+      trace,
+      React.createElement("div", { className: "lx-sug-proposed", dir: "auto" }, sug.original),
+      React.createElement("div", { className: "lx-sug-err" }, "Couldn’t generate a suggestion."),
+      pill([
+        pillBtn("again", { primary: true, icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
+        pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) }),
+      ]),
+    );
+  }
+
+  // ---- ready ----
   return React.createElement(
     "div",
     { className: "lx-sug" },
+    chip,
+    trace,
     React.createElement(
       "div",
-      { className: "lx-sug-proposed" + (loading ? " lx-sug-loading" : ""), dir: "auto" },
-      err ? sug.original : loading ? "…" : showDiff ? diffedProposed(sug.original, sug.proposed) : sug.proposed || sug.original,
+      { className: "lx-sug-proposed", dir: "auto" },
+      hasMarks ? renderSegs(segs, "add") : sug.proposed,
     ),
-    err
-      ? React.createElement("div", { className: "lx-sug-note" }, "Couldn’t generate a suggestion — reject to dismiss.")
-      : showDiff
-        ? React.createElement("div", { className: "lx-sug-orig", dir: "auto" }, sug.original)
-        : null,
-    React.createElement(
-      "div",
-      { className: "lx-sug-bar" },
-      React.createElement(
-        "button",
-        { className: "lx-sug-approve", disabled: loading || err, onClick: () => editor.dispatchCommand(SUGGEST_APPROVE_COMMAND, undefined) },
-        svgIcon(ICON_CHECK, 15),
-        React.createElement("span", { key: "t" }, "Approve"),
-      ),
-      React.createElement(
-        "button",
-        { className: "lx-sug-reject", title: "Reject", "aria-label": "Reject", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) },
-        svgIcon(ICON_X, 15),
-      ),
-    ),
+    sug.original.trim()
+      ? React.createElement(
+          "div",
+          { className: "lx-sug-teaser", role: "button", onClick: () => setPeek((v) => !v) },
+          React.createElement(
+            "div",
+            { className: "lx-sug-teaser-txt" + (peek ? "" : " lx-sug-clamp"), dir: "auto" },
+            peek && hasMarks ? renderSegs(segs, "del") : sug.original,
+          ),
+        )
+      : null,
+    pill([
+      pillBtn("approve", { primary: true, icon: ICON_CHECK, label: "Approve", onClick: () => editor.dispatchCommand(SUGGEST_APPROVE_COMMAND, undefined) }),
+      pillBtn("edit", { icon: ICON_PENCIL, label: "Edit", onClick: () => { setDraft(sug.proposed); setEditing(true); } }),
+      pillBtn("again", { icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
+      pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) }),
+    ]),
   );
 }
 

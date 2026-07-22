@@ -54,6 +54,7 @@ import {
   COMMAND_PRIORITY_LOW,
   type ElementFormatType,
   type TextFormatType,
+  type LexicalEditor,
 } from "lexical";
 import {
   $blocksToLexical,
@@ -65,8 +66,23 @@ import {
   $isSuggestionNode,
   SUGGEST_APPROVE_COMMAND,
   SUGGEST_REJECT_COMMAND,
+  SUGGEST_AGAIN_COMMAND,
+  SUGGEST_EDIT_COMMAND,
+  type SugData,
 } from "./blockLexical";
 import type { DocBlockDTO } from "@/lib/api";
+
+// The pending AI proposal handed to the editor from the native suggestion store.
+export type SuggestionInput = {
+  index: number;
+  original: string;
+  proposed: string;
+  status: string;
+  instruction: string;
+  label: string;
+  reasoning: string;
+  reasoningMs?: number;
+};
 
 // The serializable command the native bubble sends in. `nonce` bumps per tap.
 export type LexicalCommand =
@@ -134,19 +150,43 @@ const CSS = `
 .lx-tb-sep { width: 1px; height: 18px; background: #e4e5ee; margin: 0 2px; flex: 0 0 auto; }
 .lx-tb-sw { width: 16px; height: 16px; border-radius: 8px; border: 1px solid #d8d8de; display: block; }
 .lx-tb-lbl { font-size: 11px; color: #8a8a8a; padding: 0 6px; flex: 0 0 auto; }
-/* Inline AI suggestion node (in the content flow, under its block). */
-/* Inline AI suggestion — matches native InlineSuggestion: no box, proposal reads
-   as the paragraph with a green edge, original as a faded teaser, clean pill. */
-.lx-sug { margin: 8px 0; }
-.lx-sug-proposed { font-size: 15px; line-height: 1.7; color: #16171d; border-inline-start: 3px solid #22c07a; padding-inline-start: 12px; }
-.lx-sug-proposed.lx-sug-loading { color: #9a9aa2; }
-.lx-sug-add { background: rgba(34,192,122,.16); border-radius: 4px; padding: 0 1px; }
-.lx-sug-orig { font-size: 12.5px; line-height: 1.55; color: #9a9aa2; padding-inline-start: 12px; margin-top: 5px; }
-.lx-sug-note { font-size: 12.5px; color: #b0562f; padding-inline-start: 12px; margin-top: 5px; }
-.lx-sug-bar { display: flex; align-items: center; gap: 8px; padding-inline-start: 12px; margin-top: 10px; }
-.lx-sug-approve { display: inline-flex; align-items: center; gap: 5px; background: #22c07a; color: #fff; border: none; border-radius: 999px; padding: 8px 18px; font-size: 13px; font-weight: 700; cursor: pointer; }
+/* Inline AI suggestion — a faithful web port of the native InlineSuggestion: an
+   instruction chip, "Thought for Xs" trace, the proposal AS the paragraph with a
+   green logical-edge bar + word add-marks, an expandable original teaser, and a
+   white floating pill (Approve tint + dark ink / Edit / Again / Reject). Same
+   fixed on-white palette as the native (this sits on the white document paper). */
+.lx-sug { margin: 6px 0 10px; }
+/* instruction chip */
+.lx-sug-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 92%; margin: 4px 0 6px; padding: 3px 10px; border-radius: 999px; background: rgba(14,122,70,.08); border: 1px solid rgba(14,122,70,.18); color: #0E5C36; font-size: 11px; font-weight: 600; }
+.lx-sug-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* "Thought for Xs" trace */
+.lx-sug-trace { margin: 0 0 6px; border: 1px solid #D4DAE1; border-radius: 10px; background: #fff; padding: 4px 10px; }
+.lx-sug-trace > summary { list-style: none; cursor: pointer; font-size: 11.5px; font-weight: 600; color: #0E5C36; }
+.lx-sug-trace > summary::-webkit-details-marker { display: none; }
+.lx-sug-trace-body { margin-top: 6px; font-size: 12px; line-height: 1.55; color: #3C4654; white-space: pre-wrap; max-height: 160px; overflow-y: auto; }
+/* proposed text = the paragraph */
+.lx-sug-proposed { font-size: 15px; line-height: 1.7; color: #16171d; border-inline-start: 3px solid #22C07A; padding-inline-start: 10px; }
+.lx-sug-proposed.lx-sug-loading { color: #16171d; opacity: .38; }
+.lx-sug-add { background: rgba(34,192,122,.18); border-radius: 3px; }
+/* original teaser (tap to expand; del-marks when open) */
+.lx-sug-teaser { margin-top: 8px; padding: 6px 9px; background: #F6F8FA; border-radius: 8px; cursor: pointer; }
+.lx-sug-teaser-txt { font-size: 12.5px; line-height: 1.5; color: #8A94A4; }
+.lx-sug-teaser-txt.lx-sug-clamp { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.lx-sug-del { background: #FDECEC; color: #B3564A; text-decoration: line-through; border-radius: 3px; }
+/* error slip */
+.lx-sug-err { margin-top: 8px; padding: 8px 10px; background: #FDF0EF; border: 1px solid rgba(192,57,43,.25); border-radius: 8px; color: #C0392B; font-size: 12.5px; font-weight: 500; }
+/* edit-in-place textarea */
+.lx-sug-edit { width: 100%; box-sizing: border-box; font-size: 15px; line-height: 1.7; color: #16171d; border: 1px solid #D4DAE1; border-radius: 8px; padding: 8px 10px; resize: vertical; min-height: 72px; background: #fff; }
+/* white floating action pill */
+.lx-sug-pill { display: flex; justify-content: center; margin: 10px 0 4px; }
+.lx-sug-pillrow { display: inline-flex; align-items: center; gap: 2px; background: #fff; border: 1px solid #E8ECEF; border-radius: 999px; padding: 4px; box-shadow: 0 5px 12px -2px rgba(10,30,20,.16); }
+.lx-sug-approve { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 96px; padding: 8px 16px; border: 1px solid rgba(14,122,70,.18); border-radius: 999px; background: rgba(14,122,70,.12); color: #0E5C36; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.lx-sug-approve:active { background: rgba(14,122,70,.24); }
 .lx-sug-approve:disabled { opacity: .5; }
-.lx-sug-reject { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; background: #fff; border: 1px solid #e4e5ee; color: #8a8a92; border-radius: 999px; font-size: 15px; cursor: pointer; }
+.lx-sug-icon { display: inline-flex; align-items: center; justify-content: center; padding: 8px 10px; border: none; border-radius: 999px; background: transparent; color: #3C4654; cursor: pointer; }
+.lx-sug-icon:active { background: rgba(60,70,84,.10); }
+.lx-sug-icon.lx-sug-danger { color: #C0392B; }
+.lx-sug-think { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; color: #0E5C36; font-size: 12px; font-weight: 500; }
 `;
 
 // Seed a little bilingual content so RTL auto-detection is visible immediately.
@@ -184,7 +224,7 @@ function EditorBridge({
   // instance (no WebView remount, no flicker) instead of re-keying the component.
   useEffect(() => {
     if (!reseed) return;
-    editor.update(() => { $blocksToLexical(reseed.blocks); });
+    withScrollPinned(editor, () => { $blocksToLexical(reseed.blocks); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reseed?.nonce]);
 
@@ -435,6 +475,23 @@ function FloatingToolbar() {
   );
 }
 
+// Run a Lexical mutation without letting the WebView jump: capture the page scroll
+// before the update and pin it back after the DOM reconciles. A node replace (a
+// suggestion appearing) or a full reseed (approve → doc rebuild) otherwise scrolls
+// the moved caret / rebuilt content into view — the reported "editor scrolls away
+// when I hit Improve, and jumps to the bottom on Approve".
+function withScrollPinned(editor: LexicalEditor, mutator: () => void) {
+  const el = (typeof document !== "undefined" ? (document.scrollingElement || document.documentElement) : null) as HTMLElement | null;
+  const y = el ? el.scrollTop : 0;
+  editor.update(mutator, {
+    onUpdate: () => {
+      if (!el) return;
+      el.scrollTop = y;
+      requestAnimationFrame(() => { el.scrollTop = y; });
+    },
+  });
+}
+
 // Rebuild the original block node from a suggestion's captured type/text — used to
 // restore it when a proposal is rejected (approve routes through the sync layer,
 // which reseeds the whole doc from server truth anyway).
@@ -459,8 +516,8 @@ function SuggestionPlugin({
   suggestion,
   onSuggestAction,
 }: {
-  suggestion?: { index: number; original: string; proposed: string; status: string };
-  onSuggestAction?: (action: string) => void;
+  suggestion?: SuggestionInput;
+  onSuggestAction?: (action: string, text?: string) => void;
 }) {
   const [editor] = useLexicalComposerContext();
   useEffect(
@@ -468,11 +525,13 @@ function SuggestionPlugin({
       mergeRegister(
         editor.registerCommand(SUGGEST_APPROVE_COMMAND, () => { onSuggestAction?.("approve"); return true; }, COMMAND_PRIORITY_LOW),
         editor.registerCommand(SUGGEST_REJECT_COMMAND, () => { onSuggestAction?.("reject"); return true; }, COMMAND_PRIORITY_LOW),
+        editor.registerCommand(SUGGEST_AGAIN_COMMAND, () => { onSuggestAction?.("again"); return true; }, COMMAND_PRIORITY_LOW),
+        editor.registerCommand(SUGGEST_EDIT_COMMAND, (text) => { onSuggestAction?.("edit", text); return true; }, COMMAND_PRIORITY_LOW),
       ),
     [editor, onSuggestAction],
   );
   useEffect(() => {
-    editor.update(() => {
+    const mutate = () => {
       const root = $getRoot();
       const existing = root.getChildren().find($isSuggestionNode);
       // Cleared (approve or reject): restore the original block. On approve the
@@ -481,7 +540,15 @@ function SuggestionPlugin({
         if (existing) existing.replace(rebuildOriginal(existing.__sug.original, existing.__origType));
         return;
       }
-      const data = { original: suggestion.original, proposed: suggestion.proposed, status: suggestion.status };
+      const data: SugData = {
+        original: suggestion.original,
+        proposed: suggestion.proposed,
+        status: suggestion.status,
+        instruction: suggestion.instruction,
+        label: suggestion.label,
+        reasoning: suggestion.reasoning,
+        reasoningMs: suggestion.reasoningMs,
+      };
       if (existing) { existing.getWritable().__sug = data; return; } // stream in place
       const target = root.getChildren()[suggestion.index];
       if (target) {
@@ -495,9 +562,14 @@ function SuggestionPlugin({
         $setSelection(null);
         target.replace($createSuggestionNode(data, origType));
       }
-    });
+    };
+    // Pin scroll ONLY when the node is created/removed (that's what moves layout);
+    // an in-place stream update (existing __sug) must not fight the user's scroll.
+    const structural = !suggestion || suggestion.index < 0 || !suggestion.proposed;
+    if (structural) withScrollPinned(editor, mutate);
+    else editor.update(mutate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestion?.index, suggestion?.proposed, suggestion?.status]);
+  }, [suggestion?.index, suggestion?.proposed, suggestion?.status, suggestion?.reasoning, suggestion?.label]);
   return null;
 }
 
@@ -523,8 +595,8 @@ export default function LexicalDomEditor({
   // Outline-drawer navigation: on nonce change, scroll the block at `index` into view.
   scrollToIndex?: { index: number; nonce: number };
   // Pending AI proposal to render in-flow, and its approve/reject callback.
-  suggestion?: { index: number; original: string; proposed: string; status: string };
-  onSuggestAction?: (action: string) => void;
+  suggestion?: SuggestionInput;
+  onSuggestAction?: (action: string, text?: string) => void;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;

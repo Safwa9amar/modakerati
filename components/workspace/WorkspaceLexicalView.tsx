@@ -78,19 +78,30 @@ export function WorkspaceLexicalView({
     if (!keys.length) return null;
     const idx = Number(keys[0]);
     const p = byIndex[idx];
-    return { index: idx, original: p.original, proposed: p.proposed, status: p.status as string };
+    return {
+      index: idx,
+      original: p.original,
+      proposed: p.proposed,
+      status: p.status as string,
+      instruction: p.instruction,
+      label: p.label,
+      reasoning: p.reasoning,
+      reasoningMs: p.reasoningMs,
+    };
   }, [byIndex]);
   const suggestionActiveRef = useRef(false);
   suggestionActiveRef.current = !!suggestion;
 
   // Approve/reject from the in-editor suggestion node → the native store (its
   // approve dispatches an editText op that flows back through the sync layer).
-  const onSuggestAction = useCallback((action: string) => {
+  const onSuggestAction = useCallback((action: string, text?: string) => {
     const store = useSuggestionStore.getState();
     const keys = Object.keys(store.byIndex);
     if (!keys.length) return;
     const idx = Number(keys[0]);
     if (action === "approve") store.approve(thesisId, idx);
+    else if (action === "again") void store.again(thesisId, idx);
+    else if (action === "edit") { if (text) store.setProposed(idx, text); }
     else store.reject(idx);
   }, [thesisId]);
 
