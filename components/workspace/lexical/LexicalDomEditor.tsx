@@ -35,6 +35,8 @@ import {
   INSERT_UNORDERED_LIST_COMMAND,
   INSERT_ORDERED_LIST_COMMAND,
   REMOVE_LIST_COMMAND,
+  $insertList,
+  $removeList,
 } from "@lexical/list";
 import { $setBlocksType, $patchStyleText } from "@lexical/selection";
 import { mergeRegister } from "@lexical/utils";
@@ -105,6 +107,11 @@ export type LexicalState = {
   alignment: string | null; // left | center | right | justify | null (element format)
   index: number; // position of the focused top-level block (-1 if none)
   text: string; // the focused block's text (for the selection chip / AI targeting)
+  // Every top-level block the current selection spans, in document order. Length 1
+  // for a caret / in-paragraph selection; >1 for a cross-paragraph drag — lets the
+  // native side build a MULTI-block selection instead of collapsing to the anchor.
+  // Optional so the lab screens' bare initial-state literals still type-check.
+  blocks?: { index: number; text: string }[];
   y?: number; // the block's top in WebView-viewport px (for anchoring the native pill)
 };
 
@@ -282,7 +289,7 @@ function EditorBridge({
     // Don't focus for the block-scoped pill format or serialize — focusing the
     // content-editable pops the keyboard and scrolls (the pill applies formatting
     // without moving the caret). The lab's selection commands still focus.
-    if (command.type !== "blockFormat" && command.type !== "serialize") editor.focus();
+    if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list") editor.focus();
     switch (command.type) {
       case "bold":
       case "italic":
@@ -314,9 +321,17 @@ function EditorBridge({
         });
         break;
       case "list":
-        if (command.value === "ul") editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined);
-        else if (command.value === "ol") editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined);
-        else editor.dispatchCommand(REMOVE_LIST_COMMAND, undefined);
+        // Apply on the preserved selection inside a tagged update (no focus/scroll,
+        // like blockFormat). ul→bullet, ol→number, else remove.
+        editor.update(
+          () => {
+            const sel = $getSelection();
+            if (!$isRangeSelection(sel)) return;
+            if (command.value === "none") $removeList();
+            else $insertList(command.value === "ol" ? "number" : "bullet");
+          },
+          { tag: SKIP_DOM_SELECTION_TAG },
+        );
         break;
       case "undo":
         editor.dispatchCommand(UNDO_COMMAND, undefined);
@@ -366,6 +381,24 @@ function EditorBridge({
         key = top ? top.getKey() : null;
         // ElementNode.getFormatType() → "" | "left" | "center" | "right" | "justify" | "start" | "end"
         const fmt = top ? top.getFormatType() : "";
+        const rootKids = $getRoot().getChildren();
+        // Every top-level block the selection spans, in document order. A caret or an
+        // in-paragraph selection yields ONE entry; a cross-paragraph drag lists them
+        // all. We walk the selected nodes (not just the anchor, which stays put while
+        // the focus extends downward) so extending a selection grows the set — that's
+        // what lets the native side build a MULTI-block selection instead of
+        // collapsing everything to the anchor block.
+        const spanned: { index: number; text: string }[] = [];
+        const seen = new Set<string>();
+        for (const n of sel.getNodes()) {
+          const t = n.getKey() === "root" ? null : n.getTopLevelElement();
+          if (!t) continue;
+          const k = t.getKey();
+          if (seen.has(k)) continue;
+          seen.add(k);
+          spanned.push({ index: rootKids.indexOf(t), text: t.getTextContent() });
+        }
+        spanned.sort((a, b) => a.index - b.index);
         payload = {
           bold: sel.hasFormat("bold"),
           italic: sel.hasFormat("italic"),
@@ -373,8 +406,9 @@ function EditorBridge({
           blockType,
           isRTL: !!top && top.getDirection() === "rtl",
           alignment: fmt === "left" || fmt === "center" || fmt === "right" || fmt === "justify" ? fmt : null,
-          index: top ? $getRoot().getChildren().indexOf(top) : -1,
+          index: top ? rootKids.indexOf(top) : -1,
           text: top ? top.getTextContent() : "",
+          blocks: spanned,
           y: -1,
         };
       });

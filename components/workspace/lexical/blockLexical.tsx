@@ -35,6 +35,7 @@ import {
   HeadingNode,
   type HeadingTagType,
 } from "@lexical/rich-text";
+import { $isListNode, $isListItemNode, type ListNode } from "@lexical/list";
 import type { DocBlockDTO } from "@/lib/api";
 
 // The inline-run extension the paragraph DTO carries (not in the base type).
@@ -400,46 +401,67 @@ export function $lexicalToBlocks(): DocBlockDTO[] {
       continue;
     }
     if ($isHeadingNode(node) || $isParagraphNode(node)) {
-      const el = node as ElementNode;
-      const runs: ParaRun[] = [];
-      let text = "";
-      for (const child of el.getChildren()) {
-        if ($isTextNode(child)) {
-          const tn = child as TextNode;
-          const run: ParaRun = { text: tn.getTextContent() };
-          if (tn.hasFormat("bold")) run.bold = true;
-          if (tn.hasFormat("italic")) run.italic = true;
-          if (tn.hasFormat("underline")) run.underline = true;
-          const m = /color:\s*#?([0-9a-fA-F]{6})/.exec(tn.getStyle());
-          if (m) run.color = m[1].toUpperCase();
-          runs.push(run);
-          text += run.text;
-        } else {
-          text += child.getTextContent();
-        }
-      }
       const level = $isHeadingNode(node) ? Number((node as HeadingNode).getTag().slice(1)) : 0;
-      const dir = el.getDirection();
-      const para: ParagraphDTO = {
-        index: 0,
-        kind: "paragraph",
-        text,
-        styleId: level === 0 ? "Normal" : `Heading${level}`,
-        level: Math.min(level, 6) as ParagraphDTO["level"],
-        alignment: formatToAlign(el.getFormatType()),
-        direction: dir === "rtl" || dir === "ltr" ? dir : null,
-      };
-      (para as { runs?: ParaRun[] }).runs = runs.length ? runs : [{ text }];
-      out.push(para);
+      out.push($paraFromElement(node as ElementNode, level));
       continue;
     }
-    // Anything else (e.g. a Lexical list — not representable in the block model):
-    // flatten its text into a paragraph so it's never SILENTLY dropped. This is
-    // the known-lossy case the round-trip screen flags.
+    // A Lexical list → ONE paragraph per list item (the DTO/server has no list
+    // structure yet, so bullets don't persist across reload — but the CONTENT does,
+    // and items are never mashed into a single block). Nested lists flatten.
+    if ($isListNode(node)) {
+      pushListItems(node, out);
+      continue;
+    }
+    // Anything else unknown: flatten its text into a paragraph so it's never dropped.
     const text = node.getTextContent();
     if (text) {
       out.push({ index: 0, kind: "paragraph", text, styleId: "Normal", level: 0, alignment: null, direction: null });
     }
   }
   return out.map((b, i) => ({ ...b, index: i }));
+}
+
+// One paragraph DTO from a text-holding element (paragraph / heading / list item):
+// gathers inline runs (bold/italic/underline/color) + flat text + block props.
+function $paraFromElement(el: ElementNode, level: number): ParagraphDTO {
+  const runs: ParaRun[] = [];
+  let text = "";
+  for (const child of el.getChildren()) {
+    if ($isTextNode(child)) {
+      const tn = child as TextNode;
+      const run: ParaRun = { text: tn.getTextContent() };
+      if (tn.hasFormat("bold")) run.bold = true;
+      if (tn.hasFormat("italic")) run.italic = true;
+      if (tn.hasFormat("underline")) run.underline = true;
+      const m = /color:\s*#?([0-9a-fA-F]{6})/.exec(tn.getStyle());
+      if (m) run.color = m[1].toUpperCase();
+      runs.push(run);
+      text += run.text;
+    } else {
+      text += child.getTextContent();
+    }
+  }
+  const dir = el.getDirection();
+  const para: ParagraphDTO = {
+    index: 0,
+    kind: "paragraph",
+    text,
+    styleId: level === 0 ? "Normal" : `Heading${level}`,
+    level: Math.min(level, 6) as ParagraphDTO["level"],
+    alignment: formatToAlign(el.getFormatType()),
+    direction: dir === "rtl" || dir === "ltr" ? dir : null,
+  };
+  (para as { runs?: ParaRun[] }).runs = runs.length ? runs : [{ text }];
+  return para;
+}
+
+// Serialize a list's items as separate paragraphs (recursing nested lists), so a
+// multi-item list never collapses into one mashed block.
+function pushListItems(list: ListNode, out: DocBlockDTO[]): void {
+  for (const item of list.getChildren()) {
+    if (!$isListItemNode(item)) continue;
+    const nested = item.getChildren().find($isListNode);
+    if (nested) { pushListItems(nested as ListNode, out); continue; }
+    out.push($paraFromElement(item as unknown as ElementNode, 0));
+  }
 }

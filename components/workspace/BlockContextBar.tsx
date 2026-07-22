@@ -806,8 +806,42 @@ export function BlockContextBar({
           </AnimatedChip>
         </>
       );
+    } else if (lexActive) {
+      // list — LIVE in the Lexical Writer: Bulleted / Numbered toggle the current
+      // block into/out of a list. (Bullets render + edit; full persistence across
+      // reload still needs server list-style support.) Checklist stays coming-soon.
+      const isBullet = lexFmt.blockType === "bullet";
+      const isNumber = lexFmt.blockType === "number";
+      const applyList = (v: "ul" | "ol" | "none") => useLexicalEditorStore.getState().dispatch("list", v);
+      body = (
+        <>
+          <AnimatedChip
+            key="ul"
+            enterIndex={0}
+            onPress={() => applyList(isBullet ? "none" : "ul")}
+            active={isBullet}
+            accessibilityLabel={t("blockBar.listBulleted", { defaultValue: "Bulleted list" })}
+            style={optPill(isBullet)}
+          >
+            <Text style={[styles.optText, { color: isBullet ? colors.bgPrimary : colors.textPrimary }]}>•</Text>
+          </AnimatedChip>
+          <AnimatedChip
+            key="ol"
+            enterIndex={1}
+            onPress={() => applyList(isNumber ? "none" : "ol")}
+            active={isNumber}
+            accessibilityLabel={t("blockBar.listNumbered", { defaultValue: "Numbered list" })}
+            style={optPill(isNumber)}
+          >
+            <Text style={[styles.optText, { color: isNumber ? colors.bgPrimary : colors.textPrimary }]}>1.</Text>
+          </AnimatedChip>
+          <AnimatedChip key="check" enterIndex={2} onPress={soon} accessibilityLabel={t("blockBar.listCheck", { defaultValue: "Checklist" })} style={optPill(false, true)}>
+            <Text style={[styles.optText, { color: colors.textPlaceholder }]}>☑</Text>
+          </AnimatedChip>
+        </>
+      );
     } else {
-      // list — Phase 2 (structural; DTO can't carry it yet): dimmed options + caption.
+      // list — Phase 2 in the legacy block-model path (DTO can't carry it): dimmed.
       const items = ["•", "1.", "☑"];
       const phLabels = [
         t("blockBar.listBulleted", { defaultValue: "Bulleted list" }),
