@@ -21,6 +21,7 @@ import {
   $isParagraphNode,
   $isTextNode,
   createCommand,
+  SKIP_DOM_SELECTION_TAG,
   DecoratorNode,
   type ElementNode,
   type ElementFormatType,
@@ -93,11 +94,29 @@ function Figure({ block }: { block: Extract<DocBlockDTO, { kind: "image" }> }) {
   return React.createElement("div", { style: PLACEHOLDER }, `🖼 figure${block.caption ? ` · ${block.caption}` : ""}`);
 }
 
+// The cell editor input. Focused via rAF AFTER React's commit phase — React's
+// autoFocus focuses during commit, which fires the CE root's blur synchronously
+// inside the React lifecycle; Lexical dispatches BLUR/FOCUS commands from it and
+// its decorator listener then hits `flushSync was called from inside a lifecycle
+// method`. An rAF focus runs outside the lifecycle, so those commands are legal.
+function CellInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    const id = requestAnimationFrame(() => ref.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return React.createElement("input", { ...props, ref });
+}
+
 // A Word-styled, in-place editable table. Renders the DTO's alignment / header /
 // per-cell fills / direction (see server parseTableStyle) and lets the user edit a
-// cell's text: DOUBLE-TAP a cell → inline input → commit (Enter / blur) routes an
-// editCell op through EditCellContext. SINGLE-tap still bubbles to the block-pick
-// handler (selects the whole table → structure tools), so both gestures coexist.
+// cell's text: DOUBLE-TAP a cell → inline input → commit (Enter / blur / switching
+// cell) routes an editCell op through EditCellContext. SINGLE-tap still bubbles to
+// the block-pick handler (selects the whole table → structure tools), so both
+// gestures coexist. Cells preventDefault on mousedown so a tap NEVER moves DOM
+// focus to the contentEditable root — a focused CE with no caret makes iOS
+// WKWebView natively scroll to its start (= the document top), which was the
+// "scrolls to top when I edit another cell" bug.
 function EditableTable({
   block,
 }: {
@@ -133,20 +152,24 @@ function EditableTable({
     tableStyle.marginRight = "0";
   }
 
+  // Commit the in-progress edit (if any). Plain function — NOT inside a state
+  // updater (side effects there run during render and trip React warnings).
   const commit = () => {
-    setEditing((cur) => {
-      if (cur) {
-        const orig = cellText(cur.r, cur.c);
-        if (draft !== orig && onEditCell) {
-          setEdits((prev) => ({ ...prev, [`${cur.r},${cur.c}`]: draft })); // show it now, no reseed
-          onEditCell(block.index, cur.r, cur.c, draft);
-        }
-      }
-      return null;
-    });
+    if (editing && draft !== cellText(editing.r, editing.c) && onEditCell) {
+      setEdits((prev) => ({ ...prev, [`${editing.r},${editing.c}`]: draft })); // show it now, no reseed
+      onEditCell(block.index, editing.r, editing.c, draft);
+    }
+    setEditing(null);
   };
   const startEdit = (r: number, c: number) => {
     if (!onEditCell) return;
+    // Switching cells: commit the previous cell explicitly — its input's blur
+    // won't fire (cell mousedown preventDefaults, so focus never leaves it until
+    // the new input takes over).
+    if (editing && draft !== cellText(editing.r, editing.c)) {
+      setEdits((prev) => ({ ...prev, [`${editing.r},${editing.c}`]: draft }));
+      onEditCell(block.index, editing.r, editing.c, draft);
+    }
     setDraft(cellText(r, c));
     setEditing({ r, c });
   };
@@ -174,18 +197,20 @@ function EditableTable({
             else if (isHeader) cellStyle.backgroundColor = "#f0f0f3";
             if (isHeader) cellStyle.fontWeight = 600;
             const content = isEditing
-              ? React.createElement("input", {
+              ? React.createElement(CellInput, {
                   value: draft,
-                  autoFocus: true,
                   onChange: (e: React.ChangeEvent<HTMLInputElement>) => setDraft(e.target.value),
                   onBlur: commit,
                   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
                     if (e.key === "Enter") { e.preventDefault(); commit(); }
                     else if (e.key === "Escape") setEditing(null);
                   },
-                  // Keep clicks inside the input from re-triggering select/edit.
+                  // Keep events inside the input from re-triggering select/edit —
+                  // and from the td's mousedown preventDefault (which would block
+                  // caret placement inside the input itself).
                   onClick: (e: React.MouseEvent) => e.stopPropagation(),
                   onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
+                  onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
                   style: {
                     width: "100%",
                     boxSizing: "border-box",
@@ -207,6 +232,11 @@ function EditableTable({
               {
                 key: ci,
                 style: cellStyle,
+                // preventDefault on mousedown: a tap on a cell must NOT move DOM
+                // focus (to the CE root) — that's what scrolled the WKWebView to
+                // the document top. Click/dblclick still fire; the input's own
+                // mousedown stopPropagations past this.
+                onMouseDown: (e: React.MouseEvent) => { if (onEditCell) e.preventDefault(); },
                 // Double-tap edits this cell; single-tap falls through to the
                 // outer block-pick (table select). stopPropagation on the
                 // double-tap so it doesn't also re-select mid-edit.
@@ -272,12 +302,19 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
     } else {
       content = React.createElement("div", { style: PLACEHOLDER }, `⋯ ${b.kind === "other" ? b.tag : b.kind}`);
     }
+    // SKIP_DOM_SELECTION_TAG: selecting the block is for the NATIVE bubble only —
+    // without it, Lexical's reconciler may re-focus the contentEditable root
+    // (updateDOMSelection focus-restore), and iOS WKWebView natively scrolls to a
+    // focused CE with no caret = jumps to the document top.
     const pick = () =>
-      editor.update(() => {
-        const ns = $createNodeSelection();
-        ns.add(key);
-        $setSelection(ns);
-      });
+      editor.update(
+        () => {
+          const ns = $createNodeSelection();
+          ns.add(key);
+          $setSelection(ns);
+        },
+        { tag: SKIP_DOM_SELECTION_TAG },
+      );
     return React.createElement("div", { className: "lx-blockpick", onClick: pick }, content);
   }
   exportJSON(): SerializedBlockDataNode {
