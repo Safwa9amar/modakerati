@@ -93,9 +93,13 @@ export function WorkspaceLexicalView({
     getAuthHeader().then((h) => { if (alive) setMediaToken((h.Authorization ?? "").replace(/^Bearer\s+/, "")); }).catch(() => {});
     return () => { alive = false; };
   }, [doc]);
+  // The store's `tick` bumps on every reconcile (setDoc) — including an image edit
+  // that keeps the same block count (crop/rotate/replace). Use it as the media
+  // cache-buster so an edited figure's URL changes and the WebView <img> refetches.
+  const docTick = useThesisDocStore((s) => s.tick[thesisId] ?? 0);
   const media = useMemo(
-    () => ({ base: process.env.EXPO_PUBLIC_API_URL ?? "", token: mediaToken, thesisId, version: doc?.available ? doc.blocks.length : 0 }),
-    [mediaToken, thesisId, doc],
+    () => ({ base: process.env.EXPO_PUBLIC_API_URL ?? "", token: mediaToken, thesisId, version: docTick }),
+    [mediaToken, thesisId, docTick],
   );
   // Outline-drawer navigation target (heading tapped in the Structure drawer).
   const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
