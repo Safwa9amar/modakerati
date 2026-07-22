@@ -49,6 +49,8 @@ import {
   type ElementFormatType,
   type TextFormatType,
 } from "lexical";
+import { $blocksToLexical, $lexicalToBlocks, BlockDataNode } from "./blockLexical";
+import type { DocBlockDTO } from "@/lib/api";
 
 // The serializable command the native bubble sends in. `nonce` bumps per tap.
 export type LexicalCommand =
@@ -56,7 +58,8 @@ export type LexicalCommand =
   | { type: "align"; value: ElementFormatType; nonce: number }
   | { type: "heading"; value: HeadingTagType | "paragraph"; nonce: number }
   | { type: "quote"; value?: undefined; nonce: number }
-  | { type: "list"; value: "ul" | "ol" | "none"; nonce: number };
+  | { type: "list"; value: "ul" | "ol" | "none"; nonce: number }
+  | { type: "serialize"; value?: undefined; nonce: number };
 
 // The active-format snapshot reported back to the native bubble.
 export type LexicalState = {
@@ -117,9 +120,11 @@ function seed(): void {
 function EditorBridge({
   command,
   onState,
+  onBlocks,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
+  onBlocks?: (blocks: DocBlockDTO[]) => void;
 }) {
   const [editor] = useLexicalComposerContext();
 
@@ -162,6 +167,9 @@ function EditorBridge({
       case "redo":
         editor.dispatchCommand(REDO_COMMAND, undefined);
         break;
+      case "serialize":
+        if (onBlocks) editor.getEditorState().read(() => onBlocks($lexicalToBlocks()));
+        break;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command?.nonce]);
@@ -200,9 +208,15 @@ function EditorBridge({
 export default function LexicalDomEditor({
   command,
   onState,
+  onBlocks,
+  initialBlocks,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
+  // Serialized blocks emitted in response to a `serialize` command (round-trip test).
+  onBlocks?: (blocks: DocBlockDTO[]) => void;
+  // When provided, the editor is seeded FROM these blocks instead of the demo text.
+  initialBlocks?: DocBlockDTO[];
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -211,8 +225,8 @@ export default function LexicalDomEditor({
     namespace: "modakerati-lexical-lab",
     theme,
     onError: (error: Error) => console.error("[lexical]", error),
-    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode],
-    editorState: seed,
+    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode],
+    editorState: () => (initialBlocks && initialBlocks.length ? $blocksToLexical(initialBlocks) : seed()),
   };
 
   return (
@@ -226,7 +240,7 @@ export default function LexicalDomEditor({
         />
         <HistoryPlugin />
         <ListPlugin />
-        <EditorBridge command={command} onState={onState} />
+        <EditorBridge command={command} onState={onState} onBlocks={onBlocks} />
       </div>
     </LexicalComposer>
   );

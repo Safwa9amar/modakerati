@@ -182,6 +182,13 @@ export default function SettingsScreen() {
                 type: "chevron" as const,
                 onPress: () => router.push("/(app)/lexical-lab" as any),
               },
+              {
+                icon: RefreshCw,
+                iconColor: colors.brandPrimary,
+                label: "Lexical Round-trip",
+                type: "chevron" as const,
+                onPress: () => router.push("/(app)/lexical-roundtrip" as any),
+              },
             ],
           },
         ]

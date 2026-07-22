@@ -1,0 +1,198 @@
+// DocBlockDTO ⇄ Lexical conversions for the round-trip spike. This file runs in
+// the WEB bundle only — it is imported EXCLUSIVELY by LexicalDomEditor.tsx (a
+// 'use dom' component). Never import it from a native (non-dom) file, or Lexical
+// + DOM globals get pulled into the native bundle.
+//
+// The point of the spike: prove that a thesis's blocks can become a Lexical tree
+// and serialize back to the SAME blocks, so a real integration could persist
+// through the existing op-queue / mdocxengine (.docx) pipeline. Text blocks
+// (paragraph/heading + alignment + direction + inline runs) map to editable
+// Lexical nodes; structural blocks (table/image/other) are carried OPAQUE in a
+// BlockDataNode so they round-trip verbatim instead of being dropped.
+
+import * as React from "react";
+import {
+  $getRoot,
+  $createParagraphNode,
+  $createTextNode,
+  $isParagraphNode,
+  $isTextNode,
+  DecoratorNode,
+  type ElementNode,
+  type ElementFormatType,
+  type LexicalNode,
+  type NodeKey,
+  type SerializedLexicalNode,
+  type TextNode,
+} from "lexical";
+import {
+  $createHeadingNode,
+  $isHeadingNode,
+  HeadingNode,
+  type HeadingTagType,
+} from "@lexical/rich-text";
+import type { DocBlockDTO } from "@/lib/api";
+
+// The inline-run extension the paragraph DTO carries (not in the base type).
+export type ParaRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
+type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
+
+// ── Opaque structural-block node (table / image / other) ─────────────────────
+type SerializedBlockDataNode = SerializedLexicalNode & { block: DocBlockDTO };
+
+export class BlockDataNode extends DecoratorNode<React.ReactNode> {
+  __block: DocBlockDTO;
+
+  static getType(): string {
+    return "block-data";
+  }
+  static clone(node: BlockDataNode): BlockDataNode {
+    return new BlockDataNode(node.__block, node.__key);
+  }
+  constructor(block: DocBlockDTO, key?: NodeKey) {
+    super(key);
+    this.__block = block;
+  }
+  getBlock(): DocBlockDTO {
+    return this.getLatest().__block;
+  }
+  createDOM(): HTMLElement {
+    const el = document.createElement("div");
+    el.style.cssText =
+      "border:1px dashed #b9c0d8;border-radius:8px;padding:10px;margin:8px 0;color:#5b6b8c;font-size:13px;background:#f6f8ff;";
+    return el;
+  }
+  updateDOM(): false {
+    return false;
+  }
+  isInline(): false {
+    return false;
+  }
+  decorate(): React.ReactNode {
+    const b = this.__block;
+    const label =
+      b.kind === "table"
+        ? `▦ table · ${b.rows.length}×${b.rows[0]?.length ?? 0}`
+        : b.kind === "image"
+          ? `🖼 figure${b.caption ? ` · ${b.caption}` : ""}`
+          : `⋯ ${b.kind}`;
+    return React.createElement(
+      "span",
+      null,
+      `${label}  `,
+      React.createElement("em", { style: { opacity: 0.6 } }, "(opaque · preserved verbatim)"),
+    );
+  }
+  exportJSON(): SerializedBlockDataNode {
+    return { ...super.exportJSON(), type: "block-data", version: 1, block: this.__block };
+  }
+  static importJSON(json: SerializedBlockDataNode): BlockDataNode {
+    return new BlockDataNode(json.block);
+  }
+}
+
+export function $createBlockDataNode(block: DocBlockDTO): BlockDataNode {
+  return new BlockDataNode(block);
+}
+export function $isBlockDataNode(node: LexicalNode | null | undefined): node is BlockDataNode {
+  return node instanceof BlockDataNode;
+}
+
+// ── Alignment mapping (engine "both" == Lexical "justify") ───────────────────
+const alignToFormat: Partial<Record<NonNullable<ParagraphDTO["alignment"]>, ElementFormatType>> = {
+  left: "left",
+  center: "center",
+  right: "right",
+  both: "justify",
+};
+function formatToAlign(f: ElementFormatType): ParagraphDTO["alignment"] {
+  return f === "left" ? "left" : f === "center" ? "center" : f === "right" ? "right" : f === "justify" ? "both" : null;
+}
+
+function runsOf(b: ParagraphDTO): ParaRun[] {
+  const r = (b as { runs?: ParaRun[] }).runs;
+  if (r && r.length) return r;
+  return b.text ? [{ text: b.text }] : [];
+}
+
+// ── blocks → Lexical (call inside editor.update() / editorState init) ────────
+export function $blocksToLexical(blocks: DocBlockDTO[]): void {
+  const root = $getRoot();
+  root.clear();
+  for (const b of blocks) {
+    if (b.kind === "paragraph") {
+      const el: ElementNode =
+        b.level >= 1
+          ? $createHeadingNode(("h" + Math.min(b.level, 6)) as HeadingTagType)
+          : $createParagraphNode();
+      for (const run of runsOf(b)) {
+        const t = $createTextNode(run.text);
+        if (run.bold) t.toggleFormat("bold");
+        if (run.italic) t.toggleFormat("italic");
+        if (run.underline) t.toggleFormat("underline");
+        if (run.color) t.setStyle(`color: #${run.color.replace(/^#/, "")}`);
+        el.append(t);
+      }
+      const fmt = b.alignment ? alignToFormat[b.alignment] : undefined;
+      if (fmt) el.setFormat(fmt);
+      if (b.direction) el.setDirection(b.direction);
+      root.append(el);
+    } else {
+      root.append($createBlockDataNode(b));
+    }
+  }
+  if (root.getFirstChild() === null) root.append($createParagraphNode());
+}
+
+// ── Lexical → blocks (call inside editorState.read()) ────────────────────────
+export function $lexicalToBlocks(): DocBlockDTO[] {
+  const out: DocBlockDTO[] = [];
+  for (const node of $getRoot().getChildren()) {
+    if ($isBlockDataNode(node)) {
+      out.push({ ...node.getBlock() });
+      continue;
+    }
+    if ($isHeadingNode(node) || $isParagraphNode(node)) {
+      const el = node as ElementNode;
+      const runs: ParaRun[] = [];
+      let text = "";
+      for (const child of el.getChildren()) {
+        if ($isTextNode(child)) {
+          const tn = child as TextNode;
+          const run: ParaRun = { text: tn.getTextContent() };
+          if (tn.hasFormat("bold")) run.bold = true;
+          if (tn.hasFormat("italic")) run.italic = true;
+          if (tn.hasFormat("underline")) run.underline = true;
+          const m = /color:\s*#?([0-9a-fA-F]{6})/.exec(tn.getStyle());
+          if (m) run.color = m[1].toUpperCase();
+          runs.push(run);
+          text += run.text;
+        } else {
+          text += child.getTextContent();
+        }
+      }
+      const level = $isHeadingNode(node) ? Number((node as HeadingNode).getTag().slice(1)) : 0;
+      const dir = el.getDirection();
+      const para: ParagraphDTO = {
+        index: 0,
+        kind: "paragraph",
+        text,
+        styleId: level === 0 ? "Normal" : `Heading${level}`,
+        level: Math.min(level, 6) as ParagraphDTO["level"],
+        alignment: formatToAlign(el.getFormatType()),
+        direction: dir === "rtl" || dir === "ltr" ? dir : null,
+      };
+      (para as { runs?: ParaRun[] }).runs = runs.length ? runs : [{ text }];
+      out.push(para);
+      continue;
+    }
+    // Anything else (e.g. a Lexical list — not representable in the block model):
+    // flatten its text into a paragraph so it's never SILENTLY dropped. This is
+    // the known-lossy case the round-trip screen flags.
+    const text = node.getTextContent();
+    if (text) {
+      out.push({ index: 0, kind: "paragraph", text, styleId: "Normal", level: 0, alignment: null, direction: null });
+    }
+  }
+  return out.map((b, i) => ({ ...b, index: i }));
+}
