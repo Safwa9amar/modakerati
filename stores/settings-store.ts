@@ -9,10 +9,11 @@ interface SettingsState {
   theme: ThemeName;
   language: Language;
   hasCompletedOnboarding: boolean;
-  // When FALSE (default) document edits stay on-device while the user is in the
-  // composer — the durable op queue holds them and flushes only on leaving the
-  // editing surface (screen blur, preview switch, app background). TRUE restores
-  // instant per-edit server sync. Read by the workspace/block-editor hold effects.
+  // When TRUE (default) document edits sync to the server AS the user edits: the
+  // op-queue pump isn't held and the Lexical Writer flushes on a short pause — more
+  // durable (fewer chances to lose work). FALSE holds edits on-device while in the
+  // editing surface and flushes only on leaving it (screen blur, preview switch,
+  // app background). Read by the workspace/block-editor hold effects.
   syncWhileEditing: boolean;
   setTheme: (theme: ThemeName) => void;
   setLanguage: (language: Language) => void;
@@ -26,7 +27,7 @@ export const useSettingsStore = create<SettingsState>()(
       theme: "dark",
       language: "fr",
       hasCompletedOnboarding: false,
-      syncWhileEditing: false,
+      syncWhileEditing: true,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       completeOnboarding: () => set({ hasCompletedOnboarding: true }),
@@ -35,6 +36,14 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: "modakerati-settings",
       storage: createJSONStorage(() => AsyncStorage),
+      // v1: sync-while-editing became the default ON. Flip existing installs that
+      // still carry the old default so the new behaviour actually takes effect.
+      version: 1,
+      migrate: (persisted, version) => {
+        const s = (persisted ?? {}) as Partial<SettingsState>;
+        if (version < 1) return { ...s, syncWhileEditing: true } as SettingsState;
+        return s as SettingsState;
+      },
     }
   )
 );
