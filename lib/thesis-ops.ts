@@ -316,6 +316,16 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
         else if (op.action === "addColumn") rows.forEach((r) => r.splice(op.at != null ? op.at + 1 : r.length, 0, ""));
         else if (op.action === "deleteColumn") { if (cols > 1) rows.forEach((r) => { if (op.col != null && op.col >= 0 && op.col < r.length) r.splice(op.col, 1); }); }
         else if (op.action === "editCell") { if (op.row != null && op.col != null && rows[op.row]) rows[op.row][op.col] = op.text ?? ""; }
+        else if (op.action === "layout") {
+          // Instant feedback for the two styling fields the render reflects
+          // (align / header); direction, borders and exact fills come with the
+          // authoritative server echo. `align`/`header` are DTO extensions (like
+          // `list`/`runs`), so patch them on via a cast.
+          const patched: Record<string, unknown> = { ...b, rows };
+          if (op.opts?.alignment) patched.align = op.opts.alignment;
+          if (op.opts?.headerRow) patched.header = true;
+          return patched as unknown as DocBlockDTO;
+        }
         return { ...b, rows };
       });
   }
