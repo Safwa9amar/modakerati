@@ -52,7 +52,7 @@ import {
   UNDO_COMMAND,
   REDO_COMMAND,
   COMMAND_PRIORITY_LOW,
-  SKIP_SCROLL_INTO_VIEW_TAG,
+  SKIP_DOM_SELECTION_TAG,
   type ElementFormatType,
   type TextFormatType,
   type LexicalEditor,
@@ -486,17 +486,16 @@ function FloatingToolbar() {
 // the moved caret / rebuilt content into view — the reported "editor scrolls away
 // when I hit Improve, and jumps to the bottom on Approve".
 function withScrollPinned(editor: LexicalEditor, mutator: () => void, _blurAfter = false) {
-  // The REAL fix: tag the update so Lexical's reconciler skips its own
-  // scroll-into-view. After every update Lexical re-focuses the root and scrolls
-  // the collapsed selection into view (LexicalSelection `$updateDOMSelection`),
-  // which is what kept dragging the view to the document end — blur/pin lost
-  // because Lexical re-focuses on the NEXT update and scrolls regardless. This tag
-  // is the official opt-out. A light 2-frame scroll restore stays as a backstop
-  // for any reflow the tag doesn't cover.
+  // The REAL fix (per Lexical docs): tag the update SKIP_DOM_SELECTION_TAG so the
+  // reconciler skips the ENTIRE DOM-selection update — which is what re-focuses the
+  // root (popping the keyboard → iOS scroll) AND scrolls the selection into view.
+  // SKIP_SCROLL_INTO_VIEW_TAG alone wasn't enough: it stopped the scroll but the
+  // re-focus still fired and iOS scrolled the focused editable into view. A light
+  // 2-frame scroll restore stays as a backstop for plain reflow.
   const y = typeof window !== "undefined" ? window.scrollY : 0;
   const restore = () => { if (typeof window !== "undefined") window.scrollTo(0, y); };
   editor.update(mutator, {
-    tag: SKIP_SCROLL_INTO_VIEW_TAG,
+    tag: SKIP_DOM_SELECTION_TAG,
     onUpdate: () => { restore(); requestAnimationFrame(restore); },
   });
 }
@@ -590,7 +589,7 @@ function SuggestionPlugin({
     const isClear = !suggestion || suggestion.index < 0;
     const structural = isClear || !suggestion.proposed;
     if (structural) withScrollPinned(editor, mutate, isClear);
-    else editor.update(mutate, { tag: SKIP_SCROLL_INTO_VIEW_TAG }); // stream in place — never scroll
+    else editor.update(mutate, { tag: SKIP_DOM_SELECTION_TAG }); // stream in place — never touch focus/scroll
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.index, suggestion?.proposed, suggestion?.status, suggestion?.reasoning, suggestion?.label]);
   return null;
