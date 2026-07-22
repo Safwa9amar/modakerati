@@ -42,6 +42,11 @@ import {
   Search,
   X,
   ChevronsDownUp,
+  BetweenHorizontalEnd,
+  BetweenVerticalEnd,
+  Rows3,
+  Columns3,
+  PanelTop,
   type LucideIcon,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -294,6 +299,14 @@ export function BlockContextBar({
       return;
     }
     void useThesisDocStore.getState().mutate(thesisId, { type: "format", indices: paraIndices, changes });
+  };
+
+  // ── Table editing (the selected block is a table) ──
+  const tableRows = selectedBlock?.kind === "table" ? selectedBlock.rows.length : 0;
+  const tableCols = selectedBlock?.kind === "table" ? (selectedBlock.rows[0]?.length ?? 0) : 0;
+  const tableEdit = (op: Omit<Extract<import("@/lib/thesis-ops").ThesisOp, { type: "tableOp" }>, "type" | "index">) => {
+    if (soleIndex == null) return;
+    void useThesisDocStore.getState().mutate(thesisId, { type: "tableOp", index: soleIndex, ...op });
   };
 
   const move = (dir: "up" | "down") => {
@@ -619,12 +632,26 @@ export function BlockContextBar({
     useSearchStore.getState().openSearch();
   };
 
-  // ── TABLE block: minimal set (Move / Delete + document Search). No text/format
-  // tools apply, but find-in-document is handy while a table is selected. ──
+  // ── TABLE block: full structure + layout editing (rows/columns, header, align,
+  // direction) via the server tableOp (engine Doc facade, formatting-preserving),
+  // plus move/delete the whole table + document search. Row/column deletes target
+  // the LAST row/column (no per-cell picker yet). ──
   const tableTools = (
     <>
-      {imageMoveDeleteChips(0)}
-      {chip({ keyProp: "tbl-search", Icon: Search, accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }), enterIndex: 3, onPress: openSearch })}
+      {chip({ keyProp: "tbl-addrow", Icon: BetweenHorizontalEnd, accessibilityLabel: t("blockBar.addRow", { defaultValue: "Add row" }), enterIndex: 0, onPress: () => tableEdit({ action: "addRow" }) })}
+      {chip({ keyProp: "tbl-delrow", Icon: Rows3, accessibilityLabel: t("blockBar.deleteRow", { defaultValue: "Delete last row" }), disabled: tableRows <= 1, enterIndex: 1, onPress: () => tableEdit({ action: "deleteRow", row: tableRows - 1 }) })}
+      {chip({ keyProp: "tbl-addcol", Icon: BetweenVerticalEnd, accessibilityLabel: t("blockBar.addColumn", { defaultValue: "Add column" }), enterIndex: 2, onPress: () => tableEdit({ action: "addColumn" }) })}
+      {chip({ keyProp: "tbl-delcol", Icon: Columns3, accessibilityLabel: t("blockBar.deleteColumn", { defaultValue: "Delete last column" }), disabled: tableCols <= 1, enterIndex: 3, onPress: () => tableEdit({ action: "deleteColumn", col: tableCols - 1 }) })}
+      {sep("ts1")}
+      {chip({ keyProp: "tbl-header", Icon: PanelTop, accessibilityLabel: t("blockBar.headerRow", { defaultValue: "Header row" }), enterIndex: 4, onPress: () => tableEdit({ action: "layout", opts: { headerRow: true } }) })}
+      {chip({ keyProp: "tbl-al", Icon: AlignLeft, accessibilityLabel: t("blockBar.alignLeft", { defaultValue: "Left" }), enterIndex: 5, onPress: () => tableEdit({ action: "layout", opts: { alignment: "left" } }) })}
+      {chip({ keyProp: "tbl-ac", Icon: AlignCenter, accessibilityLabel: t("blockBar.alignCenter", { defaultValue: "Center" }), enterIndex: 6, onPress: () => tableEdit({ action: "layout", opts: { alignment: "center" } }) })}
+      {chip({ keyProp: "tbl-ar", Icon: AlignRight, accessibilityLabel: t("blockBar.alignRight", { defaultValue: "Right" }), enterIndex: 7, onPress: () => tableEdit({ action: "layout", opts: { alignment: "right" } }) })}
+      {chip({ keyProp: "tbl-rtl", Icon: PilcrowLeft, accessibilityLabel: t("blockBar.dirRtl", { defaultValue: "Right to left" }), enterIndex: 8, onPress: () => tableEdit({ action: "layout", opts: { direction: "rtl" } }) })}
+      {chip({ keyProp: "tbl-ltr", Icon: PilcrowRight, accessibilityLabel: t("blockBar.dirLtr", { defaultValue: "Left to right" }), enterIndex: 9, onPress: () => tableEdit({ action: "layout", opts: { direction: "ltr" } }) })}
+      {sep("ts2")}
+      {imageMoveDeleteChips(10)}
+      {chip({ keyProp: "tbl-search", Icon: Search, accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }), enterIndex: 13, onPress: openSearch })}
     </>
   );
 

@@ -92,6 +92,20 @@ export type ThesisOp =
   // removes it. Positional-index-safe (never moves blocks) → replays cleanly. The
   // server writes <w:numPr>; the optimistic patch just tags the block's `list`.
   | { type: "setList"; indices: number[]; list: "bullet" | "number" | null }
+  // Structure/layout edit on the TABLE at `index` (formatting-preserving on the
+  // server via the engine Doc facade). Positional-index-safe (edits one block in
+  // place). The optimistic patch mutates the block's `rows` grid for structural
+  // actions; layout is server-only (echoed doc reconciles it).
+  | {
+      type: "tableOp";
+      index: number;
+      action: "addRow" | "deleteRow" | "addColumn" | "deleteColumn" | "editCell" | "layout";
+      at?: number;
+      row?: number;
+      col?: number;
+      text?: string;
+      opts?: { alignment?: "left" | "center" | "right"; direction?: "rtl" | "ltr"; headerRow?: boolean; borders?: boolean };
+    }
   // Set (or create) a figure/image block's caption (approve of an inline AI
   // "add caption" action). `index` is the IMAGE block. The optimistic patch just
   // sets that block's `caption` (no block count change); the server edits the
@@ -290,6 +304,20 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
           ? ({ ...b, list: op.list } as unknown as DocBlockDTO)
           : b,
       );
+    case "tableOp":
+      // Optimistic grid edit for structural actions (instant feedback); layout is
+      // server-only. The server echo reconciles the authoritative table.
+      return blocks.map((b) => {
+        if (b.index !== op.index || b.kind !== "table") return b;
+        const rows = b.rows.map((r) => [...r]);
+        const cols = rows[0]?.length ?? 1;
+        if (op.action === "addRow") rows.splice(op.at != null ? op.at + 1 : rows.length, 0, Array(cols).fill(""));
+        else if (op.action === "deleteRow") { if (op.row != null && op.row >= 0 && op.row < rows.length && rows.length > 1) rows.splice(op.row, 1); }
+        else if (op.action === "addColumn") rows.forEach((r) => r.splice(op.at != null ? op.at + 1 : r.length, 0, ""));
+        else if (op.action === "deleteColumn") { if (cols > 1) rows.forEach((r) => { if (op.col != null && op.col >= 0 && op.col < r.length) r.splice(op.col, 1); }); }
+        else if (op.action === "editCell") { if (op.row != null && op.col != null && rows[op.row]) rows[op.row][op.col] = op.text ?? ""; }
+        return { ...b, rows };
+      });
   }
 }
 
@@ -395,6 +423,9 @@ export async function executeOp(
       // No single-op endpoint — route through the batch /ops (the only place the
       // server applies list numbering). Rare here (lists flow via the Lexical
       // auto-sync batch), but keeps the durable queue path total.
+      return applyThesisOps(thesisId, [op]);
+    case "tableOp":
+      // Table edits are applied server-side by the /ops handler (engine Doc facade).
       return applyThesisOps(thesisId, [op]);
   }
 }
