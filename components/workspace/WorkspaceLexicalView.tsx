@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
-import { LexicalBubble } from "@/components/workspace/lexical/LexicalBubble";
+import LexicalDomEditor, { type LexicalCommand } from "@/components/workspace/lexical/LexicalDomEditor";
 import { applyThesisOps, type DocBlockDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { planOps, tally } from "@/lib/lexical-writeback";
@@ -36,7 +35,6 @@ export function WorkspaceLexicalView({
   const baselineRef = useRef<DocBlockDTO[]>(stripMedia(blocks));
   const [seed, setSeed] = useState<DocBlockDTO[]>(baselineRef.current);
   const [seedNonce, setSeedNonce] = useState(0);
-  const [activeFmt, setActiveFmt] = useState<LexicalState>({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, index: -1, text: "" });
   const [command, setCommand] = useState<LexicalCommand | null>(null);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
@@ -61,7 +59,9 @@ export function WorkspaceLexicalView({
   const send = useCallback((type: string, value?: string) => {
     setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
   }, []);
-  const onState = useCallback((s: LexicalState) => setActiveFmt(s), []);
+  // Formatting is handled by the in-editor floating toolbar now; the native side
+  // only needs the serialize round-trip for Save, so this is a no-op.
+  const onState = useCallback(() => {}, []);
 
   const onBlocks = useCallback(async (serialized: DocBlockDTO[]) => {
     if (!pendingSave.current) return;
@@ -117,7 +117,6 @@ export function WorkspaceLexicalView({
           </Pressable>
         </View>
       </View>
-      <LexicalBubble active={activeFmt} onCommand={send} />
     </View>
   );
 }
