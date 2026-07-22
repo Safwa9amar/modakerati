@@ -71,6 +71,8 @@ import {
   $isBlockDataNode,
   MediaContext,
   EditCellContext,
+  TableProposalContext,
+  type TableProposalData,
   SuggestionNode,
   $createSuggestionNode,
   $isSuggestionNode,
@@ -182,6 +184,9 @@ const CSS = `
    kind tools; a pressed ring gives feedback that it's an interactive target. */
 .lx-blockpick { cursor: pointer; border-radius: 6px; transition: box-shadow 120ms ease; }
 .lx-blockpick:active { box-shadow: 0 0 0 3px rgba(52, 120, 246, 0.28); }
+/* AI table proposal: the grid pulses while the model thinks. */
+.lx-tbl-loading { pointer-events: none; animation: lxTblPulse 1.1s ease-in-out infinite alternate; }
+@keyframes lxTblPulse { from { opacity: 0.35; } to { opacity: 0.65; } }
 /* Document-search hit overlays — absolute divs over each match, inside .lx-root so
    they scroll with the content but sit under the caret (pointer-events off). Amber
    on all matches, a stronger orange on the current one. */
@@ -1069,6 +1074,9 @@ export default function LexicalDomEditor({
   media,
   search,
   onEditCell,
+  tableProposal,
+  tableLoadingIndex,
+  onTableProposalAction,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -1098,6 +1106,13 @@ export default function LexicalDomEditor({
   // Commit an in-cell table edit → native routes it through the silent table-op
   // sync (a DOM→native async function prop, like onState).
   onEditCell?: (blockIndex: number, row: number, col: number, text: string) => void;
+  // AI table proposal (in-place diff): while set, the targeted table renders the
+  // diff view; the pill's approve/reject/again round-trips through the native
+  // function prop. tableLoadingIndex dims the table while the model thinks.
+  // Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
+  tableProposal?: TableProposalData | null;
+  tableLoadingIndex?: number | null;
+  onTableProposalAction?: (action: string, note?: string) => void;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -1115,6 +1130,13 @@ export default function LexicalDomEditor({
       <style>{CSS}</style>
       <MediaContext.Provider value={media ?? { base: "", token: "", thesisId: "", version: "" }}>
       <EditCellContext.Provider value={onEditCell ?? null}>
+      <TableProposalContext.Provider
+        value={{
+          proposal: tableProposal ?? null,
+          loadingIndex: tableLoadingIndex ?? null,
+          onAction: (action, note) => onTableProposalAction?.(action, note),
+        }}
+      >
       <div className="lx-root">
         <RichTextPlugin
           contentEditable={<ContentEditable className="lx-content" dir="auto" />}
@@ -1129,6 +1151,7 @@ export default function LexicalDomEditor({
         <SelectionHighlightPlugin indices={selectedIndices} />
         <SearchHighlightPlugin search={search} />
       </div>
+      </TableProposalContext.Provider>
       </EditCellContext.Provider>
       </MediaContext.Provider>
     </LexicalComposer>

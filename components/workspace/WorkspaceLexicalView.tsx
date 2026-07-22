@@ -10,6 +10,8 @@ import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useSearchStore } from "@/stores/search-store";
+import { useTableSuggestionStore } from "@/stores/table-suggestion-store";
+import { diffToOps, layoutDelta } from "@/lib/table-diff";
 import { planOps, tally } from "@/lib/lexical-writeback";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
@@ -354,6 +356,82 @@ export function WorkspaceLexicalView({
     }
   }, [thesisId]);
 
+  // ── AI table proposal (in-place diff) ──
+  // The ✦ dock put a proposal in the table-suggestion store; mirror it into the
+  // DOM editor as serializable props and route the pill's actions back. Approve
+  // converts the SAME precomputed diff into a tableOp batch (ONE /ops call) and
+  // reconciles via plain setDoc — the reseed re-renders the approved table
+  // (scroll is pinned by the reseed path). Reject/dismiss just clears the store.
+  // Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
+  const tblProposal = useTableSuggestionStore((s) => s.proposal);
+  const tblLoadingIndex = useTableSuggestionStore((s) => s.loadingIndex);
+  const tblError = useTableSuggestionStore((s) => s.error);
+  const tableProposal = useMemo(
+    () =>
+      tblProposal && tblProposal.thesisId === thesisId
+        ? { index: tblProposal.index, originalRows: tblProposal.originalRows, newRows: tblProposal.newRows, diff: tblProposal.diff }
+        : null,
+    [tblProposal, thesisId],
+  );
+  const onTableProposalAction = useCallback(
+    (action: string, note?: string) => {
+      const store = useTableSuggestionStore.getState();
+      const p = store.proposal;
+      if (action === "again") { void store.again(note); return; }
+      if (action === "reject" || !p || p.thesisId !== thesisId) { store.clear(); return; }
+      if (action !== "approve") return;
+      void (async () => {
+        const docStore = useThesisDocStore.getState();
+        // Positional ops must land after any queued durable ops — refuse instead
+        // of interleaving (same rule as the bubble's silent table sync).
+        if ((docStore.pending[thesisId] ?? 0) > 0) {
+          setBanner("Syncing — try again in a moment");
+          setTimeout(() => setBanner(null), 2600);
+          return;
+        }
+        const delta = layoutDelta(
+          { align: p.originalLayout.align, direction: p.originalLayout.direction, header: p.originalLayout.header },
+          p.layout,
+        );
+        const ops = diffToOps(p.index, p.originalRows, p.newRows, p.diff, delta);
+        store.clear(); // leave diff mode before the reseed repaints the table
+        if (!ops) {
+          setBanner("Proposal too large to apply");
+          setTimeout(() => setBanner(null), 2600);
+          return;
+        }
+        if (ops.length === 0) return; // nothing to change
+        try {
+          const res = await applyThesisOps(thesisId, ops);
+          if (res.document) docStore.setDoc(thesisId, res.document); // reseed repaints
+          void docStore.refreshHistoryState(thesisId);
+        } catch {
+          void docStore.revalidate(thesisId);
+        }
+      })();
+    },
+    [thesisId],
+  );
+  // Surface a failed suggest via the existing save banner (store keeps `error`).
+  useEffect(() => {
+    if (!tblError) return;
+    setBanner("AI table suggestion failed");
+    const t = setTimeout(() => setBanner(null), 2600);
+    return () => clearTimeout(t);
+  }, [tblError]);
+  // Invalidation: any doc change that alters the target table (an outside edit,
+  // undo, AI turn) silently drops the proposal — its diff no longer applies.
+  useEffect(() => {
+    const p = useTableSuggestionStore.getState().proposal;
+    if (!p || p.thesisId !== thesisId || !doc?.available) return;
+    const b = doc.blocks[p.index];
+    const same =
+      b?.kind === "table" &&
+      JSON.stringify(b.rows.map((r) => r.map((c) => c.trim()))) ===
+        JSON.stringify(p.originalRows.map((r) => r.map((c) => c.trim())));
+    if (!same) useTableSuggestionStore.getState().clear();
+  }, [doc, thesisId]);
+
   // In-cell table edit (double-tap a cell in the WebView) → the block-model
   // editCell op. The WebView cell already painted the new value from its local
   // overlay, so we must NOT full-reseed here — that would rebuild the whole doc
@@ -404,6 +482,9 @@ export function WorkspaceLexicalView({
           media={media}
           search={search}
           onEditCell={onEditCell}
+          tableProposal={tableProposal}
+          tableLoadingIndex={tblLoadingIndex}
+          onTableProposalAction={onTableProposalAction}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />
         {/* Auto-save status (no manual button — background sync on pause / exit). */}

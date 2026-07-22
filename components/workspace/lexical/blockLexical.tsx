@@ -40,6 +40,8 @@ import {
 } from "@lexical/rich-text";
 import { $isListNode, $isListItemNode, $createListNode, $createListItemNode, type ListNode } from "@lexical/list";
 import type { DocBlockDTO } from "@/lib/api";
+// type-only — table-diff must never enter the web bundle by value.
+import type { TableDiff } from "@/lib/table-diff";
 
 // The inline-run extension the paragraph DTO carries (not in the base type).
 export type ParaRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
@@ -80,6 +82,23 @@ export const EditCellContext = React.createContext<
   ((blockIndex: number, row: number, col: number, text: string) => void) | null
 >(null);
 
+// ── AI table proposal (in-place diff) ────────────────────────────────────────
+// The ✦ dock requested a table rewrite; the store holds ONE proposal (full new
+// grid + precomputed diff). While it targets this table, EditableTable renders
+// DIFF MODE instead of the editable grid; the pill routes approve/reject/again
+// back to native. Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
+export interface TableProposalData {
+  index: number;
+  originalRows: string[][];
+  newRows: string[][];
+  diff: TableDiff;
+}
+export const TableProposalContext = React.createContext<{
+  proposal: TableProposalData | null;
+  loadingIndex: number | null;
+  onAction: (action: "approve" | "reject" | "again", note?: string) => void;
+} | null>(null);
+
 const FIGURE_STYLE: React.CSSProperties = { maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", display: "block", margin: "8px auto" };
 
 // A figure: inline dataUri when the server sent it (small), else the authed media
@@ -108,6 +127,190 @@ function CellInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return React.createElement("input", { ...props, ref });
 }
 
+// Diff colors for the AI table proposal (match the approved mockups).
+const DIFF_ADD_BG = "#dcfce7";
+const DIFF_EDIT_BG = "#fef3c7";
+const DIFF_DEL_BG = "#fee2e2";
+
+// One pill button of the proposal bar. mousedown preventDefault: a tap must not
+// move DOM focus (same WKWebView scroll-to-top rule as the table cells).
+function PillBtn({ label, tone, onPress }: { label: string; tone?: "ok" | "no"; onPress: () => void }) {
+  const style: React.CSSProperties = {
+    borderRadius: "999px",
+    padding: "5px 14px",
+    fontSize: "12px",
+    border: "1px solid #d4d4dc",
+    background: "#fff",
+    color: "#222",
+    cursor: "pointer",
+  };
+  if (tone === "ok") { style.background = "#16a34a"; style.borderColor = "#16a34a"; style.color = "#fff"; }
+  if (tone === "no") { style.background = "#fff1f1"; style.borderColor = "#fca5a5"; style.color = "#b91c1c"; }
+  return React.createElement(
+    "button",
+    {
+      style,
+      onMouseDown: (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); },
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); onPress(); },
+      onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
+    },
+    label,
+  );
+}
+
+// DIFF MODE: the proposed grid with cell-level highlights + the action pill.
+// Added rows/cols green; edited cells amber with the struck old value inside;
+// removed rows/cols as red struck ghosts at their mapped positions. Compare
+// toggles the plain ORIGINAL grid. Again opens a small note input.
+function ProposalDiffTable({
+  proposal,
+  dir,
+  loading,
+  onAction,
+}: {
+  proposal: TableProposalData;
+  dir?: "rtl" | "ltr";
+  loading: boolean;
+  onAction: (action: "approve" | "reject" | "again", note?: string) => void;
+}) {
+  const [compare, setCompare] = React.useState(false);
+  const [againOpen, setAgainOpen] = React.useState(false);
+  const [note, setNote] = React.useState("");
+  const { originalRows, newRows, diff } = proposal;
+
+  const edited = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of diff.editedCells) m.set(`${e.r},${e.c}`, e.oldText);
+    return m;
+  }, [diff]);
+
+  // Interleave ghost (removed) rows at their mapped positions among the new rows.
+  const rowEntries = React.useMemo(() => {
+    const entries: ({ kind: "new"; r: number } | { kind: "ghost"; oldR: number })[] =
+      newRows.map((_, r) => ({ kind: "new" as const, r }));
+    for (const oldR of [...diff.removedRows].sort((a, b) => a - b)) {
+      let pos = entries.length;
+      for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        if (e.kind === "new") {
+          const m = diff.rowMap[e.r];
+          if (m != null && m > oldR) { pos = i; break; }
+        }
+      }
+      entries.splice(pos, 0, { kind: "ghost", oldR });
+    }
+    return entries;
+  }, [newRows, diff]);
+
+  const baseCell: React.CSSProperties = { border: "1px solid #c8c8d0", padding: "4px 8px" };
+  const table = (body: React.ReactNode) =>
+    React.createElement(
+      "table",
+      { style: { borderCollapse: "collapse", fontSize: "13px", margin: "6px 0", width: "100%" }, dir },
+      React.createElement("tbody", null, body),
+    );
+
+  let grid: React.ReactNode;
+  if (compare) {
+    // The ORIGINAL, plain — "this is what you have now".
+    grid = table(
+      originalRows.map((row, ri) =>
+        React.createElement("tr", { key: ri }, row.map((cell, ci) => React.createElement("td", { key: ci, style: baseCell }, cell))),
+      ),
+    );
+  } else {
+    grid = table(
+      rowEntries.map((entry, ei) => {
+        if (entry.kind === "ghost") {
+          return React.createElement(
+            "tr",
+            { key: `g${entry.oldR}` },
+            (originalRows[entry.oldR] ?? []).map((cell, ci) =>
+              React.createElement(
+                "td",
+                { key: ci, style: { ...baseCell, backgroundColor: DIFF_DEL_BG, color: "#b91c1c", textDecoration: "line-through" } },
+                cell,
+              ),
+            ),
+          );
+        }
+        const r = entry.r;
+        const rowAdded = diff.rowMap[r] == null;
+        const cells = (newRows[r] ?? []).map((cell, c) => {
+          const colAdded = diff.colMap[c] == null;
+          const oldText = edited.get(`${r},${c}`);
+          const style: React.CSSProperties = { ...baseCell };
+          if (rowAdded || colAdded) style.backgroundColor = DIFF_ADD_BG;
+          else if (oldText !== undefined) style.backgroundColor = DIFF_EDIT_BG;
+          const content =
+            oldText !== undefined && !rowAdded && !colAdded
+              ? [
+                  React.createElement(
+                    "span",
+                    { key: "o", style: { display: "block", fontSize: "10px", color: "#b91c1c", textDecoration: "line-through" } },
+                    oldText,
+                  ),
+                  cell,
+                ]
+              : cell;
+          return React.createElement("td", { key: c, style }, content);
+        });
+        // Ghost (removed) columns appended at the row's end, from the mapped old row.
+        const oldR = diff.rowMap[r];
+        const ghosts = diff.removedCols.map((oc) =>
+          React.createElement(
+            "td",
+            { key: `gc${oc}`, style: { ...baseCell, backgroundColor: DIFF_DEL_BG, color: "#b91c1c", textDecoration: "line-through" } },
+            oldR != null ? (originalRows[oldR]?.[oc] ?? "") : "",
+          ),
+        );
+        return React.createElement("tr", { key: r }, [...cells, ...ghosts]);
+      }),
+    );
+  }
+
+  return React.createElement(
+    "div",
+    {
+      className: loading ? "lx-tbl-loading" : undefined,
+      onMouseDown: (e: React.MouseEvent) => e.preventDefault(),
+      onClick: (e: React.MouseEvent) => e.stopPropagation(),
+      onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
+    },
+    React.createElement(
+      "div",
+      { style: { display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11.5px", color: "#4f46e5", background: "#eef2ff", borderRadius: "999px", padding: "3px 10px", marginBottom: "2px" } },
+      compare ? "✦ الأصل — قبل التعديل" : "✦ اقتراح الذكاء الاصطناعي",
+    ),
+    grid,
+    React.createElement(
+      "div",
+      { style: { display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" } },
+      React.createElement(PillBtn, { label: "✓ موافق", tone: "ok", onPress: () => onAction("approve") }),
+      React.createElement(PillBtn, { label: compare ? "⇄ الاقتراح" : "⇄ قارن", onPress: () => setCompare((v) => !v) }),
+      React.createElement(PillBtn, { label: "↻ مجددًا", onPress: () => setAgainOpen((v) => !v) }),
+      React.createElement(PillBtn, { label: "✕ رفض", tone: "no", onPress: () => onAction("reject") }),
+    ),
+    againOpen
+      ? React.createElement(
+          "div",
+          { style: { display: "flex", gap: "6px", marginTop: "6px" } },
+          React.createElement("input", {
+            value: note,
+            placeholder: "ملاحظة للمحاولة الجديدة…",
+            onChange: (e: React.ChangeEvent<HTMLInputElement>) => setNote(e.target.value),
+            onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+            onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === "Enter") { e.preventDefault(); setAgainOpen(false); onAction("again", note); }
+            },
+            style: { flex: 1, border: "1px solid #d4d4dc", borderRadius: "8px", padding: "5px 10px", fontSize: "12.5px", direction: "rtl" },
+          }),
+          React.createElement(PillBtn, { label: "إرسال", tone: "ok", onPress: () => { setAgainOpen(false); onAction("again", note); } }),
+        )
+      : null,
+  );
+}
+
 // A Word-styled, in-place editable table. Renders the DTO's alignment / header /
 // per-cell fills / direction (see server parseTableStyle) and lets the user edit a
 // cell's text: DOUBLE-TAP a cell → inline input → commit (Enter / blur / switching
@@ -117,12 +320,15 @@ function CellInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
 // focus to the contentEditable root — a focused CE with no caret makes iOS
 // WKWebView natively scroll to its start (= the document top), which was the
 // "scrolls to top when I edit another cell" bug.
+// While an AI proposal targets this table (TableProposalContext), renders
+// ProposalDiffTable instead; while a request is loading, the current grid dims.
 function EditableTable({
   block,
 }: {
   block: Extract<DocBlockDTO, { kind: "table" }>;
 }) {
   const onEditCell = React.useContext(EditCellContext);
+  const tp = React.useContext(TableProposalContext);
   const [editing, setEditing] = React.useState<{ r: number; c: number } | null>(null);
   const [draft, setDraft] = React.useState("");
   // Local overlay of committed cell edits. Committing shows the new value from
@@ -137,6 +343,18 @@ function EditableTable({
   const header = !!t.header;
   const fills = t.fills;
   const dir = t.direction ?? undefined;
+
+  // AI proposal targeting THIS table → diff mode (loading dims it in place).
+  const proposalHere = tp?.proposal && tp.proposal.index === block.index ? tp.proposal : null;
+  const loadingHere = tp?.loadingIndex === block.index;
+  if (proposalHere && tp) {
+    return React.createElement(ProposalDiffTable, {
+      proposal: proposalHere,
+      dir,
+      loading: loadingHere,
+      onAction: tp.onAction,
+    });
+  }
 
   const tableStyle: Record<string, unknown> = {
     borderCollapse: "collapse",
@@ -176,7 +394,8 @@ function EditableTable({
 
   return React.createElement(
     "table",
-    { style: tableStyle, dir },
+    // While the AI request is thinking, dim + disable the grid in place.
+    { style: tableStyle, dir, className: loadingHere ? "lx-tbl-loading" : undefined },
     React.createElement(
       "tbody",
       null,
