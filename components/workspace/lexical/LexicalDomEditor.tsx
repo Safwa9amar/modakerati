@@ -486,24 +486,22 @@ function FloatingToolbar() {
 // when I hit Improve, and jumps to the bottom on Approve".
 function withScrollPinned(editor: LexicalEditor, mutator: () => void, blurAfter = false) {
   const y = typeof window !== "undefined" ? window.scrollY : 0;
-  // Restore scroll AND (on reseed) drop editor focus each frame for a couple
-  // frames: after a rebuild the WebView re-focuses the content-editable and lands
-  // the caret at the document END, then iOS scrolls that caret into view a frame
-  // or two later — blurring kills the caret so there's nothing to scroll to.
+  // Hold scroll for a short WINDOW, not just a couple frames: iOS/the WebView
+  // scrolls a (re)focused caret into view HUNDREDS of ms after the DOM reconciles
+  // — long after a 2-3 frame restore has finished — so pin every frame for ~500ms
+  // and (on the clear paths) keep the content-editable blurred so no caret exists
+  // to scroll to. The user isn't scrolling right after tapping a suggestion action,
+  // so briefly owning the scroll is invisible.
+  const start = typeof Date !== "undefined" ? Date.now() : 0;
   const settle = () => {
     if (blurAfter && typeof document !== "undefined") {
       const ae = document.activeElement as HTMLElement | null;
       if (ae && ae.isContentEditable && typeof ae.blur === "function") ae.blur();
     }
     if (typeof window !== "undefined") window.scrollTo(0, y);
+    if (Date.now() - start < 500) requestAnimationFrame(settle);
   };
-  editor.update(mutator, {
-    onUpdate: () => {
-      settle();
-      requestAnimationFrame(settle);
-      requestAnimationFrame(() => requestAnimationFrame(settle));
-    },
-  });
+  editor.update(mutator, { onUpdate: () => { requestAnimationFrame(settle); } });
 }
 
 // Rebuild the original block node from a suggestion's captured type/text — used to
@@ -590,8 +588,11 @@ function SuggestionPlugin({
     };
     // Pin scroll ONLY when the node is created/removed (that's what moves layout);
     // an in-place stream update (existing __sug) must not fight the user's scroll.
-    const structural = !suggestion || suggestion.index < 0 || !suggestion.proposed;
-    if (structural) withScrollPinned(editor, mutate);
+    // On the CLEAR path (approve/reject) also blur: tapping the pill button focused
+    // it, and removing it drops the caret at the document end → iOS scroll.
+    const isClear = !suggestion || suggestion.index < 0;
+    const structural = isClear || !suggestion.proposed;
+    if (structural) withScrollPinned(editor, mutate, isClear);
     else editor.update(mutate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.index, suggestion?.proposed, suggestion?.status, suggestion?.reasoning, suggestion?.label]);

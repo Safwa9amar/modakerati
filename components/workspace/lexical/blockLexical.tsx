@@ -190,6 +190,10 @@ function pillBtn(key: string, opts: { primary?: boolean; icon: string; label?: s
       className: opts.primary ? "lx-sug-approve" : "lx-sug-icon" + (opts.danger ? " lx-sug-danger" : ""),
       title: opts.label,
       "aria-label": opts.label,
+      tabIndex: -1,
+      // Don't let tapping the button focus it (→ caret lands in the editable → iOS
+      // scrolls). preventDefault on pointer/mouse-down keeps focus where it is.
+      onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault(),
       onClick: opts.onClick,
     },
     svgIcon(opts.icon, opts.primary ? 15 : 16),
