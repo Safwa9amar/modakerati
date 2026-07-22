@@ -19,6 +19,7 @@ export default function AppLayout() {
     <Stack.Screen name="block-editor" />
     <Stack.Screen name="lexical-lab" />
     <Stack.Screen name="lexical-roundtrip" />
+    <Stack.Screen name="lexical-writeback" />
     <Stack.Screen name="news" />
     <Stack.Screen name="news-detail" />
     <Stack.Screen name="export" />
