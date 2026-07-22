@@ -17,9 +17,12 @@ import {
   $createTextNode,
   $isParagraphNode,
   $isTextNode,
+  createCommand,
   DecoratorNode,
   type ElementNode,
   type ElementFormatType,
+  type LexicalCommand,
+  type LexicalEditor,
   type LexicalNode,
   type NodeKey,
   type SerializedLexicalNode,
@@ -130,6 +133,48 @@ export function $isBlockDataNode(node: LexicalNode | null | undefined): node is 
   return node instanceof BlockDataNode;
 }
 
+// ── AI suggestion node (transient inline proposal, in the content flow) ───────
+export const SUGGEST_APPROVE_COMMAND: LexicalCommand<void> = createCommand("SUGGEST_APPROVE");
+export const SUGGEST_REJECT_COMMAND: LexicalCommand<void> = createCommand("SUGGEST_REJECT");
+export type SugData = { original: string; proposed: string; status: string };
+type SerializedSuggestionNode = SerializedLexicalNode & { sug: SugData };
+
+function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }) {
+  const loading = sug.status === "loading" && !sug.proposed;
+  const err = sug.status === "error";
+  return React.createElement(
+    "div",
+    { className: "lx-sug" },
+    React.createElement("div", { className: "lx-sug-head" }, "✦ AI suggestion"),
+    React.createElement("div", { className: "lx-sug-body" }, err ? "Couldn’t generate a suggestion." : loading ? "thinking…" : sug.proposed || sug.original),
+    React.createElement(
+      "div",
+      { className: "lx-sug-bar" },
+      React.createElement("button", { className: "lx-sug-btn", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) }, "Reject"),
+      React.createElement(
+        "button",
+        { className: "lx-sug-btn lx-sug-ok", disabled: loading || err, onClick: () => editor.dispatchCommand(SUGGEST_APPROVE_COMMAND, undefined) },
+        "Approve",
+      ),
+    ),
+  );
+}
+
+export class SuggestionNode extends DecoratorNode<React.ReactNode> {
+  __sug: SugData;
+  static getType(): string { return "ai-suggestion"; }
+  static clone(n: SuggestionNode): SuggestionNode { return new SuggestionNode(n.__sug, n.__key); }
+  constructor(sug: SugData, key?: NodeKey) { super(key); this.__sug = sug; }
+  createDOM(): HTMLElement { const el = document.createElement("div"); el.style.margin = "4px 0"; return el; }
+  updateDOM(): false { return false; }
+  isInline(): false { return false; }
+  decorate(editor: LexicalEditor): React.ReactNode { return React.createElement(SuggestionView, { sug: this.getLatest().__sug, editor }); }
+  exportJSON(): SerializedSuggestionNode { return { ...super.exportJSON(), type: "ai-suggestion", version: 1, sug: this.__sug }; }
+  static importJSON(j: SerializedSuggestionNode): SuggestionNode { return new SuggestionNode(j.sug); }
+}
+export function $createSuggestionNode(sug: SugData): SuggestionNode { return new SuggestionNode(sug); }
+export function $isSuggestionNode(n: LexicalNode | null | undefined): n is SuggestionNode { return n instanceof SuggestionNode; }
+
 // ── Alignment mapping (engine "both" == Lexical "justify") ───────────────────
 const alignToFormat: Partial<Record<NonNullable<ParagraphDTO["alignment"]>, ElementFormatType>> = {
   left: "left",
@@ -180,6 +225,7 @@ export function $blocksToLexical(blocks: DocBlockDTO[]): void {
 export function $lexicalToBlocks(): DocBlockDTO[] {
   const out: DocBlockDTO[] = [];
   for (const node of $getRoot().getChildren()) {
+    if ($isSuggestionNode(node)) continue; // transient AI proposal — not a document block
     if ($isBlockDataNode(node)) {
       out.push({ ...node.getBlock() });
       continue;

@@ -7,7 +7,6 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
-import { InlineSuggestion } from "@/components/workspace/InlineSuggestion";
 import { planOps, tally } from "@/lib/lexical-writeback";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
@@ -70,11 +69,28 @@ export function WorkspaceLexicalView({
   const inited = useRef(false);
   // Outline-drawer navigation target (heading tapped in the Structure drawer).
   const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
-  // Inline-AI: which block (if any) has a pending AI proposal to overlay.
-  const sugIndex = useSuggestionStore((s) => {
+  // Inline-AI: the pending AI proposal (if any) to render as an in-flow node in
+  // Lexical. Streams as the AI writes (proposed/status update).
+  const suggestion = useSuggestionStore((s) => {
     const keys = Object.keys(s.byIndex);
-    return keys.length ? Number(keys[0]) : -1;
+    if (!keys.length) return null;
+    const idx = Number(keys[0]);
+    const p = s.byIndex[idx];
+    return { index: idx, original: p.original, proposed: p.proposed, status: p.status as string };
   });
+  const suggestionActiveRef = useRef(false);
+  suggestionActiveRef.current = !!suggestion;
+
+  // Approve/reject from the in-editor suggestion node → the native store (its
+  // approve dispatches an editText op that flows back through the sync layer).
+  const onSuggestAction = useCallback((action: string) => {
+    const store = useSuggestionStore.getState();
+    const keys = Object.keys(store.byIndex);
+    if (!keys.length) return;
+    const idx = Number(keys[0]);
+    if (action === "approve") store.approve(thesisId, idx);
+    else store.reject(idx);
+  }, [thesisId]);
 
   const send = useCallback((type: string, value?: string) => {
     setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
@@ -116,7 +132,7 @@ export function WorkspaceLexicalView({
   // from our own save (guarded by syncedDocRef).
   useEffect(() => {
     if (!inited.current) { inited.current = true; syncedDocRef.current = doc; return; }
-    if (!active || doc === syncedDocRef.current || saveTimer.current) return;
+    if (!active || doc === syncedDocRef.current || saveTimer.current || suggestionActiveRef.current) return;
     if (doc?.available) {
       const latest = stripMedia(doc.blocks);
       baselineRef.current = latest;
@@ -130,6 +146,7 @@ export function WorkspaceLexicalView({
   // because Lexical edits — unlike the durable op-queue — aren't in SQLite, so a
   // pause-save avoids losing work if the app is backgrounded/killed.)
   const scheduleSave = useCallback(() => {
+    if (suggestionActiveRef.current) return; // a pending AI proposal is in the editor — don't serialize it
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { saveTimer.current = null; pendingSave.current = true; send("serialize"); }, 1500);
   }, [send]);
@@ -186,6 +203,8 @@ export function WorkspaceLexicalView({
           onBlocks={onBlocks}
           reseed={reseed}
           scrollToIndex={scrollTarget ? { index: scrollTarget.index, nonce: scrollTarget.nonce } : undefined}
+          suggestion={suggestion ?? undefined}
+          onSuggestAction={onSuggestAction}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />
         {/* Auto-save status (no manual button — background sync on pause / exit). */}
@@ -196,21 +215,6 @@ export function WorkspaceLexicalView({
             </View>
           </View>
         ) : null}
-        {/* Inline-AI suggestion: the NATIVE InlineSuggestion (word-diff / absorb /
-            approve-reject) overlaid on the suggested Lexical block. On approve its
-            editText op flows back through the sync layer into the editor. */}
-        {sugIndex >= 0 && doc?.available
-          ? (() => {
-              const sb = doc.blocks.find((b) => b.index === sugIndex);
-              if (!sb || sb.kind !== "paragraph") return null;
-              const top = focusRef.current.index === sugIndex ? focusRef.current.y : 12;
-              return (
-                <View style={[styles.sugOverlay, { top: Math.max(0, top) }]}>
-                  <InlineSuggestion thesisId={thesisId} block={sb} rtl={rtl} />
-                </View>
-              );
-            })()
-          : null}
       </View>
     </View>
   );

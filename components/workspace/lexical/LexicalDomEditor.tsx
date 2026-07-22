@@ -50,10 +50,21 @@ import {
   FORMAT_ELEMENT_COMMAND,
   UNDO_COMMAND,
   REDO_COMMAND,
+  COMMAND_PRIORITY_LOW,
   type ElementFormatType,
   type TextFormatType,
 } from "lexical";
-import { $blocksToLexical, $lexicalToBlocks, BlockDataNode, $isBlockDataNode } from "./blockLexical";
+import {
+  $blocksToLexical,
+  $lexicalToBlocks,
+  BlockDataNode,
+  $isBlockDataNode,
+  SuggestionNode,
+  $createSuggestionNode,
+  $isSuggestionNode,
+  SUGGEST_APPROVE_COMMAND,
+  SUGGEST_REJECT_COMMAND,
+} from "./blockLexical";
 import type { DocBlockDTO } from "@/lib/api";
 
 // The serializable command the native bubble sends in. `nonce` bumps per tap.
@@ -122,6 +133,14 @@ const CSS = `
 .lx-tb-sep { width: 1px; height: 18px; background: #e4e5ee; margin: 0 2px; flex: 0 0 auto; }
 .lx-tb-sw { width: 16px; height: 16px; border-radius: 8px; border: 1px solid #d8d8de; display: block; }
 .lx-tb-lbl { font-size: 11px; color: #8a8a8a; padding: 0 6px; flex: 0 0 auto; }
+/* Inline AI suggestion node (in the content flow, under its block). */
+.lx-sug { border: 1px solid #c9d2f0; border-radius: 10px; padding: 10px 12px; margin: 6px 0; background: #f6f8ff; }
+.lx-sug-head { font-size: 11px; font-weight: 700; color: #4b57c4; letter-spacing: .04em; margin-bottom: 6px; }
+.lx-sug-body { font-size: 15px; color: #1a1a1a; line-height: 1.6; border-inline-start: 3px solid #22c07a; padding-inline-start: 10px; }
+.lx-sug-bar { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.lx-sug-btn { border: 1px solid #d8d8de; background: #fff; color: #333; border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.lx-sug-btn:disabled { opacity: .5; }
+.lx-sug-ok { background: #22c07a; border-color: #22c07a; color: #fff; }
 `;
 
 // Seed a little bilingual content so RTL auto-detection is visible immediately.
@@ -409,6 +428,40 @@ function FloatingToolbar() {
   );
 }
 
+// Renders a pending AI proposal as an IN-FLOW node right after its block (not an
+// absolute overlay), driven by the native suggestion store via the `suggestion`
+// prop; Approve/Reject dispatch commands that call back to native `onSuggestAction`.
+function SuggestionPlugin({
+  suggestion,
+  onSuggestAction,
+}: {
+  suggestion?: { index: number; original: string; proposed: string; status: string };
+  onSuggestAction?: (action: string) => void;
+}) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(
+    () =>
+      mergeRegister(
+        editor.registerCommand(SUGGEST_APPROVE_COMMAND, () => { onSuggestAction?.("approve"); return true; }, COMMAND_PRIORITY_LOW),
+        editor.registerCommand(SUGGEST_REJECT_COMMAND, () => { onSuggestAction?.("reject"); return true; }, COMMAND_PRIORITY_LOW),
+      ),
+    [editor, onSuggestAction],
+  );
+  useEffect(() => {
+    editor.update(() => {
+      const root = $getRoot();
+      const existing = root.getChildren().find($isSuggestionNode);
+      if (!suggestion || suggestion.index < 0) { if (existing) existing.remove(); return; }
+      const data = { original: suggestion.original, proposed: suggestion.proposed, status: suggestion.status };
+      if (existing) { existing.getWritable().__sug = data; return; }
+      const target = root.getChildren()[suggestion.index];
+      if (target) target.insertAfter($createSuggestionNode(data));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestion?.index, suggestion?.proposed, suggestion?.status]);
+  return null;
+}
+
 export default function LexicalDomEditor({
   command,
   onState,
@@ -416,6 +469,8 @@ export default function LexicalDomEditor({
   initialBlocks,
   reseed,
   scrollToIndex,
+  suggestion,
+  onSuggestAction,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -428,6 +483,9 @@ export default function LexicalDomEditor({
   reseed?: { blocks: DocBlockDTO[]; nonce: number };
   // Outline-drawer navigation: on nonce change, scroll the block at `index` into view.
   scrollToIndex?: { index: number; nonce: number };
+  // Pending AI proposal to render in-flow, and its approve/reject callback.
+  suggestion?: { index: number; original: string; proposed: string; status: string };
+  onSuggestAction?: (action: string) => void;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -436,7 +494,7 @@ export default function LexicalDomEditor({
     namespace: "modakerati-lexical-lab",
     theme,
     onError: (error: Error) => console.error("[lexical]", error),
-    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode],
+    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode],
     editorState: () => (initialBlocks && initialBlocks.length ? $blocksToLexical(initialBlocks) : seed()),
   };
 
@@ -452,6 +510,7 @@ export default function LexicalDomEditor({
         <HistoryPlugin />
         <ListPlugin />
         <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} scrollToIndex={scrollToIndex} />
+        <SuggestionPlugin suggestion={suggestion} onSuggestAction={onSuggestAction} />
       </div>
     </LexicalComposer>
   );
