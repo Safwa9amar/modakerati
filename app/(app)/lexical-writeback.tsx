@@ -6,7 +6,8 @@ import { BackButton } from "@/components/BackButton";
 import { detectDir } from "@/components/workspace/DocBlock";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
 import { LexicalBubble } from "@/components/workspace/lexical/LexicalBubble";
-import { listTheses, getThesisDocument, editThesisParagraph, type DocBlockDTO, type DocumentDTO } from "@/lib/api";
+import { listTheses, getThesisDocument, type DocBlockDTO } from "@/lib/api";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import type { Thesis } from "@/types/thesis";
 
 // WRITE-BACK proof: edit a REAL thesis in Lexical → serialize → diff vs the loaded
@@ -112,30 +113,45 @@ export default function LexicalWritebackScreen() {
     }
   }, []);
 
-  // Persist the diff after confirmation, then verify against the echoed document.
+  // Persist through the DURABLE OP-QUEUE (production path). Writing via the doc
+  // store's `mutate` updates the SAME cached doc the workspace reads (so it stops
+  // showing stale content), enqueues durable ops, and `flushOps` forces them to
+  // the server. Then we verify against the reconciled store doc.
   const persist = useCallback(async (thesisId: string, sent: EditChange[]) => {
     setSaving(true);
-    let lastDoc: DocumentDTO | undefined;
+    const store = useThesisDocStore.getState();
     try {
+      // Share the same loaded doc as the workspace (optimistic base + sync target).
+      await store.load(thesisId);
       for (const c of sent) {
-        const res = await editThesisParagraph(thesisId, c.index, c.changes);
-        if (res.document) lastDoc = res.document;
+        if (c.changes.text != null) {
+          await store.mutate(thesisId, { type: "editText", index: c.index, text: c.changes.text });
+        }
+        const fmt: { level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr" } = {};
+        if (c.changes.level != null) fmt.level = c.changes.level;
+        if (c.changes.alignment) fmt.alignment = c.changes.alignment;
+        if (c.changes.direction) fmt.direction = c.changes.direction;
+        if (Object.keys(fmt).length > 0) {
+          await store.mutate(thesisId, { type: "format", indices: [c.index], changes: fmt });
+        }
       }
+      const drained = await store.flushOps(thesisId, { timeoutMs: 20_000 });
+      const doc = useThesisDocStore.getState().byId[thesisId];
       const verified: Verify[] = sent.map((c) => {
-        if (!lastDoc || !lastDoc.available) return { index: c.index, ok: false };
-        const blk = lastDoc.blocks.find((b) => b.index === c.index);
+        if (!doc || !doc.available) return { index: c.index, ok: false };
+        const blk = doc.blocks.find((b) => b.index === c.index);
         const okText = c.changes.text == null || (blk?.kind === "paragraph" && blk.text === c.changes.text);
-        return { index: c.index, ok: !!blk && okText };
+        return { index: c.index, ok: drained && !!blk && okText };
       });
-      // New baseline = current serialized state so a second save diffs correctly.
-      if (lastDoc && lastDoc.available) {
-        const nb = lastDoc.blocks.slice(0, CAP);
+      // New baseline = reconciled server state so a second save diffs correctly.
+      if (doc && doc.available) {
+        const nb = doc.blocks.slice(0, CAP);
         setBlocks(nb);
         ctx.current = { ...ctx.current, baseline: nb };
       }
       setResult((r) => ({ sent, skipped: r?.skipped ?? [], verified, structural: r?.structural }));
     } catch {
-      setResult((r) => ({ sent, skipped: r?.skipped ?? [], verified: [], error: "A save request failed." }));
+      setResult((r) => ({ sent, skipped: r?.skipped ?? [], verified: [], error: "The write-back failed." }));
     } finally {
       setSaving(false);
     }
