@@ -91,6 +91,9 @@ export function WorkspaceLexicalView({
   }, [byIndex]);
   const suggestionActiveRef = useRef(false);
   suggestionActiveRef.current = !!suggestion;
+  // Set just before an approve mutates the doc, so the reseed effect skips the
+  // rebuild (the editor already applied the proposal in place) — no scroll jump.
+  const skipReseedRef = useRef(false);
 
   // Approve/reject from the in-editor suggestion node → the native store (its
   // approve dispatches an editText op that flows back through the sync layer).
@@ -99,7 +102,7 @@ export function WorkspaceLexicalView({
     const keys = Object.keys(store.byIndex);
     if (!keys.length) return;
     const idx = Number(keys[0]);
-    if (action === "approve") store.approve(thesisId, idx);
+    if (action === "approve") { skipReseedRef.current = true; store.approve(thesisId, idx); }
     else if (action === "again") void store.again(thesisId, idx);
     else if (action === "edit") { if (text) store.setProposed(idx, text); }
     else store.reject(idx);
@@ -145,12 +148,24 @@ export function WorkspaceLexicalView({
   // from our own save (guarded by syncedDocRef).
   useEffect(() => {
     if (!inited.current) { inited.current = true; syncedDocRef.current = doc; return; }
-    if (!active || doc === syncedDocRef.current || saveTimer.current || suggestionActiveRef.current) return;
+    if (!active || doc === syncedDocRef.current || saveTimer.current) return;
+    // Approve applied the proposal IN PLACE inside the editor (the plugin settles
+    // the suggestion node to the proposed text). A full reseed would rebuild every
+    // node and scroll the view to the document end — so consume this doc change
+    // silently (sync baseline/synced) without re-seeding. Checked BEFORE the
+    // suggestion guard so a state-update ordering race can't leave the flag stuck.
+    if (skipReseedRef.current) {
+      skipReseedRef.current = false;
+      if (doc?.available) baselineRef.current = stripMedia(doc.blocks);
+      syncedDocRef.current = doc;
+      return;
+    }
+    if (suggestionActiveRef.current) return;
     if (doc?.available) {
       const latest = stripMedia(doc.blocks);
       baselineRef.current = latest;
-      setReseed({ blocks: latest, nonce: ++reseedNonce.current }); // in-place, no remount
       syncedDocRef.current = doc;
+      setReseed({ blocks: latest, nonce: ++reseedNonce.current }); // in-place, no remount
     }
   }, [doc, active]);
 

@@ -534,11 +534,16 @@ function SuggestionPlugin({
   onSuggestAction?: (action: string, text?: string) => void;
 }) {
   const [editor] = useLexicalComposerContext();
+  // Which action last cleared the suggestion — decides whether the node settles to
+  // the PROPOSED text (approve) or the ORIGINAL (reject). This lets approve apply
+  // IN PLACE (one node) instead of triggering a full doc reseed, which is what was
+  // scrolling the view to the document end.
+  const lastActionRef = useRef<string>("");
   useEffect(
     () =>
       mergeRegister(
-        editor.registerCommand(SUGGEST_APPROVE_COMMAND, () => { onSuggestAction?.("approve"); return true; }, COMMAND_PRIORITY_LOW),
-        editor.registerCommand(SUGGEST_REJECT_COMMAND, () => { onSuggestAction?.("reject"); return true; }, COMMAND_PRIORITY_LOW),
+        editor.registerCommand(SUGGEST_APPROVE_COMMAND, () => { lastActionRef.current = "approve"; onSuggestAction?.("approve"); return true; }, COMMAND_PRIORITY_LOW),
+        editor.registerCommand(SUGGEST_REJECT_COMMAND, () => { lastActionRef.current = "reject"; onSuggestAction?.("reject"); return true; }, COMMAND_PRIORITY_LOW),
         editor.registerCommand(SUGGEST_AGAIN_COMMAND, () => { onSuggestAction?.("again"); return true; }, COMMAND_PRIORITY_LOW),
         editor.registerCommand(SUGGEST_EDIT_COMMAND, (text) => { onSuggestAction?.("edit", text); return true; }, COMMAND_PRIORITY_LOW),
       ),
@@ -548,10 +553,16 @@ function SuggestionPlugin({
     const mutate = () => {
       const root = $getRoot();
       const existing = root.getChildren().find($isSuggestionNode);
-      // Cleared (approve or reject): restore the original block. On approve the
-      // ensuing sync-layer reseed overwrites this with server truth; on reject it stands.
+      // Cleared: settle the node in place — approve → the applied proposal, reject →
+      // the untouched original. Doing it here (one node) means approve does NOT need
+      // the sync-layer reseed (WorkspaceLexicalView skips it), so the view stays put.
       if (!suggestion || suggestion.index < 0) {
-        if (existing) { existing.replace(rebuildOriginal(existing.__sug.original, existing.__origType)); $setSelection(null); }
+        if (existing) {
+          const applied = lastActionRef.current === "approve";
+          existing.replace(rebuildOriginal(applied ? existing.__sug.proposed : existing.__sug.original, existing.__origType));
+          $setSelection(null);
+        }
+        lastActionRef.current = "";
         return;
       }
       const data: SugData = {
