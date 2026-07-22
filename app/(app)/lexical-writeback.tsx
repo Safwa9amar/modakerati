@@ -11,17 +11,18 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { applyOpToBlocks, type ThesisOp } from "@/lib/thesis-ops";
 import type { Thesis } from "@/types/thesis";
 
-// WRITE-BACK proof (structural): edit a REAL thesis in Lexical → serialize → diff
-// the loaded baseline vs the edit into an OP SEQUENCE (editText / splitParagraph /
-// deleteBlocks / format) using the SAME applyOpToBlocks the store uses to keep
-// indices consistent → write through the durable op-queue (store.mutate) → flush →
-// verify against the reconciled doc. Confirm-gated (mutates real content; undoable
-// from thesis History). Reports what it can't express (inline runs → formatRange;
-// non-paragraph inserts) instead of writing something wrong.
+// WRITE-BACK proof (structural, LCS diff): edit a REAL thesis in Lexical →
+// serialize → LCS-diff the loaded baseline vs the edit into a MINIMAL op sequence
+// (editText / splitParagraph / deleteBlocks / format), simulating indices with the
+// store's own applyOpToBlocks → write through the durable op-queue → flush → verify.
+// Confirm-gated; undoable from History. A hard op cap aborts implausibly large
+// diffs (protects the thesis from a mis-aligned cascade). Each op is one server
+// call — a production build would batch these into a bulk endpoint.
 
 type ParaRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
 type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
 const CAP = 120;
+const MAX_OPS = 40; // safety: abort a diff this large rather than hammer the API / risk a cascade
 
 function runsOf(b: ParagraphDTO): ParaRun[] {
   const r = (b as { runs?: ParaRun[] }).runs;
@@ -39,8 +40,6 @@ function normMarks(runs: ParaRun[]): string {
 }
 const uiAlign = (a: ParagraphDTO["alignment"]) => (a === "both" ? "justify" : a === "left" || a === "center" || a === "right" ? a : undefined);
 
-// Content identity used to ALIGN blocks (structure). Text-only for paragraphs so a
-// format-only change stays "the same block" and is handled by the format pass.
 function tsig(b: DocBlockDTO): string {
   if (b.kind === "paragraph") return "p|" + b.text;
   if (b.kind === "table") return "t|" + JSON.stringify(b.rows);
@@ -61,74 +60,89 @@ function fmtChanges(o: ParagraphDTO, n: ParagraphDTO): Fmt | null {
   return Object.keys(c).length ? c : null;
 }
 
-// Diff base → target into an op sequence. `sim` mirrors the doc as ops apply
-// (applyOpToBlocks == the store's optimistic patch), so op indices stay correct.
+type Step = { op: "keep" | "del" | "ins"; ai?: number; bi?: number };
+
+// Minimal edit script via LCS on content signatures — no cascade: unchanged blocks
+// stay KEEP, so an edit only produces ops for what actually changed.
+function lcsScript(A: string[], B: string[]): Step[] {
+  const n = A.length, m = B.length;
+  const dp: Int32Array[] = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out: Step[] = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (A[i] === B[j]) { out.push({ op: "keep", ai: i, bi: j }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ op: "del", ai: i }); i++; }
+    else { out.push({ op: "ins", bi: j }); j++; }
+  }
+  while (i < n) out.push({ op: "del", ai: i++ });
+  while (j < m) out.push({ op: "ins", bi: j++ });
+  return out;
+}
+
 function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: ThesisOp[]; unsupported: string[]; converged: boolean } {
-  let sim: DocBlockDTO[] = base.map((b, i) => ({ ...b, index: i }));
+  const script = lcsScript(base.map(tsig), target.map(tsig));
+  let sim: DocBlockDTO[] = base.map((b, k) => ({ ...b, index: k }));
   const ops: ThesisOp[] = [];
   const unsupported: string[] = [];
   const emit = (op: ThesisOp) => { ops.push(op); sim = applyOpToBlocks(sim, op); };
+  const asPara = (b: DocBlockDTO | undefined) => (b && b.kind === "paragraph" ? b : null);
+  let pos = 0;
 
-  // ── structural pass: make sim match target by content/order ──
-  const MAX = base.length + target.length + 30;
-  let guard = 0;
-  while (guard++ < MAX) {
-    let p = -1;
-    for (let i = 0; i < target.length; i++) {
-      if (i >= sim.length || tsig(sim[i]) !== tsig(target[i])) { p = i; break; }
-    }
-    if (p === -1) {
-      if (sim.length > target.length) { emit({ type: "deleteBlocks", indices: [target.length] }); continue; }
-      break;
-    }
-    const tgt = target[p];
-    const cur: DocBlockDTO | undefined = sim[p];
-    const nextT = p + 1 < target.length ? tsig(target[p + 1]) : "\x00";
-    const nextS = p + 1 < sim.length ? tsig(sim[p + 1]) : "\x00";
-    const isInsert = cur != null && tsig(cur) === nextT;
-    const isDelete = cur != null && nextS === tsig(tgt);
-
-    if (cur == null || (isInsert && !isDelete)) {
-      if (tgt.kind !== "paragraph") {
-        unsupported.push(`insert ${tgt.kind} @${p}`);
-        sim = [...sim.slice(0, p), { ...tgt, index: p }, ...sim.slice(p)].map((b, i) => ({ ...b, index: i }));
+  for (let k = 0; k < script.length; k++) {
+    const step = script[k];
+    const next = script[k + 1];
+    // del followed by ins on paragraphs → an in-place text replace (one editText)
+    if (step.op === "del" && next && next.op === "ins") {
+      const oldB = asPara(base[step.ai!]);
+      const newB = asPara(target[next.bi!]);
+      if (oldB && newB) {
+        const cur = asPara(sim[pos]);
+        if (cur && cur.text !== newB.text) emit({ type: "editText", index: pos, text: newB.text });
+        const now = asPara(sim[pos]);
+        if (now) {
+          const fc = fmtChanges(now, newB);
+          if (fc) emit({ type: "format", indices: [pos], changes: fc });
+          if (normMarks(runsOf(now)) !== normMarks(runsOf(newB))) unsupported.push(`inline run formatting @${pos}`);
+        }
+        pos++; k++; // consume the ins too
         continue;
       }
-      if (p === 0) {
-        if (sim[0]?.kind !== "paragraph") { unsupported.push(`insert @0 needs a paragraph anchor`); break; }
-        emit({ type: "splitParagraph", index: 0, before: tgt.text, after: (sim[0] as ParagraphDTO).text });
-      } else {
-        const a = sim[p - 1];
-        if (a?.kind !== "paragraph") { unsupported.push(`insert @${p} needs a paragraph anchor`); break; }
-        emit({ type: "splitParagraph", index: p - 1, before: (a as ParagraphDTO).text, after: tgt.text });
-      }
-      continue;
     }
-    if (isDelete && !isInsert) { emit({ type: "deleteBlocks", indices: [p] }); continue; }
-
-    // replace at p
-    if (cur.kind === "paragraph" && tgt.kind === "paragraph") {
-      if (cur.text !== tgt.text) emit({ type: "editText", index: p, text: tgt.text });
-      else sim = sim.map((b, i) => (i === p ? { ...tgt, index: i } : b));
+    if (step.op === "keep") {
+      const cur = asPara(sim[pos]);
+      const newB = asPara(target[step.bi!]);
+      if (cur && newB) {
+        const fc = fmtChanges(cur, newB);
+        if (fc) emit({ type: "format", indices: [pos], changes: fc });
+        if (normMarks(runsOf(cur)) !== normMarks(runsOf(newB))) unsupported.push(`inline run formatting @${pos}`);
+      }
+      pos++;
+    } else if (step.op === "del") {
+      emit({ type: "deleteBlocks", indices: [pos] }); // pos stays; next block shifts in
     } else {
-      unsupported.push(`${cur.kind}→${tgt.kind} change @${p}`);
-      sim = sim.map((b, i) => (i === p ? { ...tgt, index: i } : b));
-    }
-  }
-
-  const converged = sim.length === target.length && target.every((t, i) => sim[i] && tsig(sim[i]) === tsig(t));
-
-  // ── format pass (only when structure is aligned) ──
-  if (converged) {
-    for (let i = 0; i < target.length; i++) {
-      const s = sim[i], t = target[i];
-      if (s.kind === "paragraph" && t.kind === "paragraph") {
-        const fc = fmtChanges(s, t);
-        if (fc) emit({ type: "format", indices: [i], changes: fc });
-        if (normMarks(runsOf(s)) !== normMarks(runsOf(t))) unsupported.push(`inline run formatting @${i} (needs formatRange)`);
+      // insert target[bi] at pos via a split on an adjacent paragraph
+      const newB = target[step.bi!];
+      if (newB.kind !== "paragraph") { unsupported.push(`insert ${newB.kind} @${pos}`); continue; }
+      if (pos === 0) {
+        const first = asPara(sim[0]);
+        if (!first) { unsupported.push(`insert @0 needs a paragraph anchor`); continue; }
+        emit({ type: "splitParagraph", index: 0, before: newB.text, after: first.text });
+      } else {
+        const anchor = asPara(sim[pos - 1]);
+        if (!anchor) { unsupported.push(`insert @${pos} needs a paragraph anchor`); continue; }
+        emit({ type: "splitParagraph", index: pos - 1, before: anchor.text, after: newB.text });
       }
+      const now = asPara(sim[pos]);
+      if (now) { const fc = fmtChanges(now, newB); if (fc) emit({ type: "format", indices: [pos], changes: fc }); }
+      pos++;
     }
   }
+  const converged = sim.length === target.length && target.every((t, k) => sim[k] && tsig(sim[k]) === tsig(t));
   return { ops, unsupported, converged };
 }
 
@@ -136,6 +150,13 @@ function tally(ops: ThesisOp[]): string {
   const c: Record<string, number> = {};
   for (const o of ops) c[o.type] = (c[o.type] ?? 0) + 1;
   return Object.entries(c).map(([k, v]) => `${v} ${k}`).join(", ") || "none";
+}
+function opLine(o: ThesisOp): string {
+  if (o.type === "editText") return `editText @${o.index}: "${o.text.slice(0, 22)}${o.text.length > 22 ? "…" : ""}"`;
+  if (o.type === "splitParagraph") return `split @${o.index} (+ "${o.after.slice(0, 18)}…")`;
+  if (o.type === "deleteBlocks") return `delete @${o.indices.join(",")}`;
+  if (o.type === "format") return `format @${o.indices.join(",")} ${JSON.stringify(o.changes)}`;
+  return o.type;
 }
 
 type ResultT = { ops: ThesisOp[]; unsupported: string[]; verified?: { matched: number; total: number; drained: boolean }; error?: string; note?: string };
@@ -190,7 +211,7 @@ export default function LexicalWritebackScreen() {
     setSaving(true);
     const store = useThesisDocStore.getState();
     try {
-      await store.load(thesisId); // share the workspace's cached doc
+      await store.load(thesisId);
       for (const op of ops) await store.mutate(thesisId, op);
       const drained = await store.flushOps(thesisId, { timeoutMs: 30_000 });
       const doc = useThesisDocStore.getState().byId[thesisId];
@@ -201,7 +222,7 @@ export default function LexicalWritebackScreen() {
         }
         const nb = doc.blocks.slice(0, CAP);
         setBlocks(nb);
-        setReloadNonce((n) => n + 1); // reseed editor from the persisted server state
+        setReloadNonce((n) => n + 1);
         ctx.current = { ...ctx.current, baseline: nb };
       }
       setResult({ ops, unsupported, verified: { matched, total: target.length, drained } });
@@ -222,9 +243,13 @@ export default function LexicalWritebackScreen() {
       setResult({ ops: [], unsupported, note: converged ? "No persistable changes detected." : "Couldn't reconcile the edit into ops." });
       return;
     }
+    if (ops.length > MAX_OPS) {
+      setResult({ ops: [], unsupported, error: `Diff produced ${ops.length} ops (cap ${MAX_OPS}) — aborted to protect the thesis. Make a smaller edit; large structural edits need a bulk endpoint, not one call per op.` });
+      return;
+    }
     Alert.alert(
       "Persist to the real thesis?",
-      `${ops.length} op(s): ${tally(ops)}. Written to "${title}", undoable from the thesis History.`,
+      `${ops.length} op(s): ${tally(ops)}. Written to "${title}", undoable from History.`,
       [
         { text: "Cancel", style: "cancel", onPress: () => setResult({ ops: [], unsupported, note: "Cancelled." }) },
         { text: "Persist", style: "destructive", onPress: () => { setResult({ ops, unsupported }); void persist(thesisId, ops, unsupported, serialized); } },
@@ -261,7 +286,7 @@ export default function LexicalWritebackScreen() {
         })}
       </ScrollView>
       <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-        {loading ? "Loading…" : error ? error : !selectedId ? "Pick a thesis, edit freely (add/remove/change lines), then Save." : `${blocks.length} blocks · edit, then Save`}
+        {loading ? "Loading…" : error ? error : !selectedId ? "Pick a thesis, make a SMALL edit, then Save." : `${blocks.length} blocks · edit, then Save`}
       </Text>
 
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -314,14 +339,14 @@ export default function LexicalWritebackScreen() {
                   {result.ops.length > 12 && <Text style={[styles.code, { color: colors.textPlaceholder }]}>… +{result.ops.length - 12} more</Text>}
                 </View>
               )}
-              {result?.unsupported.map((u, i) => (
+              {result?.unsupported.slice(0, 8).map((u, i) => (
                 <View key={`u${i}`} style={[styles.rowCard, { borderColor: colors.borderSubtle }]}>
                   <Text style={[styles.rowTitle, { color: colors.textSecondary }]}>SKIPPED</Text>
                   <Text style={[styles.note, { color: colors.textSecondary }]}>{u}</Text>
                 </View>
               ))}
               {verified && (
-                <Text style={[styles.note, { color: colors.textSecondary }]}>Reopen this thesis in the workspace — the change is now in the shared doc cache and the .docx.</Text>
+                <Text style={[styles.note, { color: colors.textSecondary }]}>Reopen this thesis in the workspace — the change is in the shared doc cache and the .docx.</Text>
               )}
             </ScrollView>
           </View>
@@ -329,14 +354,6 @@ export default function LexicalWritebackScreen() {
       </Modal>
     </SafeAreaView>
   );
-}
-
-function opLine(o: ThesisOp): string {
-  if (o.type === "editText") return `editText @${o.index}: "${o.text.slice(0, 24)}${o.text.length > 24 ? "…" : ""}"`;
-  if (o.type === "splitParagraph") return `split @${o.index}  (+ "${o.after.slice(0, 20)}…")`;
-  if (o.type === "deleteBlocks") return `delete @${o.indices.join(",")}`;
-  if (o.type === "format") return `format @${o.indices.join(",")} ${JSON.stringify(o.changes)}`;
-  return o.type;
 }
 
 const styles = StyleSheet.create({
