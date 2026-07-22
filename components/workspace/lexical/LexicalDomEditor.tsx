@@ -143,12 +143,23 @@ function EditorBridge({
   command,
   onState,
   onBlocks,
+  reseed,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
   onBlocks?: (blocks: DocBlockDTO[]) => void;
+  reseed?: { blocks: DocBlockDTO[]; nonce: number };
 }) {
   const [editor] = useLexicalComposerContext();
+
+  // In-place reconcile from the block model when an external edit (native pill /
+  // AI dock / undo-redo) changed the doc — rebuilds the content on the SAME editor
+  // instance (no WebView remount, no flicker) instead of re-keying the component.
+  useEffect(() => {
+    if (!reseed) return;
+    editor.update(() => { $blocksToLexical(reseed.blocks); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reseed?.nonce]);
 
   // Apply the latest command. Keyed on nonce so a repeated tap re-fires.
   useEffect(() => {
@@ -389,6 +400,7 @@ export default function LexicalDomEditor({
   onState,
   onBlocks,
   initialBlocks,
+  reseed,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -396,6 +408,9 @@ export default function LexicalDomEditor({
   onBlocks?: (blocks: DocBlockDTO[]) => void;
   // When provided, the editor is seeded FROM these blocks instead of the demo text.
   initialBlocks?: DocBlockDTO[];
+  // In-place reconcile trigger: on nonce change, rebuild content from `blocks`
+  // WITHOUT remounting (used to reflect external native/AI edits).
+  reseed?: { blocks: DocBlockDTO[]; nonce: number };
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -419,7 +434,7 @@ export default function LexicalDomEditor({
         />
         <HistoryPlugin />
         <ListPlugin />
-        <EditorBridge command={command} onState={onState} onBlocks={onBlocks} />
+        <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} />
       </div>
     </LexicalComposer>
   );

@@ -37,6 +37,9 @@ export function WorkspaceLexicalView({
   const baselineRef = useRef<DocBlockDTO[]>(stripMedia(blocks));
   const [seed, setSeed] = useState<DocBlockDTO[]>(baselineRef.current);
   const [seedNonce, setSeedNonce] = useState(0);
+  // In-place reconcile trigger (surgical reseed — no remount) for external edits.
+  const [reseed, setReseed] = useState<{ blocks: DocBlockDTO[]; nonce: number } | undefined>(undefined);
+  const reseedNonce = useRef(0);
   const [command, setCommand] = useState<LexicalCommand | null>(null);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
@@ -105,8 +108,7 @@ export function WorkspaceLexicalView({
     if (doc?.available) {
       const latest = stripMedia(doc.blocks);
       baselineRef.current = latest;
-      setSeed(latest);
-      setSeedNonce((n) => n + 1);
+      setReseed({ blocks: latest, nonce: ++reseedNonce.current }); // in-place, no remount
       syncedDocRef.current = doc;
     }
   }, [doc, active]);
@@ -169,6 +171,7 @@ export function WorkspaceLexicalView({
           command={command}
           onState={onState}
           onBlocks={onBlocks}
+          reseed={reseed}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />
         {/* Auto-save status (no manual button — background sync on pause / exit). */}
