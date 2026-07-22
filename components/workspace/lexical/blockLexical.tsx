@@ -35,7 +35,7 @@ import {
   HeadingNode,
   type HeadingTagType,
 } from "@lexical/rich-text";
-import { $isListNode, $isListItemNode, type ListNode } from "@lexical/list";
+import { $isListNode, $isListItemNode, $createListNode, $createListItemNode, type ListNode } from "@lexical/list";
 import type { DocBlockDTO } from "@/lib/api";
 
 // The inline-run extension the paragraph DTO carries (not in the base type).
@@ -338,6 +338,158 @@ export class SuggestionNode extends DecoratorNode<React.ReactNode> {
 export function $createSuggestionNode(sug: SugData, origType = "paragraph"): SuggestionNode { return new SuggestionNode(sug, origType); }
 export function $isSuggestionNode(n: LexicalNode | null | undefined): n is SuggestionNode { return n instanceof SuggestionNode; }
 
+// ── AI RANGE suggestion node (multi-block dynamic rewrite) ────────────────────
+// Occupies the WHOLE selected range: it replaces blocks [start..end] with a single
+// node showing the AI's rewritten PASSAGE — which may be one paragraph or several
+// (the count follows the content). Same card language as SuggestionNode, but the
+// proposal renders as multiple passage paragraphs and there's no word-diff (a
+// full-passage rewrite diffs poorly). Approve replaces the range via the server;
+// reject / a flush restores the captured originals. Its own command set carries no
+// index (only one range suggestion is ever active).
+export const RANGE_APPROVE_COMMAND: LexicalCommand<void> = createCommand("RANGE_APPROVE");
+export const RANGE_REJECT_COMMAND: LexicalCommand<void> = createCommand("RANGE_REJECT");
+export const RANGE_AGAIN_COMMAND: LexicalCommand<void> = createCommand("RANGE_AGAIN");
+export const RANGE_EDIT_COMMAND: LexicalCommand<string> = createCommand("RANGE_EDIT");
+export type RangeData = {
+  original: string; // combined original passage (paragraphs joined by \n\n)
+  proposed: string; // combined proposed passage (paragraphs joined by \n\n)
+  status: string; // "loading" | "ready" | "error"
+  instruction: string;
+  reasoning: string;
+  reasoningMs?: number;
+};
+// The captured originals (text + block type) so a flush/reject restores them.
+export type RangeOriginal = { text: string; type: string };
+type SerializedRangeSuggestionNode = SerializedLexicalNode & { data: RangeData; originals: RangeOriginal[] };
+
+// Split a combined passage on blank lines into its paragraph divs.
+function renderPassage(text: string, cls: string): React.ReactNode {
+  const paras = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const list = paras.length ? paras : [text];
+  return React.createElement(
+    "div",
+    { className: "lx-sug-passage" },
+    ...list.map((p, i) => React.createElement("div", { key: i, className: cls, dir: "auto" }, p)),
+  );
+}
+
+function RangeSuggestionView({ data, editor }: { data: RangeData; editor: LexicalEditor }) {
+  const [peek, setPeek] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [leaving, setLeaving] = React.useState<"" | "approve" | "reject">("");
+  const loading = data.status === "loading";
+  const err = data.status === "error";
+  const ready = data.status === "ready";
+  const rootCls = "lx-sug" + (leaving ? " lx-leaving-" + leaving : "");
+  const doApprove = () => { if (leaving) return; setLeaving("approve"); setTimeout(() => editor.dispatchCommand(RANGE_APPROVE_COMMAND, undefined), 190); };
+  const doReject = () => { if (leaving) return; setLeaving("reject"); setTimeout(() => editor.dispatchCommand(RANGE_REJECT_COMMAND, undefined), 170); };
+
+  const chip = React.createElement(
+    "div",
+    { className: "lx-sug-chip", dir: "auto" },
+    svgIcon(ICON_SPARK, 12),
+    React.createElement("span", { key: "t" }, data.instruction),
+  );
+  const trace = data.reasoning.trim()
+    ? React.createElement(
+        "details",
+        { className: "lx-sug-trace" },
+        React.createElement("summary", { key: "s" }, data.reasoningMs ? `Thought for ${Math.max(1, Math.round(data.reasoningMs / 1000))}s` : "Reasoning"),
+        React.createElement("div", { key: "b", className: "lx-sug-trace-body", dir: "auto" }, data.reasoning),
+      )
+    : null;
+  const pill = (children: React.ReactNode) =>
+    React.createElement("div", { className: "lx-sug-pill" }, React.createElement("div", { className: "lx-sug-pillrow" }, children));
+
+  // ---- editing (whole passage in one textarea) ----
+  if (ready && editing) {
+    return React.createElement(
+      "div",
+      { className: "lx-sug" },
+      chip,
+      React.createElement("textarea", {
+        className: "lx-sug-edit",
+        dir: "auto",
+        autoFocus: true,
+        style: { minHeight: 140 },
+        value: draft,
+        onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
+      }),
+      pill([
+        pillBtn("done", { primary: true, icon: ICON_CHECK, label: "Done", onClick: () => { const t = draft.trim(); if (t) editor.dispatchCommand(RANGE_EDIT_COMMAND, t); setEditing(false); } }),
+        pillBtn("cancel", { icon: ICON_X, label: "Cancel", onClick: () => setEditing(false) }),
+      ]),
+    );
+  }
+
+  // ---- loading ----
+  if (loading) {
+    return React.createElement(
+      "div",
+      { className: "lx-sug" },
+      chip,
+      trace,
+      React.createElement("div", { className: "lx-sug-proposed lx-sug-loading", dir: "auto" }, data.proposed || data.original),
+      pill(React.createElement("div", { className: "lx-sug-think" }, svgIcon(ICON_SPARK, 13), React.createElement("span", { key: "t" }, "Thinking…"))),
+    );
+  }
+
+  // ---- error ----
+  if (err) {
+    return React.createElement(
+      "div",
+      { className: rootCls },
+      chip,
+      trace,
+      renderPassage(data.original, "lx-sug-proposed lx-sug-ppara"),
+      React.createElement("div", { className: "lx-sug-err" }, "Couldn’t generate a suggestion."),
+      pill([
+        pillBtn("again", { primary: true, icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(RANGE_AGAIN_COMMAND, undefined) }),
+        pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
+      ]),
+    );
+  }
+
+  // ---- ready ----
+  return React.createElement(
+    "div",
+    { className: rootCls },
+    chip,
+    trace,
+    renderPassage(data.proposed, "lx-sug-proposed lx-sug-ppara"),
+    data.original.trim()
+      ? React.createElement(
+          "div",
+          { className: "lx-sug-teaser", role: "button", onClick: () => setPeek((v) => !v) },
+          React.createElement("div", { className: "lx-sug-teaser-txt" + (peek ? "" : " lx-sug-clamp"), dir: "auto" }, data.original),
+        )
+      : null,
+    pill([
+      pillBtn("approve", { primary: true, icon: ICON_CHECK, label: "Approve", onClick: doApprove }),
+      pillBtn("edit", { icon: ICON_PENCIL, label: "Edit", onClick: () => { setDraft(data.proposed); setEditing(true); } }),
+      pillBtn("again", { icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(RANGE_AGAIN_COMMAND, undefined) }),
+      pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
+    ]),
+  );
+}
+
+export class RangeSuggestionNode extends DecoratorNode<React.ReactNode> {
+  __data: RangeData;
+  __originals: RangeOriginal[];
+  static getType(): string { return "ai-range-suggestion"; }
+  static clone(n: RangeSuggestionNode): RangeSuggestionNode { return new RangeSuggestionNode(n.__data, n.__originals, n.__key); }
+  constructor(data: RangeData, originals: RangeOriginal[], key?: NodeKey) { super(key); this.__data = data; this.__originals = originals; }
+  createDOM(): HTMLElement { const el = document.createElement("div"); el.style.margin = "4px 0"; return el; }
+  updateDOM(): false { return false; }
+  isInline(): false { return false; }
+  decorate(editor: LexicalEditor): React.ReactNode { return React.createElement(RangeSuggestionView, { data: this.getLatest().__data, editor }); }
+  exportJSON(): SerializedRangeSuggestionNode { return { ...super.exportJSON(), type: "ai-range-suggestion", version: 1, data: this.__data, originals: this.__originals }; }
+  static importJSON(j: SerializedRangeSuggestionNode): RangeSuggestionNode { return new RangeSuggestionNode(j.data, j.originals ?? []); }
+}
+export function $createRangeSuggestionNode(data: RangeData, originals: RangeOriginal[]): RangeSuggestionNode { return new RangeSuggestionNode(data, originals); }
+export function $isRangeSuggestionNode(n: LexicalNode | null | undefined): n is RangeSuggestionNode { return n instanceof RangeSuggestionNode; }
+
 // ── Alignment mapping (engine "both" == Lexical "justify") ───────────────────
 const alignToFormat: Partial<Record<NonNullable<ParagraphDTO["alignment"]>, ElementFormatType>> = {
   left: "left",
@@ -356,23 +508,53 @@ function runsOf(b: ParagraphDTO): ParaRun[] {
 }
 
 // ── blocks → Lexical (call inside editor.update() / editorState init) ────────
+// Append a paragraph DTO's inline runs (text + bold/italic/underline/color) to an
+// element — shared by plain paragraphs, headings, and list items.
+function appendRuns(el: ElementNode, b: ParagraphDTO): void {
+  for (const run of runsOf(b)) {
+    const t = $createTextNode(run.text);
+    if (run.bold) t.toggleFormat("bold");
+    if (run.italic) t.toggleFormat("italic");
+    if (run.underline) t.toggleFormat("underline");
+    if (run.color) t.setStyle(`color: #${run.color.replace(/^#/, "")}`);
+    el.append(t);
+  }
+}
+
+// The list kind a paragraph belongs to (server read-back on the DTO; not in the
+// base type, so read defensively — same convention as `runs`).
+function blockList(b: DocBlockDTO): "bullet" | "number" | null {
+  const l = (b as { list?: unknown }).list;
+  return l === "bullet" || l === "number" ? l : null;
+}
+
 export function $blocksToLexical(blocks: DocBlockDTO[]): void {
   const root = $getRoot();
   root.clear();
-  for (const b of blocks) {
+  let i = 0;
+  while (i < blocks.length) {
+    const b = blocks[i];
+    const lk = b.kind === "paragraph" ? blockList(b) : null;
+    // A run of consecutive same-kind list paragraphs → ONE Lexical list.
+    if (b.kind === "paragraph" && lk) {
+      const listNode = $createListNode(lk === "number" ? "number" : "bullet");
+      while (i < blocks.length && blocks[i].kind === "paragraph" && blockList(blocks[i]) === lk) {
+        const bb = blocks[i] as ParagraphDTO;
+        const li = $createListItemNode();
+        appendRuns(li, bb);
+        if (bb.direction) li.setDirection(bb.direction);
+        listNode.append(li);
+        i++;
+      }
+      root.append(listNode);
+      continue;
+    }
     if (b.kind === "paragraph") {
       const el: ElementNode =
         b.level >= 1
           ? $createHeadingNode(("h" + Math.min(b.level, 6)) as HeadingTagType)
           : $createParagraphNode();
-      for (const run of runsOf(b)) {
-        const t = $createTextNode(run.text);
-        if (run.bold) t.toggleFormat("bold");
-        if (run.italic) t.toggleFormat("italic");
-        if (run.underline) t.toggleFormat("underline");
-        if (run.color) t.setStyle(`color: #${run.color.replace(/^#/, "")}`);
-        el.append(t);
-      }
+      appendRuns(el, b);
       const fmt = b.alignment ? alignToFormat[b.alignment] : undefined;
       if (fmt) el.setFormat(fmt);
       if (b.direction) el.setDirection(b.direction);
@@ -380,6 +562,7 @@ export function $blocksToLexical(blocks: DocBlockDTO[]): void {
     } else {
       root.append($createBlockDataNode(b));
     }
+    i++;
   }
   if (root.getFirstChild() === null) root.append($createParagraphNode());
 }
@@ -394,6 +577,15 @@ export function $lexicalToBlocks(): DocBlockDTO[] {
       const st = node.__origType;
       const level = st === "h1" ? 1 : st === "h2" ? 2 : st === "h3" ? 3 : 0;
       out.push({ index: 0, kind: "paragraph", text: node.__sug.original, styleId: level ? `Heading${level}` : "Normal", level, alignment: null, direction: null });
+      continue;
+    }
+    if ($isRangeSuggestionNode(node)) {
+      // A range proposal occupies its WHOLE range's slot — serialize each captured
+      // ORIGINAL block (unapplied) so a flush while it's showing restores the range.
+      for (const o of node.__originals) {
+        const level = o.type === "h1" ? 1 : o.type === "h2" ? 2 : o.type === "h3" ? 3 : 0;
+        out.push({ index: 0, kind: "paragraph", text: o.text, styleId: level ? `Heading${level}` : "Normal", level, alignment: null, direction: null });
+      }
       continue;
     }
     if ($isBlockDataNode(node)) {
@@ -455,13 +647,17 @@ function $paraFromElement(el: ElementNode, level: number): ParagraphDTO {
   return para;
 }
 
-// Serialize a list's items as separate paragraphs (recursing nested lists), so a
-// multi-item list never collapses into one mashed block.
+// Serialize a list's items as separate paragraphs tagged with the list KIND
+// (bullet/number) so the server can write Word numbering and it round-trips.
+// Recurses nested lists (flattened to their own kind).
 function pushListItems(list: ListNode, out: DocBlockDTO[]): void {
+  const kind: "bullet" | "number" = list.getListType() === "number" ? "number" : "bullet";
   for (const item of list.getChildren()) {
     if (!$isListItemNode(item)) continue;
     const nested = item.getChildren().find($isListNode);
     if (nested) { pushListItems(nested as ListNode, out); continue; }
-    out.push($paraFromElement(item as unknown as ElementNode, 0));
+    const para = $paraFromElement(item as unknown as ElementNode, 0);
+    (para as { list?: "bullet" | "number" }).list = kind;
+    out.push(para);
   }
 }

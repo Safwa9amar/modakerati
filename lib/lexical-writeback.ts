@@ -71,6 +71,12 @@ function fmtChanges(o: ParagraphDTO, n: ParagraphDTO): FormatChange | null {
   return Object.keys(c).length ? c : null;
 }
 
+// The list kind a paragraph belongs to (server read-back extension; read like runs).
+function listOf(b: ParagraphDTO): "bullet" | "number" | null {
+  const l = (b as { list?: unknown }).list;
+  return l === "bullet" || l === "number" ? l : null;
+}
+
 type Step = { op: "keep" | "del" | "ins"; ai?: number; bi?: number };
 
 function lcsScript(A: string[], B: string[]): Step[] {
@@ -115,6 +121,7 @@ export function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: Thes
         if (now) {
           const fc = fmtChanges(now, newB);
           if (fc) emit({ type: "format", indices: [pos], changes: fc });
+          if (listOf(now) !== listOf(newB)) emit({ type: "setList", indices: [pos], list: listOf(newB) });
         }
         pos++; k++;
         continue;
@@ -126,6 +133,7 @@ export function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: Thes
       if (cur && newB) {
         const fc = fmtChanges(cur, newB);
         if (fc) emit({ type: "format", indices: [pos], changes: fc });
+        if (listOf(cur) !== listOf(newB)) emit({ type: "setList", indices: [pos], list: listOf(newB) });
       }
       pos++;
     } else if (step.op === "del") {
@@ -143,7 +151,12 @@ export function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: Thes
         emit({ type: "splitParagraph", index: pos - 1, before: anchor.text, after: newB.text });
       }
       const now = asPara(sim[pos]);
-      if (now) { const fc = fmtChanges(now, newB); if (fc) emit({ type: "format", indices: [pos], changes: fc }); }
+      if (now) {
+        const fc = fmtChanges(now, newB);
+        if (fc) emit({ type: "format", indices: [pos], changes: fc });
+        const nl = listOf(now) === null ? listOf(newB) : null; // newly split item into a list
+        if (nl) emit({ type: "setList", indices: [pos], list: nl });
+      }
       pos++;
     }
   }

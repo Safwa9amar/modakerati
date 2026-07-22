@@ -7,6 +7,7 @@ import {
   replaceThesisBlockImage,
   deleteThesisBlocks,
   startThesisBlocksOnNewPage,
+  applyThesisOps,
   type DocBlockDTO,
   type DocumentDTO,
   type DocSectionDTO,
@@ -87,6 +88,10 @@ export type ThesisOp =
     }
   | { type: "deleteBlocks"; indices: number[] }
   | { type: "startOnNewPage"; indices: number[] }
+  // Word list membership: "bullet"/"number" adds the paragraph(s) to a list; null
+  // removes it. Positional-index-safe (never moves blocks) → replays cleanly. The
+  // server writes <w:numPr>; the optimistic patch just tags the block's `list`.
+  | { type: "setList"; indices: number[]; list: "bullet" | "number" | null }
   // Set (or create) a figure/image block's caption (approve of an inline AI
   // "add caption" action). `index` is the IMAGE block. The optimistic patch just
   // sets that block's `caption` (no block count change); the server edits the
@@ -277,6 +282,14 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
       // document reconciles the extra block on drain — the optimistic view already
       // shows the caption via the image block's `caption` field.
       return blocks.map((b) => (b.index === op.index && b.kind === "image" ? { ...b, caption: op.caption } : b));
+    case "setList":
+      // Tag the target paragraphs with the list kind (or clear it). `list` is an
+      // extension field (not in the base DTO) — same convention as `runs`.
+      return blocks.map((b) =>
+        op.indices.includes(b.index) && b.kind === "paragraph"
+          ? ({ ...b, list: op.list } as unknown as DocBlockDTO)
+          : b,
+      );
   }
 }
 
@@ -378,6 +391,11 @@ export async function executeOp(
       return startThesisBlocksOnNewPage(thesisId, op.indices);
     case "setCaption":
       return setThesisFigureCaption(thesisId, op.index, op.caption);
+    case "setList":
+      // No single-op endpoint — route through the batch /ops (the only place the
+      // server applies list numbering). Rare here (lists flow via the Lexical
+      // auto-sync batch), but keeps the durable queue path total.
+      return applyThesisOps(thesisId, [op]);
   }
 }
 
