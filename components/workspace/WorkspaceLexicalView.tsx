@@ -6,6 +6,8 @@ import { applyThesisOps, type DocBlockDTO, type DocumentDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
+import { useSuggestionStore } from "@/stores/suggestion-store";
+import { InlineSuggestion } from "@/components/workspace/InlineSuggestion";
 import { planOps, tally } from "@/lib/lexical-writeback";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
@@ -26,6 +28,7 @@ function stripMedia(blocks: DocBlockDTO[]): DocBlockDTO[] {
 export function WorkspaceLexicalView({
   thesisId,
   blocks,
+  rtl,
   active,
 }: {
   thesisId: string;
@@ -51,6 +54,8 @@ export function WorkspaceLexicalView({
   const wrapRef = useRef<View>(null);
   const editorTopRef = useRef(0);
   const lastIndexRef = useRef(-1);
+  // Focused block index + its in-WebView Y — used to overlay the inline-AI suggestion.
+  const focusRef = useRef<{ index: number; y: number }>({ index: -1, y: 0 });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -65,6 +70,11 @@ export function WorkspaceLexicalView({
   const inited = useRef(false);
   // Outline-drawer navigation target (heading tapped in the Structure drawer).
   const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
+  // Inline-AI: which block (if any) has a pending AI proposal to overlay.
+  const sugIndex = useSuggestionStore((s) => {
+    const keys = Object.keys(s.byIndex);
+    return keys.length ? Number(keys[0]) : -1;
+  });
 
   const send = useCallback((type: string, value?: string) => {
     setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
@@ -128,6 +138,7 @@ export function WorkspaceLexicalView({
   const onState = useCallback((s: LexicalState) => {
     scheduleSave();
     if (s.index < 0) return;
+    focusRef.current = { index: s.index, y: typeof s.y === "number" ? s.y : 0 };
     if (s.index !== lastIndexRef.current) {
       lastIndexRef.current = s.index;
       useWorkspaceStore.getState().selectBlock(s.index, s.text);
@@ -185,6 +196,21 @@ export function WorkspaceLexicalView({
             </View>
           </View>
         ) : null}
+        {/* Inline-AI suggestion: the NATIVE InlineSuggestion (word-diff / absorb /
+            approve-reject) overlaid on the suggested Lexical block. On approve its
+            editText op flows back through the sync layer into the editor. */}
+        {sugIndex >= 0 && doc?.available
+          ? (() => {
+              const sb = doc.blocks.find((b) => b.index === sugIndex);
+              if (!sb || sb.kind !== "paragraph") return null;
+              const top = focusRef.current.index === sugIndex ? focusRef.current.y : 12;
+              return (
+                <View style={[styles.sugOverlay, { top: Math.max(0, top) }]}>
+                  <InlineSuggestion thesisId={thesisId} block={sb} rtl={rtl} />
+                </View>
+              );
+            })()
+          : null}
       </View>
     </View>
   );
@@ -193,6 +219,8 @@ export function WorkspaceLexicalView({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#ffffff" },
   editorWrap: { flex: 1, position: "relative" },
+  // Covers the suggested block on the paper with the native inline-suggestion UI.
+  sugOverlay: { position: "absolute", left: 0, right: 0, paddingHorizontal: 12, backgroundColor: "#ffffff" },
   saveRow: { position: "absolute", top: 8, right: 10, flexDirection: "row", alignItems: "center", gap: 8 },
   banner: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, maxWidth: 220 },
   bannerText: { fontSize: 11, fontFamily: "Inter_500Medium" },
