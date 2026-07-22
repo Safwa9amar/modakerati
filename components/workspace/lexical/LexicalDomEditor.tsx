@@ -32,6 +32,7 @@ import {
   ListNode,
   ListItemNode,
   $isListNode,
+  $isListItemNode,
   INSERT_UNORDERED_LIST_COMMAND,
   INSERT_ORDERED_LIST_COMMAND,
   REMOVE_LIST_COMMAND,
@@ -59,6 +60,7 @@ import {
   SKIP_DOM_SELECTION_TAG,
   type ElementFormatType,
   type ElementNode,
+  type LexicalNode,
   type TextFormatType,
   type LexicalEditor,
 } from "lexical";
@@ -75,6 +77,15 @@ import {
   SUGGEST_AGAIN_COMMAND,
   SUGGEST_EDIT_COMMAND,
   type SugData,
+  RangeSuggestionNode,
+  $createRangeSuggestionNode,
+  $isRangeSuggestionNode,
+  RANGE_APPROVE_COMMAND,
+  RANGE_REJECT_COMMAND,
+  RANGE_AGAIN_COMMAND,
+  RANGE_EDIT_COMMAND,
+  type RangeData,
+  type RangeOriginal,
 } from "./blockLexical";
 import type { DocBlockDTO } from "@/lib/api";
 
@@ -86,6 +97,19 @@ export type SuggestionInput = {
   status: string;
   instruction: string;
   label: string;
+  reasoning: string;
+  reasoningMs?: number;
+};
+
+// The pending RANGE proposal (multi-block dynamic rewrite) handed to the editor.
+export type RangeSuggestionInput = {
+  start: number;
+  end: number;
+  originalBlocks: RangeOriginal[];
+  original: string;
+  proposed: string;
+  status: string;
+  instruction: string;
   reasoning: string;
   reasoningMs?: number;
 };
@@ -145,6 +169,13 @@ const CSS = `
 .lx-italic { font-style: italic; }
 .lx-underline { text-decoration: underline; }
 ::selection { background: #ffe08a; }
+/* Persistent MULTI-block selection highlight — mirrors the native OS text
+   selection so the chosen blocks stay visibly marked after the OS selection is
+   dismissed (e.g. once the AI dock opens). Driven from the native store's
+   selected indices via SelectionHighlightPlugin. Box-shadow (not padding) so it
+   reads as a continuous band across the small inter-paragraph gaps without
+   reflowing the text. */
+.lx-selected { background: rgba(52, 120, 246, 0.20); border-radius: 3px; box-shadow: 0 0 0 4px rgba(52, 120, 246, 0.20); }
 /* Floating per-block bubble — a kind-icon bubble that expands to the pill of that
    block's tools (mirrors the native FloatingPill → BlockContextBar). */
 .lx-tb-anchor { position: fixed; z-index: 40; }
@@ -175,6 +206,19 @@ const CSS = `
 /* proposed text = the paragraph */
 .lx-sug-proposed { font-size: 15px; line-height: 1.7; color: #16171d; border-inline-start: 3px solid #22C07A; padding-inline-start: 10px; }
 .lx-sug-proposed.lx-sug-loading { color: #16171d; opacity: .38; }
+/* Range rewrite: the proposal is a PASSAGE — one or more paragraphs, each with the
+   green logical-edge bar, so the dynamic paragraph split is visible. */
+.lx-sug-passage { display: flex; flex-direction: column; gap: 8px; }
+.lx-sug-ppara { margin: 0; }
+/* Per-paragraph keep/drop row: the proposed paragraph + a toggle. A dropped
+   paragraph dims + strikes through and its toggle turns red; Apply commits only
+   the kept ones. */
+.lx-sug-prow { display: flex; align-items: flex-start; gap: 6px; }
+.lx-sug-prow .lx-sug-proposed { flex: 1 1 auto; min-width: 0; }
+.lx-sug-dropped { opacity: .45; text-decoration: line-through; text-decoration-color: #C0392B; border-inline-start-color: #C0392B; }
+.lx-sug-toggle { flex: 0 0 auto; width: 26px; height: 26px; border: none; border-radius: 7px; background: transparent; color: #8A94A4; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.lx-sug-toggle:active { transform: scale(.9); }
+.lx-sug-toggle.on { color: #C0392B; }
 .lx-sug-add { background: rgba(34,192,122,.18); border-radius: 3px; }
 /* original teaser (tap to expand; del-marks when open) */
 .lx-sug-teaser { margin-top: 8px; padding: 6px 9px; background: #F6F8FA; border-radius: 8px; cursor: pointer; }
@@ -276,7 +320,7 @@ function EditorBridge({
     if (!scrollToIndex || scrollToIndex.index < 0) return;
     let key: string | null = null;
     editor.getEditorState().read(() => {
-      const n = $getRoot().getChildren()[scrollToIndex.index];
+      const n = $nodeAtBlockIndex(scrollToIndex.index);
       key = n ? n.getKey() : null;
     });
     if (key) editor.getElementByKey(key)?.scrollIntoView({ block: "start" });
@@ -381,7 +425,6 @@ function EditorBridge({
         key = top ? top.getKey() : null;
         // ElementNode.getFormatType() → "" | "left" | "center" | "right" | "justify" | "start" | "end"
         const fmt = top ? top.getFormatType() : "";
-        const rootKids = $getRoot().getChildren();
         // Every top-level block the selection spans, in document order. A caret or an
         // in-paragraph selection yields ONE entry; a cross-paragraph drag lists them
         // all. We walk the selected nodes (not just the anchor, which stays put while
@@ -389,14 +432,16 @@ function EditorBridge({
         // what lets the native side build a MULTI-block selection instead of
         // collapsing everything to the anchor block.
         const spanned: { index: number; text: string }[] = [];
-        const seen = new Set<string>();
+        const seen = new Set<number>();
         for (const n of sel.getNodes()) {
-          const t = n.getKey() === "root" ? null : n.getTopLevelElement();
-          if (!t) continue;
-          const k = t.getKey();
-          if (seen.has(k)) continue;
-          seen.add(k);
-          spanned.push({ index: rootKids.indexOf(t), text: t.getTextContent() });
+          if (n.getKey() === "root") continue;
+          // block-model index (lists expanded), so a list ITEM counts as its own
+          // block — not the whole list collapsed to one entry.
+          const idx = $blockIndexOfNode(n);
+          if (idx < 0 || seen.has(idx)) continue;
+          seen.add(idx);
+          const node = $nodeAtBlockIndex(idx);
+          spanned.push({ index: idx, text: node ? node.getTextContent() : "" });
         }
         spanned.sort((a, b) => a.index - b.index);
         payload = {
@@ -406,8 +451,8 @@ function EditorBridge({
           blockType,
           isRTL: !!top && top.getDirection() === "rtl",
           alignment: fmt === "left" || fmt === "center" || fmt === "right" || fmt === "justify" ? fmt : null,
-          index: top ? rootKids.indexOf(top) : -1,
-          text: top ? top.getTextContent() : "",
+          index: $blockIndexOfNode(anchor),
+          text: (spanned.find((s) => s.index === $blockIndexOfNode(anchor))?.text) ?? (top ? top.getTextContent() : ""),
           blocks: spanned,
           y: -1,
         };
@@ -585,18 +630,59 @@ type BlockFmtChange = {
   color?: string | null; clearFormatting?: boolean;
   level?: number; alignment?: string; direction?: "rtl" | "ltr";
 };
+// ── Block-model ⇄ Lexical index mapping ──────────────────────────────────────
+// A Lexical LIST groups N item-paragraphs into ONE root child, but the block model
+// (and $lexicalToBlocks) keeps them SEPARATE — so a node's block-model index ≠ its
+// Lexical root position once a list exists. The native tools target block-model
+// indices, so map them to the real node (a paragraph/heading, or a list item).
+function listItemsOf(list: ListNode): ListItemNode[] {
+  return list.getChildren().filter($isListItemNode) as ListItemNode[];
+}
+function $nodeAtBlockIndex(idx: number): ElementNode | null {
+  let acc = 0;
+  for (const child of $getRoot().getChildren()) {
+    if ($isListNode(child)) {
+      const items = listItemsOf(child);
+      if (idx < acc + items.length) return items[idx - acc];
+      acc += items.length;
+    } else {
+      if (idx === acc) return $isHeadingNode(child) || $isParagraphNode(child) ? (child as ElementNode) : null;
+      acc += 1;
+    }
+  }
+  return null;
+}
+// Block-model index (lists expanded) of the block CONTAINING a node — its list
+// item if it sits inside a list, else its top-level element. -1 if detached.
+function $blockIndexOfNode(node: LexicalNode): number {
+  const top = node.getKey() === "root" ? null : node.getTopLevelElement();
+  if (!top) return -1;
+  let item: LexicalNode | null = node;
+  while (item && !$isListItemNode(item)) item = item.getParent();
+  let acc = 0;
+  for (const child of $getRoot().getChildren()) {
+    if (child === top) {
+      if ($isListNode(top) && $isListItemNode(item)) acc += listItemsOf(top).indexOf(item);
+      return acc;
+    }
+    acc += $isListNode(child) ? listItemsOf(child).length : 1;
+  }
+  return -1;
+}
+
 function applyBlockFormat(json: string | undefined) {
   let payload: { indices?: number[]; changes?: BlockFmtChange };
   try { payload = JSON.parse(json || "{}"); } catch { return; }
   const indices = payload.indices || [];
   const ch = payload.changes || {};
-  const roots = $getRoot().getChildren();
   for (const idx of indices) {
-    const base = roots[idx];
-    if (!base || !($isHeadingNode(base) || $isParagraphNode(base))) continue;
+    const base = $nodeAtBlockIndex(idx);
+    // Target paragraphs, headings, AND list items (align/direction/marks all apply
+    // to a list item; only the heading swap is paragraph/heading-only).
+    if (!base || !($isHeadingNode(base) || $isParagraphNode(base) || $isListItemNode(base))) continue;
     let node: ElementNode = base;
     // level → paragraph⇄heading swap, preserving children + element format/dir
-    if (ch.level !== undefined) {
+    if (ch.level !== undefined && !$isListItemNode(node)) {
       const wantHead = ch.level >= 1;
       const tag = ("h" + Math.min(ch.level, 6)) as HeadingTagType;
       const isHead = $isHeadingNode(node);
@@ -695,7 +781,7 @@ function SuggestionPlugin({
         reasoningMs: suggestion.reasoningMs,
       };
       if (existing) { existing.getWritable().__sug = data; return; } // stream in place
-      const target = root.getChildren()[suggestion.index];
+      const target = $nodeAtBlockIndex(suggestion.index);
       if (target) {
         const origType = $isHeadingNode(target)
           ? target.getTag()
@@ -721,6 +807,135 @@ function SuggestionPlugin({
   return null;
 }
 
+// Renders a pending RANGE proposal (multi-block dynamic rewrite) IN PLACE OF the
+// selected range: it replaces blocks [start..end] with ONE RangeSuggestionNode
+// showing the rewritten passage (1..N paragraphs). Approve/Reject/Again/Edit dispatch
+// commands that call back to `onRangeAction`. On clear it settles in place — approve
+// → the proposed paragraphs (the doc reseed then applies server truth), reject →
+// the captured originals (no reseed). Driven by the native suggestion store's `range`.
+function RangeSuggestionPlugin({
+  rangeSuggestion,
+  onRangeAction,
+}: {
+  rangeSuggestion?: RangeSuggestionInput;
+  onRangeAction?: (action: string, text?: string) => void;
+}) {
+  const [editor] = useLexicalComposerContext();
+  // Whether the clear settles to the KEPT passage (approve) or the ORIGINALS
+  // (reject) — mirrors SuggestionPlugin's lastActionRef.
+  const lastActionRef = useRef<string>("");
+  // The KEPT passage passed with the approve command (the paragraphs the student
+  // didn't drop) — settled in place on clear, then confirmed by the doc reseed.
+  const approvedTextRef = useRef<string>("");
+  useEffect(
+    () =>
+      mergeRegister(
+        editor.registerCommand(RANGE_APPROVE_COMMAND, (keptText) => { lastActionRef.current = "approve"; approvedTextRef.current = keptText ?? ""; onRangeAction?.("approve", keptText); return true; }, COMMAND_PRIORITY_LOW),
+        editor.registerCommand(RANGE_REJECT_COMMAND, () => { lastActionRef.current = "reject"; onRangeAction?.("reject"); return true; }, COMMAND_PRIORITY_LOW),
+        editor.registerCommand(RANGE_AGAIN_COMMAND, () => { onRangeAction?.("again"); return true; }, COMMAND_PRIORITY_LOW),
+        editor.registerCommand(RANGE_EDIT_COMMAND, (text) => { onRangeAction?.("edit", text); return true; }, COMMAND_PRIORITY_LOW),
+      ),
+    [editor, onRangeAction],
+  );
+
+  const r = rangeSuggestion;
+  const active = !!r && r.start >= 0;
+  const key = active ? `${r!.start}:${r!.end}:${r!.status}:${r!.proposed.length}:${r!.reasoning.length}` : "";
+  useEffect(() => {
+    // Does a range node currently exist? Decides create (structural) vs stream.
+    let hasNode = false;
+    editor.getEditorState().read(() => { hasNode = !!$getRoot().getChildren().find($isRangeSuggestionNode); });
+
+    const mutate = () => {
+      const root = $getRoot();
+      const existing = root.getChildren().find($isRangeSuggestionNode) as RangeSuggestionNode | undefined;
+
+      // Cleared → settle the node to proposed (approve) or originals (reject), then
+      // rebuild those blocks in place of the single range node.
+      if (!active || !r) {
+        if (existing) {
+          const applied = lastActionRef.current === "approve";
+          // Approve → settle to the KEPT paragraphs (the reseed then applies server
+          // truth); reject → restore the captured originals.
+          const texts = applied
+            ? approvedTextRef.current.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean).map((t) => ({ text: t, type: "paragraph" }))
+            : existing.__originals;
+          const rebuilt = (texts.length ? texts : [{ text: "", type: "paragraph" }]).map((o) => rebuildOriginal(o.text, o.type));
+          $setSelection(null);
+          existing.replace(rebuilt[0]);
+          let anchor: typeof rebuilt[number] = rebuilt[0];
+          for (let i = 1; i < rebuilt.length; i++) { anchor.insertAfter(rebuilt[i]); anchor = rebuilt[i]; }
+        }
+        lastActionRef.current = "";
+        approvedTextRef.current = "";
+        return;
+      }
+
+      const data: RangeData = { original: r.original, proposed: r.proposed, status: r.status, instruction: r.instruction, reasoning: r.reasoning, reasoningMs: r.reasoningMs };
+      if (existing) { existing.getWritable().__data = data; return; } // stream in place
+
+      // Create: replace blocks [start..end] with ONE range node. Delete the trailing
+      // range blocks high→low (positional-safe), then swap the first for the node.
+      const kids = root.getChildren();
+      if (r.start < 0 || r.start >= kids.length) return;
+      const originals: RangeOriginal[] = r.originalBlocks;
+      $setSelection(null);
+      for (let i = Math.min(r.end, kids.length - 1); i > r.start; i--) root.getChildren()[i]?.remove();
+      root.getChildren()[r.start]?.replace($createRangeSuggestionNode(data, originals));
+    };
+
+    // Structural (create/clear) pins scroll + blurs; a pure stream update doesn't.
+    const structural = !active || !hasNode;
+    if (structural) withScrollPinned(editor, mutate, true);
+    else editor.update(mutate, { tag: SKIP_DOM_SELECTION_TAG });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return null;
+}
+
+// Paints a persistent highlight on the top-level blocks the native side reports as
+// selected (a MULTI-block selection), so they stay visibly marked after the OS text
+// selection is gone — the visual counterpart to the store's `selectedBlocks`. Toggles
+// a CSS class on the block elements (no editor-state mutation → nothing to serialize
+// or undo); re-applies after every reconcile in case Lexical rebuilds a block's DOM.
+function SelectionHighlightPlugin({ indices }: { indices?: number[] }) {
+  const [editor] = useLexicalComposerContext();
+  const key = (indices ?? []).join(",");
+  useEffect(() => {
+    const wanted = indices ?? [];
+    const clear = () => {
+      const root = editor.getRootElement();
+      root?.querySelectorAll(".lx-selected").forEach((el) => el.classList.remove("lx-selected"));
+    };
+    // Nothing highlighted (the common single-block / no-selection case) → just clear
+    // and register NO update listener, so plain typing does no per-keystroke DOM work.
+    if (!wanted.length) {
+      clear();
+      return;
+    }
+    const apply = () => {
+      // Resolve the target block KEYS from their root-child indices (canonical —
+      // survives DOM wrappers), then mark those elements.
+      let keys: string[] = [];
+      editor.getEditorState().read(() => {
+        const kids = $getRoot().getChildren();
+        keys = wanted.map((i) => kids[i]?.getKey()).filter((k): k is string => !!k);
+      });
+      clear();
+      keys.forEach((k) => editor.getElementByKey(k)?.classList.add("lx-selected"));
+    };
+    apply();
+    // Re-apply after reconciles in case Lexical rebuilds a highlighted block's DOM.
+    const off = editor.registerUpdateListener(() => apply());
+    return () => {
+      off();
+      clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, key]);
+  return null;
+}
+
 export default function LexicalDomEditor({
   command,
   onState,
@@ -730,6 +945,9 @@ export default function LexicalDomEditor({
   scrollToIndex,
   suggestion,
   onSuggestAction,
+  rangeSuggestion,
+  onRangeAction,
+  selectedIndices,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -745,6 +963,12 @@ export default function LexicalDomEditor({
   // Pending AI proposal to render in-flow, and its approve/reject callback.
   suggestion?: SuggestionInput;
   onSuggestAction?: (action: string, text?: string) => void;
+  // Pending RANGE proposal (multi-block dynamic rewrite) + its approve/reject/again/edit callback.
+  rangeSuggestion?: RangeSuggestionInput;
+  onRangeAction?: (action: string, text?: string) => void;
+  // Top-level block indices to keep highlighted (the native MULTI-block selection),
+  // so the chosen blocks stay marked after the OS text selection is dismissed.
+  selectedIndices?: number[];
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -753,7 +977,7 @@ export default function LexicalDomEditor({
     namespace: "modakerati-lexical-lab",
     theme,
     onError: (error: Error) => console.error("[lexical]", error),
-    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode],
+    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode, RangeSuggestionNode],
     editorState: () => (initialBlocks && initialBlocks.length ? $blocksToLexical(initialBlocks) : seed()),
   };
 
@@ -770,6 +994,8 @@ export default function LexicalDomEditor({
         <ListPlugin />
         <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} scrollToIndex={scrollToIndex} />
         <SuggestionPlugin suggestion={suggestion} onSuggestAction={onSuggestAction} />
+        <RangeSuggestionPlugin rangeSuggestion={rangeSuggestion} onRangeAction={onRangeAction} />
+        <SelectionHighlightPlugin indices={selectedIndices} />
       </div>
     </LexicalComposer>
   );
