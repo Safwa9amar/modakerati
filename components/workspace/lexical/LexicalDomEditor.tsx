@@ -224,7 +224,10 @@ function EditorBridge({
   // instance (no WebView remount, no flicker) instead of re-keying the component.
   useEffect(() => {
     if (!reseed) return;
-    withScrollPinned(editor, () => { $blocksToLexical(reseed.blocks); });
+    // Clear the selection after rebuilding: root.clear()+rebuild otherwise leaves
+    // the caret at the document END, and the WebView scrolls it into view (the
+    // reported "Approve jumps to the bottom"). No caret → no scroll-into-view.
+    withScrollPinned(editor, () => { $blocksToLexical(reseed.blocks); $setSelection(null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reseed?.nonce]);
 
@@ -481,13 +484,15 @@ function FloatingToolbar() {
 // the moved caret / rebuilt content into view — the reported "editor scrolls away
 // when I hit Improve, and jumps to the bottom on Approve".
 function withScrollPinned(editor: LexicalEditor, mutator: () => void) {
-  const el = (typeof document !== "undefined" ? (document.scrollingElement || document.documentElement) : null) as HTMLElement | null;
-  const y = el ? el.scrollTop : 0;
+  const y = typeof window !== "undefined" ? window.scrollY : 0;
+  const restore = () => { if (typeof window !== "undefined") window.scrollTo(0, y); };
   editor.update(mutator, {
+    // Restore across a few frames — the WebView / iOS can scroll a caret into view
+    // a frame or two AFTER the DOM reconciles, so one restore isn't enough.
     onUpdate: () => {
-      if (!el) return;
-      el.scrollTop = y;
-      requestAnimationFrame(() => { el.scrollTop = y; });
+      restore();
+      requestAnimationFrame(restore);
+      requestAnimationFrame(() => requestAnimationFrame(restore));
     },
   });
 }
@@ -537,7 +542,7 @@ function SuggestionPlugin({
       // Cleared (approve or reject): restore the original block. On approve the
       // ensuing sync-layer reseed overwrites this with server truth; on reject it stands.
       if (!suggestion || suggestion.index < 0) {
-        if (existing) existing.replace(rebuildOriginal(existing.__sug.original, existing.__origType));
+        if (existing) { existing.replace(rebuildOriginal(existing.__sug.original, existing.__origType)); $setSelection(null); }
         return;
       }
       const data: SugData = {
