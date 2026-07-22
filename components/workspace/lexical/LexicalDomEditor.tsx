@@ -181,10 +181,12 @@ const CSS = `
    kind tools; a pressed ring gives feedback that it's an interactive target. */
 .lx-blockpick { cursor: pointer; border-radius: 6px; transition: box-shadow 120ms ease; }
 .lx-blockpick:active { box-shadow: 0 0 0 3px rgba(52, 120, 246, 0.28); }
-/* Document-search hit tints (CSS Custom Highlight API) — amber on all matches, a
-   stronger orange on the current one. */
-::highlight(search-all) { background-color: rgba(255, 213, 79, 0.45); }
-::highlight(search-current) { background-color: rgba(255, 138, 0, 0.72); color: #1a1a1a; }
+/* Document-search hit overlays — absolute divs over each match, inside .lx-root so
+   they scroll with the content but sit under the caret (pointer-events off). Amber
+   on all matches, a stronger orange on the current one. */
+.lx-hl-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; overflow: visible; }
+.lx-hl { position: absolute; background: rgba(255, 213, 79, 0.45); border-radius: 2px; }
+.lx-hl-cur { background: rgba(255, 138, 0, 0.55); }
 /* Floating per-block bubble — a kind-icon bubble that expands to the pill of that
    block's tools (mirrors the native FloatingPill → BlockContextBar). */
 .lx-tb-anchor { position: fixed; z-index: 40; }
@@ -975,14 +977,24 @@ function SearchHighlightPlugin({ search }: { search?: SearchInput }) {
   const [editor] = useLexicalComposerContext();
   const key = search ? `${search.current}|${search.matches.map((m) => `${m.blockIndex}.${m.start}.${m.end}`).join(",")}` : "";
   useEffect(() => {
-    const hl = (typeof CSS !== "undefined" ? (CSS as unknown as { highlights?: { set: (k: string, v: unknown) => void; delete: (k: string) => void } }).highlights : null);
-    const HighlightCtor = typeof window !== "undefined" ? (window as unknown as { Highlight?: new (...r: Range[]) => unknown }).Highlight : undefined;
-    if (!hl || !HighlightCtor) return;
-    const clear = () => { hl.delete("search-all"); hl.delete("search-current"); };
+    const ce = editor.getRootElement(); // .lx-content
+    const host = ce?.parentElement; // .lx-root (position: relative) — NOT the editable,
+    if (!ce || !host) return; //       so Lexical never reconciles our overlay away.
+    let layer = host.querySelector<HTMLDivElement>(".lx-hl-layer");
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.className = "lx-hl-layer";
+      host.appendChild(layer);
+    }
+    const clear = () => { if (layer) layer.textContent = ""; };
     if (!search || !search.matches.length) { clear(); return; }
+    // Position highlight divs over each match's DOM rects, relative to .lx-root.
+    // Absolute-in-.lx-root scrolls WITH the content (document scroll), so no scroll
+    // listener is needed — only re-layout after a reconcile / resize.
     const apply = () => {
-      const allRanges: Range[] = [];
-      let curRange: Range | null = null;
+      if (!layer) return;
+      clear();
+      const hostRect = host.getBoundingClientRect();
       editor.getEditorState().read(() => {
         search.matches.forEach((m, i) => {
           const node = $nodeAtBlockIndex(m.blockIndex);
@@ -994,17 +1006,24 @@ function SearchHighlightPlugin({ search }: { search?: SearchInput }) {
           if (!s || !e) return;
           const r = document.createRange();
           try { r.setStart(s[0], s[1]); r.setEnd(e[0], e[1]); } catch { return; }
-          allRanges.push(r);
-          if (i === search.current) curRange = r;
+          for (const rect of Array.from(r.getClientRects())) {
+            if (rect.width === 0 || rect.height === 0) continue;
+            const d = document.createElement("div");
+            d.className = i === search.current ? "lx-hl lx-hl-cur" : "lx-hl";
+            d.style.top = `${rect.top - hostRect.top}px`;
+            d.style.left = `${rect.left - hostRect.left}px`;
+            d.style.width = `${rect.width}px`;
+            d.style.height = `${rect.height}px`;
+            layer!.appendChild(d);
+          }
         });
       });
-      clear();
-      if (allRanges.length) hl.set("search-all", new HighlightCtor(...allRanges));
-      if (curRange) hl.set("search-current", new HighlightCtor(curRange));
     };
     apply();
-    const off = editor.registerUpdateListener(() => apply());
-    return () => { off(); clear(); };
+    const off = editor.registerUpdateListener(() => requestAnimationFrame(apply));
+    const onResize = () => requestAnimationFrame(apply);
+    window.addEventListener("resize", onResize);
+    return () => { off(); window.removeEventListener("resize", onResize); clear(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, key]);
   return null;
