@@ -54,6 +54,28 @@ const PLACEHOLDER: React.CSSProperties = {
   background: "#f6f8ff",
 };
 
+// Media resolution for figures in the WebView. An authed <Image> header can't be
+// set on a browser <img>, so a LARGE figure (bytes too big to inline as dataUri)
+// loads via <img src=".../media/:index?token=JWT"> — image loads ignore CORS, and
+// the auth middleware now accepts the token query param. Provided by the editor.
+export const MediaContext = React.createContext<{ base: string; token: string; thesisId: string; version: string | number }>({
+  base: "", token: "", thesisId: "", version: "",
+});
+
+const FIGURE_STYLE: React.CSSProperties = { maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", display: "block", margin: "8px auto" };
+
+// A figure: inline dataUri when the server sent it (small), else the authed media
+// URL (large), else a placeholder (a drawing with no resolvable image).
+function Figure({ block }: { block: Extract<DocBlockDTO, { kind: "image" }> }) {
+  const media = React.useContext(MediaContext);
+  if (block.dataUri) return React.createElement("img", { src: block.dataUri, style: FIGURE_STYLE, alt: block.caption ?? "" });
+  if (block.hasMedia && media.base && media.token) {
+    const url = `${media.base}/api/thesis/${media.thesisId}/document/media/${block.index}?token=${encodeURIComponent(media.token)}&v=${encodeURIComponent(String(media.version))}`;
+    return React.createElement("img", { src: url, style: FIGURE_STYLE, alt: block.caption ?? "", referrerPolicy: "no-referrer" });
+  }
+  return React.createElement("div", { style: PLACEHOLDER }, `🖼 figure${block.caption ? ` · ${block.caption}` : ""}`);
+}
+
 export class BlockDataNode extends DecoratorNode<React.ReactNode> {
   __block: DocBlockDTO;
 
@@ -106,17 +128,7 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
       );
     }
     if (b.kind === "image") {
-      if (b.dataUri) {
-        return React.createElement("img", {
-          src: b.dataUri,
-          style: { maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", display: "block", margin: "8px auto" },
-        });
-      }
-      return React.createElement(
-        "div",
-        { style: PLACEHOLDER },
-        `🖼 figure${b.caption ? ` · ${b.caption}` : ""} · media not inlined`,
-      );
+      return React.createElement(Figure, { block: b });
     }
     return React.createElement("div", { style: PLACEHOLDER }, `⋯ ${b.kind === "other" ? b.tag : b.kind}`);
   }
@@ -183,7 +195,7 @@ function renderSegs(segs: DiffSegment[], kind: "add" | "del"): React.ReactNode {
     );
 }
 
-function pillBtn(key: string, opts: { primary?: boolean; icon: string; label?: string; danger?: boolean; onClick: () => void }) {
+function pillBtn(key: string, opts: { primary?: boolean; icon: string; label?: string; danger?: boolean; disabled?: boolean; onClick: () => void }) {
   return React.createElement(
     "button",
     {
@@ -192,6 +204,7 @@ function pillBtn(key: string, opts: { primary?: boolean; icon: string; label?: s
       title: opts.label,
       "aria-label": opts.label,
       tabIndex: -1,
+      disabled: opts.disabled,
       // Don't let tapping the button focus it (→ caret lands in the editable → iOS
       // scrolls). preventDefault on pointer/mouse-down keeps focus where it is.
       onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault(),
@@ -346,7 +359,9 @@ export function $isSuggestionNode(n: LexicalNode | null | undefined): n is Sugge
 // full-passage rewrite diffs poorly). Approve replaces the range via the server;
 // reject / a flush restores the captured originals. Its own command set carries no
 // index (only one range suggestion is ever active).
-export const RANGE_APPROVE_COMMAND: LexicalCommand<void> = createCommand("RANGE_APPROVE");
+// Approve carries the KEPT passage (the paragraphs the student didn't drop, joined
+// by blank lines) so the apply replaces the range with only those.
+export const RANGE_APPROVE_COMMAND: LexicalCommand<string> = createCommand("RANGE_APPROVE");
 export const RANGE_REJECT_COMMAND: LexicalCommand<void> = createCommand("RANGE_REJECT");
 export const RANGE_AGAIN_COMMAND: LexicalCommand<void> = createCommand("RANGE_AGAIN");
 export const RANGE_EDIT_COMMAND: LexicalCommand<string> = createCommand("RANGE_EDIT");
@@ -375,15 +390,29 @@ function renderPassage(text: string, cls: string): React.ReactNode {
 
 function RangeSuggestionView({ data, editor }: { data: RangeData; editor: LexicalEditor }) {
   const [peek, setPeek] = React.useState(false);
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState("");
   const [leaving, setLeaving] = React.useState<"" | "approve" | "reject">("");
+  // The proposed paragraphs the student DROPPED (kept by default). Reset whenever the
+  // proposal text changes (a fresh stream / Again), so a new result starts all-kept.
+  const [dropped, setDropped] = React.useState<Set<number>>(new Set());
+  React.useEffect(() => { setDropped(new Set()); }, [data.proposed]);
+
   const loading = data.status === "loading";
   const err = data.status === "error";
-  const ready = data.status === "ready";
   const rootCls = "lx-sug" + (leaving ? " lx-leaving-" + leaving : "");
-  const doApprove = () => { if (leaving) return; setLeaving("approve"); setTimeout(() => editor.dispatchCommand(RANGE_APPROVE_COMMAND, undefined), 190); };
+
+  // The dynamic paragraphs the AI produced (count follows the content).
+  const paras = data.proposed.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const kept = paras.filter((_, i) => !dropped.has(i));
+
+  const doApprove = () => {
+    if (leaving || !kept.length) return;
+    const keptText = kept.join("\n\n");
+    setLeaving("approve");
+    setTimeout(() => editor.dispatchCommand(RANGE_APPROVE_COMMAND, keptText), 190);
+  };
   const doReject = () => { if (leaving) return; setLeaving("reject"); setTimeout(() => editor.dispatchCommand(RANGE_REJECT_COMMAND, undefined), 170); };
+  const toggleDrop = (i: number) =>
+    setDropped((prev) => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n; });
 
   const chip = React.createElement(
     "div",
@@ -401,27 +430,6 @@ function RangeSuggestionView({ data, editor }: { data: RangeData; editor: Lexica
     : null;
   const pill = (children: React.ReactNode) =>
     React.createElement("div", { className: "lx-sug-pill" }, React.createElement("div", { className: "lx-sug-pillrow" }, children));
-
-  // ---- editing (whole passage in one textarea) ----
-  if (ready && editing) {
-    return React.createElement(
-      "div",
-      { className: "lx-sug" },
-      chip,
-      React.createElement("textarea", {
-        className: "lx-sug-edit",
-        dir: "auto",
-        autoFocus: true,
-        style: { minHeight: 140 },
-        value: draft,
-        onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
-      }),
-      pill([
-        pillBtn("done", { primary: true, icon: ICON_CHECK, label: "Done", onClick: () => { const t = draft.trim(); if (t) editor.dispatchCommand(RANGE_EDIT_COMMAND, t); setEditing(false); } }),
-        pillBtn("cancel", { icon: ICON_X, label: "Cancel", onClick: () => setEditing(false) }),
-      ]),
-    );
-  }
 
   // ---- loading ----
   if (loading) {
@@ -451,13 +459,40 @@ function RangeSuggestionView({ data, editor }: { data: RangeData; editor: Lexica
     );
   }
 
-  // ---- ready ----
+  // ---- ready: one row per DYNAMIC paragraph, each with a keep/drop toggle. Apply
+  //      replaces the range with only the kept paragraphs. ----
+  const rows = React.createElement(
+    "div",
+    { className: "lx-sug-passage" },
+    ...paras.map((p, i) => {
+      const isDropped = dropped.has(i);
+      return React.createElement(
+        "div",
+        { key: i, className: "lx-sug-prow" },
+        React.createElement("div", { className: "lx-sug-proposed lx-sug-ppara" + (isDropped ? " lx-sug-dropped" : ""), dir: "auto" }, p),
+        React.createElement(
+          "button",
+          {
+            className: "lx-sug-toggle" + (isDropped ? " on" : ""),
+            title: isDropped ? "Keep" : "Drop",
+            "aria-label": isDropped ? "Keep paragraph" : "Drop paragraph",
+            tabIndex: -1,
+            onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault(),
+            onClick: () => toggleDrop(i),
+          },
+          svgIcon(ICON_X, 15),
+        ),
+      );
+    }),
+  );
+
+  const applyLabel = dropped.size ? `Apply ${kept.length}` : "Apply";
   return React.createElement(
     "div",
     { className: rootCls },
     chip,
     trace,
-    renderPassage(data.proposed, "lx-sug-proposed lx-sug-ppara"),
+    rows,
     data.original.trim()
       ? React.createElement(
           "div",
@@ -466,8 +501,7 @@ function RangeSuggestionView({ data, editor }: { data: RangeData; editor: Lexica
         )
       : null,
     pill([
-      pillBtn("approve", { primary: true, icon: ICON_CHECK, label: "Approve", onClick: doApprove }),
-      pillBtn("edit", { icon: ICON_PENCIL, label: "Edit", onClick: () => { setDraft(data.proposed); setEditing(true); } }),
+      pillBtn("apply", { primary: true, icon: ICON_CHECK, label: applyLabel, disabled: !kept.length, onClick: doApprove }),
       pillBtn("again", { icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(RANGE_AGAIN_COMMAND, undefined) }),
       pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
     ]),

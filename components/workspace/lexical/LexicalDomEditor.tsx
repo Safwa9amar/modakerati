@@ -69,6 +69,7 @@ import {
   $lexicalToBlocks,
   BlockDataNode,
   $isBlockDataNode,
+  MediaContext,
   SuggestionNode,
   $createSuggestionNode,
   $isSuggestionNode,
@@ -821,16 +822,13 @@ function RangeSuggestionPlugin({
   onRangeAction?: (action: string, text?: string) => void;
 }) {
   const [editor] = useLexicalComposerContext();
-  // Whether the clear settles to the KEPT passage (approve) or the ORIGINALS
-  // (reject) — mirrors SuggestionPlugin's lastActionRef.
+  // Which action cleared the range — decides the clear behavior: approve reseeds
+  // from server truth (nothing to do here); reject restores the originals in place.
   const lastActionRef = useRef<string>("");
-  // The KEPT passage passed with the approve command (the paragraphs the student
-  // didn't drop) — settled in place on clear, then confirmed by the doc reseed.
-  const approvedTextRef = useRef<string>("");
   useEffect(
     () =>
       mergeRegister(
-        editor.registerCommand(RANGE_APPROVE_COMMAND, (keptText) => { lastActionRef.current = "approve"; approvedTextRef.current = keptText ?? ""; onRangeAction?.("approve", keptText); return true; }, COMMAND_PRIORITY_LOW),
+        editor.registerCommand(RANGE_APPROVE_COMMAND, (keptText) => { lastActionRef.current = "approve"; onRangeAction?.("approve", keptText); return true; }, COMMAND_PRIORITY_LOW),
         editor.registerCommand(RANGE_REJECT_COMMAND, () => { lastActionRef.current = "reject"; onRangeAction?.("reject"); return true; }, COMMAND_PRIORITY_LOW),
         editor.registerCommand(RANGE_AGAIN_COMMAND, () => { onRangeAction?.("again"); return true; }, COMMAND_PRIORITY_LOW),
         editor.registerCommand(RANGE_EDIT_COMMAND, (text) => { onRangeAction?.("edit", text); return true; }, COMMAND_PRIORITY_LOW),
@@ -843,37 +841,23 @@ function RangeSuggestionPlugin({
   const key = active ? `${r!.start}:${r!.end}:${r!.status}:${r!.proposed.length}:${r!.reasoning.length}` : "";
   useEffect(() => {
     // Does a range node currently exist? Decides create (structural) vs stream.
+    // ── Cleared ──────────────────────────────────────────────────────────────
+    // Do NOTHING to the editor here — a reseed from authoritative truth settles it:
+    // APPROVE → approveRange published the applied doc (the sync layer reseeds the
+    // whole editor to it); REJECT → onRangeAction forces a reseed from the current
+    // (unchanged) doc, restoring the originals WITH their formatting. Mutating in
+    // place here would (a) fire a spurious auto-save that races the reseed — the
+    // revert bug — and (b) rebuild the originals as PLAIN text, losing runs/alignment.
+    if (!active || !r) { lastActionRef.current = ""; return; }
+
+    // ── Active: create the node, or stream into the existing one ──────────────
     let hasNode = false;
     editor.getEditorState().read(() => { hasNode = !!$getRoot().getChildren().find($isRangeSuggestionNode); });
-
     const mutate = () => {
       const root = $getRoot();
       const existing = root.getChildren().find($isRangeSuggestionNode) as RangeSuggestionNode | undefined;
-
-      // Cleared → settle the node to proposed (approve) or originals (reject), then
-      // rebuild those blocks in place of the single range node.
-      if (!active || !r) {
-        if (existing) {
-          const applied = lastActionRef.current === "approve";
-          // Approve → settle to the KEPT paragraphs (the reseed then applies server
-          // truth); reject → restore the captured originals.
-          const texts = applied
-            ? approvedTextRef.current.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean).map((t) => ({ text: t, type: "paragraph" }))
-            : existing.__originals;
-          const rebuilt = (texts.length ? texts : [{ text: "", type: "paragraph" }]).map((o) => rebuildOriginal(o.text, o.type));
-          $setSelection(null);
-          existing.replace(rebuilt[0]);
-          let anchor: typeof rebuilt[number] = rebuilt[0];
-          for (let i = 1; i < rebuilt.length; i++) { anchor.insertAfter(rebuilt[i]); anchor = rebuilt[i]; }
-        }
-        lastActionRef.current = "";
-        approvedTextRef.current = "";
-        return;
-      }
-
       const data: RangeData = { original: r.original, proposed: r.proposed, status: r.status, instruction: r.instruction, reasoning: r.reasoning, reasoningMs: r.reasoningMs };
       if (existing) { existing.getWritable().__data = data; return; } // stream in place
-
       // Create: replace blocks [start..end] with ONE range node. Delete the trailing
       // range blocks high→low (positional-safe), then swap the first for the node.
       const kids = root.getChildren();
@@ -883,10 +867,8 @@ function RangeSuggestionPlugin({
       for (let i = Math.min(r.end, kids.length - 1); i > r.start; i--) root.getChildren()[i]?.remove();
       root.getChildren()[r.start]?.replace($createRangeSuggestionNode(data, originals));
     };
-
-    // Structural (create/clear) pins scroll + blurs; a pure stream update doesn't.
-    const structural = !active || !hasNode;
-    if (structural) withScrollPinned(editor, mutate, true);
+    // Create is structural (pin scroll + blur); a pure stream update isn't.
+    if (!hasNode) withScrollPinned(editor, mutate, true);
     else editor.update(mutate, { tag: SKIP_DOM_SELECTION_TAG });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
@@ -948,6 +930,7 @@ export default function LexicalDomEditor({
   rangeSuggestion,
   onRangeAction,
   selectedIndices,
+  media,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -969,6 +952,9 @@ export default function LexicalDomEditor({
   // Top-level block indices to keep highlighted (the native MULTI-block selection),
   // so the chosen blocks stay marked after the OS text selection is dismissed.
   selectedIndices?: number[];
+  // Figure media resolution: authed base URL + token so large figures (no inline
+  // dataUri) load in the WebView via <img src=".../media/:index?token=...">.
+  media?: { base: string; token: string; thesisId: string; version: string | number };
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -984,6 +970,7 @@ export default function LexicalDomEditor({
   return (
     <LexicalComposer initialConfig={initialConfig}>
       <style>{CSS}</style>
+      <MediaContext.Provider value={media ?? { base: "", token: "", thesisId: "", version: "" }}>
       <div className="lx-root">
         <RichTextPlugin
           contentEditable={<ContentEditable className="lx-content" dir="auto" />}
@@ -997,6 +984,7 @@ export default function LexicalDomEditor({
         <RangeSuggestionPlugin rangeSuggestion={rangeSuggestion} onRangeAction={onRangeAction} />
         <SelectionHighlightPlugin indices={selectedIndices} />
       </div>
+      </MediaContext.Provider>
     </LexicalComposer>
   );
 }

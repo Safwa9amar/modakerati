@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, AppState } from "react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
-import { applyThesisOps, type DocBlockDTO, type DocumentDTO } from "@/lib/api";
+import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocumentDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
@@ -22,8 +22,20 @@ import { planOps, tally } from "@/lib/lexical-writeback";
 // Drop heavy base64 image bytes before crossing the DOM bridge — the editor shows
 // image placeholders (fine for text editing) and, because the baseline uses the
 // SAME stripped blocks, images produce no ops on save (the server keeps their bytes).
+// Keep inlined image bytes so figures actually RENDER in the editor, but bound the
+// total that crosses the DOM bridge — beyond the budget, drop the dataUri (the node
+// falls back to the lazy media URL / placeholder). The server already only inlines
+// small figures (<=~200KB each) as dataUri; large ones arrive with hasMedia + no
+// dataUri. Deterministic (same input → same output) so the save baseline and the
+// editor seed use identical blocks → images never produce spurious ops.
+const INLINE_MEDIA_BUDGET = 4 * 1024 * 1024; // ~4MB of base64 across the bridge
 function stripMedia(blocks: DocBlockDTO[]): DocBlockDTO[] {
-  return blocks.map((b) => (b.kind === "image" && b.dataUri ? { ...b, dataUri: undefined } : b));
+  let budget = INLINE_MEDIA_BUDGET;
+  return blocks.map((b) => {
+    if (b.kind !== "image" || !b.dataUri) return b;
+    if (b.dataUri.length <= budget) { budget -= b.dataUri.length; return b; }
+    return { ...b, dataUri: undefined };
+  });
 }
 
 export function WorkspaceLexicalView({
@@ -55,7 +67,10 @@ export function WorkspaceLexicalView({
   // screen top + the block's reported in-WebView Y = the block's screen Y.
   const wrapRef = useRef<View>(null);
   const editorTopRef = useRef(0);
-  const lastIndexRef = useRef(-1);
+  // Dedupe the native selection sync on the SET of spanned block indices (joined),
+  // not the anchor index — extending a cross-paragraph selection keeps the same
+  // anchor while the set grows, so an anchor-only guard would miss the growth.
+  const lastSelKeyRef = useRef<string>("");
   // Focused block index + its in-WebView Y — used to overlay the inline-AI suggestion.
   const focusRef = useRef<{ index: number; y: number }>({ index: -1, y: 0 });
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,12 +85,31 @@ export function WorkspaceLexicalView({
   const doc = useThesisDocStore((s) => s.byId[thesisId]);
   const syncedDocRef = useRef<DocumentDTO | undefined>(undefined);
   const inited = useRef(false);
+  // Auth token for loading LARGE figures in the WebView (via <img src>?token=). The
+  // server accepts the token query param; refreshed on doc change (freshness).
+  const [mediaToken, setMediaToken] = useState("");
+  useEffect(() => {
+    let alive = true;
+    getAuthHeader().then((h) => { if (alive) setMediaToken((h.Authorization ?? "").replace(/^Bearer\s+/, "")); }).catch(() => {});
+    return () => { alive = false; };
+  }, [doc]);
+  const media = useMemo(
+    () => ({ base: process.env.EXPO_PUBLIC_API_URL ?? "", token: mediaToken, thesisId, version: doc?.available ? doc.blocks.length : 0 }),
+    [mediaToken, thesisId, doc],
+  );
   // Outline-drawer navigation target (heading tapped in the Structure drawer).
   const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
+  // Persistent highlight for a MULTI-block selection: once the OS text selection is
+  // dismissed (e.g. the AI dock opens), keep the chosen blocks visibly marked in the
+  // editor. Only for multi-select — a single selected block is the caret/editing case
+  // and shouldn't be painted. Primitive subscriptions (no fresh-object selector loop).
+  const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
+  const multiSelect = useWorkspaceStore((s) => s.multiSelect);
   // Inline-AI: the pending AI proposal (if any) to render as an in-flow node in
   // Lexical. Select the STABLE byIndex ref (a fresh-object selector loops — see
   // the zustand Object.is trap) and derive the proposal in useMemo.
   const byIndex = useSuggestionStore((s) => s.byIndex);
+  const range = useSuggestionStore((s) => s.range);
   const suggestion = useMemo(() => {
     const keys = Object.keys(byIndex);
     if (!keys.length) return null;
@@ -92,8 +126,37 @@ export function WorkspaceLexicalView({
       reasoningMs: p.reasoningMs,
     };
   }, [byIndex]);
+  // The range proposal (multi-block dynamic rewrite) passed to the editor as an
+  // in-flow node covering the whole selected range.
+  const rangeSuggestion = useMemo(() => {
+    if (!range) return undefined;
+    return {
+      start: range.start,
+      end: range.end,
+      originalBlocks: range.originalBlocks,
+      original: range.original,
+      proposed: range.proposed,
+      status: range.status as string,
+      instruction: range.instruction,
+      reasoning: range.reasoning,
+      reasoningMs: range.reasoningMs,
+    };
+  }, [range]);
   const suggestionActiveRef = useRef(false);
-  suggestionActiveRef.current = !!suggestion;
+  // Any pending proposal (per-block OR range) suppresses the sync-layer reseed and
+  // the auto-save serialize, so the proposal isn't clobbered / serialized mid-flight.
+  suggestionActiveRef.current = !!suggestion || !!range;
+  // Persistent highlight for a MULTI-block selection: once the OS text selection is
+  // dismissed (e.g. the AI dock opens), keep the chosen blocks visibly marked. Only
+  // for multi-select, and NOT while a proposal is showing (the cards ARE the focus
+  // then, and the range node has replaced those blocks). Primitive subscriptions.
+  const highlightIndices = useMemo(
+    () =>
+      multiSelect && selectedBlocks.length > 1 && !range && Object.keys(byIndex).length === 0
+        ? selectedBlocks.map((b) => b.index)
+        : [],
+    [multiSelect, selectedBlocks, range, byIndex],
+  );
 
   // Approve/reject from the in-editor suggestion node → the native store (its
   // approve dispatches an editText op that flows back through the sync layer).
@@ -107,6 +170,31 @@ export function WorkspaceLexicalView({
     else if (action === "edit") { if (text) store.setProposed(idx, text); }
     else store.reject(idx);
   }, [thesisId]);
+
+  // Force-reseed the editor from the current (unchanged) stored doc — used when a
+  // range proposal is REJECTED: the server never changed, so restore the editor to
+  // the doc (the originals WITH their runs/alignment/direction), which the in-editor
+  // plugin can't reconstruct from its plain-text capture.
+  const reseedFromCurrentDoc = useCallback(() => {
+    const cur = useThesisDocStore.getState().byId[thesisId];
+    if (!cur?.available) return;
+    const latest = stripMedia(cur.blocks);
+    baselineRef.current = latest;
+    syncedDocRef.current = cur;
+    setReseed({ blocks: latest, nonce: ++reseedNonce.current });
+  }, [thesisId]);
+
+  // Approve/reject/again/edit from the in-editor RANGE node → the native store.
+  // Approve applies the replace-range (server echoes the doc → the sync layer reseeds
+  // it in); reject restores the originals via a reseed from the unchanged doc.
+  const onRangeAction = useCallback((action: string, text?: string) => {
+    const store = useSuggestionStore.getState();
+    if (!store.range) return;
+    if (action === "approve") void store.approveRange(thesisId, text);
+    else if (action === "again") void store.againRange(thesisId);
+    else if (action === "edit") { if (text) store.setRangeProposed(text); }
+    else { store.rejectRange(); reseedFromCurrentDoc(); }
+  }, [thesisId, reseedFromCurrentDoc]);
 
   const send = useCallback((type: string, value?: string) => {
     useLexicalEditorStore.getState().dispatch(type, value);
@@ -155,18 +243,27 @@ export function WorkspaceLexicalView({
   // from our own save (guarded by syncedDocRef).
   useEffect(() => {
     if (!inited.current) { inited.current = true; syncedDocRef.current = doc; return; }
-    if (!active || doc === syncedDocRef.current || saveTimer.current) return;
-    // Approve applied the proposal IN PLACE inside the editor (the plugin settles
-    // the suggestion node to the proposed text). A full reseed would rebuild every
-    // node and scroll the view to the document end — so consume this doc change
-    // silently (sync baseline/synced) without re-seeding. Checked BEFORE the
-    // suggestion guard so a state-update ordering race can't leave the flag stuck.
+    if (!active || doc === syncedDocRef.current) return;
+    // Single-block pill/approve applied the edit IN PLACE — consume the doc change
+    // silently (sync baseline/synced) without re-seeding, so it doesn't rebuild every
+    // node + scroll away. Checked FIRST so an ordering race can't leave it stuck.
     if (useLexicalEditorStore.getState().consumeSkipReseed()) {
       if (doc?.available) baselineRef.current = stripMedia(doc.blocks);
       syncedDocRef.current = doc;
       return;
     }
-    if (suggestionActiveRef.current) return;
+    // A DELIBERATE authoritative apply (range-rewrite approve) forces the reseed:
+    // bypass the pending-save + proposal guards and CANCEL any stale debounced save,
+    // so the applied doc always lands (the pending save would otherwise fire against a
+    // stale baseline and revert it). Normal external changes still yield to a pending
+    // save / an on-screen proposal.
+    const forced = useLexicalEditorStore.getState().consumeForceReseed();
+    if (forced) {
+      if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; pendingSave.current = false; }
+    } else {
+      if (saveTimer.current) return;
+      if (suggestionActiveRef.current) return;
+    }
     if (doc?.available) {
       const latest = stripMedia(doc.blocks);
       baselineRef.current = latest;
@@ -200,9 +297,17 @@ export function WorkspaceLexicalView({
       blockType: s.blockType, isRTL: s.isRTL, alignment: s.alignment,
     });
     focusRef.current = { index: s.index, y: typeof s.y === "number" ? s.y : 0 };
-    if (s.index !== lastIndexRef.current) {
-      lastIndexRef.current = s.index;
-      useWorkspaceStore.getState().selectBlock(s.index, s.text);
+    // Sync Lexical's selection to the native multi-block model. A cross-paragraph
+    // drag reports EVERY spanned block (s.blocks) so the pill + AI dock target the
+    // whole set (Summarize/Improve/… then act on all of them); a caret or in-block
+    // selection reports one → single-select (keeps the inline-suggestion path).
+    const spanned = s.blocks && s.blocks.length ? s.blocks : [{ index: s.index, text: s.text }];
+    const selKey = spanned.map((b) => b.index).join(",");
+    if (selKey !== lastSelKeyRef.current) {
+      lastSelKeyRef.current = selKey;
+      const ws = useWorkspaceStore.getState();
+      if (spanned.length > 1) ws.setSelection(spanned, true);
+      else ws.selectBlock(spanned[0].index, spanned[0].text);
     }
     if (typeof s.y === "number" && s.y >= 0) {
       useFloatingPillStore.getState().setAnchorY(editorTopRef.current + s.y);
@@ -249,6 +354,10 @@ export function WorkspaceLexicalView({
           scrollToIndex={scrollTarget ? { index: scrollTarget.index, nonce: scrollTarget.nonce } : undefined}
           suggestion={suggestion ?? undefined}
           onSuggestAction={onSuggestAction}
+          rangeSuggestion={rangeSuggestion}
+          onRangeAction={onRangeAction}
+          selectedIndices={highlightIndices}
+          media={media}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />
         {/* Auto-save status (no manual button — background sync on pause / exit). */}
