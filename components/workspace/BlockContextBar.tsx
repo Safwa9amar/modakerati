@@ -47,6 +47,13 @@ import {
   Rows3,
   Columns3,
   PanelTop,
+  LayoutGrid,
+  ArrowUpToLine,
+  ArrowDownToLine,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  Grid2x2,
+  Square,
   type LucideIcon,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -57,7 +64,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSearchStore } from "@/stores/search-store";
-import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
+import { removeThesisBlockBg, type DocBlockDTO, type DocumentDTO } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
 import { resolveBubbleKind, type BubbleKind } from "@/lib/bubble-configs";
@@ -65,11 +72,11 @@ import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
 import { chipOut, layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff, SPRING_SOFT } from "@/lib/motion";
 import { isPillHandoff, shouldGlow } from "@/lib/pill-handoff";
-import type { FormatChange, ParaRun } from "@/lib/thesis-ops";
+import { applyOpToDoc, executeOp, type FormatChange, type ParaRun, type ThesisOp } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
-type Category = "style" | "align" | "direction" | "list" | "color";
+type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout";
 
 // engine "both" == UI "justify"
 const alignFromDoc = (a: string | null): Align | null => (a === "both" ? "justify" : (a as Align | null));
@@ -304,9 +311,40 @@ export function BlockContextBar({
   // ── Table editing (the selected block is a table) ──
   const tableRows = selectedBlock?.kind === "table" ? selectedBlock.rows.length : 0;
   const tableCols = selectedBlock?.kind === "table" ? (selectedBlock.rows[0]?.length ?? 0) : 0;
-  const tableEdit = (op: Omit<Extract<import("@/lib/thesis-ops").ThesisOp, { type: "tableOp" }>, "type" | "index">) => {
+  // Word table styling the server rides on the table DTO (see server
+  // parseTableStyle) — not on the base api type, so read it through a cast to
+  // drive the active states in the Layout sub-pill.
+  const tableStyle =
+    selectedBlock?.kind === "table"
+      ? (selectedBlock as { align?: "left" | "center" | "right" | null; header?: boolean })
+      : null;
+  const tableAlign = tableStyle?.align ?? null;
+  const tableHeader = !!tableStyle?.header;
+  const tableEdit = async (op: Omit<Extract<ThesisOp, { type: "tableOp" }>, "type" | "index">) => {
     if (soleIndex == null) return;
-    void useThesisDocStore.getState().mutate(thesisId, { type: "tableOp", index: soleIndex, ...op });
+    const full: ThesisOp = { type: "tableOp", index: soleIndex, ...op };
+    const store = useThesisDocStore.getState();
+    // Silent sync (like the Lexical text auto-save): optimistically patch the
+    // doc, send the op straight to the server, and reconcile via setDoc — which
+    // bumps `tick` only, so the reseed re-renders the table WITHOUT firing the
+    // durable-queue `drainTick` refetch cascade (editor-config/outline/PDF).
+    // Fall back to the ordered durable queue when other ops are still pending,
+    // since table ops are positional and must land after them.
+    if ((store.pending[thesisId] ?? 0) > 0) {
+      void store.mutate(thesisId, full);
+      return;
+    }
+    const cur = store.byId[thesisId];
+    if (cur?.available) store.setDoc(thesisId, applyOpToDoc(cur, full));
+    try {
+      const res = await executeOp(thesisId, full);
+      if (res && typeof res === "object" && "document" in res && res.document) {
+        store.setDoc(thesisId, res.document as DocumentDTO);
+      }
+      void store.refreshHistoryState(thesisId);
+    } catch {
+      void store.revalidate(thesisId);
+    }
   };
 
   const move = (dir: "up" | "down") => {
@@ -632,26 +670,20 @@ export function BlockContextBar({
     useSearchStore.getState().openSearch();
   };
 
-  // ── TABLE block: full structure + layout editing (rows/columns, header, align,
-  // direction) via the server tableOp (engine Doc facade, formatting-preserving),
-  // plus move/delete the whole table + document search. Row/column deletes target
-  // the LAST row/column (no per-cell picker yet). ──
+  // ── TABLE block: structure + layout editing organized into CATEGORIES that each
+  // open a sub-pill of tools (Rows / Columns / Layout), mirroring the paragraph
+  // Style/Align/Direction pattern — see renderExpansion() for the tool rows. Edits
+  // go through the server tableOp (engine Doc facade, formatting-preserving) via
+  // the silent sync path. The row (⋯) also carries move/delete of the whole table
+  // + document search. ──
   const tableTools = (
     <>
-      {chip({ keyProp: "tbl-addrow", Icon: BetweenHorizontalEnd, accessibilityLabel: t("blockBar.addRow", { defaultValue: "Add row" }), enterIndex: 0, onPress: () => tableEdit({ action: "addRow" }) })}
-      {chip({ keyProp: "tbl-delrow", Icon: Rows3, accessibilityLabel: t("blockBar.deleteRow", { defaultValue: "Delete last row" }), disabled: tableRows <= 1, enterIndex: 1, onPress: () => tableEdit({ action: "deleteRow", row: tableRows - 1 }) })}
-      {chip({ keyProp: "tbl-addcol", Icon: BetweenVerticalEnd, accessibilityLabel: t("blockBar.addColumn", { defaultValue: "Add column" }), enterIndex: 2, onPress: () => tableEdit({ action: "addColumn" }) })}
-      {chip({ keyProp: "tbl-delcol", Icon: Columns3, accessibilityLabel: t("blockBar.deleteColumn", { defaultValue: "Delete last column" }), disabled: tableCols <= 1, enterIndex: 3, onPress: () => tableEdit({ action: "deleteColumn", col: tableCols - 1 }) })}
+      {categoryChip("tblRows", Rows3, t("blockBar.rows", { defaultValue: "Rows" }), 0)}
+      {categoryChip("tblCols", Columns3, t("blockBar.columns", { defaultValue: "Columns" }), 1)}
+      {categoryChip("tblLayout", LayoutGrid, t("blockBar.tableLayout", { defaultValue: "Table layout" }), 2)}
       {sep("ts1")}
-      {chip({ keyProp: "tbl-header", Icon: PanelTop, accessibilityLabel: t("blockBar.headerRow", { defaultValue: "Header row" }), enterIndex: 4, onPress: () => tableEdit({ action: "layout", opts: { headerRow: true } }) })}
-      {chip({ keyProp: "tbl-al", Icon: AlignLeft, accessibilityLabel: t("blockBar.alignLeft", { defaultValue: "Left" }), enterIndex: 5, onPress: () => tableEdit({ action: "layout", opts: { alignment: "left" } }) })}
-      {chip({ keyProp: "tbl-ac", Icon: AlignCenter, accessibilityLabel: t("blockBar.alignCenter", { defaultValue: "Center" }), enterIndex: 6, onPress: () => tableEdit({ action: "layout", opts: { alignment: "center" } }) })}
-      {chip({ keyProp: "tbl-ar", Icon: AlignRight, accessibilityLabel: t("blockBar.alignRight", { defaultValue: "Right" }), enterIndex: 7, onPress: () => tableEdit({ action: "layout", opts: { alignment: "right" } }) })}
-      {chip({ keyProp: "tbl-rtl", Icon: PilcrowLeft, accessibilityLabel: t("blockBar.dirRtl", { defaultValue: "Right to left" }), enterIndex: 8, onPress: () => tableEdit({ action: "layout", opts: { direction: "rtl" } }) })}
-      {chip({ keyProp: "tbl-ltr", Icon: PilcrowRight, accessibilityLabel: t("blockBar.dirLtr", { defaultValue: "Left to right" }), enterIndex: 9, onPress: () => tableEdit({ action: "layout", opts: { direction: "ltr" } }) })}
-      {sep("ts2")}
-      {imageMoveDeleteChips(10)}
-      {chip({ keyProp: "tbl-search", Icon: Search, accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }), enterIndex: 13, onPress: openSearch })}
+      {imageMoveDeleteChips(3)}
+      {chip({ keyProp: "tbl-search", Icon: Search, accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }), enterIndex: 6, onPress: openSearch })}
     </>
   );
 
@@ -738,7 +770,38 @@ export function BlockContextBar({
 
   const renderExpansion = () => {
     if (!activeCategory) return null;
+    // Category chips are kind-specific: table categories (Rows/Columns/Layout)
+    // only apply to a table, the paragraph categories only to text/headings. Skip
+    // rendering a stale category that lingered across a block-kind change.
+    const isTableCat =
+      activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout";
+    if (isTableCat !== isTable) return null;
     let body: React.ReactNode = null;
+    // A table sub-pill option chip (icon-only, same look as the align/style opts).
+    const tblOpt = (
+      key: string,
+      Icon: LucideIcon,
+      label: string,
+      enterIndex: number,
+      onPress: () => void,
+      opts?: { active?: boolean; disabled?: boolean },
+    ) => (
+      <AnimatedChip
+        key={key}
+        enterIndex={enterIndex}
+        onPress={onPress}
+        disabled={opts?.disabled}
+        active={opts?.active}
+        accessibilityLabel={label}
+        style={optPill(!!opts?.active, !!opts?.disabled)}
+      >
+        <Icon
+          size={16}
+          color={opts?.active ? colors.bgPrimary : opts?.disabled ? colors.textPlaceholder : colors.textPrimary}
+          strokeWidth={2}
+        />
+      </AnimatedChip>
+    );
     if (activeCategory === "style") {
       const levels = rtl ? [...styleLevels].reverse() : styleLevels;
       body = levels.map((l, i) => {
@@ -831,6 +894,38 @@ export function BlockContextBar({
           >
             <Eraser size={16} color={colors.textPrimary} strokeWidth={2} />
           </AnimatedChip>
+        </>
+      );
+    } else if (activeCategory === "tblRows") {
+      // Rows sub-pill: insert above / below the table, delete the last row.
+      body = (
+        <>
+          {tblOpt("tr-top", ArrowUpToLine, t("blockBar.rowAbove", { defaultValue: "Insert row at top" }), 0, () => void tableEdit({ action: "addRow", at: 0 }))}
+          {tblOpt("tr-bot", ArrowDownToLine, t("blockBar.rowBelow", { defaultValue: "Add row at bottom" }), 1, () => void tableEdit({ action: "addRow" }))}
+          {tblOpt("tr-del", Trash2, t("blockBar.deleteRow", { defaultValue: "Delete last row" }), 2, () => void tableEdit({ action: "deleteRow", row: tableRows - 1 }), { disabled: tableRows <= 1 })}
+        </>
+      );
+    } else if (activeCategory === "tblCols") {
+      // Columns sub-pill: insert left / right, delete the last column.
+      body = (
+        <>
+          {tblOpt("tc-left", ArrowLeftToLine, t("blockBar.colLeft", { defaultValue: "Insert column at left" }), 0, () => void tableEdit({ action: "addColumn", at: 0 }))}
+          {tblOpt("tc-right", ArrowRightToLine, t("blockBar.colRight", { defaultValue: "Add column at right" }), 1, () => void tableEdit({ action: "addColumn" }))}
+          {tblOpt("tc-del", Trash2, t("blockBar.deleteColumn", { defaultValue: "Delete last column" }), 2, () => void tableEdit({ action: "deleteColumn", col: tableCols - 1 }), { disabled: tableCols <= 1 })}
+        </>
+      );
+    } else if (activeCategory === "tblLayout") {
+      // Layout sub-pill: header row, table alignment, text direction, borders.
+      body = (
+        <>
+          {tblOpt("tl-header", PanelTop, t("blockBar.headerRow", { defaultValue: "Header row" }), 0, () => void tableEdit({ action: "layout", opts: { headerRow: true } }), { active: tableHeader })}
+          {tblOpt("tl-al", AlignLeft, t("blockBar.alignLeft", { defaultValue: "Left" }), 1, () => void tableEdit({ action: "layout", opts: { alignment: "left" } }), { active: tableAlign === "left" })}
+          {tblOpt("tl-ac", AlignCenter, t("blockBar.alignCenter", { defaultValue: "Center" }), 2, () => void tableEdit({ action: "layout", opts: { alignment: "center" } }), { active: tableAlign === "center" })}
+          {tblOpt("tl-ar", AlignRight, t("blockBar.alignRight", { defaultValue: "Right" }), 3, () => void tableEdit({ action: "layout", opts: { alignment: "right" } }), { active: tableAlign === "right" })}
+          {tblOpt("tl-rtl", PilcrowLeft, t("blockBar.dirRtl", { defaultValue: "Right to left" }), 4, () => void tableEdit({ action: "layout", opts: { direction: "rtl" } }))}
+          {tblOpt("tl-ltr", PilcrowRight, t("blockBar.dirLtr", { defaultValue: "Left to right" }), 5, () => void tableEdit({ action: "layout", opts: { direction: "ltr" } }))}
+          {tblOpt("tl-bord-on", Grid2x2, t("blockBar.bordersOn", { defaultValue: "Borders" }), 6, () => void tableEdit({ action: "layout", opts: { borders: true } }))}
+          {tblOpt("tl-bord-off", Square, t("blockBar.bordersOff", { defaultValue: "No borders" }), 7, () => void tableEdit({ action: "layout", opts: { borders: false } }))}
         </>
       );
     } else if (lexActive) {

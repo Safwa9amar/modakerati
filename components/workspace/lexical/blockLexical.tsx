@@ -42,6 +42,13 @@ import type { DocBlockDTO } from "@/lib/api";
 
 // The inline-run extension the paragraph DTO carries (not in the base type).
 export type ParaRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
+// Word table styling the server rides on the table DTO next to `rows` (see
+// server parseTableStyle) — not on the base `lib/api` DocBlockDTO type.
+export type TableStyleExtra = {
+  align?: "left" | "center" | "right" | null;
+  header?: boolean;
+  fills?: (string | null)[][];
+};
 type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
 
 // ── Opaque structural-block node (table / image / other) ─────────────────────
@@ -116,9 +123,30 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
     const key = this.getKey();
     let content: React.ReactNode;
     if (b.kind === "table") {
+      // Word table styling (alignment, header row, per-cell shading) rides on
+      // the DTO next to the plain cell grid — render it so the Lexical table
+      // matches the .docx instead of a flat bordered grid. See server
+      // parseTableStyle().
+      const t = b as typeof b & TableStyleExtra;
+      const align = t.align ?? null;
+      const header = !!t.header;
+      const fills = t.fills;
+      const tableStyle: Record<string, unknown> = {
+        borderCollapse: "collapse",
+        fontSize: "13px",
+        margin: "6px 0",
+        width: align ? "auto" : "100%",
+      };
+      if (align === "center") {
+        tableStyle.marginLeft = "auto";
+        tableStyle.marginRight = "auto";
+      } else if (align === "right") {
+        tableStyle.marginLeft = "auto";
+        tableStyle.marginRight = "0";
+      }
       content = React.createElement(
         "table",
-        { style: { borderCollapse: "collapse", width: "100%", fontSize: "13px", margin: "6px 0" } },
+        { style: tableStyle },
         React.createElement(
           "tbody",
           null,
@@ -126,9 +154,18 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
             React.createElement(
               "tr",
               { key: ri },
-              row.map((cell, ci) =>
-                React.createElement("td", { key: ci, style: { border: "1px solid #d8d8de", padding: "4px 8px" } }, cell),
-              ),
+              row.map((cell, ci) => {
+                const isHeader = header && ri === 0;
+                const fill = fills?.[ri]?.[ci] ?? null;
+                const cellStyle: Record<string, unknown> = {
+                  border: "1px solid #c8c8d0",
+                  padding: "4px 8px",
+                };
+                if (fill) cellStyle.backgroundColor = fill;
+                else if (isHeader) cellStyle.backgroundColor = "#f0f0f3";
+                if (isHeader) cellStyle.fontWeight = 600;
+                return React.createElement(isHeader ? "th" : "td", { key: ci, style: cellStyle }, cell);
+              }),
             ),
           ),
         ),
