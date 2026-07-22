@@ -153,6 +153,18 @@ function diffedProposed(original: string, proposed: string): React.ReactNode {
   );
 }
 
+// Inline SVG glyphs — the WebView font tofus bare ✓/✕ chars (they showed as "?"),
+// so draw them as stroked paths that always render.
+function svgIcon(path: string, size: number) {
+  return React.createElement(
+    "svg",
+    { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.6, strokeLinecap: "round", strokeLinejoin: "round" },
+    React.createElement("path", { key: "p", d: path }),
+  );
+}
+const ICON_CHECK = "M20 6 9 17l-5-5";
+const ICON_X = "M18 6 6 18M6 6l12 12";
+
 function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }) {
   const loading = sug.status === "loading" && !sug.proposed;
   const err = sug.status === "error";
@@ -176,9 +188,14 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
       React.createElement(
         "button",
         { className: "lx-sug-approve", disabled: loading || err, onClick: () => editor.dispatchCommand(SUGGEST_APPROVE_COMMAND, undefined) },
-        "✓ Approve",
+        svgIcon(ICON_CHECK, 15),
+        React.createElement("span", { key: "t" }, "Approve"),
       ),
-      React.createElement("button", { className: "lx-sug-reject", title: "Reject", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) }, "✕"),
+      React.createElement(
+        "button",
+        { className: "lx-sug-reject", title: "Reject", "aria-label": "Reject", onClick: () => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined) },
+        svgIcon(ICON_X, 15),
+      ),
     ),
   );
 }

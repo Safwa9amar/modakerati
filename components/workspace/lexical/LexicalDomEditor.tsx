@@ -42,6 +42,7 @@ import {
   $getRoot,
   $getNodeByKey,
   $getSelection,
+  $setSelection,
   $isRangeSelection,
   $isNodeSelection,
   $createParagraphNode,
@@ -269,7 +270,8 @@ function EditorBridge({
         const sel = $getSelection();
         if (!$isRangeSelection(sel)) return;
         const anchor = sel.anchor.getNode();
-        const top = anchor.getKey() === "root" ? null : anchor.getTopLevelElementOrThrow();
+        const top = anchor.getKey() === "root" ? null : anchor.getTopLevelElement();
+        if (anchor.getKey() !== "root" && !top) return; // selection detached (e.g. mid-suggestion)
         let blockType = "paragraph";
         if (top) {
           if ($isHeadingNode(top)) blockType = top.getTag();
@@ -488,6 +490,9 @@ function SuggestionPlugin({
           : target.getType() === "quote"
             ? "quote"
             : "paragraph";
+        // Detach the caret from the block we're about to replace — a RangeSelection
+        // left pointing into a removed node makes Lexical throw during reconcile.
+        $setSelection(null);
         target.replace($createSuggestionNode(data, origType));
       }
     });
