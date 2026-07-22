@@ -108,8 +108,12 @@ const CSS = `
 .lx-italic { font-style: italic; }
 .lx-underline { text-decoration: underline; }
 ::selection { background: #ffe08a; }
-/* Floating per-block toolbar — anchored above the selected block, tools by kind. */
-.lx-tb { position: fixed; z-index: 40; display: flex; gap: 3px; align-items: center; background: #ffffff; border: 1px solid #d8d8de; border-radius: 12px; padding: 4px 5px; box-shadow: 0 8px 22px -6px rgba(20,22,40,.30); max-width: calc(100vw - 12px); overflow-x: auto; scrollbar-width: none; }
+/* Floating per-block bubble — a kind-icon bubble that expands to the pill of that
+   block's tools (mirrors the native FloatingPill → BlockContextBar). */
+.lx-tb-anchor { position: fixed; z-index: 40; }
+.lx-tb-bubble { width: 34px; height: 34px; border: none; border-radius: 50%; background: #4b57c4; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px -4px rgba(75,87,196,.5); }
+.lx-tb-bubble:active { transform: scale(.92); }
+.lx-tb { display: flex; gap: 3px; align-items: center; background: #ffffff; border: 1px solid #d8d8de; border-radius: 12px; padding: 4px 5px; box-shadow: 0 8px 22px -6px rgba(20,22,40,.30); max-width: calc(100vw - 12px); overflow-x: auto; scrollbar-width: none; }
 .lx-tb::-webkit-scrollbar { display: none; }
 .lx-tb-b { min-width: 30px; height: 30px; border: none; background: transparent; border-radius: 7px; font-size: 13px; color: #333; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0 7px; font-weight: 600; flex: 0 0 auto; }
 .lx-tb-b:active { transform: scale(.9); }
@@ -244,9 +248,21 @@ function EditorBridge({
 // get formatting; structural blocks (image/table/other, selected as a node) get
 // move/delete. Lives inside the WebView so anchoring is just web positioning.
 type TbInfo = { key: string; kind: "text" | "block"; block: string; bold: boolean; italic: boolean; underline: boolean };
+
+// Collapsed-bubble glyph for the selected block's kind (like the native bubble icon).
+function kindIcon(kind: "text" | "block", block: string): string {
+  if (kind === "block") return block === "image" ? "🖼" : block === "table" ? "▦" : "⋯";
+  if (block === "h1" || block === "h2" || block === "h3") return "H";
+  if (block === "bullet") return "•";
+  if (block === "number") return "1.";
+  if (block === "quote") return "❝";
+  return "¶";
+}
+
 function FloatingToolbar() {
   const [editor] = useLexicalComposerContext();
   const [tb, setTb] = useState<(TbInfo & { top: number; left: number }) | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const compute = useCallback(() => {
     const rootEl = editor.getRootElement();
@@ -290,6 +306,9 @@ function FloatingToolbar() {
     };
   }, [editor, compute]);
 
+  // Collapse back to the kind-icon bubble whenever the selected block changes.
+  useEffect(() => { setExpanded(false); }, [tb?.key]);
+
   if (!tb) return null;
 
   const fmt = (f: TextFormatType) => editor.dispatchCommand(FORMAT_TEXT_COMMAND, f);
@@ -312,8 +331,14 @@ function FloatingToolbar() {
 
   const isH = (t: string) => tb.block === t;
   return (
-    <div className="lx-tb" style={{ top: tb.top, left: tb.left }} onMouseDown={(e) => e.preventDefault()}>
-      {tb.kind === "text" ? (
+    <div className="lx-tb-anchor" style={{ top: tb.top, left: tb.left }}>
+      {!expanded ? (
+        <button className="lx-tb-bubble" onClick={() => setExpanded(true)} aria-label={`Edit ${tb.block}`}>{kindIcon(tb.kind, tb.block)}</button>
+      ) : (
+        <div className="lx-tb" onMouseDown={(e) => e.preventDefault()}>
+          <B onClick={() => setExpanded(false)}>‹</B>
+          {sep("sx")}
+          {tb.kind === "text" ? (
         <>
           <B on={tb.bold} onClick={() => fmt("bold")}><b>B</b></B>
           <B on={tb.italic} onClick={() => fmt("italic")}><i>I</i></B>
@@ -345,6 +370,8 @@ function FloatingToolbar() {
           <B onClick={() => move(1)}>↓</B>
           <B onClick={del}>🗑</B>
         </>
+      )}
+        </div>
       )}
     </div>
   );
