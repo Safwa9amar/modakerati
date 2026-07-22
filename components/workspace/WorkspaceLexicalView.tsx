@@ -7,6 +7,8 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
+import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { planOps, tally } from "@/lib/lexical-writeback";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
@@ -42,10 +44,11 @@ export function WorkspaceLexicalView({
   // In-place reconcile trigger (surgical reseed — no remount) for external edits.
   const [reseed, setReseed] = useState<{ blocks: DocBlockDTO[]; nonce: number } | undefined>(undefined);
   const reseedNonce = useRef(0);
-  const [command, setCommand] = useState<LexicalCommand | null>(null);
+  // Commands (formatting from the native pill + our own serialize) flow through the
+  // shared editor store so BlockContextBar can drive Lexical directly.
+  const command = useLexicalEditorStore((s) => s.command);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
-  const nonce = useRef(0);
   const pendingSave = useRef(false);
   const wasActive = useRef(active);
   // For anchoring the native pill/AI-dock over the WebView: the editor's absolute
@@ -91,9 +94,6 @@ export function WorkspaceLexicalView({
   }, [byIndex]);
   const suggestionActiveRef = useRef(false);
   suggestionActiveRef.current = !!suggestion;
-  // Set just before an approve mutates the doc, so the reseed effect skips the
-  // rebuild (the editor already applied the proposal in place) — no scroll jump.
-  const skipReseedRef = useRef(false);
 
   // Approve/reject from the in-editor suggestion node → the native store (its
   // approve dispatches an editText op that flows back through the sync layer).
@@ -102,14 +102,14 @@ export function WorkspaceLexicalView({
     const keys = Object.keys(store.byIndex);
     if (!keys.length) return;
     const idx = Number(keys[0]);
-    if (action === "approve") { skipReseedRef.current = true; store.approve(thesisId, idx); }
+    if (action === "approve") { useLexicalEditorStore.getState().requestSkipReseed(); store.approve(thesisId, idx); }
     else if (action === "again") void store.again(thesisId, idx);
     else if (action === "edit") { if (text) store.setProposed(idx, text); }
     else store.reject(idx);
   }, [thesisId]);
 
   const send = useCallback((type: string, value?: string) => {
-    setCommand({ type, value, nonce: ++nonce.current } as LexicalCommand);
+    useLexicalEditorStore.getState().dispatch(type, value);
   }, []);
   const flushNow = useCallback(() => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
@@ -143,6 +143,13 @@ export function WorkspaceLexicalView({
     return () => sub.remove();
   }, [flushNow]);
 
+  // Tell the shared editor store whether the Lexical Writer is the active surface,
+  // so the native pill routes formatting to Lexical (vs the legacy op queue).
+  useEffect(() => {
+    useLexicalEditorStore.getState().setActive(active);
+    return () => useLexicalEditorStore.getState().setActive(false);
+  }, [active]);
+
   // Reflect external edits (native pill/BlockContextBar, AI dock, undo/redo) into
   // Lexical by re-seeding — but never over the user's unsaved typing, and never
   // from our own save (guarded by syncedDocRef).
@@ -154,8 +161,7 @@ export function WorkspaceLexicalView({
     // node and scroll the view to the document end — so consume this doc change
     // silently (sync baseline/synced) without re-seeding. Checked BEFORE the
     // suggestion guard so a state-update ordering race can't leave the flag stuck.
-    if (skipReseedRef.current) {
-      skipReseedRef.current = false;
+    if (useLexicalEditorStore.getState().consumeSkipReseed()) {
       if (doc?.available) baselineRef.current = stripMedia(doc.blocks);
       syncedDocRef.current = doc;
       return;
@@ -175,14 +181,24 @@ export function WorkspaceLexicalView({
   // pause-save avoids losing work if the app is backgrounded/killed.)
   const scheduleSave = useCallback(() => {
     if (suggestionActiveRef.current) return; // a pending AI proposal is in the editor — don't serialize it
+    // Mirror the legacy composing gate: while editing we DON'T periodically flush
+    // (a per-pause API call is what flooded the server) — everything persists in
+    // ONE batched /ops call on leave/background. Only the explicit "sync while
+    // editing" setting re-enables the periodic flush.
+    if (!useSettingsStore.getState().syncWhileEditing) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { saveTimer.current = null; pendingSave.current = true; send("serialize"); }, 1500);
   }, [send]);
 
-  // Bridge Lexical's selection to the NATIVE tools + schedule a background sync.
+  // Bridge Lexical's selection to the NATIVE tools + report the block's live format
+  // (so the pill's Bold/H2/RTL/centered highlights match the caret) + schedule sync.
   const onState = useCallback((s: LexicalState) => {
     scheduleSave();
     if (s.index < 0) return;
+    useLexicalEditorStore.getState().setFormat({
+      bold: s.bold, italic: s.italic, underline: s.underline,
+      blockType: s.blockType, isRTL: s.isRTL, alignment: s.alignment,
+    });
     focusRef.current = { index: s.index, y: typeof s.y === "number" ? s.y : 0 };
     if (s.index !== lastIndexRef.current) {
       lastIndexRef.current = s.index;

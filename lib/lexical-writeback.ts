@@ -8,7 +8,7 @@
 // Used by the Lexical Write-back lab screen and the in-workspace Lexical editor.
 
 import { detectDir } from "@/components/workspace/DocBlock";
-import { applyOpToBlocks, type ThesisOp } from "@/lib/thesis-ops";
+import { applyOpToBlocks, type ThesisOp, type FormatChange } from "@/lib/thesis-ops";
 import type { DocBlockDTO } from "@/lib/api";
 
 export type ParaRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
@@ -38,9 +38,19 @@ export function tsig(b: DocBlockDTO): string {
   if (b.kind === "image") return "i|" + (b.dataUri ?? "") + "|" + (b.caption ?? "") + "|" + (b.hasMedia ? 1 : 0);
   return "o|" + b.tag;
 }
-type Fmt = { level?: number; alignment?: "left" | "center" | "right" | "justify"; direction?: "rtl" | "ltr" };
-function fmtChanges(o: ParagraphDTO, n: ParagraphDTO): Fmt | null {
-  const c: Fmt = {};
+// The whole-paragraph inline-mark state (bold/italic/underline all-runs, uniform
+// color) — the pill applies marks to the whole block, so these are uniform.
+const allOf = (runs: ParaRun[], f: (r: ParaRun) => boolean) => runs.length > 0 && runs.every(f);
+const uniformColor = (runs: ParaRun[]): string | null => {
+  const s = new Set(runs.map((r) => (r.color || "").replace(/^#/, "").toUpperCase()));
+  return s.size === 1 ? [...s][0] : null; // null = non-uniform (can't represent whole-block)
+};
+
+// Block-level (level/align/dir) AND whole-paragraph inline marks (bold/italic/
+// underline/color) → one `format` op. Marks used to be dropped as "unsupported",
+// which is why formatting done in Lexical never persisted.
+function fmtChanges(o: ParagraphDTO, n: ParagraphDTO): FormatChange | null {
+  const c: FormatChange = {};
   if (o.level !== n.level) c.level = n.level;
   if ((o.alignment ?? null) !== (n.alignment ?? null)) {
     const ui = uiAlign(n.alignment);
@@ -49,6 +59,15 @@ function fmtChanges(o: ParagraphDTO, n: ParagraphDTO): Fmt | null {
   const oDir = o.direction ?? detectDir(o.text, false);
   const nDir = n.direction ?? detectDir(n.text, false);
   if (oDir !== nDir && (n.direction === "rtl" || n.direction === "ltr")) c.direction = n.direction;
+  // inline marks (whole-paragraph): only when the mark signature actually changed.
+  const oR = runsOf(o), nR = runsOf(n);
+  if (normMarks(oR) !== normMarks(nR)) {
+    const nb = allOf(nR, (r) => !!r.bold); if (allOf(oR, (r) => !!r.bold) !== nb) c.bold = nb;
+    const ni = allOf(nR, (r) => !!r.italic); if (allOf(oR, (r) => !!r.italic) !== ni) c.italic = ni;
+    const nu = allOf(nR, (r) => !!r.underline); if (allOf(oR, (r) => !!r.underline) !== nu) c.underline = nu;
+    const oc = uniformColor(oR), nc = uniformColor(nR);
+    if (nc !== null && oc !== nc) c.color = nc === "" ? null : nc; // "" (no color) → clear
+  }
   return Object.keys(c).length ? c : null;
 }
 
@@ -96,7 +115,6 @@ export function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: Thes
         if (now) {
           const fc = fmtChanges(now, newB);
           if (fc) emit({ type: "format", indices: [pos], changes: fc });
-          if (normMarks(runsOf(now)) !== normMarks(runsOf(newB))) unsupported.push(`inline run formatting @${pos}`);
         }
         pos++; k++;
         continue;
@@ -108,7 +126,6 @@ export function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: Thes
       if (cur && newB) {
         const fc = fmtChanges(cur, newB);
         if (fc) emit({ type: "format", indices: [pos], changes: fc });
-        if (normMarks(runsOf(cur)) !== normMarks(runsOf(newB))) unsupported.push(`inline run formatting @${pos}`);
       }
       pos++;
     } else if (step.op === "del") {

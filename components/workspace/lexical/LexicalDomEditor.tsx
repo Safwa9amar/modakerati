@@ -45,6 +45,8 @@ import {
   $setSelection,
   $isRangeSelection,
   $isNodeSelection,
+  $isParagraphNode,
+  $isTextNode,
   $createParagraphNode,
   $createTextNode,
   FORMAT_TEXT_COMMAND,
@@ -54,6 +56,7 @@ import {
   COMMAND_PRIORITY_LOW,
   SKIP_DOM_SELECTION_TAG,
   type ElementFormatType,
+  type ElementNode,
   type TextFormatType,
   type LexicalEditor,
 } from "lexical";
@@ -85,16 +88,12 @@ export type SuggestionInput = {
   reasoningMs?: number;
 };
 
-// The serializable command the native bubble sends in. `nonce` bumps per tap.
-export type LexicalCommand =
-  | { type: "bold" | "italic" | "underline" | "undo" | "redo"; value?: undefined; nonce: number }
-  | { type: "align"; value: ElementFormatType; nonce: number }
-  | { type: "heading"; value: HeadingTagType | "paragraph"; nonce: number }
-  | { type: "quote"; value?: undefined; nonce: number }
-  | { type: "list"; value: "ul" | "ol" | "none"; nonce: number }
-  | { type: "color"; value: string; nonce: number } // 6-hex, or "clear"
-  | { type: "clearFormatting"; value?: undefined; nonce: number }
-  | { type: "serialize"; value?: undefined; nonce: number };
+// The serializable command the native bubble/pill sends in. `nonce` bumps per tap.
+// Generic (a plain {type,value?} bag) so both the lab bubble's typed commands and
+// the workspace pill's `blockFormat` (JSON value) / `direction` flow through it.
+// Known types: bold | italic | underline | undo | redo | align | heading | quote |
+// list | color | clearFormatting | serialize | direction | blockFormat.
+export type LexicalCommand = { type: string; value?: string; nonce: number };
 
 // The active-format snapshot reported back to the native bubble.
 export type LexicalState = {
@@ -103,6 +102,7 @@ export type LexicalState = {
   underline: boolean;
   blockType: string; // paragraph | h1 | h2 | h3 | quote | bullet | number
   isRTL: boolean;
+  alignment: string | null; // left | center | right | justify | null (element format)
   index: number; // position of the focused top-level block (-1 if none)
   text: string; // the focused block's text (for the selection chip / AI targeting)
   y?: number; // the block's top in WebView-viewport px (for anchoring the native pill)
@@ -279,7 +279,10 @@ function EditorBridge({
   // Apply the latest command. Keyed on nonce so a repeated tap re-fires.
   useEffect(() => {
     if (!command) return;
-    editor.focus();
+    // Don't focus for the block-scoped pill format or serialize — focusing the
+    // content-editable pops the keyboard and scrolls (the pill applies formatting
+    // without moving the caret). The lab's selection commands still focus.
+    if (command.type !== "blockFormat" && command.type !== "serialize") editor.focus();
     switch (command.type) {
       case "bold":
       case "italic":
@@ -287,14 +290,20 @@ function EditorBridge({
         editor.dispatchCommand(FORMAT_TEXT_COMMAND, command.type as TextFormatType);
         break;
       case "align":
-        editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, command.value);
+        if (command.value) editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, command.value as ElementFormatType);
+        break;
+      case "blockFormat":
+        // Whole-block formatting from the native pill: apply to every selected
+        // block (matches the server's whole-paragraph `format` op). Tagged
+        // SKIP_DOM_SELECTION so it never focuses/scrolls the WebView.
+        editor.update(() => applyBlockFormat(command.value), { tag: SKIP_DOM_SELECTION_TAG });
         break;
       case "heading":
         editor.update(() => {
           const sel = $getSelection();
           if (!$isRangeSelection(sel)) return;
           $setBlocksType(sel, () =>
-            command.value === "paragraph" ? $createParagraphNode() : $createHeadingNode(command.value),
+            command.value === "paragraph" || !command.value ? $createParagraphNode() : $createHeadingNode(command.value as HeadingTagType),
           );
         });
         break;
@@ -318,7 +327,7 @@ function EditorBridge({
       case "color":
         editor.update(() => {
           const sel = $getSelection();
-          if ($isRangeSelection(sel)) $patchStyleText(sel, { color: command.value === "clear" ? "" : `#${command.value.replace(/^#/, "")}` });
+          if ($isRangeSelection(sel)) $patchStyleText(sel, { color: !command.value || command.value === "clear" ? "" : `#${command.value.replace(/^#/, "")}` });
         });
         break;
       case "clearFormatting":
@@ -341,7 +350,7 @@ function EditorBridge({
   useEffect(() => {
     return editor.registerUpdateListener(({ editorState }) => {
       let key: string | null = null;
-      let payload: LexicalState = { bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, index: -1, text: "", y: -1 };
+      let payload: LexicalState = { bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, alignment: null, index: -1, text: "", y: -1 };
       editorState.read(() => {
         const sel = $getSelection();
         if (!$isRangeSelection(sel)) return;
@@ -355,12 +364,15 @@ function EditorBridge({
           else blockType = top.getType(); // "paragraph" | "quote"
         }
         key = top ? top.getKey() : null;
+        // ElementNode.getFormatType() → "" | "left" | "center" | "right" | "justify" | "start" | "end"
+        const fmt = top ? top.getFormatType() : "";
         payload = {
           bold: sel.hasFormat("bold"),
           italic: sel.hasFormat("italic"),
           underline: sel.hasFormat("underline"),
           blockType,
           isRTL: !!top && top.getDirection() === "rtl",
+          alignment: fmt === "left" || fmt === "center" || fmt === "right" || fmt === "justify" ? fmt : null,
           index: top ? $getRoot().getChildren().indexOf(top) : -1,
           text: top ? top.getTextContent() : "",
           y: -1,
@@ -529,6 +541,55 @@ function withScrollPinned(editor: LexicalEditor, mutator: () => void, _blurAfter
     tag: SKIP_DOM_SELECTION_TAG,
     onUpdate: () => { restore(); requestAnimationFrame(restore); },
   });
+}
+
+// Whole-block formatting from the native pill (mirror of the server's
+// whole-paragraph `format` op): inline marks to every text child, level via a
+// paragraph⇄heading swap, alignment/direction on the element. Call inside update().
+type BlockFmtChange = {
+  bold?: boolean; italic?: boolean; underline?: boolean;
+  color?: string | null; clearFormatting?: boolean;
+  level?: number; alignment?: string; direction?: "rtl" | "ltr";
+};
+function applyBlockFormat(json: string | undefined) {
+  let payload: { indices?: number[]; changes?: BlockFmtChange };
+  try { payload = JSON.parse(json || "{}"); } catch { return; }
+  const indices = payload.indices || [];
+  const ch = payload.changes || {};
+  const roots = $getRoot().getChildren();
+  for (const idx of indices) {
+    const base = roots[idx];
+    if (!base || !($isHeadingNode(base) || $isParagraphNode(base))) continue;
+    let node: ElementNode = base;
+    // level → paragraph⇄heading swap, preserving children + element format/dir
+    if (ch.level !== undefined) {
+      const wantHead = ch.level >= 1;
+      const tag = ("h" + Math.min(ch.level, 6)) as HeadingTagType;
+      const isHead = $isHeadingNode(node);
+      if (wantHead !== isHead || ($isHeadingNode(node) && node.getTag() !== tag)) {
+        const el: ElementNode = wantHead ? $createHeadingNode(tag) : $createParagraphNode();
+        el.setFormat(node.getFormatType());
+        const d = node.getDirection(); if (d) el.setDirection(d);
+        el.append(...node.getChildren());
+        node.replace(el);
+        node = el;
+      }
+    }
+    if (ch.alignment !== undefined) node.setFormat(ch.alignment as ElementFormatType);
+    if (ch.direction !== undefined) node.setDirection(ch.direction);
+    // inline marks on every text child (whole-block, matching patchRuns)
+    for (const child of node.getChildren()) {
+      if (!$isTextNode(child)) continue;
+      (["bold", "italic", "underline"] as const).forEach((f) => {
+        if (ch[f] !== undefined && child.hasFormat(f) !== ch[f]) child.toggleFormat(f);
+      });
+      if (ch.color !== undefined) child.setStyle(ch.color == null ? "" : `color: #${String(ch.color).replace(/^#/, "")}`);
+      if (ch.clearFormatting) {
+        (["bold", "italic", "underline"] as const).forEach((f) => { if (child.hasFormat(f)) child.toggleFormat(f); });
+        child.setStyle("");
+      }
+    }
+  }
 }
 
 // Rebuild the original block node from a suggestion's captured type/text — used to

@@ -17,6 +17,7 @@ export default function LexicalLabScreen() {
     underline: false,
     blockType: "paragraph",
     isRTL: false,
+    alignment: null,
     index: -1,
     text: "",
   });

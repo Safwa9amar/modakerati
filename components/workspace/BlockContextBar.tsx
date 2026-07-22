@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, Alert, Keyboard } from "react-native";
 import type { ScrollView as RNScrollView } from "react-native";
 import Animated, {
@@ -49,6 +49,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSearchStore } from "@/stores/search-store";
 import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
@@ -154,6 +155,7 @@ interface Props {
    *  chevron that calls this — collapses the pill back to its bubble. The keyboard-
    *  docked bar never passes it. */
   onCollapse?: () => void;
+  blocks?: DocBlockDTO[];
 }
 
 /**
@@ -180,6 +182,7 @@ export function BlockContextBar({
   onAskAI,
   bottomInset,
   onCollapse,
+  blocks,
 }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -196,6 +199,27 @@ export function BlockContextBar({
   const canFormat = paragraphSelection.length > 0;
   const paraIndices = paragraphSelection.map((b) => b.index);
   const single = paragraphSelection.length === 1 ? paragraphSelection[0] : null;
+
+  // Dynamically compute heading levels up to deepestHeadingLevel + 1.
+  const deepestHeadingLevel = useMemo(() => {
+    if (!blocks) return 2; // Default fallback to H2
+    let max = 0;
+    for (const b of blocks) {
+      if (b.kind === "paragraph" && b.level > max) {
+        max = b.level;
+      }
+    }
+    return max;
+  }, [blocks]);
+
+  const maxHeadingLevel = Math.min(6, deepestHeadingLevel + 1);
+  const headingLevels = useMemo(() => {
+    return Array.from({ length: maxHeadingLevel }, (_, i) => i + 1);
+  }, [maxHeadingLevel]);
+
+  const styleLevels = useMemo(() => {
+    return [0, ...headingLevels];
+  }, [headingLevels]);
 
   // Smart-pill mode: which toolset the sole selection gets, driven by the SAME
   // registry that picks the collapsed bubble's icon (FloatingPill) — so the
@@ -223,10 +247,16 @@ export function BlockContextBar({
   const prevBubbleKindRef = useRef<BubbleKind | null>(null);
   useEffect(() => {
     if (bubbleKind === "heading" && prevBubbleKindRef.current !== "heading") {
-      setActiveCategory("style");
+      if (keyboardOpen || pillExpanded) {
+        setActiveCategory("style");
+      } else {
+        setActiveCategory(null);
+      }
+    } else if (bubbleKind === "heading" && !keyboardOpen && !pillExpanded) {
+      setActiveCategory(null);
     }
     prevBubbleKindRef.current = bubbleKind;
-  }, [bubbleKind]);
+  }, [bubbleKind, keyboardOpen, pillExpanded]);
 
   // Morphing toolsets keeps the ScrollView instance alive — snap back to the start
   // so a long paragraph toolset scrolled right can't leave a short image/table row
@@ -247,9 +277,22 @@ export function BlockContextBar({
         ? (selectedBlock.caption ?? "")
         : "";
 
-  // ── Wiring (mirrors ComposerEditTools: optimistic + durable format op) ──
+  // Is the Lexical Writer the active surface? Then formatting goes STRAIGHT to the
+  // editor (instant, on the selected block) and persists via its batched auto-sync
+  // on exit — NOT one durable /paragraphs/bulk op per tap (that flooded the API).
+  const lexActive = useLexicalEditorStore((s) => s.active);
+  const lexFmt = useLexicalEditorStore((s) => s.format);
+
+  // ── Wiring ──
+  // Lexical active → dispatch a whole-block `blockFormat` command into the editor
+  // (mirrors the server's whole-paragraph format op). Otherwise (legacy composer)
+  // → the durable op queue, exactly as before.
   const apply = (changes: FormatChange) => {
     if (!paraIndices.length) return;
+    if (lexActive) {
+      useLexicalEditorStore.getState().dispatch("blockFormat", JSON.stringify({ indices: paraIndices, changes }));
+      return;
+    }
     void useThesisDocStore.getState().mutate(thesisId, { type: "format", indices: paraIndices, changes });
   };
 
@@ -387,10 +430,17 @@ export function BlockContextBar({
   const soon = () =>
     Alert.alert(t("blockBar.soonTitle", { defaultValue: "Coming soon" }), t("blockBar.soonBody", { defaultValue: "Inline text styling arrives in a later update." }));
 
-  // Active-state helpers for the expansion options.
-  const allLevel = (l: number) => canFormat && paragraphSelection.every((b) => b.level === l);
-  const allAlign = (v: Align) => canFormat && paragraphSelection.every((b) => alignFromDoc(b.alignment) === v);
-  const allDirection = (v: "rtl" | "ltr") => canFormat && paragraphSelection.every((b) => b.direction === v);
+  // Active-state helpers for the expansion options. When Lexical is active they
+  // reflect the REAL editor selection (reported into the store), so the pill's
+  // highlights match what the caret actually sits in.
+  const allLevel = (l: number) =>
+    lexActive
+      ? l === 0
+        ? lexFmt.blockType === "paragraph" || lexFmt.blockType === "quote"
+        : lexFmt.blockType === "h" + l
+      : canFormat && paragraphSelection.every((b) => b.level === l);
+  const allAlign = (v: Align) => (lexActive ? lexFmt.alignment === v : canFormat && paragraphSelection.every((b) => alignFromDoc(b.alignment) === v));
+  const allDirection = (v: "rtl" | "ltr") => (lexActive ? (lexFmt.isRTL ? "rtl" : "ltr") === v : canFormat && paragraphSelection.every((b) => b.direction === v));
 
   // Inline-mark active state (Bold/Italic/Underline/Color). The paragraph DTO carries
   // `runs?` (server-emitted) but the app's DocBlockDTO type doesn't declare it — read
@@ -404,10 +454,12 @@ export function BlockContextBar({
       const runs = runsOf(b);
       return !!runs && runs.length > 0 && runs.every(on);
     });
-  const allBold = allMark((r) => !!r.bold);
-  const allItalic = allMark((r) => !!r.italic);
-  const allUnderline = allMark((r) => !!r.underline);
-  const colorActive = (hex: string) => allMark((r) => (r.color ?? "").toUpperCase() === hex.toUpperCase());
+  const allBold = lexActive ? lexFmt.bold : allMark((r) => !!r.bold);
+  const allItalic = lexActive ? lexFmt.italic : allMark((r) => !!r.italic);
+  const allUnderline = lexActive ? lexFmt.underline : allMark((r) => !!r.underline);
+  // Lexical doesn't report per-selection color, so the swatch active-ring is only
+  // shown in the legacy (block-model) path.
+  const colorActive = (hex: string) => (lexActive ? false : allMark((r) => (r.color ?? "").toUpperCase() === hex.toUpperCase()));
 
   const toggleCategory = (c: Category) => setActiveCategory((cur) => (cur === c ? null : c));
 
@@ -487,10 +539,46 @@ export function BlockContextBar({
   // The curated pill tool set (keyboard closed, not expanded).
   const pillTools = (
     <>
-      {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }), 0)}
-      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 1)}
-      {categoryChip("direction", PilcrowLeft, t("blockBar.direction", { defaultValue: "Direction" }), 2)}
-      {chip({ keyProp: "p-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), enterIndex: 3, onPress: () => setPillExpanded(true) })}
+      {chip({ keyProp: "bold", Icon: Bold, accessibilityLabel: t("blockBar.bold", { defaultValue: "Bold" }), active: allBold, disabled: !canFormat, enterIndex: 0, onPress: () => apply({ bold: !allBold }) })}
+      {chip({ keyProp: "italic", Icon: Italic, accessibilityLabel: t("blockBar.italic", { defaultValue: "Italic" }), active: allItalic, disabled: !canFormat, enterIndex: 1, onPress: () => apply({ italic: !allItalic }) })}
+      {chip({ keyProp: "underline", Icon: Underline, accessibilityLabel: t("blockBar.underline", { defaultValue: "Underline" }), active: allUnderline, disabled: !canFormat, enterIndex: 2, onPress: () => apply({ underline: !allUnderline }) })}
+      {sep("s1-compact")}
+      {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }), 4)}
+      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 5)}
+      {categoryChip("direction", PilcrowLeft, t("blockBar.direction", { defaultValue: "Direction" }), 6)}
+      {chip({ keyProp: "p-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), enterIndex: 7, onPress: () => setPillExpanded(true) })}
+    </>
+  );
+
+  // The primary action buttons for heading blocks (keyboard closed, not expanded).
+  // Shows levels from H1 to the computed deepest used level + 1.
+  const headingPillTools = (
+    <>
+      {(rtl ? [...headingLevels].reverse() : headingLevels).map((l, i) => {
+        const active = allLevel(l);
+        const enterIndex = rtl ? headingLevels.length - 1 - i : i;
+        return (
+          <AnimatedChip
+            key={"h-" + l}
+            enterIndex={enterIndex}
+            onPress={() => apply({ level: active ? 0 : l })}
+            disabled={!canFormat}
+            active={active}
+            accessibilityLabel={`H${l}`}
+            style={[
+              styles.chip,
+              { borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
+              active && { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
+              !canFormat && styles.chipDim,
+            ]}
+          >
+            <Text style={[styles.optText, { color: active ? colors.bgPrimary : colors.textPrimary, fontWeight: "bold" }]}>
+              {`H${l}`}
+            </Text>
+          </AnimatedChip>
+        );
+      })}
+      {chip({ keyProp: "h-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), enterIndex: headingLevels.length, onPress: () => setPillExpanded(true) })}
     </>
   );
 
@@ -546,7 +634,15 @@ export function BlockContextBar({
   const minimalTools = <>{imageMoveDeleteChips(0)}</>;
 
   // Resolve the toolset for the current block kind + form.
-  const compactTools = isImage ? imagePillTools : isTable ? tableTools : isMinimal ? minimalTools : pillTools;
+  const compactTools = isImage
+    ? imagePillTools
+    : isTable
+      ? tableTools
+      : isMinimal
+        ? minimalTools
+        : bubbleKind === "heading"
+          ? headingPillTools
+          : pillTools;
   const expandedTools = isImage ? imageFullTools : isTable ? tableTools : isMinimal ? minimalTools : fullTools;
 
   const AskAI = (
@@ -617,12 +713,14 @@ export function BlockContextBar({
     if (!activeCategory) return null;
     let body: React.ReactNode = null;
     if (activeCategory === "style") {
-      body = STYLE_LEVELS.map((l, i) => {
+      const levels = rtl ? [...styleLevels].reverse() : styleLevels;
+      body = levels.map((l, i) => {
         const active = allLevel(l);
+        const enterIndex = rtl ? styleLevels.length - 1 - i : i;
         return (
           <AnimatedChip
             key={l}
-            enterIndex={i}
+            enterIndex={enterIndex}
             onPress={() => apply({ level: l })}
             disabled={!canFormat}
             active={active}

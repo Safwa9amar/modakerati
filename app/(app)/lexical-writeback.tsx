@@ -172,7 +172,7 @@ export default function LexicalWritebackScreen() {
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<ResultT | null>(null);
 
-  const [active, setActive] = useState<LexicalState>({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, index: -1, text: "" });
+  const [active, setActive] = useState<LexicalState>({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, alignment: null, index: -1, text: "" });
   const [command, setCommand] = useState<LexicalCommand | null>(null);
   const nonce = useRef(0);
   const ctx = useRef<{ baseline: DocBlockDTO[]; thesisId: string | null; title: string }>({ baseline: [], thesisId: null, title: "" });
