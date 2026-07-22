@@ -52,6 +52,7 @@ import {
   UNDO_COMMAND,
   REDO_COMMAND,
   COMMAND_PRIORITY_LOW,
+  SKIP_SCROLL_INTO_VIEW_TAG,
   type ElementFormatType,
   type TextFormatType,
   type LexicalEditor,
@@ -484,24 +485,20 @@ function FloatingToolbar() {
 // suggestion appearing) or a full reseed (approve → doc rebuild) otherwise scrolls
 // the moved caret / rebuilt content into view — the reported "editor scrolls away
 // when I hit Improve, and jumps to the bottom on Approve".
-function withScrollPinned(editor: LexicalEditor, mutator: () => void, blurAfter = false) {
+function withScrollPinned(editor: LexicalEditor, mutator: () => void, _blurAfter = false) {
+  // The REAL fix: tag the update so Lexical's reconciler skips its own
+  // scroll-into-view. After every update Lexical re-focuses the root and scrolls
+  // the collapsed selection into view (LexicalSelection `$updateDOMSelection`),
+  // which is what kept dragging the view to the document end — blur/pin lost
+  // because Lexical re-focuses on the NEXT update and scrolls regardless. This tag
+  // is the official opt-out. A light 2-frame scroll restore stays as a backstop
+  // for any reflow the tag doesn't cover.
   const y = typeof window !== "undefined" ? window.scrollY : 0;
-  // Hold scroll for a short WINDOW, not just a couple frames: iOS/the WebView
-  // scrolls a (re)focused caret into view HUNDREDS of ms after the DOM reconciles
-  // — long after a 2-3 frame restore has finished — so pin every frame for ~500ms
-  // and (on the clear paths) keep the content-editable blurred so no caret exists
-  // to scroll to. The user isn't scrolling right after tapping a suggestion action,
-  // so briefly owning the scroll is invisible.
-  const start = typeof Date !== "undefined" ? Date.now() : 0;
-  const settle = () => {
-    if (blurAfter && typeof document !== "undefined") {
-      const ae = document.activeElement as HTMLElement | null;
-      if (ae && ae.isContentEditable && typeof ae.blur === "function") ae.blur();
-    }
-    if (typeof window !== "undefined") window.scrollTo(0, y);
-    if (Date.now() - start < 500) requestAnimationFrame(settle);
-  };
-  editor.update(mutator, { onUpdate: () => { requestAnimationFrame(settle); } });
+  const restore = () => { if (typeof window !== "undefined") window.scrollTo(0, y); };
+  editor.update(mutator, {
+    tag: SKIP_SCROLL_INTO_VIEW_TAG,
+    onUpdate: () => { restore(); requestAnimationFrame(restore); },
+  });
 }
 
 // Rebuild the original block node from a suggestion's captured type/text — used to
@@ -593,7 +590,7 @@ function SuggestionPlugin({
     const isClear = !suggestion || suggestion.index < 0;
     const structural = isClear || !suggestion.proposed;
     if (structural) withScrollPinned(editor, mutate, isClear);
-    else editor.update(mutate);
+    else editor.update(mutate, { tag: SKIP_SCROLL_INTO_VIEW_TAG }); // stream in place — never scroll
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.index, suggestion?.proposed, suggestion?.status, suggestion?.reasoning, suggestion?.label]);
   return null;
