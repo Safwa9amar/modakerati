@@ -224,10 +224,11 @@ function EditorBridge({
   // instance (no WebView remount, no flicker) instead of re-keying the component.
   useEffect(() => {
     if (!reseed) return;
-    // Clear the selection after rebuilding: root.clear()+rebuild otherwise leaves
-    // the caret at the document END, and the WebView scrolls it into view (the
-    // reported "Approve jumps to the bottom"). No caret → no scroll-into-view.
-    withScrollPinned(editor, () => { $blocksToLexical(reseed.blocks); $setSelection(null); });
+    // Clear the selection after rebuilding AND blur the editor (blurAfter): the
+    // rebuild otherwise leaves the caret at the document END and the WebView
+    // re-focuses + scrolls it into view (the reported "Approve jumps to the
+    // bottom"). No focus, no caret → nothing to scroll to.
+    withScrollPinned(editor, () => { $blocksToLexical(reseed.blocks); $setSelection(null); }, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reseed?.nonce]);
 
@@ -483,16 +484,24 @@ function FloatingToolbar() {
 // suggestion appearing) or a full reseed (approve → doc rebuild) otherwise scrolls
 // the moved caret / rebuilt content into view — the reported "editor scrolls away
 // when I hit Improve, and jumps to the bottom on Approve".
-function withScrollPinned(editor: LexicalEditor, mutator: () => void) {
+function withScrollPinned(editor: LexicalEditor, mutator: () => void, blurAfter = false) {
   const y = typeof window !== "undefined" ? window.scrollY : 0;
-  const restore = () => { if (typeof window !== "undefined") window.scrollTo(0, y); };
+  // Restore scroll AND (on reseed) drop editor focus each frame for a couple
+  // frames: after a rebuild the WebView re-focuses the content-editable and lands
+  // the caret at the document END, then iOS scrolls that caret into view a frame
+  // or two later — blurring kills the caret so there's nothing to scroll to.
+  const settle = () => {
+    if (blurAfter && typeof document !== "undefined") {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && ae.isContentEditable && typeof ae.blur === "function") ae.blur();
+    }
+    if (typeof window !== "undefined") window.scrollTo(0, y);
+  };
   editor.update(mutator, {
-    // Restore across a few frames — the WebView / iOS can scroll a caret into view
-    // a frame or two AFTER the DOM reconciles, so one restore isn't enough.
     onUpdate: () => {
-      restore();
-      requestAnimationFrame(restore);
-      requestAnimationFrame(() => requestAnimationFrame(restore));
+      settle();
+      requestAnimationFrame(settle);
+      requestAnimationFrame(() => requestAnimationFrame(settle));
     },
   });
 }
