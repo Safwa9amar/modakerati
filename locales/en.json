@@ -578,6 +578,22 @@
     "pickNormFirst": "Pick a formatting standard first",
     "importing": "Importing your thesis..."
   },
+  "insertMenu": {
+    "title": "Insert into document",
+    "searchPlaceholder": "Search blocks…",
+    "recent": "Recently used",
+    "aiSuggestions": "AI suggestions",
+    "expandHint": "Drag up to search all tools",
+    "comingSoon": "Coming soon",
+    "cat": { "text": "Text", "lists": "Lists", "media": "Media & tables", "academic": "Academic", "layout": "Layout" },
+    "block": {
+      "h1": "Heading 1", "h2": "Heading 2", "h3": "Heading 3",
+      "quote": "Quote", "bullet": "Bulleted list", "number": "Numbered list",
+      "figure": "Figure / image", "pageBreak": "Page break",
+      "table": "Table", "divider": "Divider", "equation": "Equation",
+      "toc": "Table of contents", "footnote": "Footnote", "imageGen": "AI image generation"
+    }
+  },
   "workspace": {
     "hf": {
       "header": "Header",

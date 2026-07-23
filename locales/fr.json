@@ -578,6 +578,22 @@
     "pickNormFirst": "Choisissez d'abord une norme de mise en page",
     "importing": "Importation de votre memoire..."
   },
+  "insertMenu": {
+    "title": "Insérer dans le document",
+    "searchPlaceholder": "Rechercher des blocs…",
+    "recent": "Récemment utilisés",
+    "aiSuggestions": "Suggestions IA",
+    "expandHint": "Glissez vers le haut pour tout rechercher",
+    "comingSoon": "Bientôt",
+    "cat": { "text": "Texte", "lists": "Listes", "media": "Médias et tableaux", "academic": "Académique", "layout": "Mise en page" },
+    "block": {
+      "h1": "Titre 1", "h2": "Titre 2", "h3": "Titre 3",
+      "quote": "Citation", "bullet": "Liste à puces", "number": "Liste numérotée",
+      "figure": "Figure / image", "pageBreak": "Saut de page",
+      "table": "Tableau", "divider": "Séparateur", "equation": "Équation",
+      "toc": "Table des matières", "footnote": "Note de bas de page", "imageGen": "Génération d'image IA"
+    }
+  },
   "workspace": {
     "hf": {
       "header": "En-tête",
