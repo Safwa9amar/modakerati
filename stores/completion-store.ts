@@ -60,7 +60,9 @@ export const useCompletionStore = create<CompletionState>((set, get) => ({
   controller: null,
 
   request: async (thesisId, index, text) => {
-    if (!useSettingsStore.getState().autocompleteEnabled) return;
+    const enabled = useSettingsStore.getState().autocompleteEnabled;
+    if (__DEV__) console.log(`[autocomplete] request FIRED index=${index} textLen=${text?.length ?? 0} enabled=${enabled}`);
+    if (!enabled) { if (__DEV__) console.log("[autocomplete] skipped — setting is OFF"); return; }
     get().controller?.abort();
     const controller = new AbortController();
     const nonce = get().nonce + 1;

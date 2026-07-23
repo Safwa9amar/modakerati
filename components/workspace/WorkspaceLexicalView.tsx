@@ -208,7 +208,13 @@ export function WorkspaceLexicalView({
   // `completion` prop. Accept merges the ghost text into the block already, so we just
   // consume the resulting doc change silently (mirrors the suggestion approve path).
   const onRequestCompletion = useCallback(
-    (ctx: { index: number; text: string }) => { void useCompletionStore.getState().request(thesisId, ctx.index, ctx.text); },
+    (ctx: { index: number; text: string }) => {
+      // Boundary log: if this fires, the in-editor CompletionPlugin (WebView) reached
+      // native across the DOM bridge. If typing never logs this, the trigger/bridge
+      // is the issue (not the server). See [autocomplete] in the Metro console.
+      if (__DEV__) console.log(`[autocomplete] onRequestCompletion (DOM→native) index=${ctx.index} textLen=${ctx.text.length}`);
+      void useCompletionStore.getState().request(thesisId, ctx.index, ctx.text);
+    },
     [thesisId],
   );
   const onCommitCompletion = useCallback(
