@@ -53,6 +53,7 @@ import {
   $isTextNode,
   $createParagraphNode,
   $createTextNode,
+  createCommand,
   FORMAT_TEXT_COMMAND,
   FORMAT_ELEMENT_COMMAND,
   UNDO_COMMAND,
@@ -67,6 +68,9 @@ import {
   type LexicalNode,
   type TextFormatType,
   type LexicalEditor,
+  // Aliased: this file already declares its own local `LexicalCommand` (the
+  // native command envelope type below) — the alias avoids shadowing it.
+  type LexicalCommand as LxCommand,
 } from "lexical";
 import {
   $blocksToLexical,
@@ -102,6 +106,12 @@ import {
   ACCEPT_COMPLETION_COMMAND,
 } from "./blockLexical";
 import type { DocBlockDTO } from "@/lib/api";
+import type { BlockKind } from "@/stores/insert-menu-store";
+
+// Payload the native Insert menu sends back in: which block to produce (or
+// clearSlash = just remove the /query, used before a native structural op).
+export type InsertBlockPayload = { kind: BlockKind | "clearSlash" };
+export const INSERT_BLOCK_COMMAND: LxCommand<InsertBlockPayload> = createCommand("INSERT_BLOCK_COMMAND");
 
 // The pending AI proposal handed to the editor from the native suggestion store.
 export type SuggestionInput = {
@@ -388,7 +398,7 @@ function EditorBridge({
     // without moving the caret). The lab's selection commands still focus. Undo/
     // redo also skip focus: tapped from the dock with the keyboard closed, they
     // must not pop it (Lexical's history doesn't need a live selection).
-    if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list" && command.type !== "undo" && command.type !== "redo") editor.focus();
+    if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list" && command.type !== "undo" && command.type !== "redo" && command.type !== "insert") editor.focus();
     switch (command.type) {
       case "bold":
       case "italic":
@@ -454,6 +464,11 @@ function EditorBridge({
         break;
       case "serialize":
         if (onBlocks) editor.getEditorState().read(() => onBlocks($lexicalToBlocks()));
+        break;
+      case "insert":
+        // value = JSON { kind }. Delegate to SlashPlugin's command (owns the /query
+        // deletion + placement). No focus() side-effect needed — the caret is live.
+        if (command.value) editor.dispatchCommand(INSERT_BLOCK_COMMAND, JSON.parse(command.value) as InsertBlockPayload);
         break;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1063,6 +1078,108 @@ function CompletionPlugin({
   return null;
 }
 
+// Detects a "/command" typed at the caret and reports it to native (onInsertTrigger),
+// mirroring CompletionPlugin's detect-and-report bridge. Owns INSERT_BLOCK_COMMAND:
+// when native picks a block, this handler deletes the /query then transforms the
+// current block (text kinds) or leaves an empty line (clearSlash, for native ops).
+// A slash is a command only at block start or right after whitespace, query = the
+// run of non-space, non-slash chars up to the caret.
+const SLASH_RE = /(?:^|\s)\/([^\s/]*)$/;
+function SlashPlugin({
+  onInsertTrigger,
+  suppressed,
+}: {
+  onInsertTrigger?: (t: { active: boolean; index: number; query: string }) => void;
+  suppressed: boolean;
+}) {
+  const [editor] = useLexicalComposerContext();
+  // Live slash location for deletion: the text node key + the offset of "/".
+  const slashRef = useRef<{ nodeKey: string; start: number } | null>(null);
+
+  // Detect + report.
+  useEffect(() =>
+    editor.registerUpdateListener(({ editorState, tags }) => {
+      if (tags.has(SKIP_DOM_SELECTION_TAG)) return;
+      let hit: { index: number; query: string; nodeKey: string; start: number } | null = null;
+      editorState.read(() => {
+        if (suppressed) return;
+        const sel = $getSelection();
+        if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
+        const node = sel.anchor.getNode();
+        if (!$isTextNode(node)) return;
+        const top = node.getTopLevelElement();
+        if (!top || !($isParagraphNode(top) || $isHeadingNode(top))) return;
+        const before = node.getTextContent().slice(0, sel.anchor.offset);
+        const m = before.match(SLASH_RE);
+        if (!m) return;
+        const start = m.index! + (m[0].startsWith("/") ? 0 : 1); // offset of "/"
+        hit = { index: $blockIndexOfNode(node), query: m[1], nodeKey: node.getKey(), start };
+      });
+      const chosen = hit as { index: number; query: string; nodeKey: string; start: number } | null;
+      if (chosen) {
+        slashRef.current = { nodeKey: chosen.nodeKey, start: chosen.start };
+        onInsertTrigger?.({ active: true, index: chosen.index, query: chosen.query });
+      } else if (slashRef.current) {
+        slashRef.current = null;
+        onInsertTrigger?.({ active: false, index: -1, query: "" });
+      }
+    }),
+  [editor, onInsertTrigger, suppressed]);
+
+  // Perform the insert when native picks a block.
+  useEffect(() =>
+    editor.registerCommand(
+      INSERT_BLOCK_COMMAND,
+      (payload) => {
+        editor.update(() => {
+          // 1) delete the /query run from the tracked text node
+          const loc = slashRef.current;
+          if (loc) {
+            const n = $getNodeByKey(loc.nodeKey);
+            if (n && $isTextNode(n)) {
+              const end = Math.min(n.getTextContentSize(), (($getSelection() as any)?.anchor?.offset ?? n.getTextContentSize()));
+              n.spliceText(loc.start, Math.max(0, end - loc.start), "", true);
+            }
+          }
+          slashRef.current = null;
+          if (payload.kind === "clearSlash") return; // native op will do the rest
+
+          // 2) placement: transform current block if now empty, else split & apply after
+          const sel = $getSelection();
+          if (!$isRangeSelection(sel)) return;
+          const top = sel.anchor.getNode().getTopLevelElement();
+          const hasText = !!top && top.getTextContent().trim().length > 0;
+          if (hasText && top) {
+            const p = $createParagraphNode();
+            top.insertAfter(p);
+            p.select();
+          }
+          const s2 = $getSelection();
+          if (!$isRangeSelection(s2)) return;
+          switch (payload.kind) {
+            case "h1": case "h2": case "h3":
+              $setBlocksType(s2, () => $createHeadingNode(payload.kind as HeadingTagType));
+              break;
+            case "quote":
+              $setBlocksType(s2, () => $createQuoteNode());
+              break;
+            case "bullet":
+              $insertList("bullet");
+              break;
+            case "number":
+              $insertList("number");
+              break;
+          }
+        });
+        return true;
+      },
+      COMMAND_PRIORITY_LOW,
+    ),
+  [editor]);
+
+  return null;
+}
+
 // Renders a pending RANGE proposal (multi-block dynamic rewrite) IN PLACE OF the
 // selected range: it replaces blocks [start..end] with ONE RangeSuggestionNode
 // showing the rewritten passage (1..N paragraphs). Approve/Reject/Again/Edit dispatch
@@ -1279,6 +1396,7 @@ export default function LexicalDomEditor({
   tableErrorIndex,
   tableLabels,
   onTableProposalAction,
+  onInsertTrigger,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -1330,6 +1448,9 @@ export default function LexicalDomEditor({
   // i18n instance) — the app is trilingual ar/fr/en. Defaults to English.
   tableLabels?: Partial<TableAILabels>;
   onTableProposalAction?: (action: string, note?: string) => void;
+  // Notion-style Insert menu: fires when a "/query" is detected/cleared at the
+  // caret (active + block index + query text) so native can bloom the menu.
+  onInsertTrigger?: (t: { active: boolean; index: number; query: string }) => void;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -1375,6 +1496,7 @@ export default function LexicalDomEditor({
           onCommit={onCommitCompletion}
           onCancel={onCancelCompletion}
         />
+        <SlashPlugin onInsertTrigger={onInsertTrigger} suppressed={!!suggestion || !!rangeSuggestion || !!tableProposal} />
         <RangeSuggestionPlugin rangeSuggestion={rangeSuggestion} onRangeAction={onRangeAction} />
         <SelectionHighlightPlugin indices={selectedIndices} />
         <SearchHighlightPlugin search={search} />
