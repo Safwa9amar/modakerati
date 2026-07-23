@@ -38,7 +38,9 @@ export async function proposeBlockEdit(
 // Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
 export interface TableSuggestResult {
   rows: string[][];
-  layout?: { alignment?: "left" | "center" | "right"; direction?: "rtl" | "ltr"; headerRow?: boolean; borders?: boolean };
+  layout?: { alignment?: "left" | "center" | "right"; direction?: "rtl" | "ltr"; headerRow?: boolean; headerFill?: string; borders?: boolean };
+  /** Optional per-cell 6-hex shading grid aligned with rows (null = unchanged). */
+  fills?: (string | null)[][];
   original: { rows: string[][]; layout: { align: "left" | "center" | "right" | null; direction: "rtl" | "ltr"; header: boolean } };
 }
 export async function suggestTable(

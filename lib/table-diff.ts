@@ -131,6 +131,8 @@ export interface TableLayoutProposal {
   alignment?: "left" | "center" | "right";
   direction?: "rtl" | "ltr";
   headerRow?: boolean;
+  /** 6-hex (no #) background for the header row — shades row 0. */
+  headerFill?: string;
   borders?: boolean;
 }
 export function layoutDelta(
@@ -142,6 +144,7 @@ export function layoutDelta(
   if (proposed.alignment && proposed.alignment !== (current.align ?? null)) out.alignment = proposed.alignment;
   if (proposed.direction && proposed.direction !== (current.direction ?? "ltr")) out.direction = proposed.direction;
   if (proposed.headerRow === true && !current.header) out.headerRow = true; // engine can't un-header
+  if (proposed.headerFill) out.headerFill = proposed.headerFill.replace("#", ""); // current fill unknown — trust intent
   if (proposed.borders !== undefined) out.borders = proposed.borders; // current borders unknown — trust intent
   return Object.keys(out).length ? out : null;
 }
@@ -155,6 +158,8 @@ export function diffToOps(
   newRows: string[][],
   diff: TableDiff,
   layout?: TableLayoutProposal | null,
+  /** Proposed per-cell shading grid aligned with newRows (null = leave as-is). */
+  fills?: (string | null)[][] | null,
 ): ThesisOp[] | null {
   const ops: ThesisOp[] = [];
   // Simulation grid — mirrors what the engine will actually do, op by op.
@@ -209,6 +214,11 @@ export function diffToOps(
   }
   // 6. Layout, once.
   if (layout) ops.push({ type: "tableOp", index, action: "layout", opts: layout });
+  // 7. Per-cell shading, once — the fills grid is aligned with newRows, i.e.
+  //    FINAL coordinates, valid after the structure ops above.
+  if (fills && fills.some((r) => r?.some((f) => !!f))) {
+    ops.push({ type: "tableOp", index, action: "shade", fills });
+  }
 
   return ops.length > TABLE_OPS_CAP ? null : ops;
 }

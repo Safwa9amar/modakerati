@@ -94,6 +94,10 @@ export interface TableProposalData {
   diff: TableDiff;
   /** How long the model reasoned, ms — the "Thought for Xs" chip. */
   thoughtMs?: number | null;
+  /** Proposed layout styling (headerFill previews on row 0). */
+  layout?: { headerFill?: string } | null;
+  /** Proposed per-cell 6-hex shading aligned with newRows (null = unchanged). */
+  fills?: (string | null)[][] | null;
 }
 // Every user-visible proposal string, resolved NATIVE-side via i18next (the DOM
 // bundle has no i18n instance) and passed through the tableLabels prop — the app
@@ -379,7 +383,13 @@ function ProposalDiffTable({
         const cells = (newRows[r] ?? []).map((cell, c) => {
           const colAdded = diff.colMap[c] == null;
           const oldText = edited.get(`${r},${c}`);
+          // Proposed COLOR for this cell (per-cell fills grid, or headerFill on
+          // row 0) — the point of a "color the header/cells" ask is SEEING the
+          // color; diff tints only cover cells whose TEXT also changed.
+          const proposedFill =
+            proposal.fills?.[r]?.[c] ?? (r === 0 && proposal.layout?.headerFill ? proposal.layout.headerFill : null);
           const style: React.CSSProperties = { ...baseCell };
+          if (proposedFill) style.backgroundColor = `#${proposedFill.replace("#", "")}`;
           if (rowAdded || colAdded) style.backgroundColor = DIFF_ADD_BG;
           else if (oldText !== undefined) style.backgroundColor = DIFF_EDIT_BG;
           const content =

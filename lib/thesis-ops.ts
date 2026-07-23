@@ -99,12 +99,14 @@ export type ThesisOp =
   | {
       type: "tableOp";
       index: number;
-      action: "addRow" | "deleteRow" | "addColumn" | "deleteColumn" | "editCell" | "layout";
+      action: "addRow" | "deleteRow" | "addColumn" | "deleteColumn" | "editCell" | "layout" | "shade";
       at?: number;
       row?: number;
       col?: number;
       text?: string;
-      opts?: { alignment?: "left" | "center" | "right"; direction?: "rtl" | "ltr"; headerRow?: boolean; borders?: boolean };
+      opts?: { alignment?: "left" | "center" | "right"; direction?: "rtl" | "ltr"; headerRow?: boolean; headerFill?: string; borders?: boolean };
+      /** action "shade": per-cell 6-hex fills aligned with the grid (null = leave as-is). */
+      fills?: (string | null)[][];
     }
   // Set (or create) a figure/image block's caption (approve of an inline AI
   // "add caption" action). `index` is the IMAGE block. The optimistic patch just
@@ -317,15 +319,35 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
         else if (op.action === "deleteColumn") { if (cols > 1) rows.forEach((r) => { if (op.col != null && op.col >= 0 && op.col < r.length) r.splice(op.col, 1); }); }
         else if (op.action === "editCell") { if (op.row != null && op.col != null && rows[op.row]) rows[op.row][op.col] = op.text ?? ""; }
         else if (op.action === "layout") {
-          // Instant feedback for the two styling fields the render reflects
-          // (align / header); direction, borders and exact fills come with the
-          // authoritative server echo. `align`/`header` are DTO extensions (like
-          // `list`/`runs`), so patch them on via a cast.
+          // Instant feedback for the styling fields the render reflects
+          // (align / direction / header / header fill); borders come with the
+          // authoritative server echo. `align`/`header`/`fills` are DTO
+          // extensions (like `list`/`runs`), so patch them on via a cast.
           const patched: Record<string, unknown> = { ...b, rows };
           if (op.opts?.alignment) patched.align = op.opts.alignment;
           if (op.opts?.direction) patched.direction = op.opts.direction;
-          if (op.opts?.headerRow) patched.header = true;
+          if (op.opts?.headerRow || op.opts?.headerFill) patched.header = true;
+          if (op.opts?.headerFill) {
+            const prev = ((b as unknown as { fills?: (string | null)[][] }).fills ?? []).map((r) => [...r]);
+            while (prev.length < rows.length) prev.push([]);
+            prev[0] = rows[0].map(() => `#${op.opts!.headerFill!.replace("#", "").toUpperCase()}`);
+            patched.fills = prev;
+          }
           return patched as unknown as DocBlockDTO;
+        }
+        else if (op.action === "shade") {
+          // Merge the shading grid onto the DTO's fills extra (render source).
+          const prev = ((b as unknown as { fills?: (string | null)[][] }).fills ?? []).map((r) => [...r]);
+          while (prev.length < rows.length) prev.push([]);
+          for (let r = 0; r < rows.length; r++) {
+            const fr = op.fills?.[r] ?? [];
+            while ((prev[r] ?? []).length < rows[r].length) prev[r].push(null);
+            for (let c = 0; c < rows[r].length; c++) {
+              const f = fr[c];
+              if (f) prev[r][c] = `#${f.replace("#", "").toUpperCase()}`;
+            }
+          }
+          return { ...b, rows, fills: prev } as unknown as DocBlockDTO;
         }
         return { ...b, rows };
       });

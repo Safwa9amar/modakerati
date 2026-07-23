@@ -24,6 +24,8 @@ export interface TableProposal {
   originalLayout: { align: "left" | "center" | "right" | null; direction: "rtl" | "ltr"; header: boolean };
   newRows: string[][];
   layout?: TableLayoutProposal;
+  /** Proposed per-cell shading (6-hex, null = unchanged), aligned with newRows. */
+  fills?: (string | null)[][];
   diff: TableDiff;
   /** How long the model reasoned before the grid started, ms (chip label). */
   thoughtMs: number | null;
@@ -55,7 +57,10 @@ let lastReq: { thesisId: string; index: number; instruction: string } | null = n
 // strip fences, rows → rectangular string grid (ragged rows padded), size caps.
 const MAX_ROWS = 60;
 const MAX_COLS = 12;
-function parseProposedGrid(raw: string): { rows: string[][]; layout?: TableLayoutProposal } | null {
+const HEX6 = /^#?[0-9A-Fa-f]{6}$/;
+function parseProposedGrid(
+  raw: string,
+): { rows: string[][]; layout?: TableLayoutProposal; fills?: (string | null)[][] } | null {
   const text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   let parsed: unknown;
   try {
@@ -63,7 +68,7 @@ function parseProposedGrid(raw: string): { rows: string[][]; layout?: TableLayou
   } catch {
     return null;
   }
-  const obj = parsed as { rows?: unknown; layout?: unknown };
+  const obj = parsed as { rows?: unknown; layout?: unknown; fills?: unknown };
   if (!Array.isArray(obj.rows) || obj.rows.length === 0 || obj.rows.length > MAX_ROWS) return null;
   const rows: string[][] = [];
   let width = 0;
@@ -82,10 +87,21 @@ function parseProposedGrid(raw: string): { rows: string[][]; layout?: TableLayou
     if (l.alignment === "left" || l.alignment === "center" || l.alignment === "right") layout.alignment = l.alignment;
     if (l.direction === "rtl" || l.direction === "ltr") layout.direction = l.direction;
     if (typeof l.headerRow === "boolean") layout.headerRow = l.headerRow;
+    if (typeof l.headerFill === "string" && HEX6.test(l.headerFill)) layout.headerFill = l.headerFill.replace("#", "").toUpperCase();
     if (typeof l.borders === "boolean") layout.borders = l.borders;
     if (Object.keys(layout).length === 0) layout = undefined;
   }
-  return { rows, layout };
+  // Optional per-cell shading grid aligned with rows; invalid entries → null.
+  let fills: (string | null)[][] | undefined;
+  if (Array.isArray(obj.fills)) {
+    fills = obj.fills.slice(0, rows.length).map((fr) =>
+      Array.isArray(fr)
+        ? fr.slice(0, width).map((f) => (typeof f === "string" && HEX6.test(f) ? f.replace("#", "").toUpperCase() : null))
+        : [],
+    );
+    if (!fills.some((fr) => fr.some((f) => f !== null))) fills = undefined;
+  }
+  return { rows, layout, fills };
 }
 
 export const useTableSuggestionStore = create<TableSuggestionState>((set, get) => ({
@@ -114,7 +130,7 @@ export const useTableSuggestionStore = create<TableSuggestionState>((set, get) =
     const started = Date.now();
     let firstAnswerAt: number | null = null;
     let jsonBuf = "";
-    let parsed: { rows: string[][]; layout?: TableLayoutProposal } | null = null;
+    let parsed: { rows: string[][]; layout?: TableLayoutProposal; fills?: (string | null)[][] } | null = null;
     try {
       await suggestTableStream(
         thesisId,
@@ -142,7 +158,7 @@ export const useTableSuggestionStore = create<TableSuggestionState>((set, get) =
       try {
         const res = await suggestTable(thesisId, index, instruction, ctrl.signal);
         if (ctrl.signal.aborted) return;
-        parsed = { rows: res.rows, layout: res.layout };
+        parsed = { rows: res.rows, layout: res.layout, fills: res.fills };
       } catch (e) {
         if (ctrl.signal.aborted) return;
         set({ loadingIndex: null, error: e instanceof Error ? e.message : "suggest failed", errorIndex: index });
@@ -158,6 +174,7 @@ export const useTableSuggestionStore = create<TableSuggestionState>((set, get) =
         originalLayout,
         newRows: parsed.rows,
         layout: parsed.layout,
+        fills: parsed.fills,
         diff: diffGrids(originalRows, parsed.rows),
         thoughtMs: firstAnswerAt != null ? firstAnswerAt - started : Date.now() - started,
       },
