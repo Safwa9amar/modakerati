@@ -44,6 +44,7 @@ import { mergeRegister } from "@lexical/utils";
 import {
   $getRoot,
   $getNodeByKey,
+  $addUpdateTag,
   $getSelection,
   $setSelection,
   $isRangeSelection,
@@ -895,6 +896,9 @@ function SuggestionPlugin({
 // real edit / caret move / blur clears the ghost (onCancelCompletion). Tapping or
 // swiping the ghost dispatches ACCEPT_COMPLETION_COMMAND → merge into real text +
 // onCommitCompletion. Suppressed while a suggestion / range / table proposal shows.
+// Update tag marking our OWN ghost mutations so the detect listener never treats them
+// as a real edit (replaces the old fragile `applyingGhost` flag).
+const GHOST_TAG = "ai-ghost";
 function CompletionPlugin({
   enabled,
   completion,
@@ -904,7 +908,7 @@ function CompletionPlugin({
   onCancel,
 }: {
   enabled?: boolean;
-  completion?: { text: string; nonce: number; status: "idle" | "loading" | "done" | "error" };
+  completion?: { text: string; nonce: number; status: "idle" | "loading" | "done" | "error"; index?: number };
   suppressed: boolean;
   onRequest?: (ctx: { index: number; text: string }) => void;
   onCommit?: (index: number, fullText: string) => void;
@@ -912,26 +916,29 @@ function CompletionPlugin({
 }) {
   const [editor] = useLexicalComposerContext();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const applyingGhost = useRef(false); // our own ghost mutations must not self-clear
+  const ghostKeyRef = useRef<string | null>(null); // key of the live ghost node — O(1), no tree scan
   const targetRef = useRef<{ index: number; text: string } | null>(null);
 
   const removeGhost = useCallback(() => {
+    const key = ghostKeyRef.current;
+    if (!key) return;
     editor.update(() => {
-      const g = $getRoot().getChildren().flatMap((n) => ("getChildren" in n ? (n as ElementNode).getChildren() : [])).find($isGhostCompletionNode);
-      if (g) { applyingGhost.current = true; g.remove(); }
+      $addUpdateTag(GHOST_TAG);
+      const g = $getNodeByKey(key);
+      if (g && $isGhostCompletionNode(g)) g.remove();
     }, { tag: "history-merge" });
+    ghostKeyRef.current = null;
   }, [editor]);
 
   // Detect caret-at-end-of-text-block + schedule a request.
   useEffect(() => {
-    return editor.registerUpdateListener(({ editorState, tags }) => {
-      if (applyingGhost.current) { applyingGhost.current = false; return; } // ignore our own ghost writes
+    const off = editor.registerUpdateListener(({ editorState, tags }) => {
+      if (tags.has(GHOST_TAG)) return; // our own ghost writes never self-clear
+      // O(1) disabled path: with the feature off and no ghost showing, do zero work
+      // on the typing hot path (the plugin is mounted unconditionally).
+      if (!enabled && !ghostKeyRef.current) return;
       // Any non-ghost update clears a showing ghost (typing / caret move dismisses).
-      let hasGhost = false;
-      editorState.read(() => {
-        hasGhost = !!$getRoot().getChildren().some((n) => "getChildren" in n && (n as ElementNode).getChildren().some($isGhostCompletionNode));
-      });
-      if (hasGhost) { removeGhost(); onCancel?.(); }
+      if (ghostKeyRef.current) { removeGhost(); onCancel?.(); }
       if (timer.current) { clearTimeout(timer.current); timer.current = null; }
       if (!enabled || suppressed || tags.has(SKIP_DOM_SELECTION_TAG)) return;
 
@@ -959,19 +966,28 @@ function CompletionPlugin({
         if (targetRef.current) onRequest?.(targetRef.current);
       }, 600);
     });
+    return () => { off(); if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
   }, [editor, enabled, suppressed, onRequest, onCancel, removeGhost]);
 
   // Render / stream the ghost from the `completion` prop.
   useEffect(() => {
     const t = targetRef.current;
     if (!enabled || suppressed || !completion || !completion.text || !t) return;
+    // Index correlation: ignore a late/stale response for a block the caret already
+    // left (Task 10 wiring passes completion.index; until then this is inert).
+    if (completion.index != null && completion.index !== t.index) return;
     editor.update(() => {
+      $addUpdateTag(GHOST_TAG);
       const node = $nodeAtBlockIndex(t.index);
       if (!node) return;
-      applyingGhost.current = true;
-      const existing = node.getChildren().find($isGhostCompletionNode) as GhostCompletionNode | undefined;
-      if (existing) existing.setText(completion.text);
-      else node.append($createGhostCompletionNode(completion.text));
+      const existingKey = ghostKeyRef.current;
+      const existing = existingKey ? $getNodeByKey(existingKey) : null;
+      if (existing && $isGhostCompletionNode(existing)) existing.setText(completion.text);
+      else {
+        const g = $createGhostCompletionNode(completion.text);
+        node.append(g);
+        ghostKeyRef.current = g.getKey();
+      }
     }, { tag: "history-merge" });
   }, [editor, enabled, suppressed, completion?.nonce, completion?.text]);
 
@@ -983,13 +999,15 @@ function CompletionPlugin({
         const t = targetRef.current;
         if (!t) return true;
         editor.update(() => {
+          $addUpdateTag(GHOST_TAG);
           const node = $nodeAtBlockIndex(t.index);
           if (!node) return;
-          const g = node.getChildren().find($isGhostCompletionNode) as GhostCompletionNode | undefined;
-          if (!g) return;
+          const key = ghostKeyRef.current;
+          const g = key ? $getNodeByKey(key) : null;
+          if (!g || !$isGhostCompletionNode(g)) return;
           const ghostText = g.__text;
-          applyingGhost.current = true;
           g.remove();
+          ghostKeyRef.current = null;
           // Append to the LAST real text node (v1 completes at end-of-block) so prior
           // inline runs/formatting in the block are preserved — do NOT rebuild the
           // whole block as one node (that would flatten bold/italic runs).
@@ -1243,7 +1261,7 @@ export default function LexicalDomEditor({
   // `completion` is the streamed continuation for the pending request; the callbacks
   // request / commit (accept) / cancel (dismiss) round-trip to the native store.
   completionEnabled?: boolean;
-  completion?: { text: string; nonce: number; status: "idle" | "loading" | "done" | "error" };
+  completion?: { text: string; nonce: number; status: "idle" | "loading" | "done" | "error"; index?: number };
   onRequestCompletion?: (ctx: { index: number; text: string }) => void;
   onCommitCompletion?: (index: number, fullText: string) => void;
   onCancelCompletion?: () => void;
