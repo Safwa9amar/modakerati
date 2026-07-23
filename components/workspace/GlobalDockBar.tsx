@@ -21,6 +21,7 @@ import {
   Scaling,
   FileText,
   Columns3,
+  Plus,
   type LucideIcon,
 } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -30,6 +31,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
+import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useSearchStore } from "@/stores/search-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
@@ -210,6 +212,13 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
   const insertPageBreak = () => {
     if (!pageBreakIndices.length) return;
     void useThesisDocStore.getState().mutate(thesisId, { type: "startOnNewPage", indices: pageBreakIndices });
+  };
+
+  // ── Insert menu (dock + chip — anchors at the current selection/editing block) ──
+  const openInsert = () => {
+    const idx = selectedBlocks.length ? selectedBlocks[0].index : editingBlockIndex ?? 0;
+    const y = useFloatingPillStore.getState().anchorY ?? 200;
+    useInsertMenuStore.getState().openAt({ index: idx, y });
   };
 
   // ── Page setup (document-wide; each pill applies a single field) ──
@@ -462,6 +471,13 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
               disabled: !pageBreakIndices.length,
               enterIndex: 7,
               onPress: insertPageBreak,
+            })}
+            {chip({
+              keyProp: "insert",
+              Icon: Plus,
+              accessibilityLabel: t("insertMenu.title", { defaultValue: "Insert" }),
+              enterIndex: 10,
+              onPress: openInsert,
             })}
             {chip({
               keyProp: "pageSetup",
