@@ -173,6 +173,19 @@ const DIFF_ADD_BG = "#dcfce7";
 const DIFF_EDIT_BG = "#fef3c7";
 const DIFF_DEL_BG = "#fee2e2";
 
+// Cap a column's width so long text wraps inside a sane column instead of
+// stretching the row; the TABLE lays out at natural width and the wrapper
+// scrolls horizontally when it exceeds the view (a wide table squeezed into the
+// viewport otherwise wraps every cell to one character per line — unreadable).
+const CELL_MAX_WIDTH = "220px";
+function ScrollWrap({ children }: { children: React.ReactNode }) {
+  return React.createElement(
+    "div",
+    { style: { overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" } },
+    children,
+  );
+}
+
 // One pill button of the proposal bar. mousedown preventDefault: a tap must not
 // move DOM focus (same WKWebView scroll-to-top rule as the table cells).
 function PillBtn({ label, tone, onPress }: { label: string; tone?: "ok" | "no"; onPress: () => void }) {
@@ -322,12 +335,17 @@ function ProposalDiffTable({
     return entries;
   }, [newRows, diff]);
 
-  const baseCell: React.CSSProperties = { border: "1px solid #c8c8d0", padding: "4px 8px" };
+  const baseCell: React.CSSProperties = { border: "1px solid #c8c8d0", padding: "4px 8px", maxWidth: CELL_MAX_WIDTH };
+  // Natural width inside a horizontal scroller — wide tables stay readable.
   const table = (body: React.ReactNode) =>
     React.createElement(
-      "table",
-      { style: { borderCollapse: "collapse", fontSize: "13px", margin: "6px 0", width: "100%" }, dir },
-      React.createElement("tbody", null, body),
+      ScrollWrap,
+      null,
+      React.createElement(
+        "table",
+        { style: { borderCollapse: "collapse", fontSize: "13px", margin: "6px 0", width: "max-content", minWidth: "100%" }, dir },
+        React.createElement("tbody", null, body),
+      ),
     );
 
   let grid: React.ReactNode;
@@ -494,11 +512,15 @@ function EditableTable({
     );
   }
 
+  // Natural content width (capped per-cell) inside a horizontal scroller: a
+  // wide table scrolls instead of squeezing to one character per line. An
+  // unaligned table still stretches to fill the view (minWidth).
   const tableStyle: Record<string, unknown> = {
     borderCollapse: "collapse",
     fontSize: "13px",
     margin: "6px 0",
-    width: align ? "auto" : "100%",
+    width: "max-content",
+    minWidth: align ? undefined : "100%",
   };
   if (align === "center") {
     tableStyle.marginLeft = "auto";
@@ -548,6 +570,7 @@ function EditableTable({
             const cellStyle: Record<string, unknown> = {
               border: "1px solid #c8c8d0",
               padding: "4px 8px",
+              maxWidth: CELL_MAX_WIDTH,
               cursor: onEditCell ? "text" : "default",
             };
             if (fill) cellStyle.backgroundColor = fill;
@@ -607,13 +630,15 @@ function EditableTable({
     ),
   );
 
+  const scrolled = React.createElement(ScrollWrap, null, tableEl);
+
   // In-flight request → live thinking under the dimmed grid; a failed request →
   // inline error strip with retry (not just a transient banner).
   if (loadingHere && tp) {
     return React.createElement(
       "div",
       null,
-      tableEl,
+      scrolled,
       React.createElement(ThinkingPanel, { text: tp.thinking, label: tp.labels.thinking }),
     );
   }
@@ -632,10 +657,10 @@ function EditableTable({
         React.createElement(PillBtn, { label: `↻ ${tp.labels.retry}`, onPress: () => tp.onAction("retry") }),
         React.createElement(PillBtn, { label: "✕", tone: "no", onPress: () => tp.onAction("reject") }),
       ),
-      tableEl,
+      scrolled,
     );
   }
-  return tableEl;
+  return scrolled;
 }
 
 export class BlockDataNode extends DecoratorNode<React.ReactNode> {
