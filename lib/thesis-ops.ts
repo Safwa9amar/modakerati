@@ -106,7 +106,18 @@ export type ThesisOp =
       row?: number;
       col?: number;
       text?: string;
-      opts?: { alignment?: "left" | "center" | "right"; direction?: "rtl" | "ltr"; headerRow?: boolean; headerFill?: string; borders?: boolean };
+      opts?: {
+        alignment?: "left" | "center" | "right";
+        direction?: "rtl" | "ltr";
+        headerRow?: boolean;
+        headerFill?: string;
+        borders?: boolean;
+        /** Table width as a % of the page (10..100). */
+        widthPct?: number;
+        /** Equalize all row heights / column widths. */
+        distributeRows?: boolean;
+        distributeColumns?: boolean;
+      };
       /** action "shade": per-cell 6-hex fills aligned with the grid (null = leave as-is). */
       fills?: (string | null)[][];
       /** action "shade": per-cell 6-hex FONT colors (null = leave as-is). */

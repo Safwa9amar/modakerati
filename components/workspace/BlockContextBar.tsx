@@ -54,6 +54,9 @@ import {
   ArrowRightToLine,
   Grid2x2,
   Square,
+  StretchHorizontal,
+  AlignHorizontalSpaceAround,
+  AlignVerticalSpaceAround,
   type LucideIcon,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -920,7 +923,8 @@ export function BlockContextBar({
           <>
             {tblOpt("tr-top", ArrowUpToLine, t("blockBar.rowAbove", { defaultValue: "Insert row at top" }), 0, () => void tableEdit({ action: "addRow", at: 0, before: true }))}
             {tblOpt("tr-bot", ArrowDownToLine, t("blockBar.rowBelow", { defaultValue: "Add row at bottom" }), 1, () => void tableEdit({ action: "addRow" }))}
-            {tblOpt("tr-del", Trash2, t("blockBar.deleteRowPick", { defaultValue: "Delete a row…" }), 2, () => setDelPick("row"), { disabled: tableRows <= 1 })}
+            {tblOpt("tr-dist", AlignVerticalSpaceAround, t("blockBar.distributeRows", { defaultValue: "Equalize row heights" }), 2, () => void tableEdit({ action: "layout", opts: { distributeRows: true } }))}
+            {tblOpt("tr-del", Trash2, t("blockBar.deleteRowPick", { defaultValue: "Delete a row…" }), 3, () => setDelPick("row"), { disabled: tableRows <= 1 })}
           </>
         );
     } else if (activeCategory === "tblCols") {
@@ -949,7 +953,8 @@ export function BlockContextBar({
           <>
             {tblOpt("tc-left", ArrowLeftToLine, t("blockBar.colLeft", { defaultValue: "Insert column at left" }), 0, () => void tableEdit({ action: "addColumn", at: 0, before: true }))}
             {tblOpt("tc-right", ArrowRightToLine, t("blockBar.colRight", { defaultValue: "Add column at right" }), 1, () => void tableEdit({ action: "addColumn" }))}
-            {tblOpt("tc-del", Trash2, t("blockBar.deleteColumnPick", { defaultValue: "Delete a column…" }), 2, () => setDelPick("col"), { disabled: tableCols <= 1 })}
+            {tblOpt("tc-dist", AlignHorizontalSpaceAround, t("blockBar.distributeCols", { defaultValue: "Equalize column widths" }), 2, () => void tableEdit({ action: "layout", opts: { distributeColumns: true } }))}
+            {tblOpt("tc-del", Trash2, t("blockBar.deleteColumnPick", { defaultValue: "Delete a column…" }), 3, () => setDelPick("col"), { disabled: tableCols <= 1 })}
           </>
         );
     } else if (activeCategory === "tblShade") {
@@ -1012,6 +1017,7 @@ export function BlockContextBar({
           {tblOpt("tl-ltr", PilcrowRight, t("blockBar.dirLtr", { defaultValue: "Left to right" }), 5, () => void tableEdit({ action: "layout", opts: { direction: "ltr" } }), { active: tableDirection === "ltr" })}
           {tblOpt("tl-bord-on", Grid2x2, t("blockBar.bordersOn", { defaultValue: "Borders" }), 6, () => void tableEdit({ action: "layout", opts: { borders: true } }))}
           {tblOpt("tl-bord-off", Square, t("blockBar.bordersOff", { defaultValue: "No borders" }), 7, () => void tableEdit({ action: "layout", opts: { borders: false } }))}
+          {tblOpt("tl-fit", StretchHorizontal, t("blockBar.fitPageWidth", { defaultValue: "Fit page width" }), 8, () => void tableEdit({ action: "layout", opts: { widthPct: 100 } }))}
         </>
       );
     } else if (lexActive) {
