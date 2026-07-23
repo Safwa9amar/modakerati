@@ -52,12 +52,18 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `label` closes over `t`, stable per session
   const filtered = useMemo(() => filterBlocks(query, label), [query]);
 
-  // Bloom origin = the caret line (anchor.y, already an absolute screen Y — same
-  // convention as FloatingPill's anchorY). Clamped so the card never spawns off
-  // the top (status bar/header) or low enough to be swallowed by the keyboard.
+  // Position the compact card AT the slash line (anchor.y = the caret line's
+  // absolute screen Y, same convention as FloatingPill's anchorY). If the caret
+  // sits low on screen, flip the card ABOVE the line so it grows toward the
+  // visible doc instead of off the bottom; either way the body scrolls, capped
+  // to the available space, so it never overflows.
+  const GAP = 8;
   const minTop = insets.top + 56;
-  const maxTop = Math.max(minTop, height - insets.bottom - 260);
-  const top = Math.max(minTop, Math.min(anchor?.y ?? minTop, maxTop));
+  const anchorY = anchor?.y ?? height * 0.4;
+  const spaceBelow = height - insets.bottom - anchorY - GAP;
+  const spaceAbove = anchorY - minTop - GAP;
+  const openUp = spaceBelow < spaceAbove && spaceBelow < 340;
+  const listMaxHeight = Math.max(150, Math.min((openUp ? spaceAbove : spaceBelow) - 34, 380));
 
   // Bloom-in: InsertMenu is mounted UNCONDITIONALLY by its parent — `!open` only
   // makes the JSX render null, the component instance (and its hooks) stay alive
@@ -68,7 +74,8 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
   useEffect(() => {
     if (open && mode === "compact") {
       bloomProgress.value = 0;
-      bloomProgress.value = withSpring(1, { damping: 16, stiffness: 220 });
+      // Snappy pop — low mass + high stiffness so it feels fast, not floaty.
+      bloomProgress.value = withSpring(1, { mass: 0.4, damping: 14, stiffness: 320 });
     }
   }, [open, mode, bloomProgress]);
   const bloom = useAnimatedStyle(() => ({
@@ -187,11 +194,11 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
           style={[
             styles.card,
             bloom,
+            openUp ? { bottom: height - anchorY + GAP } : { top: Math.max(minTop, anchorY + GAP) },
             {
-              top,
               backgroundColor: colors.bgPrimary,
               borderColor: colors.borderSubtle,
-              transformOrigin: rtl ? "top right" : "top left",
+              transformOrigin: `${openUp ? "bottom" : "top"} ${rtl ? "right" : "left"}`,
             },
           ]}
         >
@@ -204,6 +211,7 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
             <Maximize2 size={14} color={colors.textPlaceholder} />
           </Pressable>
           <View style={[styles.grab, { backgroundColor: colors.borderDefault }]} />
+          <ScrollView style={{ maxHeight: listMaxHeight }} keyboardShouldPersistTaps="handled">
           {/* Precedence: live /query filter wins over Recents (typing "/quote" after
               recents exist must show the Quote match, not stale recents); Recents
               only show for an EMPTY query; otherwise the full categorized palette. */}
@@ -252,6 +260,7 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
             <SearchIcon size={12} color={colors.textPlaceholder} />
             <Text style={{ color: colors.textPlaceholder, fontSize: 11 }}>{t("insertMenu.expandHint")}</Text>
           </Pressable>
+          </ScrollView>
         </Animated.View>
       )}
     </View>
