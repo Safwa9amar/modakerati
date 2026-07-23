@@ -202,9 +202,8 @@ function PillBtn({ label, tone, onPress }: { label: string; tone?: "ok" | "no"; 
   );
 }
 
-// Live reasoning while the model works — a small auto-scrolling trace under the
-// dimmed table, mirroring the paragraph inline suggestion's ThinkingTrace.
-function ThinkingPanel({ text, label }: { text: string; label: string }) {
+// The reasoning trace box (auto-scrolls to the newest text while streaming).
+function TraceBox({ text }: { text: string }) {
   const ref = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     const el = ref.current;
@@ -212,34 +211,64 @@ function ThinkingPanel({ text, label }: { text: string; label: string }) {
   }, [text]);
   return React.createElement(
     "div",
+    {
+      ref,
+      dir: "auto",
+      style: {
+        maxHeight: "84px",
+        overflowY: "auto",
+        border: "1px solid #e4e4ea",
+        borderRadius: "8px",
+        padding: "6px 10px",
+        fontSize: "11.5px",
+        lineHeight: 1.5,
+        color: "#6b7280",
+        fontStyle: "italic",
+        whiteSpace: "pre-wrap",
+      },
+    },
+    text,
+  );
+}
+
+// The ✦ chip that heads the thinking/proposal UI. When it owns a trace it acts
+// as a disclosure control (▸/▾ — collapsed by default, the user toggles it).
+function AIChip({ label, open, onToggle }: { label: string; open?: boolean; onToggle?: () => void }) {
+  return React.createElement(
+    onToggle ? "button" : "div",
+    {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        font: "inherit", // buttons don't inherit — UA font tofus Arabic
+        fontSize: "11.5px",
+        color: "#4f46e5",
+        background: "#eef2ff",
+        border: "none",
+        borderRadius: "999px",
+        padding: "3px 10px",
+        marginBottom: "4px",
+        cursor: onToggle ? "pointer" : "default",
+      },
+      onMouseDown: (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); },
+      onClick: (e: React.MouseEvent) => { e.stopPropagation(); onToggle?.(); },
+      onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
+    },
+    onToggle ? `✦ ${label} ${open ? "▾" : "▸"}` : `✦ ${label}`,
+  );
+}
+
+// Live reasoning while the model works — COLLAPSED by default (just the pulsing
+// "✦ Thinking…" chip); tapping the chip expands the auto-scrolling trace.
+// Mirrors the paragraph inline suggestion's collapsible ThinkingTrace.
+function ThinkingPanel({ text, label }: { text: string; label: string }) {
+  const [open, setOpen] = React.useState(false);
+  return React.createElement(
+    "div",
     { style: { margin: "6px 0" } },
-    React.createElement(
-      "div",
-      { style: { display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11.5px", color: "#4f46e5", background: "#eef2ff", borderRadius: "999px", padding: "3px 10px", marginBottom: "4px" } },
-      `✦ ${label}`,
-    ),
-    text
-      ? React.createElement(
-          "div",
-          {
-            ref,
-            dir: "auto",
-            style: {
-              maxHeight: "84px",
-              overflowY: "auto",
-              border: "1px solid #e4e4ea",
-              borderRadius: "8px",
-              padding: "6px 10px",
-              fontSize: "11.5px",
-              lineHeight: 1.5,
-              color: "#6b7280",
-              fontStyle: "italic",
-              whiteSpace: "pre-wrap",
-            },
-          },
-          text,
-        )
-      : null,
+    React.createElement(AIChip, { label, open, onToggle: text ? () => setOpen((v) => !v) : undefined }),
+    open && text ? React.createElement(TraceBox, { text }) : null,
   );
 }
 
@@ -251,18 +280,22 @@ function ProposalDiffTable({
   proposal,
   dir,
   loading,
+  thinking,
   labels: L,
   onAction,
 }: {
   proposal: TableProposalData;
   dir?: "rtl" | "ltr";
   loading: boolean;
+  /** The full reasoning trace — the "Thought for Xs" chip toggles it (collapsed by default). */
+  thinking: string;
   labels: TableAILabels;
   onAction: (action: "approve" | "reject" | "again" | "retry", note?: string) => void;
 }) {
   const [compare, setCompare] = React.useState(false);
   const [againOpen, setAgainOpen] = React.useState(false);
   const [note, setNote] = React.useState("");
+  const [traceOpen, setTraceOpen] = React.useState(false);
   const { originalRows, newRows, diff } = proposal;
 
   const edited = React.useMemo(() => {
@@ -364,15 +397,18 @@ function ProposalDiffTable({
       onClick: (e: React.MouseEvent) => e.stopPropagation(),
       onDoubleClick: (e: React.MouseEvent) => e.stopPropagation(),
     },
-    React.createElement(
-      "div",
-      { style: { display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11.5px", color: "#4f46e5", background: "#eef2ff", borderRadius: "999px", padding: "3px 10px", marginBottom: "2px" } },
-      compare
-        ? `✦ ${L.original}`
+    React.createElement(AIChip, {
+      label: compare
+        ? L.original
         : proposal.thoughtMs != null
-          ? `✦ ${L.thought.replace("{s}", String(Math.max(1, Math.round(proposal.thoughtMs / 1000))))}`
-          : `✦ ${L.proposal}`,
-    ),
+          ? L.thought.replace("{s}", String(Math.max(1, Math.round(proposal.thoughtMs / 1000))))
+          : L.proposal,
+      open: traceOpen,
+      // The chip doubles as the trace disclosure (collapsed by default) when a
+      // reasoning trace exists for this proposal.
+      onToggle: thinking && !compare ? () => setTraceOpen((v) => !v) : undefined,
+    }),
+    traceOpen && thinking && !compare ? React.createElement(TraceBox, { text: thinking }) : null,
     grid,
     React.createElement(
       "div",
@@ -450,6 +486,7 @@ function EditableTable({
         proposal: proposalHere,
         dir,
         loading: loadingHere,
+        thinking: tp.thinking,
         labels: tp.labels,
         onAction: tp.onAction,
       }),
