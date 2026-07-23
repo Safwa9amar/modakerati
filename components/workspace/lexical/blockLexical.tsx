@@ -181,7 +181,9 @@ const CELL_MAX_WIDTH = "220px";
 function ScrollWrap({ children }: { children: React.ReactNode }) {
   return React.createElement(
     "div",
-    { style: { overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" } },
+    // lx-tblscroll styles the scroll indicator in the brand accent (see the
+    // editor CSS) so the "there's more table sideways" affordance is visible.
+    { className: "lx-tblscroll", style: { overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" } },
     children,
   );
 }
