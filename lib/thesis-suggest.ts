@@ -434,3 +434,56 @@ export async function setThesisFigureCaption(
   if (!res.ok) throw new Error(`caption ${res.status}`);
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Inline autocomplete — POST /api/thesis/:id/complete/stream (READ-ONLY).
+// Streams a short continuation of the in-flight block text as PLAIN text (no THINK
+// framing — completion is answer-only). Context is the caret text + nearby blocks +
+// heading chain + meta, assembled by the completion-store. Same emoji-safe unescape
+// + chunk-boundary hold as the other streams. Aborted on every keystroke.
+// ---------------------------------------------------------------------------
+export interface CompletionContext {
+  before: string;
+  precedingBlocks: string[];
+  headingChain: string[];
+  language: string;
+  title?: string;
+  discipline?: string;
+}
+
+export async function proposeCompletionStream(
+  thesisId: string,
+  ctx: CompletionContext,
+  onDelta: (delta: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await expoFetch(
+    `${process.env.EXPO_PUBLIC_API_URL}/api/thesis/${thesisId}/complete/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+      body: JSON.stringify(ctx),
+      signal,
+    },
+  );
+  if (!res.ok || !res.body) throw new Error(`complete stream ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = ""; // trailing partial \uXXXX escape held across a chunk boundary
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const cut = safeEscapeBoundary(pending);
+      const ready = pending.slice(0, cut);
+      pending = pending.slice(cut);
+      if (ready) onDelta(unescapeUnicode(ready));
+    }
+    pending += decoder.decode();
+    if (pending) onDelta(unescapeUnicode(pending));
+  } finally {
+    reader.releaseLock();
+  }
+}
