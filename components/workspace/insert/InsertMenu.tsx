@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from "react-native";
-import Animated, { useAnimatedStyle, withSpring, withTiming, FadeIn } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { Sparkles, ImagePlus, Maximize2, Search as SearchIcon } from "lucide-react-native";
@@ -59,9 +59,17 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
   const maxTop = Math.max(minTop, height - insets.bottom - 260);
   const top = Math.max(minTop, Math.min(anchor?.y ?? minTop, maxTop));
 
+  // Bloom-in: the compact card unmounts on close (early return below), so this
+  // mount-time effect re-fires every time the menu opens — a fresh 0→1 spring
+  // each time, growing from the anchor via the transformOrigin set below.
+  const bloomProgress = useSharedValue(0);
+  useEffect(() => {
+    bloomProgress.value = 0;
+    bloomProgress.value = withSpring(1, { damping: 16, stiffness: 220 });
+  }, [bloomProgress]);
   const bloom = useAnimatedStyle(() => ({
-    opacity: withTiming(1, { duration: 140 }),
-    transform: [{ scale: withSpring(1, { damping: 16, stiffness: 220 }) }],
+    opacity: bloomProgress.value,
+    transform: [{ scale: 0.6 + 0.4 * bloomProgress.value }],
   }));
 
   if (!open) return null;
@@ -94,6 +102,9 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
     <Pressable
       onPress={() => void pick(d)}
       disabled={d.status !== "ready"}
+      accessibilityRole="button"
+      accessibilityLabel={label(d)}
+      accessibilityState={{ disabled: d.status !== "ready" }}
       style={({ pressed }) => [
         styles.row,
         { flexDirection, opacity: d.status !== "ready" ? 0.45 : pressed ? 0.6 : 1 },
@@ -155,6 +166,7 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
               autoFocus
               placeholder={t("insertMenu.searchPlaceholder")}
               placeholderTextColor={colors.textPlaceholder}
+              accessibilityLabel={t("insertMenu.searchPlaceholder")}
               value={query}
               onChangeText={(q) => useInsertMenuStore.getState().setQuery(q)}
               style={[styles.searchInput, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}
@@ -188,7 +200,12 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
             <Maximize2 size={14} color={colors.textPlaceholder} />
           </Pressable>
           <View style={[styles.grab, { backgroundColor: colors.borderDefault }]} />
-          {recents.length ? (
+          {/* Precedence: live /query filter wins over Recents (typing "/quote" after
+              recents exist must show the Quote match, not stale recents); Recents
+              only show for an EMPTY query; otherwise the full categorized palette. */}
+          {query.trim() ? (
+            INSERT_CATEGORIES.map((c) => <Cat key={c} c={c} />)
+          ) : recents.length ? (
             <>
               <Text
                 style={[
@@ -211,7 +228,11 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
             <Sparkles size={12} color={colors.brandPrimary} />
             <Text style={{ color: colors.textPlaceholder, fontSize: 11 }}>{t("insertMenu.aiSuggestions")}</Text>
           </View>
-          <View style={[styles.aiSoon, { borderColor: colors.borderSubtle, flexDirection }]}>
+          <View
+            style={[styles.aiSoon, { borderColor: colors.borderSubtle, flexDirection }]}
+            accessible
+            accessibilityState={{ disabled: true }}
+          >
             <ImagePlus size={16} color={colors.textPlaceholder} />
             <Text style={{ color: colors.textPlaceholder, flex: 1, textAlign: rtl ? "right" : "left" }}>
               {t("insertMenu.block.imageGen")}
