@@ -110,8 +110,12 @@ import type { BlockKind } from "@/stores/insert-menu-store";
 
 // Payload the native Insert menu sends back in: which block to produce (or
 // clearSlash = just remove the /query, used before a native structural op).
-export type InsertBlockPayload = { kind: BlockKind | "clearSlash" };
-export const INSERT_BLOCK_COMMAND: LxCommand<InsertBlockPayload> = createCommand("INSERT_BLOCK_COMMAND");
+// NOTE: file-local (no `export`) — this is a "use dom" module, which the Expo
+// babel plugin restricts to a SINGLE default export. Both are only used inside
+// this file (the native side dispatches the string "insert" command, not this
+// Lexical command object), so they never need to be exported.
+type InsertBlockPayload = { kind: BlockKind | "clearSlash" };
+const INSERT_BLOCK_COMMAND: LxCommand<InsertBlockPayload> = createCommand("INSERT_BLOCK_COMMAND");
 
 // The pending AI proposal handed to the editor from the native suggestion store.
 export type SuggestionInput = {
