@@ -16,6 +16,8 @@ import { useSearchStore } from "@/stores/search-store";
 import { useTableSuggestionStore } from "@/stores/table-suggestion-store";
 import { diffToOps, layoutDelta } from "@/lib/table-diff";
 import { planOps, tally } from "@/lib/lexical-writeback";
+import { useInsertMenuStore } from "@/stores/insert-menu-store";
+import { InsertMenu } from "@/components/workspace/insert/InsertMenu";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -420,6 +422,23 @@ export function WorkspaceLexicalView({
     }
   }, [scheduleSave]);
 
+  // Bridge the SlashPlugin's "/command" detection to the native insert-menu store.
+  // The trigger fires from an editor update (not onState), so reuse the last known
+  // focus Y — the same anchor math onState uses for the floating pill.
+  const onInsertTrigger = useCallback((tr: { active: boolean; index: number; query: string }) => {
+    const store = useInsertMenuStore.getState();
+    if (!tr.active) {
+      if (store.open) store.close();
+      return;
+    }
+    const y = focusRef.current?.y != null ? editorTopRef.current + focusRef.current.y : 200;
+    if (!store.open) store.openAt({ index: tr.index, y }, { query: tr.query });
+    else {
+      store.setAnchor({ index: tr.index, y });
+      store.setQuery(tr.query);
+    }
+  }, []);
+
   const runSave = useCallback(async (serialized: DocBlockDTO[]) => {
     try {
       if (!pendingSave.current) return;
@@ -611,6 +630,7 @@ export function WorkspaceLexicalView({
           initialBlocks={seed}
           command={command}
           onState={onState}
+          onInsertTrigger={onInsertTrigger}
           onBlocks={onBlocks}
           reseed={reseed}
           scrollToIndex={scrollTarget ? { index: scrollTarget.index, nonce: scrollTarget.nonce } : undefined}
@@ -644,6 +664,7 @@ export function WorkspaceLexicalView({
           </View>
         ) : null}
       </View>
+      <InsertMenu thesisId={thesisId} />
     </View>
   );
 }
