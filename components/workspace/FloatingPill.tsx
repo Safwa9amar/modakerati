@@ -19,6 +19,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
+import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { hSelection } from "@/lib/haptics";
 import { layoutSpring, SPRING } from "@/lib/motion";
@@ -80,6 +81,9 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const aiGateActive = useChatStore((s) => s.pendingAsk != null || s.pendingConfirm != null);
 
   const visible = useFloatingPillStore((s) => s.visible);
+  // Hide the ✦ bubble entirely while the Insert menu is open — it must not float
+  // over the menu (it shares the same overlay space).
+  const insertMenuOpen = useInsertMenuStore((s) => s.open);
   const pos = useFloatingPillStore((s) => s.pos);
   const expanded = useFloatingPillStore((s) => s.expanded);
   const anchorY = useFloatingPillStore((s) => s.anchorY);
@@ -382,7 +386,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // BlockContextBar (Task 4, untouched here) can still set it, and the bubble must
   // yield the bottom surface to that legacy bar while it's up.
   const suppressed =
-    askAiOpen || aiGateActive || soleSuggested || rangeActive || !composerOpen || previewMode != null;
+    askAiOpen || aiGateActive || soleSuggested || rangeActive || !composerOpen || previewMode != null || insertMenuOpen;
   if (!visible || suppressed) {
     // Still render the target host? No — nothing to show when suppressed.
     return null;

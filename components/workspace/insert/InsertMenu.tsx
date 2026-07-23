@@ -8,7 +8,8 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, FadeIn } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, SlideInDown, runOnJS } from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { Sparkles, ImagePlus, Maximize2, Search as SearchIcon } from "lucide-react-native";
@@ -17,6 +18,7 @@ import { useRTL } from "@/hooks/useRTL";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { INSERT_BLOCKS, INSERT_CATEGORIES, filterBlocks, type InsertBlockDef } from "./insert-blocks";
 import { pickAndInsertImage } from "@/lib/insert-image";
 
@@ -25,15 +27,20 @@ import { pickAndInsertImage } from "@/lib/insert-image";
 // thesis-doc-store op — see `pick()` below.
 const TEXT_KINDS = ["h1", "h2", "h3", "quote", "bullet", "number"];
 
+// Module-stable wrappers so gesture worklets can runOnJS them without a fresh
+// closure per render (they always read the live store via getState()).
+const expandMenu = () => useInsertMenuStore.getState().expand();
+const collapseMenu = () => useInsertMenuStore.getState().collapse();
+const closeMenu = () => useInsertMenuStore.getState().close();
+
 /**
  * The Notion-style "/" insert menu. A native RN overlay (NOT inside the Lexical
- * DOM editor) driven entirely by `insert-menu-store`. Two forms reachable from
- * the same store: a compact card that blooms at the caret's screen Y (recents,
- * or the categorized palette when recents are empty, plus a disabled "coming
- * soon" AI image-gen row), and a full-screen bottom sheet with the only search
- * field, filtering every category via `filterBlocks`. RTL/LTR mirrors the APP
- * language (useRTL — same convention as GlobalDockBar/AIDock/SearchPanel), not
- * the thesis content's direction.
+ * DOM editor) driven entirely by `insert-menu-store`. Two forms from the same
+ * store: a compact card that blooms at the caret (recently-used pinned on top +
+ * the full categorized palette below, plus an AI-suggestions section gated by
+ * the autocomplete setting), and a full-screen bottom sheet with the only search
+ * field. Drag the grab handle up to expand / down to collapse. RTL/LTR mirror the
+ * APP language (useRTL — same convention as GlobalDockBar/AIDock/SearchPanel).
  */
 export function InsertMenu({ thesisId }: { thesisId: string }) {
   const colors = useThemeColors();
@@ -47,34 +54,33 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
   const query = useInsertMenuStore((s) => s.query);
   const anchor = useInsertMenuStore((s) => s.anchor);
   const recents = useInsertMenuStore((s) => s.recents);
+  // The AI-suggestions section is hidden when the student turned AI assistance off
+  // in Settings (same flag that gates inline autocomplete).
+  const aiEnabled = useSettingsStore((s) => s.autocompleteEnabled);
 
   const label = (d: InsertBlockDef) => t(`insertMenu.block.${d.labelKey}`);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `label` closes over `t`, stable per session
   const filtered = useMemo(() => filterBlocks(query, label), [query]);
 
   // Position the compact card AT the slash line (anchor.y = the caret line's
-  // absolute screen Y, same convention as FloatingPill's anchorY). If the caret
-  // sits low on screen, flip the card ABOVE the line so it grows toward the
-  // visible doc instead of off the bottom; either way the body scrolls, capped
-  // to the available space, so it never overflows.
+  // absolute screen Y). If the caret sits low on screen, flip the card ABOVE the
+  // line so it grows toward the visible doc instead of off the bottom; either way
+  // the body scrolls, capped to the available space, so it never overflows.
   const GAP = 8;
   const minTop = insets.top + 56;
   const anchorY = anchor?.y ?? height * 0.4;
   const spaceBelow = height - insets.bottom - anchorY - GAP;
   const spaceAbove = anchorY - minTop - GAP;
   const openUp = spaceBelow < spaceAbove && spaceBelow < 340;
-  const listMaxHeight = Math.max(150, Math.min((openUp ? spaceAbove : spaceBelow) - 34, 380));
+  // Reserve room for the grab zone (~34) + the fixed "search all" footer (~40).
+  const listMaxHeight = Math.max(150, Math.min((openUp ? spaceAbove : spaceBelow) - 74, 400));
 
-  // Bloom-in: InsertMenu is mounted UNCONDITIONALLY by its parent — `!open` only
-  // makes the JSX render null, the component instance (and its hooks) stay alive
-  // across opens/closes. So the effect must depend on `open`/`mode` (not run once
-  // at mount) to re-fire the spring every time the compact card actually opens.
-  // Gated to "compact" so it doesn't fight the full sheet's own entering={FadeIn}.
+  // Bloom-in: re-fires each time the compact card opens (deps on open/mode; the
+  // component never unmounts). Snappy pop — low mass + high stiffness.
   const bloomProgress = useSharedValue(0);
   useEffect(() => {
     if (open && mode === "compact") {
       bloomProgress.value = 0;
-      // Snappy pop — low mass + high stiffness so it feels fast, not floaty.
       bloomProgress.value = withSpring(1, { mass: 0.4, damping: 14, stiffness: 320 });
     }
   }, [open, mode, bloomProgress]);
@@ -82,6 +88,28 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
     opacity: bloomProgress.value,
     transform: [{ scale: 0.6 + 0.4 * bloomProgress.value }],
   }));
+
+  // Grab-handle gestures. Compact: drag up → expand, drag down → close. Full:
+  // drag down → collapse to compact (far → close). Attached to the handle only,
+  // so the body ScrollView still scrolls independently.
+  const compactPan = useMemo(
+    () =>
+      Gesture.Pan().onEnd((e) => {
+        "worklet";
+        if (e.translationY < -30) runOnJS(expandMenu)();
+        else if (e.translationY > 60) runOnJS(closeMenu)();
+      }),
+    [],
+  );
+  const fullPan = useMemo(
+    () =>
+      Gesture.Pan().onEnd((e) => {
+        "worklet";
+        if (e.translationY > 140) runOnJS(closeMenu)();
+        else if (e.translationY > 40) runOnJS(collapseMenu)();
+      }),
+    [],
+  );
 
   if (!open) return null;
 
@@ -109,43 +137,49 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
     }
   };
 
-  const Row = ({ d }: { d: InsertBlockDef }) => (
-    <Pressable
-      onPress={() => void pick(d)}
-      disabled={d.status !== "ready"}
-      accessibilityRole="button"
-      accessibilityLabel={label(d)}
-      accessibilityState={{ disabled: d.status !== "ready" }}
-      style={({ pressed }) => [
-        styles.row,
-        { flexDirection, opacity: d.status !== "ready" ? 0.45 : pressed ? 0.6 : 1 },
+  const Row = ({ d }: { d: InsertBlockDef }) => {
+    const ready = d.status === "ready";
+    return (
+      <Pressable
+        onPress={() => void pick(d)}
+        disabled={!ready}
+        accessibilityRole="button"
+        accessibilityLabel={label(d)}
+        accessibilityState={{ disabled: !ready }}
+        style={({ pressed }) => [
+          styles.row,
+          { flexDirection, backgroundColor: pressed && ready ? colors.bgSurface : "transparent", opacity: ready ? 1 : 0.45 },
+        ]}
+      >
+        <d.Icon size={18} color={ready ? colors.textSecondary : colors.textPlaceholder} />
+        <Text style={[styles.rowLabel, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}>{label(d)}</Text>
+        {!ready ? (
+          <Text style={[styles.soon, { color: colors.textPlaceholder, backgroundColor: colors.bgSurface }]}>
+            {t("insertMenu.comingSoon")}
+          </Text>
+        ) : null}
+      </Pressable>
+    );
+  };
+
+  const CatHeader = ({ text, first }: { text: string; first?: boolean }) => (
+    <Text
+      style={[
+        styles.cat,
+        first && styles.catFirst,
+        { color: colors.textPlaceholder, borderTopColor: colors.borderSubtle, textAlign: rtl ? "right" : "left" },
       ]}
     >
-      <d.Icon size={18} color={colors.textSecondary} />
-      <Text style={[styles.rowLabel, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}>
-        {label(d)}
-      </Text>
-      {d.status === "soon" ? (
-        <Text style={[styles.soon, { color: colors.textPlaceholder, backgroundColor: colors.bgSurface }]}>
-          {t("insertMenu.comingSoon")}
-        </Text>
-      ) : null}
-    </Pressable>
+      {text}
+    </Text>
   );
 
-  const Cat = ({ c }: { c: (typeof INSERT_CATEGORIES)[number] }) => {
+  const Cat = ({ c, first }: { c: (typeof INSERT_CATEGORIES)[number]; first?: boolean }) => {
     const items = filtered.filter((b) => b.category === c);
     if (!items.length) return null;
     return (
       <View>
-        <Text
-          style={[
-            styles.cat,
-            { color: colors.textPlaceholder, borderTopColor: colors.borderSubtle, textAlign: rtl ? "right" : "left" },
-          ]}
-        >
-          {t(`insertMenu.cat.${c}`)}
-        </Text>
+        <CatHeader text={t(`insertMenu.cat.${c}`)} first={first} />
         {items.map((d) => (
           <Row key={d.kind} d={d} />
         ))}
@@ -153,12 +187,55 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
     );
   };
 
+  // The tool list: recently-used pinned on top (for fast access), then the FULL
+  // categorized palette. While filtering (/query or search), just the matches.
+  const ToolList = () =>
+    query.trim() ? (
+      <>{INSERT_CATEGORIES.map((c) => <Cat key={c} c={c} />)}</>
+    ) : (
+      <>
+        {recents.length > 0 ? (
+          <View>
+            <CatHeader text={t("insertMenu.recent")} first />
+            {recents.map((k) => {
+              const d = INSERT_BLOCKS.find((b) => b.kind === k);
+              return d ? <Row key={`recent-${k}`} d={d} /> : null;
+            })}
+          </View>
+        ) : null}
+        {INSERT_CATEGORIES.map((c, i) => (
+          <Cat key={c} c={c} first={i === 0 && recents.length === 0} />
+        ))}
+      </>
+    );
+
+  const AISection = () =>
+    !aiEnabled ? null : (
+      <View>
+        <View style={[styles.cat, styles.catRow, { flexDirection, borderTopColor: colors.borderSubtle }]}>
+          <Sparkles size={12} color={colors.brandPrimary} />
+          <Text style={{ color: colors.textPlaceholder, fontSize: 11, fontFamily: "Inter_700Bold" }}>
+            {t("insertMenu.aiSuggestions")}
+          </Text>
+        </View>
+        <View style={[styles.aiSoon, { borderColor: colors.borderSubtle, flexDirection }]} accessible accessibilityState={{ disabled: true }}>
+          <ImagePlus size={16} color={colors.textPlaceholder} />
+          <Text style={{ color: colors.textPlaceholder, flex: 1, textAlign: rtl ? "right" : "left" }}>
+            {t("insertMenu.block.imageGen")}
+          </Text>
+          <Text style={[styles.soon, { color: colors.textPlaceholder, backgroundColor: colors.bgSurface }]}>
+            {t("insertMenu.comingSoon")}
+          </Text>
+        </View>
+      </View>
+    );
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <Pressable style={StyleSheet.absoluteFill} onPress={() => useInsertMenuStore.getState().close()} />
+      <Pressable style={StyleSheet.absoluteFill} onPress={closeMenu} />
       {mode === "full" ? (
         <Animated.View
-          entering={FadeIn.duration(160)}
+          entering={SlideInDown.duration(240)}
           style={[
             styles.sheet,
             {
@@ -169,7 +246,11 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
             },
           ]}
         >
-          <View style={[styles.grab, { backgroundColor: colors.borderDefault }]} />
+          <GestureDetector gesture={fullPan}>
+            <View style={styles.grabZone}>
+              <View style={[styles.grab, { backgroundColor: colors.borderDefault }]} />
+            </View>
+          </GestureDetector>
           <Text style={[styles.title, { color: colors.textPrimary }]}>{t("insertMenu.title")}</Text>
           <View style={[styles.search, { backgroundColor: colors.bgSurface, flexDirection }]}>
             <SearchIcon size={16} color={colors.textPlaceholder} />
@@ -184,9 +265,8 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
             />
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
-            {INSERT_CATEGORIES.map((c) => (
-              <Cat key={c} c={c} />
-            ))}
+            <ToolList />
+            <AISection />
           </ScrollView>
         </Animated.View>
       ) : (
@@ -204,63 +284,26 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
         >
           <Pressable
             style={[styles.expand, rtl ? { right: 12 } : { left: 12 }]}
-            onPress={() => useInsertMenuStore.getState().expand()}
+            onPress={expandMenu}
+            hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel={t("insertMenu.expandHint")}
           >
-            <Maximize2 size={14} color={colors.textPlaceholder} />
+            <Maximize2 size={15} color={colors.textPlaceholder} />
           </Pressable>
-          <View style={[styles.grab, { backgroundColor: colors.borderDefault }]} />
-          <ScrollView style={{ maxHeight: listMaxHeight }} keyboardShouldPersistTaps="handled">
-          {/* Precedence: live /query filter wins over Recents (typing "/quote" after
-              recents exist must show the Quote match, not stale recents); Recents
-              only show for an EMPTY query; otherwise the full categorized palette. */}
-          {query.trim() ? (
-            INSERT_CATEGORIES.map((c) => <Cat key={c} c={c} />)
-          ) : recents.length ? (
-            <>
-              <Text
-                style={[
-                  styles.cat,
-                  styles.catFirst,
-                  { color: colors.textPlaceholder, textAlign: rtl ? "right" : "left" },
-                ]}
-              >
-                {t("insertMenu.recent")}
-              </Text>
-              {recents.map((k) => {
-                const d = INSERT_BLOCKS.find((b) => b.kind === k);
-                return d ? <Row key={k} d={d} /> : null;
-              })}
-            </>
-          ) : (
-            INSERT_CATEGORIES.map((c) => <Cat key={c} c={c} />)
-          )}
-          <View style={[styles.cat, { flexDirection, borderTopColor: colors.borderSubtle }]}>
-            <Sparkles size={12} color={colors.brandPrimary} />
-            <Text style={{ color: colors.textPlaceholder, fontSize: 11 }}>{t("insertMenu.aiSuggestions")}</Text>
-          </View>
-          <View
-            style={[styles.aiSoon, { borderColor: colors.borderSubtle, flexDirection }]}
-            accessible
-            accessibilityState={{ disabled: true }}
-          >
-            <ImagePlus size={16} color={colors.textPlaceholder} />
-            <Text style={{ color: colors.textPlaceholder, flex: 1, textAlign: rtl ? "right" : "left" }}>
-              {t("insertMenu.block.imageGen")}
-            </Text>
-            <Text style={[styles.soon, { color: colors.textPlaceholder, backgroundColor: colors.bgSurface }]}>
-              {t("insertMenu.comingSoon")}
-            </Text>
-          </View>
-          <Pressable
-            onPress={() => useInsertMenuStore.getState().expand()}
-            style={[styles.exHint, { borderTopColor: colors.borderSubtle, flexDirection }]}
-          >
+          <GestureDetector gesture={compactPan}>
+            <View style={styles.grabZone}>
+              <View style={[styles.grab, { backgroundColor: colors.borderDefault }]} />
+            </View>
+          </GestureDetector>
+          <ScrollView style={{ maxHeight: listMaxHeight }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+            <ToolList />
+            <AISection />
+          </ScrollView>
+          <Pressable onPress={expandMenu} style={[styles.exHint, { borderTopColor: colors.borderSubtle, flexDirection }]}>
             <SearchIcon size={12} color={colors.textPlaceholder} />
             <Text style={{ color: colors.textPlaceholder, fontSize: 11 }}>{t("insertMenu.expandHint")}</Text>
           </Pressable>
-          </ScrollView>
         </Animated.View>
       )}
     </View>
@@ -272,14 +315,15 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 12,
     right: 12,
-    borderRadius: 20,
+    borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 8,
+    paddingHorizontal: 6,
+    paddingBottom: 4,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    elevation: 14,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 28,
+    elevation: 16,
     zIndex: 50,
   },
   sheet: {
@@ -290,52 +334,61 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 10,
+    paddingHorizontal: 10,
     zIndex: 50,
   },
-  grab: { width: 38, height: 4, borderRadius: 3, alignSelf: "center", marginVertical: 6 },
+  grabZone: { paddingVertical: 9, alignItems: "center", justifyContent: "center" },
+  grab: { width: 40, height: 4, borderRadius: 3 },
   title: { fontSize: 13, fontFamily: "Inter_700Bold", textAlign: "center", paddingBottom: 8 },
   search: {
     alignItems: "center",
     gap: 8,
-    borderRadius: 11,
+    borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     marginBottom: 6,
   },
-  searchInput: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium", padding: 0 },
+  searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium", padding: 0 },
   cat: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: "Inter_700Bold",
-    letterSpacing: 0.5,
-    paddingHorizontal: 8,
-    paddingTop: 9,
-    paddingBottom: 4,
+    letterSpacing: 0.4,
+    paddingHorizontal: 12,
+    paddingTop: 11,
+    paddingBottom: 5,
     borderTopWidth: StyleSheet.hairlineWidth,
-    marginTop: 3,
-    alignItems: "center",
-    gap: 4,
+    marginTop: 4,
   },
-  catFirst: { borderTopWidth: 0, marginTop: 0 },
-  row: { alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 9 },
-  rowLabel: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  catRow: { alignItems: "center", gap: 5 },
+  catFirst: { borderTopWidth: 0, marginTop: 2 },
+  row: { alignItems: "center", gap: 12, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 10 },
+  rowLabel: { flex: 1, fontSize: 14, fontFamily: "Inter_600SemiBold" },
   soon: {
     fontSize: 9,
     fontFamily: "Inter_700Bold",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 20,
     overflow: "hidden",
   },
   aiSoon: {
     alignItems: "center",
     gap: 8,
-    padding: 10,
-    borderRadius: 11,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderStyle: "dashed",
-    margin: 2,
+    marginHorizontal: 4,
+    marginTop: 2,
   },
-  expand: { position: "absolute", top: 9, zIndex: 1 },
-  exHint: { alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, marginTop: 5 },
+  expand: { position: "absolute", top: 12, zIndex: 2 },
+  exHint: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 4,
+  },
 });
