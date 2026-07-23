@@ -315,6 +315,7 @@ export function WorkspaceLexicalView({
     } else if (!active && wasActive.current) {
       flushNow(); // leaving the Writer (e.g. opening a preview) → flush edits
       useCompletionStore.getState().cancel(); // don't leave a pending/showing completion behind
+      useInsertMenuStore.getState().close(); // don't leave a stale /insert menu across a Preview round-trip
     }
     wasActive.current = active;
   }, [active, thesisId, blocks, flushNow]);
