@@ -940,30 +940,37 @@ function CompletionPlugin({
       // Any non-ghost update clears a showing ghost (typing / caret move dismisses).
       if (ghostKeyRef.current) { removeGhost(); onCancel?.(); }
       if (timer.current) { clearTimeout(timer.current); timer.current = null; }
-      if (!enabled || suppressed || tags.has(SKIP_DOM_SELECTION_TAG)) return;
+      if (!enabled || suppressed || tags.has(SKIP_DOM_SELECTION_TAG)) {
+        console.log(`[ac-plugin] gate blocked enabled=${enabled} suppressed=${suppressed} skipTag=${tags.has(SKIP_DOM_SELECTION_TAG)}`);
+        return;
+      }
 
       let target: { index: number; text: string } | null = null;
+      let reason = "";
       editorState.read(() => {
         const sel = $getSelection();
-        if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
+        if (!$isRangeSelection(sel) || !sel.isCollapsed()) { reason = "not-collapsed-range"; return; }
         const anchor = sel.anchor.getNode();
-        if (!$isTextNode(anchor)) return;
+        if (!$isTextNode(anchor)) { reason = "anchor-not-text"; return; }
         const top = anchor.getTopLevelElement();
-        if (!top || !($isParagraphNode(top) || $isHeadingNode(top))) return;
+        if (!top || !($isParagraphNode(top) || $isHeadingNode(top))) { reason = "top=" + (top ? top.getType() : "null") + " (need paragraph/heading)"; return; }
         const atNodeEnd = sel.anchor.offset === anchor.getTextContentSize();
         // "Last" ignoring a trailing ghost — so a keystroke that clears a showing
         // ghost still re-triggers a fresh completion on the same pause.
         const next = anchor.getNextSibling();
         const isLast = next == null || $isGhostCompletionNode(next);
         const text = top.getTextContent();
-        if (!atNodeEnd || !isLast || text.trim().length < 2) return;
+        if (!atNodeEnd || !isLast || text.trim().length < 2) { reason = `atEnd=${atNodeEnd} isLast=${isLast} len=${text.trim().length}`; return; }
         target = { index: $blockIndexOfNode(anchor), text };
       });
-      targetRef.current = target;
-      if (!target) return;
+      // Cast: TS can't track the assignment made inside the read() callback above.
+      const chosen = target as { index: number; text: string } | null;
+      targetRef.current = chosen;
+      if (!chosen) { console.log(`[ac-plugin] no target: ${reason}`); return; }
+      console.log(`[ac-plugin] target index=${chosen.index} len=${chosen.text.length} — scheduling 600ms`);
       timer.current = setTimeout(() => {
         timer.current = null;
-        if (targetRef.current) onRequest?.(targetRef.current);
+        if (targetRef.current) { console.log(`[ac-plugin] debounce fired → onRequest index=${targetRef.current.index}`); onRequest?.(targetRef.current); }
       }, 600);
     });
     return () => { off(); if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
