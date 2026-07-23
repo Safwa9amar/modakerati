@@ -3,7 +3,7 @@ import { create } from "zustand";
 // The blocks the Insert menu can produce. Phase 1 wires the "ready" set; the
 // Phase 2+ kinds are declared so the palette config and types are stable.
 export type BlockKind =
-  | "h1" | "h2" | "h3" | "quote" | "bullet" | "number" // text (Lexical transform)
+  | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "quote" | "bullet" | "number" // text (Lexical transform)
   | "figure" | "pageBreak"                              // structural (native op)
   | "table" | "divider" | "equation" | "toc" | "footnote"; // Phase 2+
 

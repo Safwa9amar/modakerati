@@ -17,7 +17,7 @@ import { pickAndInsertImage } from "@/lib/insert-image";
 
 const DRAWER_FRACTION = 0.64;
 const SPRING = { damping: 22, stiffness: 240, mass: 0.7 } as const;
-const TEXT_KINDS = ["h1", "h2", "h3", "quote", "bullet", "number"];
+const TEXT_KINDS = ["h1", "h2", "h3", "h4", "h5", "h6", "quote", "bullet", "number"];
 const PAD = 16;
 
 // Per-category accent — solid foreground + low-alpha background so the tint reads
@@ -231,7 +231,7 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
       </View>
 
       {!searching ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.tabsRow, { flexDirection: rowDir }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={[styles.tabsRow, { flexDirection: rowDir }]}>
           {(["all", ...INSERT_CATEGORIES] as TabKey[]).map((k) => {
             const on = tab === k;
             return (
@@ -243,7 +243,7 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
         </ScrollView>
       ) : null}
 
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: bottomInset + 16 }}>
+      <ScrollView style={styles.list} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: bottomInset + 16 }}>
         {showAll ? (
           <>
             {!searching && recents.length > 0 ? (
@@ -291,6 +291,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 15, fontFamily: "Inter_700Bold" },
   search: { alignItems: "center", gap: 9, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginHorizontal: PAD, marginTop: 6, marginBottom: 8 },
   searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium", padding: 0 },
+  tabsScroll: { flexGrow: 0, flexShrink: 0 },
+  list: { flex: 1 },
   tabsRow: { gap: 8, paddingHorizontal: PAD, paddingBottom: 10, alignItems: "center" },
   pill: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20 },
   pillText: { fontSize: 12.5, fontFamily: "Inter_700Bold" },

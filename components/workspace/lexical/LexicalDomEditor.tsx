@@ -1182,7 +1182,7 @@ function SlashPlugin({
           const s2 = $getSelection();
           if (!$isRangeSelection(s2)) return;
           switch (payload.kind) {
-            case "h1": case "h2": case "h3":
+            case "h1": case "h2": case "h3": case "h4": case "h5": case "h6":
               $setBlocksType(s2, () => $createHeadingNode(payload.kind as HeadingTagType));
               break;
             case "quote":

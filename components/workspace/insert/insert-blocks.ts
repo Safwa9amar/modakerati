@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react-native";
 import {
-  Heading1, Heading2, Heading3, Quote, List, ListOrdered,
+  Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, Quote, List, ListOrdered,
   Image as ImageIcon, SquareSplitVertical, Table, Minus, Sigma, ListTree, Superscript,
 } from "lucide-react-native";
 import type { BlockKind } from "@/stores/insert-menu-store";
@@ -20,6 +20,9 @@ export const INSERT_BLOCKS: InsertBlockDef[] = [
   { kind: "h1",       category: "text",     Icon: Heading1,            labelKey: "h1",       status: "ready" },
   { kind: "h2",       category: "text",     Icon: Heading2,            labelKey: "h2",       status: "ready" },
   { kind: "h3",       category: "text",     Icon: Heading3,            labelKey: "h3",       status: "ready" },
+  { kind: "h4",       category: "text",     Icon: Heading4,            labelKey: "h4",       status: "ready" },
+  { kind: "h5",       category: "text",     Icon: Heading5,            labelKey: "h5",       status: "ready" },
+  { kind: "h6",       category: "text",     Icon: Heading6,            labelKey: "h6",       status: "ready" },
   { kind: "quote",    category: "text",     Icon: Quote,               labelKey: "quote",    status: "ready" },
   { kind: "bullet",   category: "lists",    Icon: List,                labelKey: "bullet",   status: "ready" },
   { kind: "number",   category: "lists",    Icon: ListOrdered,         labelKey: "number",   status: "ready" },
