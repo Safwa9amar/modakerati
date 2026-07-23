@@ -76,7 +76,12 @@ import type { FormatChange, ParaRun, ThesisOp } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
-type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout";
+type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade";
+
+// Header-fill swatches for the table Shading sub-pill (6-hex, no '#') — the
+// classic Word accent set + neutral gray.
+const TABLE_FILLS = ["ED7D31", "4472C4", "70AD47", "FFC000", "D9D9D9"];
+const ZEBRA_FILL = "F2F2F2";
 
 // engine "both" == UI "justify"
 const alignFromDoc = (a: string | null): Align | null => (a === "both" ? "justify" : (a as Align | null));
@@ -201,6 +206,10 @@ export function BlockContextBar({
   const saving = useThesisDocStore((s) => (s.pending[thesisId] ?? 0) > 0);
 
   const [activeCategory, setActiveCategory] = useState<Category | null>(null);
+  // Delete-pick mode inside the table Rows/Columns sub-pills: tapping the delete
+  // chip shows numbered chips so the user deletes a SPECIFIC row/column (not
+  // just the last one).
+  const [delPick, setDelPick] = useState<"row" | "col" | null>(null);
   const [pillExpanded, setPillExpanded] = useState(false);
   const pickingRef = useRef(false);
   // Advanced picture ops: `busy` guards the async rotate/flip/remove-bg (disables
@@ -497,7 +506,10 @@ export function BlockContextBar({
   // shown in the legacy (block-model) path.
   const colorActive = (hex: string) => (lexActive ? false : allMark((r) => (r.color ?? "").toUpperCase() === hex.toUpperCase()));
 
-  const toggleCategory = (c: Category) => setActiveCategory((cur) => (cur === c ? null : c));
+  const toggleCategory = (c: Category) => {
+    setDelPick(null); // leaving/entering a category always exits delete-pick mode
+    setActiveCategory((cur) => (cur === c ? null : c));
+  };
 
   // ── Small building blocks ──
   // Plain element-returning helpers (NOT inner components) so they aren't a fresh
@@ -666,9 +678,10 @@ export function BlockContextBar({
       {categoryChip("tblRows", Rows3, t("blockBar.rows", { defaultValue: "Rows" }), 0)}
       {categoryChip("tblCols", Columns3, t("blockBar.columns", { defaultValue: "Columns" }), 1)}
       {categoryChip("tblLayout", LayoutGrid, t("blockBar.tableLayout", { defaultValue: "Table layout" }), 2)}
+      {categoryChip("tblShade", Palette, t("blockBar.tableShading", { defaultValue: "Table colors" }), 3)}
       {sep("ts1")}
-      {imageMoveDeleteChips(3)}
-      {chip({ keyProp: "tbl-search", Icon: Search, accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }), enterIndex: 6, onPress: openSearch })}
+      {imageMoveDeleteChips(4)}
+      {chip({ keyProp: "tbl-search", Icon: Search, accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }), enterIndex: 7, onPress: openSearch })}
     </>
   );
 
@@ -759,7 +772,7 @@ export function BlockContextBar({
     // only apply to a table, the paragraph categories only to text/headings. Skip
     // rendering a stale category that lingered across a block-kind change.
     const isTableCat =
-      activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout";
+      activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout" || activeCategory === "tblShade";
     if (isTableCat !== isTable) return null;
     let body: React.ReactNode = null;
     // A table sub-pill option chip (icon-only, same look as the align/style opts).
@@ -882,21 +895,109 @@ export function BlockContextBar({
         </>
       );
     } else if (activeCategory === "tblRows") {
-      // Rows sub-pill: insert above / below the table, delete the last row.
-      body = (
-        <>
-          {tblOpt("tr-top", ArrowUpToLine, t("blockBar.rowAbove", { defaultValue: "Insert row at top" }), 0, () => void tableEdit({ action: "addRow", at: 0 }))}
-          {tblOpt("tr-bot", ArrowDownToLine, t("blockBar.rowBelow", { defaultValue: "Add row at bottom" }), 1, () => void tableEdit({ action: "addRow" }))}
-          {tblOpt("tr-del", Trash2, t("blockBar.deleteRow", { defaultValue: "Delete last row" }), 2, () => void tableEdit({ action: "deleteRow", row: tableRows - 1 }), { disabled: tableRows <= 1 })}
-        </>
+      // Rows sub-pill: exact inserts (above row 0 / bottom) + delete a SPECIFIC
+      // row: the delete chip opens numbered chips (1..N) — tap one to delete it.
+      const numChip = (i: number, onPress: () => void) => (
+        <AnimatedChip
+          key={`n${i}`}
+          enterIndex={i + 1}
+          onPress={onPress}
+          accessibilityLabel={String(i + 1)}
+          style={optPill(false)}
+        >
+          <Text style={[styles.optText, { color: colors.textPrimary }]}>{i + 1}</Text>
+        </AnimatedChip>
       );
+      body =
+        delPick === "row" ? (
+          <>
+            {tblOpt("tr-back", X, t("common.cancel", { defaultValue: "Cancel" }), 0, () => setDelPick(null))}
+            {Array.from({ length: Math.min(tableRows, 20) }, (_, i) =>
+              numChip(i, () => { setDelPick(null); void tableEdit({ action: "deleteRow", row: i }); }),
+            )}
+          </>
+        ) : (
+          <>
+            {tblOpt("tr-top", ArrowUpToLine, t("blockBar.rowAbove", { defaultValue: "Insert row at top" }), 0, () => void tableEdit({ action: "addRow", at: 0, before: true }))}
+            {tblOpt("tr-bot", ArrowDownToLine, t("blockBar.rowBelow", { defaultValue: "Add row at bottom" }), 1, () => void tableEdit({ action: "addRow" }))}
+            {tblOpt("tr-del", Trash2, t("blockBar.deleteRowPick", { defaultValue: "Delete a row…" }), 2, () => setDelPick("row"), { disabled: tableRows <= 1 })}
+          </>
+        );
     } else if (activeCategory === "tblCols") {
-      // Columns sub-pill: insert left / right, delete the last column.
+      // Columns sub-pill: exact inserts (left of col 0 / right end) + delete a
+      // SPECIFIC column via the numbered picker.
+      const numChip = (i: number, onPress: () => void) => (
+        <AnimatedChip
+          key={`n${i}`}
+          enterIndex={i + 1}
+          onPress={onPress}
+          accessibilityLabel={String(i + 1)}
+          style={optPill(false)}
+        >
+          <Text style={[styles.optText, { color: colors.textPrimary }]}>{i + 1}</Text>
+        </AnimatedChip>
+      );
+      body =
+        delPick === "col" ? (
+          <>
+            {tblOpt("tc-back", X, t("common.cancel", { defaultValue: "Cancel" }), 0, () => setDelPick(null))}
+            {Array.from({ length: Math.min(tableCols, 20) }, (_, i) =>
+              numChip(i, () => { setDelPick(null); void tableEdit({ action: "deleteColumn", col: i }); }),
+            )}
+          </>
+        ) : (
+          <>
+            {tblOpt("tc-left", ArrowLeftToLine, t("blockBar.colLeft", { defaultValue: "Insert column at left" }), 0, () => void tableEdit({ action: "addColumn", at: 0, before: true }))}
+            {tblOpt("tc-right", ArrowRightToLine, t("blockBar.colRight", { defaultValue: "Add column at right" }), 1, () => void tableEdit({ action: "addColumn" }))}
+            {tblOpt("tc-del", Trash2, t("blockBar.deleteColumnPick", { defaultValue: "Delete a column…" }), 2, () => setDelPick("col"), { disabled: tableCols <= 1 })}
+          </>
+        );
+    } else if (activeCategory === "tblShade") {
+      // Shading sub-pill — manual parity with the AI's coloring: header fill
+      // swatches, zebra striping (alternating data rows), header text
+      // white/black. All through the silent tableOp path.
+      const zebra = () => {
+        const fills = Array.from({ length: tableRows }, (_, r) =>
+          Array.from({ length: tableCols }, () => (r > 0 && r % 2 === 1 ? ZEBRA_FILL : null)),
+        );
+        void tableEdit({ action: "shade", fills });
+      };
+      const headerText = (hex: string) => {
+        const textColors = [Array.from({ length: tableCols }, () => hex)];
+        void tableEdit({ action: "shade", textColors });
+      };
       body = (
         <>
-          {tblOpt("tc-left", ArrowLeftToLine, t("blockBar.colLeft", { defaultValue: "Insert column at left" }), 0, () => void tableEdit({ action: "addColumn", at: 0 }))}
-          {tblOpt("tc-right", ArrowRightToLine, t("blockBar.colRight", { defaultValue: "Add column at right" }), 1, () => void tableEdit({ action: "addColumn" }))}
-          {tblOpt("tc-del", Trash2, t("blockBar.deleteColumn", { defaultValue: "Delete last column" }), 2, () => void tableEdit({ action: "deleteColumn", col: tableCols - 1 }), { disabled: tableCols <= 1 })}
+          {TABLE_FILLS.map((hex, i) => (
+            <AnimatedChip
+              key={`tf${hex}`}
+              enterIndex={i}
+              onPress={() => void tableEdit({ action: "layout", opts: { headerFill: hex } })}
+              accessibilityLabel={t("blockBar.headerFill", { defaultValue: `Header color #${hex}`, hex })}
+              style={optPill(false)}
+            >
+              <View style={[styles.swatch, { backgroundColor: `#${hex}`, borderColor: colors.borderDefault }]} />
+            </AnimatedChip>
+          ))}
+          {tblOpt("ts-zebra", Rows3, t("blockBar.zebra", { defaultValue: "Zebra rows" }), TABLE_FILLS.length, zebra)}
+          <AnimatedChip
+            key="ts-txt-w"
+            enterIndex={TABLE_FILLS.length + 1}
+            onPress={() => headerText("FFFFFF")}
+            accessibilityLabel={t("blockBar.headerTextWhite", { defaultValue: "White header text" })}
+            style={optPill(false)}
+          >
+            <Text style={[styles.optText, { color: colors.textPrimary }]}>A</Text>
+          </AnimatedChip>
+          <AnimatedChip
+            key="ts-txt-b"
+            enterIndex={TABLE_FILLS.length + 2}
+            onPress={() => headerText("000000")}
+            accessibilityLabel={t("blockBar.headerTextBlack", { defaultValue: "Black header text" })}
+            style={optPill(false)}
+          >
+            <Text style={[styles.optText, { color: colors.textPlaceholder }]}>A</Text>
+          </AnimatedChip>
         </>
       );
     } else if (activeCategory === "tblLayout") {

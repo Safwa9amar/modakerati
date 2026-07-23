@@ -54,6 +54,8 @@ export type TableStyleExtra = {
   fills?: (string | null)[][];
   /** Per-cell font colors read from the docx (null = default). */
   textColors?: (string | null)[][];
+  /** Merge spans: {cs,rs} on the rendered cell, "skip" = vMerge continuation. */
+  spans?: ({ cs: number; rs: number } | "skip" | null)[][];
 };
 type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
 
@@ -507,6 +509,7 @@ function EditableTable({
   const header = !!t.header;
   const fills = t.fills;
   const textColors = t.textColors;
+  const spans = t.spans;
   const dir = t.direction ?? undefined;
 
   // AI proposal targeting THIS table → diff mode (loading dims it in place; an
@@ -583,6 +586,10 @@ function EditableTable({
           "tr",
           { key: ri },
           row.map((_cell, ci) => {
+            // Merged tables: vMerge continuation cells aren't rendered; the
+            // restart cell carries rowSpan (and gridSpan → colSpan).
+            const span = spans?.[ri]?.[ci] ?? null;
+            if (span === "skip") return null;
             const isHeader = header && ri === 0;
             const isEditing = editing?.r === ri && editing?.c === ci;
             const fill = fills?.[ri]?.[ci] ?? null;
@@ -633,6 +640,8 @@ function EditableTable({
               {
                 key: ci,
                 style: cellStyle,
+                colSpan: span && span.cs > 1 ? span.cs : undefined,
+                rowSpan: span && span.rs > 1 ? span.rs : undefined,
                 // preventDefault on mousedown: a tap on a cell must NOT move DOM
                 // focus (to the CE root) — that's what scrolled the WKWebView to
                 // the document top. Click/dblclick still fire; the input's own

@@ -101,6 +101,8 @@ export type ThesisOp =
       index: number;
       action: "addRow" | "deleteRow" | "addColumn" | "deleteColumn" | "editCell" | "layout" | "shade";
       at?: number;
+      /** addRow/addColumn: insert ABOVE/LEFT of `at` instead of below/right. */
+      before?: boolean;
       row?: number;
       col?: number;
       text?: string;
@@ -315,9 +317,9 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
         if (b.index !== op.index || b.kind !== "table") return b;
         const rows = b.rows.map((r) => [...r]);
         const cols = rows[0]?.length ?? 1;
-        if (op.action === "addRow") rows.splice(op.at != null ? op.at + 1 : rows.length, 0, Array(cols).fill(""));
+        if (op.action === "addRow") rows.splice(op.at != null ? (op.before ? op.at : op.at + 1) : rows.length, 0, Array(cols).fill(""));
         else if (op.action === "deleteRow") { if (op.row != null && op.row >= 0 && op.row < rows.length && rows.length > 1) rows.splice(op.row, 1); }
-        else if (op.action === "addColumn") rows.forEach((r) => r.splice(op.at != null ? op.at + 1 : r.length, 0, ""));
+        else if (op.action === "addColumn") rows.forEach((r) => r.splice(op.at != null ? (op.before ? op.at : op.at + 1) : r.length, 0, ""));
         else if (op.action === "deleteColumn") { if (cols > 1) rows.forEach((r) => { if (op.col != null && op.col >= 0 && op.col < r.length) r.splice(op.col, 1); }); }
         else if (op.action === "editCell") { if (op.row != null && op.col != null && rows[op.row]) rows[op.row][op.col] = op.text ?? ""; }
         else if (op.action === "layout") {

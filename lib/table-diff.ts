@@ -182,22 +182,25 @@ export function diffToOps(
     ops.push({ type: "tableOp", index, action: "deleteRow", row: r });
     sim.splice(r, 1);
   }
-  // 3. Insert added columns, ASCENDING. Engine inserts RIGHT of `at`; target
-  //    position c needs at = c-1. c === 0 can't land leftmost — insert at 1 and
-  //    let the sweep rewrite both columns' contents.
+  // 3. Insert added columns, ASCENDING. Engine inserts RIGHT of `at` (target c
+  //    → at = c-1); a new FIRST column uses before:true (insertColumnLeft) so it
+  //    lands exactly at 0.
   for (let c = 0; c < diff.colMap.length; c++) {
     if (diff.colMap[c] != null) continue;
-    const at = Math.max(0, c - 1);
-    const landing = Math.min(at + 1, simW());
-    ops.push({ type: "tableOp", index, action: "addColumn", at });
+    const before = c === 0;
+    const at = before ? 0 : c - 1;
+    const landing = Math.min(before ? at : at + 1, simW());
+    ops.push({ type: "tableOp", index, action: "addColumn", at, ...(before ? { before } : {}) });
     for (const r of sim) r.splice(landing, 0, "");
   }
-  // 4. Insert added rows, ASCENDING (same below-`at` semantics).
+  // 4. Insert added rows, ASCENDING (same semantics: below `at`, or above with
+  //    before:true for a new first row).
   for (let r = 0; r < diff.rowMap.length; r++) {
     if (diff.rowMap[r] != null) continue;
-    const at = Math.max(0, r - 1);
-    const landing = Math.min(at + 1, sim.length);
-    ops.push({ type: "tableOp", index, action: "addRow", at });
+    const before = r === 0;
+    const at = before ? 0 : r - 1;
+    const landing = Math.min(before ? at : at + 1, sim.length);
+    ops.push({ type: "tableOp", index, action: "addRow", at, ...(before ? { before } : {}) });
     sim.splice(landing, 0, Array(simW()).fill(""));
   }
   pad();
