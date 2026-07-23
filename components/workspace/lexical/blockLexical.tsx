@@ -957,23 +957,26 @@ export function $isSuggestionNode(n: LexicalNode | null | undefined): n is Sugge
 // a swipe in the writing direction) dispatches ACCEPT_COMPLETION_COMMAND. Streamed
 // text lives in __text and is updated in place.
 export const ACCEPT_COMPLETION_COMMAND: LexicalCommand<void> = createCommand("ACCEPT_COMPLETION");
+// Minimum horizontal drag (px) an accept-swipe must cross before it counts.
+const GHOST_SWIPE_PX = 24;
+type SerializedGhostCompletionNode = SerializedLexicalNode & { text: string };
 
 export class GhostCompletionNode extends DecoratorNode<React.ReactNode> {
   __text: string;
   static getType(): string { return "ghost-completion"; }
   static clone(node: GhostCompletionNode): GhostCompletionNode { return new GhostCompletionNode(node.__text, node.__key); }
   constructor(text: string, key?: NodeKey) { super(key); this.__text = text; }
-  isInline(): boolean { return true; }
-  isKeyboardSelectable(): boolean { return false; }
+  isInline(): true { return true; }
+  isKeyboardSelectable(): false { return false; }
   getTextContent(): string { return ""; } // invisible to the block model
   setText(text: string): void { this.getWritable().__text = text; }
   createDOM(): HTMLElement { const el = document.createElement("span"); el.style.display = "inline"; return el; }
-  updateDOM(): boolean { return false; }
+  updateDOM(): false { return false; }
   decorate(editor: LexicalEditor): React.ReactNode {
     return React.createElement(GhostView, { text: this.getLatest().__text, editor });
   }
-  exportJSON(): SerializedLexicalNode & { text: string } { return { ...super.exportJSON(), type: "ghost-completion", version: 1, text: this.__text }; }
-  static importJSON(json: SerializedLexicalNode & { text: string }): GhostCompletionNode { return new GhostCompletionNode(json.text); }
+  exportJSON(): SerializedGhostCompletionNode { return { ...super.exportJSON(), type: "ghost-completion", version: 1, text: this.__text }; }
+  static importJSON(json: SerializedGhostCompletionNode): GhostCompletionNode { return new GhostCompletionNode(json.text); }
 }
 
 function GhostView({ text, editor }: { text: string; editor: LexicalEditor }) {
@@ -986,13 +989,15 @@ function GhostView({ text, editor }: { text: string; editor: LexicalEditor }) {
     onTouchStart: (e: React.TouchEvent) => { startX.current = e.touches?.[0]?.clientX ?? 0; },
     onTouchEnd: (e: React.TouchEvent) => {
       const endX = e.changedTouches?.[0]?.clientX ?? startX.current;
-      if (Math.abs(endX - startX.current) > 24) accept();
+      // preventDefault: without it, the WebView's touch→mouse emulation fires a
+      // trailing synthetic click, which would call accept() again (double-dispatch).
+      if (Math.abs(endX - startX.current) > GHOST_SWIPE_PX) { e.preventDefault(); accept(); }
     },
   }, text);
 }
 
 export function $createGhostCompletionNode(text: string): GhostCompletionNode { return new GhostCompletionNode(text); }
-export function $isGhostCompletionNode(node: unknown): node is GhostCompletionNode { return node instanceof GhostCompletionNode; }
+export function $isGhostCompletionNode(node: LexicalNode | null | undefined): node is GhostCompletionNode { return node instanceof GhostCompletionNode; }
 
 // ── AI RANGE suggestion node (multi-block dynamic rewrite) ────────────────────
 // Occupies the WHOLE selected range: it replaces blocks [start..end] with a single
