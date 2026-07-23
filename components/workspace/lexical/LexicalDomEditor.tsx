@@ -159,9 +159,14 @@ const CSS = `
    font names: on this WebView a concrete-first stack (Roboto/-apple-system/…)
    fails to fall back to an Arabic font and renders .notdef tofu, whereas the
    generic keyword chains to the system Arabic font (verified on-device). */
-.lx-root { position: relative; height: 100%; background: #ffffff; font-family: sans-serif; }
+/* The PAGE never scrolls sideways — a wide table (min-content wider than the
+   viewport) otherwise widens the document and the WKWebView pans the WHOLE
+   editor horizontally, cutting body text off at the edges. Wide content scrolls
+   INSIDE its own overflow-x container (the tables' ScrollWrap) instead. */
+html, body { max-width: 100vw; overflow-x: hidden; }
+.lx-root { position: relative; height: 100%; background: #ffffff; font-family: sans-serif; overflow-x: hidden; }
 .lx-content { outline: none; min-height: 100%; padding: 16px 18px 140px; color: #1a1a1a;
-  font-size: 15px; line-height: 1.7; -webkit-user-select: text; }
+  font-size: 15px; line-height: 1.7; -webkit-user-select: text; max-width: 100%; }
 .lx-ph { position: absolute; top: 16px; inset-inline-start: 18px; color: #8a8a8a; pointer-events: none; font-size: 15px; }
 .lx-p { margin: 0 0 10px; }
 .lx-h1 { font-size: 24px; font-weight: 700; margin: 6px 0 10px; }
