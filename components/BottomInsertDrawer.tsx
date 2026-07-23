@@ -20,6 +20,7 @@ import { pickAndInsertImage } from "@/lib/insert-image";
 const DRAWER_FRACTION = 0.64;
 const SPRING = { damping: 22, stiffness: 240, mass: 0.7 } as const;
 const TEXT_KINDS = ["h1", "h2", "h3", "quote", "bullet", "number"];
+const PAD = 18;
 
 function clamp(v: number, lo: number, hi: number): number {
   "worklet";
@@ -122,7 +123,9 @@ export function BottomInsertDrawer({ children }: { children: React.ReactNode }) 
 function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.Pan>; bottomInset: number }) {
   const colors = useThemeColors();
   const { t } = useTranslation();
-  const { isRTL: rtl, flexDirection } = useRTL();
+  const rtl = useRTL().isRTL;
+  const rowDir = rtl ? "row-reverse" : "row";
+  const textAlign = rtl ? "right" : "left";
   const query = useInsertMenuStore((s) => s.query);
   const recents = useInsertMenuStore((s) => s.recents);
   const aiEnabled = useSettingsStore((s) => s.autocompleteEnabled);
@@ -158,17 +161,23 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
         accessibilityRole="button"
         accessibilityLabel={label(d)}
         accessibilityState={{ disabled: !ready }}
-        style={({ pressed }) => [styles.row, { flexDirection, backgroundColor: pressed && ready ? colors.bgSurface : "transparent", opacity: ready ? 1 : 0.45 }]}
+        style={({ pressed }) => [styles.row, { flexDirection: rowDir, backgroundColor: pressed && ready ? colors.bgSurface : "transparent", opacity: ready ? 1 : 0.5 }]}
       >
-        <d.Icon size={19} color={ready ? colors.textSecondary : colors.textPlaceholder} />
-        <Text style={[styles.rowLabel, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}>{label(d)}</Text>
+        <View style={styles.iconBox}>
+          <d.Icon size={20} color={ready ? colors.textSecondary : colors.textPlaceholder} />
+        </View>
+        <Text numberOfLines={1} style={[styles.rowLabel, { color: ready ? colors.textPrimary : colors.textSecondary, textAlign }]}>
+          {label(d)}
+        </Text>
         {!ready ? <Text style={[styles.soon, { color: colors.textPlaceholder, backgroundColor: colors.bgSurface }]}>{t("insertMenu.comingSoon")}</Text> : null}
       </Pressable>
     );
   };
 
   const CatHeader = ({ text, first }: { text: string; first?: boolean }) => (
-    <Text style={[styles.cat, first && styles.catFirst, { color: colors.textPlaceholder, borderTopColor: colors.borderSubtle, textAlign: rtl ? "right" : "left" }]}>{text}</Text>
+    <View style={[styles.catWrap, !first && { borderTopColor: colors.borderSubtle, borderTopWidth: StyleSheet.hairlineWidth }]}>
+      <Text style={[styles.cat, { color: colors.textPlaceholder, textAlign }]}>{text}</Text>
+    </View>
   );
 
   const Cat = ({ c, first }: { c: (typeof INSERT_CATEGORIES)[number]; first?: boolean }) => {
@@ -189,23 +198,23 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
       <GestureDetector gesture={dragPan}>
         <View style={styles.grabZone}>
           <View style={[styles.grab, { backgroundColor: colors.borderDefault }]} />
+          <Text style={[styles.title, { color: colors.textPrimary }]}>{t("insertMenu.title")}</Text>
         </View>
       </GestureDetector>
-      <Text style={[styles.title, { color: colors.textPrimary }]}>{t("insertMenu.title")}</Text>
-      <View style={[styles.search, { backgroundColor: colors.bgSurface, flexDirection }]}>
-        <SearchIcon size={16} color={colors.textPlaceholder} />
+      <View style={[styles.search, { backgroundColor: colors.bgSurface, flexDirection: rowDir }]}>
+        <SearchIcon size={17} color={colors.textPlaceholder} />
         <TextInput
           placeholder={t("insertMenu.searchPlaceholder")}
           placeholderTextColor={colors.textPlaceholder}
           accessibilityLabel={t("insertMenu.searchPlaceholder")}
           value={query}
           onChangeText={(q) => useInsertMenuStore.getState().setQuery(q)}
-          style={[styles.searchInput, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}
+          style={[styles.searchInput, { color: colors.textPrimary, textAlign }]}
         />
       </View>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: bottomInset + 12 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: bottomInset + 16 }}>
         {query.trim() ? (
-          INSERT_CATEGORIES.map((c) => <Cat key={c} c={c} />)
+          INSERT_CATEGORIES.map((c, i) => <Cat key={c} c={c} first={i === 0} />)
         ) : (
           <>
             {recents.length > 0 ? (
@@ -224,13 +233,13 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
         )}
         {aiEnabled ? (
           <View>
-            <View style={[styles.cat, styles.catRow, { flexDirection, borderTopColor: colors.borderSubtle }]}>
-              <Sparkles size={12} color={colors.brandPrimary} />
-              <Text style={{ color: colors.textPlaceholder, fontSize: 11, fontFamily: "Inter_700Bold" }}>{t("insertMenu.aiSuggestions")}</Text>
+            <View style={[styles.catWrap, styles.aiHead, { flexDirection: rowDir, borderTopColor: colors.borderSubtle, borderTopWidth: StyleSheet.hairlineWidth }]}>
+              <Sparkles size={13} color={colors.brandPrimary} />
+              <Text style={[styles.cat, { color: colors.textPlaceholder, paddingTop: 0, paddingHorizontal: 0 }]}>{t("insertMenu.aiSuggestions")}</Text>
             </View>
-            <View style={[styles.aiSoon, { borderColor: colors.borderSubtle, flexDirection }]} accessible accessibilityState={{ disabled: true }}>
-              <ImagePlus size={16} color={colors.textPlaceholder} />
-              <Text style={{ color: colors.textPlaceholder, flex: 1, textAlign: rtl ? "right" : "left" }}>{t("insertMenu.block.imageGen")}</Text>
+            <View style={[styles.aiSoon, { borderColor: colors.borderSubtle, flexDirection: rowDir }]} accessible accessibilityState={{ disabled: true }}>
+              <ImagePlus size={18} color={colors.textPlaceholder} />
+              <Text numberOfLines={1} style={{ color: colors.textPlaceholder, flex: 1, fontSize: 14, textAlign }}>{t("insertMenu.block.imageGen")}</Text>
               <Text style={[styles.soon, { color: colors.textPlaceholder, backgroundColor: colors.bgSurface }]}>{t("insertMenu.comingSoon")}</Text>
             </View>
           </View>
@@ -256,16 +265,27 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 20,
   },
-  grabZone: { paddingVertical: 10, alignItems: "center", justifyContent: "center" },
-  grab: { width: 44, height: 5, borderRadius: 3 },
-  title: { fontSize: 14, fontFamily: "Inter_700Bold", textAlign: "center", paddingBottom: 10 },
-  search: { alignItems: "center", gap: 8, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, marginHorizontal: 12, marginBottom: 6 },
+  grabZone: { paddingTop: 10, paddingBottom: 6, alignItems: "center" },
+  grab: { width: 44, height: 5, borderRadius: 3, marginBottom: 8 },
+  title: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  search: {
+    alignItems: "center",
+    gap: 9,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginHorizontal: PAD,
+    marginTop: 8,
+    marginBottom: 4,
+  },
   searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium", padding: 0 },
-  cat: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.4, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 5, borderTopWidth: StyleSheet.hairlineWidth, marginTop: 4 },
-  catRow: { alignItems: "center", gap: 5 },
-  catFirst: { borderTopWidth: 0, marginTop: 2 },
-  row: { alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 16, borderRadius: 10, marginHorizontal: 6 },
+  catWrap: { paddingTop: 14, paddingBottom: 4, marginTop: 4 },
+  cat: { fontSize: 11, fontFamily: "Inter_700Bold", letterSpacing: 0.7, textTransform: "uppercase", paddingHorizontal: PAD },
+  aiHead: { alignItems: "center", gap: 6, paddingHorizontal: PAD, paddingTop: 16, paddingBottom: 4, marginTop: 4 },
+  // Base flexDirection guarantees a HORIZONTAL row even if an inline value is missing.
+  row: { flexDirection: "row", alignItems: "center", minHeight: 46, paddingVertical: 7, paddingHorizontal: PAD, gap: 14 },
+  iconBox: { width: 24, alignItems: "center", justifyContent: "center" },
   rowLabel: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold" },
   soon: { fontSize: 9, fontFamily: "Inter_700Bold", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, overflow: "hidden" },
-  aiSoon: { alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderStyle: "dashed", marginHorizontal: 10, marginTop: 2 },
+  aiSoon: { alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 13, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderStyle: "dashed", marginHorizontal: PAD, marginTop: 4 },
 });
