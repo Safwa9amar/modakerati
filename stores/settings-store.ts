@@ -38,7 +38,10 @@ export const useSettingsStore = create<SettingsState>()(
       setLanguage: (language) => set({ language }),
       completeOnboarding: () => set({ hasCompletedOnboarding: true }),
       setSyncWhileEditing: (v) => set({ syncWhileEditing: v }),
-      setAutocompleteEnabled: (v) => set({ autocompleteEnabled: v }),
+      setAutocompleteEnabled: (v) => {
+        if (__DEV__) console.log(`[autocomplete] setting toggled ${v ? "ON" : "OFF"}`);
+        set({ autocompleteEnabled: v });
+      },
     }),
     {
       name: "modakerati-settings",
