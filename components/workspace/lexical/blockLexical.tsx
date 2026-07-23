@@ -950,6 +950,50 @@ export class SuggestionNode extends DecoratorNode<React.ReactNode> {
 export function $createSuggestionNode(sug: SugData, origType = "paragraph"): SuggestionNode { return new SuggestionNode(sug, origType); }
 export function $isSuggestionNode(n: LexicalNode | null | undefined): n is SuggestionNode { return n instanceof SuggestionNode; }
 
+// ── Inline ghost-completion node (AI autocomplete) ────────────────────────────
+// Inline ghost text for AI autocomplete. A DecoratorNode whose getTextContent() is
+// "" → invisible to $lexicalToBlocks / serialization / the block model, so it NEVER
+// enters the saved document until accepted. Rendered grey after the caret; a tap (or
+// a swipe in the writing direction) dispatches ACCEPT_COMPLETION_COMMAND. Streamed
+// text lives in __text and is updated in place.
+export const ACCEPT_COMPLETION_COMMAND: LexicalCommand<void> = createCommand("ACCEPT_COMPLETION");
+
+export class GhostCompletionNode extends DecoratorNode<React.ReactNode> {
+  __text: string;
+  static getType(): string { return "ghost-completion"; }
+  static clone(node: GhostCompletionNode): GhostCompletionNode { return new GhostCompletionNode(node.__text, node.__key); }
+  constructor(text: string, key?: NodeKey) { super(key); this.__text = text; }
+  isInline(): boolean { return true; }
+  isKeyboardSelectable(): boolean { return false; }
+  getTextContent(): string { return ""; } // invisible to the block model
+  setText(text: string): void { this.getWritable().__text = text; }
+  createDOM(): HTMLElement { const el = document.createElement("span"); el.style.display = "inline"; return el; }
+  updateDOM(): boolean { return false; }
+  decorate(editor: LexicalEditor): React.ReactNode {
+    return React.createElement(GhostView, { text: this.getLatest().__text, editor });
+  }
+  exportJSON(): SerializedLexicalNode & { text: string } { return { ...super.exportJSON(), type: "ghost-completion", version: 1, text: this.__text }; }
+  static importJSON(json: SerializedLexicalNode & { text: string }): GhostCompletionNode { return new GhostCompletionNode(json.text); }
+}
+
+function GhostView({ text, editor }: { text: string; editor: LexicalEditor }) {
+  const startX = React.useRef(0);
+  const accept = () => editor.dispatchCommand(ACCEPT_COMPLETION_COMMAND, undefined);
+  return React.createElement("span", {
+    className: "lx-ghost",
+    onMouseDown: (e: React.MouseEvent) => { e.preventDefault(); },
+    onClick: accept,
+    onTouchStart: (e: React.TouchEvent) => { startX.current = e.touches?.[0]?.clientX ?? 0; },
+    onTouchEnd: (e: React.TouchEvent) => {
+      const endX = e.changedTouches?.[0]?.clientX ?? startX.current;
+      if (Math.abs(endX - startX.current) > 24) accept();
+    },
+  }, text);
+}
+
+export function $createGhostCompletionNode(text: string): GhostCompletionNode { return new GhostCompletionNode(text); }
+export function $isGhostCompletionNode(node: unknown): node is GhostCompletionNode { return node instanceof GhostCompletionNode; }
+
 // ── AI RANGE suggestion node (multi-block dynamic rewrite) ────────────────────
 // Occupies the WHOLE selected range: it replaces blocks [start..end] with a single
 // node showing the AI's rewritten PASSAGE — which may be one paragraph or several
