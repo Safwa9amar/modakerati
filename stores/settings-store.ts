@@ -15,10 +15,15 @@ interface SettingsState {
   // editing surface and flushes only on leaving it (screen blur, preview switch,
   // app background). Read by the workspace/block-editor hold effects.
   syncWhileEditing: boolean;
+  // When TRUE (default) the Lexical Writer streams AI ghost-text completions as the
+  // student types (see stores/completion-store). FALSE fully disables the feature —
+  // no completion fetches, no ghost. Read by WorkspaceLexicalView (completionEnabled).
+  autocompleteEnabled: boolean;
   setTheme: (theme: ThemeName) => void;
   setLanguage: (language: Language) => void;
   completeOnboarding: () => void;
   setSyncWhileEditing: (v: boolean) => void;
+  setAutocompleteEnabled: (v: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -28,20 +33,24 @@ export const useSettingsStore = create<SettingsState>()(
       language: "fr",
       hasCompletedOnboarding: false,
       syncWhileEditing: true,
+      autocompleteEnabled: true,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       completeOnboarding: () => set({ hasCompletedOnboarding: true }),
       setSyncWhileEditing: (v) => set({ syncWhileEditing: v }),
+      setAutocompleteEnabled: (v) => set({ autocompleteEnabled: v }),
     }),
     {
       name: "modakerati-settings",
       storage: createJSONStorage(() => AsyncStorage),
       // v1: sync-while-editing became the default ON. Flip existing installs that
       // still carry the old default so the new behaviour actually takes effect.
-      version: 1,
+      // v2: autocompleteEnabled introduced, default ON.
+      version: 2,
       migrate: (persisted, version) => {
         const s = (persisted ?? {}) as Partial<SettingsState>;
-        if (version < 1) return { ...s, syncWhileEditing: true } as SettingsState;
+        if (version < 1) return { ...s, syncWhileEditing: true, autocompleteEnabled: true } as SettingsState;
+        if (version < 2) return { ...s, autocompleteEnabled: s.autocompleteEnabled ?? true } as SettingsState;
         return s as SettingsState;
       },
     }
