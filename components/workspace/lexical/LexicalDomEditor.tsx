@@ -92,6 +92,10 @@ import {
   RANGE_EDIT_COMMAND,
   type RangeData,
   type RangeOriginal,
+  GhostCompletionNode,
+  $createGhostCompletionNode,
+  $isGhostCompletionNode,
+  ACCEPT_COMPLETION_COMMAND,
 } from "./blockLexical";
 import type { DocBlockDTO } from "@/lib/api";
 
@@ -191,6 +195,8 @@ html, body { max-width: 100vw; overflow-x: hidden; }
    kind tools; a pressed ring gives feedback that it's an interactive target. */
 .lx-blockpick { cursor: pointer; border-radius: 6px; transition: box-shadow 120ms ease; }
 .lx-blockpick:active { box-shadow: 0 0 0 3px rgba(52, 120, 246, 0.28); }
+/* AI inline autocomplete ghost text — dim, non-selectable, tap/swipe to accept. */
+.lx-ghost { color: #b3b3bd; cursor: pointer; -webkit-user-select: none; user-select: none; }
 /* AI table proposal: the grid pulses while the model thinks. */
 .lx-tbl-loading { pointer-events: none; animation: lxTblPulse 1.1s ease-in-out infinite alternate; }
 @keyframes lxTblPulse { from { opacity: 0.35; } to { opacity: 0.65; } }
@@ -883,6 +889,125 @@ function SuggestionPlugin({
   return null;
 }
 
+// AI inline autocomplete. Detects a collapsed caret at the END of a text block,
+// debounces ~600ms, and asks native for a completion (onRequestCompletion). Streams
+// the returned `completion.text` into a GhostCompletionNode after the caret. Any
+// real edit / caret move / blur clears the ghost (onCancelCompletion). Tapping or
+// swiping the ghost dispatches ACCEPT_COMPLETION_COMMAND → merge into real text +
+// onCommitCompletion. Suppressed while a suggestion / range / table proposal shows.
+function CompletionPlugin({
+  enabled,
+  completion,
+  suppressed,
+  onRequest,
+  onCommit,
+  onCancel,
+}: {
+  enabled?: boolean;
+  completion?: { text: string; nonce: number; status: "idle" | "loading" | "done" | "error" };
+  suppressed: boolean;
+  onRequest?: (ctx: { index: number; text: string }) => void;
+  onCommit?: (index: number, fullText: string) => void;
+  onCancel?: () => void;
+}) {
+  const [editor] = useLexicalComposerContext();
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const applyingGhost = useRef(false); // our own ghost mutations must not self-clear
+  const targetRef = useRef<{ index: number; text: string } | null>(null);
+
+  const removeGhost = useCallback(() => {
+    editor.update(() => {
+      const g = $getRoot().getChildren().flatMap((n) => ("getChildren" in n ? (n as ElementNode).getChildren() : [])).find($isGhostCompletionNode);
+      if (g) { applyingGhost.current = true; g.remove(); }
+    }, { tag: "history-merge" });
+  }, [editor]);
+
+  // Detect caret-at-end-of-text-block + schedule a request.
+  useEffect(() => {
+    return editor.registerUpdateListener(({ editorState, tags }) => {
+      if (applyingGhost.current) { applyingGhost.current = false; return; } // ignore our own ghost writes
+      // Any non-ghost update clears a showing ghost (typing / caret move dismisses).
+      let hasGhost = false;
+      editorState.read(() => {
+        hasGhost = !!$getRoot().getChildren().some((n) => "getChildren" in n && (n as ElementNode).getChildren().some($isGhostCompletionNode));
+      });
+      if (hasGhost) { removeGhost(); onCancel?.(); }
+      if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+      if (!enabled || suppressed || tags.has(SKIP_DOM_SELECTION_TAG)) return;
+
+      let target: { index: number; text: string } | null = null;
+      editorState.read(() => {
+        const sel = $getSelection();
+        if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
+        const anchor = sel.anchor.getNode();
+        if (!$isTextNode(anchor)) return;
+        const top = anchor.getTopLevelElement();
+        if (!top || !($isParagraphNode(top) || $isHeadingNode(top))) return;
+        const atNodeEnd = sel.anchor.offset === anchor.getTextContentSize();
+        // "Last" ignoring a trailing ghost — so a keystroke that clears a showing
+        // ghost still re-triggers a fresh completion on the same pause.
+        const next = anchor.getNextSibling();
+        const isLast = next == null || $isGhostCompletionNode(next);
+        const text = top.getTextContent();
+        if (!atNodeEnd || !isLast || text.trim().length < 2) return;
+        target = { index: $blockIndexOfNode(anchor), text };
+      });
+      targetRef.current = target;
+      if (!target) return;
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        if (targetRef.current) onRequest?.(targetRef.current);
+      }, 600);
+    });
+  }, [editor, enabled, suppressed, onRequest, onCancel, removeGhost]);
+
+  // Render / stream the ghost from the `completion` prop.
+  useEffect(() => {
+    const t = targetRef.current;
+    if (!enabled || suppressed || !completion || !completion.text || !t) return;
+    editor.update(() => {
+      const node = $nodeAtBlockIndex(t.index);
+      if (!node) return;
+      applyingGhost.current = true;
+      const existing = node.getChildren().find($isGhostCompletionNode) as GhostCompletionNode | undefined;
+      if (existing) existing.setText(completion.text);
+      else node.append($createGhostCompletionNode(completion.text));
+    }, { tag: "history-merge" });
+  }, [editor, enabled, suppressed, completion?.nonce, completion?.text]);
+
+  // Accept: merge ghost text into the block, place caret at end, commit to native.
+  useEffect(() =>
+    editor.registerCommand(
+      ACCEPT_COMPLETION_COMMAND,
+      () => {
+        const t = targetRef.current;
+        if (!t) return true;
+        editor.update(() => {
+          const node = $nodeAtBlockIndex(t.index);
+          if (!node) return;
+          const g = node.getChildren().find($isGhostCompletionNode) as GhostCompletionNode | undefined;
+          if (!g) return;
+          const ghostText = g.__text;
+          applyingGhost.current = true;
+          g.remove();
+          // Append to the LAST real text node (v1 completes at end-of-block) so prior
+          // inline runs/formatting in the block are preserved — do NOT rebuild the
+          // whole block as one node (that would flatten bold/italic runs).
+          const texts = node.getChildren().filter($isTextNode);
+          const last = texts[texts.length - 1];
+          if (last && $isTextNode(last)) { last.setTextContent(last.getTextContent() + ghostText); last.selectEnd(); }
+          else { const tn = $createTextNode(ghostText); node.append(tn); tn.selectEnd(); }
+          onCommit?.(t.index, node.getTextContent());
+        }, { tag: SKIP_DOM_SELECTION_TAG });
+        return true;
+      },
+      COMMAND_PRIORITY_LOW,
+    ),
+  [editor, onCommit]);
+
+  return null;
+}
+
 // Renders a pending RANGE proposal (multi-block dynamic rewrite) IN PLACE OF the
 // selected range: it replaces blocks [start..end] with ONE RangeSuggestionNode
 // showing the rewritten passage (1..N paragraphs). Approve/Reject/Again/Edit dispatch
@@ -1082,6 +1207,11 @@ export default function LexicalDomEditor({
   scrollToIndex,
   suggestion,
   onSuggestAction,
+  completionEnabled,
+  completion,
+  onRequestCompletion,
+  onCommitCompletion,
+  onCancelCompletion,
   rangeSuggestion,
   onRangeAction,
   selectedIndices,
@@ -1109,6 +1239,14 @@ export default function LexicalDomEditor({
   // Pending AI proposal to render in-flow, and its approve/reject callback.
   suggestion?: SuggestionInput;
   onSuggestAction?: (action: string, text?: string) => void;
+  // AI inline autocomplete (ghost text). completionEnabled gates the plugin;
+  // `completion` is the streamed continuation for the pending request; the callbacks
+  // request / commit (accept) / cancel (dismiss) round-trip to the native store.
+  completionEnabled?: boolean;
+  completion?: { text: string; nonce: number; status: "idle" | "loading" | "done" | "error" };
+  onRequestCompletion?: (ctx: { index: number; text: string }) => void;
+  onCommitCompletion?: (index: number, fullText: string) => void;
+  onCancelCompletion?: () => void;
   // Pending RANGE proposal (multi-block dynamic rewrite) + its approve/reject/again/edit callback.
   rangeSuggestion?: RangeSuggestionInput;
   onRangeAction?: (action: string, text?: string) => void;
@@ -1145,7 +1283,7 @@ export default function LexicalDomEditor({
     namespace: "modakerati-lexical-lab",
     theme,
     onError: (error: Error) => console.error("[lexical]", error),
-    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode, RangeSuggestionNode],
+    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode, RangeSuggestionNode, GhostCompletionNode],
     editorState: () => (initialBlocks && initialBlocks.length ? $blocksToLexical(initialBlocks) : seed()),
   };
 
@@ -1174,6 +1312,14 @@ export default function LexicalDomEditor({
         <ListPlugin />
         <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} scrollToIndex={scrollToIndex} />
         <SuggestionPlugin suggestion={suggestion} onSuggestAction={onSuggestAction} />
+        <CompletionPlugin
+          enabled={completionEnabled}
+          completion={completion}
+          suppressed={!!suggestion || !!rangeSuggestion || !!tableProposal}
+          onRequest={onRequestCompletion}
+          onCommit={onCommitCompletion}
+          onCancel={onCancelCompletion}
+        />
         <RangeSuggestionPlugin rangeSuggestion={rangeSuggestion} onRangeAction={onRangeAction} />
         <SelectionHighlightPlugin indices={selectedIndices} />
         <SearchHighlightPlugin search={search} />
