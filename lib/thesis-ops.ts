@@ -107,6 +107,8 @@ export type ThesisOp =
       opts?: { alignment?: "left" | "center" | "right"; direction?: "rtl" | "ltr"; headerRow?: boolean; headerFill?: string; borders?: boolean };
       /** action "shade": per-cell 6-hex fills aligned with the grid (null = leave as-is). */
       fills?: (string | null)[][];
+      /** action "shade": per-cell 6-hex FONT colors (null = leave as-is). */
+      textColors?: (string | null)[][];
     }
   // Set (or create) a figure/image block's caption (approve of an inline AI
   // "add caption" action). `index` is the IMAGE block. The optimistic patch just
@@ -336,18 +338,28 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
           return patched as unknown as DocBlockDTO;
         }
         else if (op.action === "shade") {
-          // Merge the shading grid onto the DTO's fills extra (render source).
-          const prev = ((b as unknown as { fills?: (string | null)[][] }).fills ?? []).map((r) => [...r]);
-          while (prev.length < rows.length) prev.push([]);
-          for (let r = 0; r < rows.length; r++) {
-            const fr = op.fills?.[r] ?? [];
-            while ((prev[r] ?? []).length < rows[r].length) prev[r].push(null);
-            for (let c = 0; c < rows[r].length; c++) {
-              const f = fr[c];
-              if (f) prev[r][c] = `#${f.replace("#", "").toUpperCase()}`;
+          // Merge the shading + font-color grids onto the DTO's extras (render
+          // source): fills = backgrounds, textColors = font colors.
+          const merge = (base: (string | null)[][] | undefined, add: (string | null)[][] | undefined) => {
+            const out = (base ?? []).map((r) => [...r]);
+            while (out.length < rows.length) out.push([]);
+            for (let r = 0; r < rows.length; r++) {
+              const ar = add?.[r] ?? [];
+              while (out[r].length < rows[r].length) out[r].push(null);
+              for (let c = 0; c < rows[r].length; c++) {
+                const v = ar[c];
+                if (v) out[r][c] = `#${v.replace("#", "").toUpperCase()}`;
+              }
             }
-          }
-          return { ...b, rows, fills: prev } as unknown as DocBlockDTO;
+            return out;
+          };
+          const bx = b as unknown as { fills?: (string | null)[][]; textColors?: (string | null)[][] };
+          return {
+            ...b,
+            rows,
+            fills: merge(bx.fills, op.fills),
+            textColors: merge(bx.textColors, op.textColors),
+          } as unknown as DocBlockDTO;
         }
         return { ...b, rows };
       });

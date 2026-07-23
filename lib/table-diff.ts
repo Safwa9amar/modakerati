@@ -160,6 +160,8 @@ export function diffToOps(
   layout?: TableLayoutProposal | null,
   /** Proposed per-cell shading grid aligned with newRows (null = leave as-is). */
   fills?: (string | null)[][] | null,
+  /** Proposed per-cell FONT-color grid aligned with newRows (null = leave as-is). */
+  textColors?: (string | null)[][] | null,
 ): ThesisOp[] | null {
   const ops: ThesisOp[] = [];
   // Simulation grid — mirrors what the engine will actually do, op by op.
@@ -214,10 +216,17 @@ export function diffToOps(
   }
   // 6. Layout, once.
   if (layout) ops.push({ type: "tableOp", index, action: "layout", opts: layout });
-  // 7. Per-cell shading, once — the fills grid is aligned with newRows, i.e.
+  // 7. Per-cell styling, once — both grids are aligned with newRows, i.e.
   //    FINAL coordinates, valid after the structure ops above.
-  if (fills && fills.some((r) => r?.some((f) => !!f))) {
-    ops.push({ type: "tableOp", index, action: "shade", fills });
+  const hasAny = (g?: (string | null)[][] | null) => !!g && g.some((r) => r?.some((f) => !!f));
+  if (hasAny(fills) || hasAny(textColors)) {
+    ops.push({
+      type: "tableOp",
+      index,
+      action: "shade",
+      fills: hasAny(fills) ? fills! : undefined,
+      textColors: hasAny(textColors) ? textColors! : undefined,
+    });
   }
 
   return ops.length > TABLE_OPS_CAP ? null : ops;

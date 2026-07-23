@@ -418,6 +418,7 @@ export function WorkspaceLexicalView({
             thoughtMs: tblProposal.thoughtMs,
             layout: tblProposal.layout ? { headerFill: tblProposal.layout.headerFill } : null,
             fills: tblProposal.fills ?? null,
+            textColors: tblProposal.textColors ?? null,
           }
         : null,
     [tblProposal, thesisId],
@@ -463,7 +464,7 @@ export function WorkspaceLexicalView({
           { align: p.originalLayout.align, direction: p.originalLayout.direction, header: p.originalLayout.header },
           p.layout,
         );
-        const ops = diffToOps(p.index, p.originalRows, p.newRows, p.diff, delta, p.fills);
+        const ops = diffToOps(p.index, p.originalRows, p.newRows, p.diff, delta, p.fills, p.textColors);
         store.clear(); // leave diff mode before the reseed repaints the table
         if (!ops) {
           setBanner("Proposal too large to apply");

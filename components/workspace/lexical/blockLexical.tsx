@@ -52,6 +52,8 @@ export type TableStyleExtra = {
   direction?: "rtl" | "ltr";
   header?: boolean;
   fills?: (string | null)[][];
+  /** Per-cell font colors read from the docx (null = default). */
+  textColors?: (string | null)[][];
 };
 type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
 
@@ -98,6 +100,8 @@ export interface TableProposalData {
   layout?: { headerFill?: string } | null;
   /** Proposed per-cell 6-hex shading aligned with newRows (null = unchanged). */
   fills?: (string | null)[][] | null;
+  /** Proposed per-cell 6-hex FONT colors aligned with newRows (null = unchanged). */
+  textColors?: (string | null)[][] | null;
 }
 // Every user-visible proposal string, resolved NATIVE-side via i18next (the DOM
 // bundle has no i18n instance) and passed through the tableLabels prop — the app
@@ -388,8 +392,10 @@ function ProposalDiffTable({
           // color; diff tints only cover cells whose TEXT also changed.
           const proposedFill =
             proposal.fills?.[r]?.[c] ?? (r === 0 && proposal.layout?.headerFill ? proposal.layout.headerFill : null);
+          const proposedText = proposal.textColors?.[r]?.[c] ?? null;
           const style: React.CSSProperties = { ...baseCell };
           if (proposedFill) style.backgroundColor = `#${proposedFill.replace("#", "")}`;
+          if (proposedText) style.color = `#${proposedText.replace("#", "")}`;
           if (rowAdded || colAdded) style.backgroundColor = DIFF_ADD_BG;
           else if (oldText !== undefined) style.backgroundColor = DIFF_EDIT_BG;
           const content =
@@ -500,6 +506,7 @@ function EditableTable({
   const align = t.align ?? null;
   const header = !!t.header;
   const fills = t.fills;
+  const textColors = t.textColors;
   const dir = t.direction ?? undefined;
 
   // AI proposal targeting THIS table → diff mode (loading dims it in place; an
@@ -587,6 +594,8 @@ function EditableTable({
             };
             if (fill) cellStyle.backgroundColor = fill;
             else if (isHeader) cellStyle.backgroundColor = "#f0f0f3";
+            const textColor = textColors?.[ri]?.[ci] ?? null;
+            if (textColor) cellStyle.color = textColor;
             if (isHeader) cellStyle.fontWeight = 600;
             const content = isEditing
               ? React.createElement(CellInput, {

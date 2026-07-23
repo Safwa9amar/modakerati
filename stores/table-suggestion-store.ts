@@ -26,6 +26,8 @@ export interface TableProposal {
   layout?: TableLayoutProposal;
   /** Proposed per-cell shading (6-hex, null = unchanged), aligned with newRows. */
   fills?: (string | null)[][];
+  /** Proposed per-cell FONT colors (6-hex, null = unchanged), aligned with newRows. */
+  textColors?: (string | null)[][];
   diff: TableDiff;
   /** How long the model reasoned before the grid started, ms (chip label). */
   thoughtMs: number | null;
@@ -58,9 +60,20 @@ let lastReq: { thesisId: string; index: number; instruction: string } | null = n
 const MAX_ROWS = 60;
 const MAX_COLS = 12;
 const HEX6 = /^#?[0-9A-Fa-f]{6}$/;
+// Parse an optional hex-color grid aligned to rows×width; invalid cells → null.
+function parseColorGrid(v: unknown, rowCount: number, width: number): (string | null)[][] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const grid = v.slice(0, rowCount).map((fr) =>
+    Array.isArray(fr)
+      ? fr.slice(0, width).map((f) => (typeof f === "string" && HEX6.test(f) ? f.replace("#", "").toUpperCase() : null))
+      : [],
+  );
+  return grid.some((fr) => fr.some((f) => f !== null)) ? grid : undefined;
+}
+
 function parseProposedGrid(
   raw: string,
-): { rows: string[][]; layout?: TableLayoutProposal; fills?: (string | null)[][] } | null {
+): { rows: string[][]; layout?: TableLayoutProposal; fills?: (string | null)[][]; textColors?: (string | null)[][] } | null {
   const text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   let parsed: unknown;
   try {
@@ -68,7 +81,7 @@ function parseProposedGrid(
   } catch {
     return null;
   }
-  const obj = parsed as { rows?: unknown; layout?: unknown; fills?: unknown };
+  const obj = parsed as { rows?: unknown; layout?: unknown; fills?: unknown; textColors?: unknown };
   if (!Array.isArray(obj.rows) || obj.rows.length === 0 || obj.rows.length > MAX_ROWS) return null;
   const rows: string[][] = [];
   let width = 0;
@@ -91,17 +104,10 @@ function parseProposedGrid(
     if (typeof l.borders === "boolean") layout.borders = l.borders;
     if (Object.keys(layout).length === 0) layout = undefined;
   }
-  // Optional per-cell shading grid aligned with rows; invalid entries → null.
-  let fills: (string | null)[][] | undefined;
-  if (Array.isArray(obj.fills)) {
-    fills = obj.fills.slice(0, rows.length).map((fr) =>
-      Array.isArray(fr)
-        ? fr.slice(0, width).map((f) => (typeof f === "string" && HEX6.test(f) ? f.replace("#", "").toUpperCase() : null))
-        : [],
-    );
-    if (!fills.some((fr) => fr.some((f) => f !== null))) fills = undefined;
-  }
-  return { rows, layout, fills };
+  // Optional per-cell background + font-color grids aligned with rows.
+  const fills = parseColorGrid(obj.fills, rows.length, width);
+  const textColors = parseColorGrid(obj.textColors, rows.length, width);
+  return { rows, layout, fills, textColors };
 }
 
 export const useTableSuggestionStore = create<TableSuggestionState>((set, get) => ({
@@ -130,7 +136,7 @@ export const useTableSuggestionStore = create<TableSuggestionState>((set, get) =
     const started = Date.now();
     let firstAnswerAt: number | null = null;
     let jsonBuf = "";
-    let parsed: { rows: string[][]; layout?: TableLayoutProposal; fills?: (string | null)[][] } | null = null;
+    let parsed: { rows: string[][]; layout?: TableLayoutProposal; fills?: (string | null)[][]; textColors?: (string | null)[][] } | null = null;
     try {
       await suggestTableStream(
         thesisId,
@@ -158,7 +164,7 @@ export const useTableSuggestionStore = create<TableSuggestionState>((set, get) =
       try {
         const res = await suggestTable(thesisId, index, instruction, ctrl.signal);
         if (ctrl.signal.aborted) return;
-        parsed = { rows: res.rows, layout: res.layout, fills: res.fills };
+        parsed = { rows: res.rows, layout: res.layout, fills: res.fills, textColors: res.textColors };
       } catch (e) {
         if (ctrl.signal.aborted) return;
         set({ loadingIndex: null, error: e instanceof Error ? e.message : "suggest failed", errorIndex: index });
@@ -175,6 +181,7 @@ export const useTableSuggestionStore = create<TableSuggestionState>((set, get) =
         newRows: parsed.rows,
         layout: parsed.layout,
         fills: parsed.fills,
+        textColors: parsed.textColors,
         diff: diffGrids(originalRows, parsed.rows),
         thoughtMs: firstAnswerAt != null ? firstAnswerAt - started : Date.now() - started,
       },
