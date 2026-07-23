@@ -10,6 +10,7 @@ import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useCompletionStore } from "@/stores/completion-store";
 import { useSearchStore } from "@/stores/search-store";
 import { useTableSuggestionStore } from "@/stores/table-suggestion-store";
 import { diffToOps, layoutDelta } from "@/lib/table-diff";
@@ -130,6 +131,17 @@ export function WorkspaceLexicalView({
   // the zustand Object.is trap) and derive the proposal in useMemo.
   const byIndex = useSuggestionStore((s) => s.byIndex);
   const range = useSuggestionStore((s) => s.range);
+  // Inline AI autocomplete (ghost text): primitive selectors (no fresh-object loop —
+  // see the zustand Object.is trap), derive the editor's `completion` prop in useMemo.
+  const completionEnabled = useSettingsStore((s) => s.autocompleteEnabled);
+  const compIndex = useCompletionStore((s) => s.index);
+  const compText = useCompletionStore((s) => s.text);
+  const compStatus = useCompletionStore((s) => s.status);
+  const compNonce = useCompletionStore((s) => s.nonce);
+  const completion = useMemo(
+    () => (compIndex >= 0 ? { text: compText, nonce: compNonce, status: compStatus, index: compIndex } : undefined),
+    [compIndex, compText, compStatus, compNonce],
+  );
   const suggestion = useMemo(() => {
     const keys = Object.keys(byIndex);
     if (!keys.length) return null;
@@ -191,6 +203,25 @@ export function WorkspaceLexicalView({
     else store.reject(idx);
   }, [thesisId]);
 
+  // Inline AI autocomplete: the editor asks for a completion (debounced, on a pause);
+  // we forward it to the completion store, which streams the continuation back as the
+  // `completion` prop. Accept merges the ghost text into the block already, so we just
+  // consume the resulting doc change silently (mirrors the suggestion approve path).
+  const onRequestCompletion = useCallback(
+    (ctx: { index: number; text: string }) => { void useCompletionStore.getState().request(thesisId, ctx.index, ctx.text); },
+    [thesisId],
+  );
+  const onCommitCompletion = useCallback(
+    (index: number, fullText: string) => {
+      // The editor already merged the ghost into the block in place — consume the
+      // resulting doc change silently (no reseed / rebuild), mirroring suggestion approve.
+      useLexicalEditorStore.getState().requestSkipReseed();
+      useCompletionStore.getState().accept(thesisId, index, fullText);
+    },
+    [thesisId],
+  );
+  const onCancelCompletion = useCallback(() => { useCompletionStore.getState().cancel(); }, []);
+
   // Force-reseed the editor from the current (unchanged) stored doc — used when a
   // range proposal is REJECTED: the server never changed, so restore the editor to
   // the doc (the originals WITH their runs/alignment/direction), which the in-editor
@@ -238,9 +269,16 @@ export function WorkspaceLexicalView({
       syncedDocRef.current = cur;
     } else if (!active && wasActive.current) {
       flushNow(); // leaving the Writer (e.g. opening a preview) → flush edits
+      useCompletionStore.getState().cancel(); // don't leave a pending/showing completion behind
     }
     wasActive.current = active;
   }, [active, thesisId, blocks, flushNow]);
+
+  // Turning the autocomplete setting OFF mid-session should clear any showing/loading
+  // completion immediately (not just gate future requests).
+  useEffect(() => {
+    if (!completionEnabled) useCompletionStore.getState().cancel();
+  }, [completionEnabled]);
 
   // App going to background = the user stopped composing → flush (no local
   // durability for Lexical edits, so this matters).
@@ -503,6 +541,11 @@ export function WorkspaceLexicalView({
           scrollToIndex={scrollTarget ? { index: scrollTarget.index, nonce: scrollTarget.nonce } : undefined}
           suggestion={suggestion ?? undefined}
           onSuggestAction={onSuggestAction}
+          completionEnabled={completionEnabled}
+          completion={completion}
+          onRequestCompletion={onRequestCompletion}
+          onCommitCompletion={onCommitCompletion}
+          onCancelCompletion={onCancelCompletion}
           rangeSuggestion={rangeSuggestion}
           onRangeAction={onRangeAction}
           selectedIndices={highlightIndices}
