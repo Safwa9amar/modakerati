@@ -17,7 +17,6 @@ import { useTableSuggestionStore } from "@/stores/table-suggestion-store";
 import { diffToOps, layoutDelta } from "@/lib/table-diff";
 import { planOps, tally } from "@/lib/lexical-writeback";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
-import { InsertMenu } from "@/components/workspace/insert/InsertMenu";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -665,7 +664,6 @@ export function WorkspaceLexicalView({
           </View>
         ) : null}
       </View>
-      <InsertMenu thesisId={thesisId} />
     </View>
   );
 }

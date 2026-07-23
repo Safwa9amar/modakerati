@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { PushDrawer } from "@/components/PushDrawer";
+import { BottomInsertDrawer } from "@/components/BottomInsertDrawer";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { NetworkBanner } from "@/components/NetworkBanner";
 // import { ChatHead } from "@/components/ChatHead"; // disabled for now
@@ -112,6 +113,7 @@ export default function RootLayout() {
               the whole app left (header, document, tab bar) and reveals it on the
               right. Wraps everything so the push moves the entire tree as one. */}
           <PushDrawer>
+            <BottomInsertDrawer>
             <BottomSheetModalProvider>
               <NetworkBanner />
               <Stack screenOptions={{ headerShown: false }}>
@@ -122,6 +124,7 @@ export default function RootLayout() {
               {/* Floating chat-head disabled for now — re-add <ChatHead /> here
                   (and its import) to restore the draggable bubble. */}
             </BottomSheetModalProvider>
+            </BottomInsertDrawer>
           </PushDrawer>
         </ThemeProvider>
       </SafeAreaProvider>
