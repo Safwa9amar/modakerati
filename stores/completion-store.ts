@@ -28,7 +28,7 @@ interface CompletionState {
 // imports default to "fr"). Arabic script ⇒ "ar"; otherwise fall back to the app
 // language. Mirrors the RTL-from-content convention.
 function detectLang(text: string): string {
-  if (/[؀-ۿ]/.test(text)) return "ar";
+  if (/[؀-ۿݐ-ݿࢠ-ࣿ]/.test(text)) return "ar";
   return useSettingsStore.getState().language;
 }
 
@@ -85,9 +85,9 @@ export const useCompletionStore = create<CompletionState>((set, get) => ({
         acc += delta;
         if (isMine()) set({ text: acc });
       }, controller.signal);
-      if (isMine()) set({ text: acc.trim(), status: acc.trim() ? "done" : "error" });
+      if (isMine()) set({ text: acc.trim(), status: acc.trim() ? "done" : "error", controller: null });
     } catch {
-      if (isMine()) set({ status: "error" });
+      if (isMine()) set({ status: "error", controller: null });
     }
   },
 
