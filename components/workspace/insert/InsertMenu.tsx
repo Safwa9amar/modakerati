@@ -59,14 +59,18 @@ export function InsertMenu({ thesisId }: { thesisId: string }) {
   const maxTop = Math.max(minTop, height - insets.bottom - 260);
   const top = Math.max(minTop, Math.min(anchor?.y ?? minTop, maxTop));
 
-  // Bloom-in: the compact card unmounts on close (early return below), so this
-  // mount-time effect re-fires every time the menu opens — a fresh 0→1 spring
-  // each time, growing from the anchor via the transformOrigin set below.
+  // Bloom-in: InsertMenu is mounted UNCONDITIONALLY by its parent — `!open` only
+  // makes the JSX render null, the component instance (and its hooks) stay alive
+  // across opens/closes. So the effect must depend on `open`/`mode` (not run once
+  // at mount) to re-fire the spring every time the compact card actually opens.
+  // Gated to "compact" so it doesn't fight the full sheet's own entering={FadeIn}.
   const bloomProgress = useSharedValue(0);
   useEffect(() => {
-    bloomProgress.value = 0;
-    bloomProgress.value = withSpring(1, { damping: 16, stiffness: 220 });
-  }, [bloomProgress]);
+    if (open && mode === "compact") {
+      bloomProgress.value = 0;
+      bloomProgress.value = withSpring(1, { damping: 16, stiffness: 220 });
+    }
+  }, [open, mode, bloomProgress]);
   const bloom = useAnimatedStyle(() => ({
     opacity: bloomProgress.value,
     transform: [{ scale: 0.6 + 0.4 * bloomProgress.value }],
