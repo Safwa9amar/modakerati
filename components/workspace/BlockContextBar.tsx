@@ -64,6 +64,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { pickAndInsertImage } from "@/lib/insert-image";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSearchStore } from "@/stores/search-store";
@@ -450,30 +451,12 @@ export function BlockContextBar({
     }
   };
 
-  const pickImage = async () => {
-    if (!single || pickingRef.current) return;
-    pickingRef.current = true;
-    let res: ImagePicker.ImagePickerResult;
-    try {
-      res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], base64: true, quality: 0.7 });
-    } catch {
-      Alert.alert(t("workspace.imageError", { defaultValue: "Couldn't update the image." }));
-      return;
-    } finally {
-      pickingRef.current = false;
-    }
-    const asset = res.canceled ? null : res.assets[0];
-    if (!asset?.base64) return;
-    const mime = asset.mimeType ?? "";
-    const format = mime.includes("png") ? "png" : mime.includes("gif") ? "gif" : "jpeg";
-    void useThesisDocStore.getState().mutate(thesisId, {
-      type: "insertImage",
-      afterIndex: single.index,
-      data: asset.base64,
-      format,
-      width: asset.width,
-      height: asset.height,
-    });
+  // Body extracted to lib/insert-image.ts (shared with the Insert menu's Figure
+  // block); this just keeps the component-local "is a single block selected?"
+  // eligibility check.
+  const pickImage = () => {
+    if (!single) return;
+    void pickAndInsertImage(thesisId, single.index);
   };
 
   const del = () => {
