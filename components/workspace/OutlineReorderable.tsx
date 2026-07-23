@@ -5,7 +5,6 @@ import Animated, {
   useSharedValue,
   withSequence,
   withTiming,
-  type useAnimatedScrollHandler,
 } from "react-native-reanimated";
 import ReorderableList, {
   useReorderableDrag,
@@ -154,12 +153,9 @@ function OutlineReorderableInner({
   // Pending "scroll to this block" request from the outline navigator (nonce
   // bumps per request so the same heading re-scrolls).
   scrollTarget?: { index: number; nonce: number } | null;
-  // Scroll passthrough for the workspace's auto-hiding header. MUST be a
-  // Reanimated handler (useAnimatedScrollHandler result — a plain JS handler
-  // would misbehave inside the library's worklet composition):
-  // react-native-reorderable-list composes it with its own internal scroll
-  // worklet (useComposedEventHandler in ReorderableListCore).
-  onScroll?: ReturnType<typeof useAnimatedScrollHandler>;
+  // Scroll passthrough (no longer used for auto-hiding header, kept for
+  // potential future use). MUST be a Reanimated handler if provided.
+  onScroll?: (event: { nativeEvent: { contentOffset: { y: number } } }) => void;
 }) {
   const { t } = useTranslation();
   const [data, setData] = useState(blocks);

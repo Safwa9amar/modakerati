@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View, Text, StyleSheet, AppState } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
 import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocumentDTO } from "@/lib/api";
@@ -269,6 +270,35 @@ export function WorkspaceLexicalView({
     send("serialize");
   }, [send]);
 
+  // Waitable flush for callers about to act on the SERVER doc (the AI turn flushes
+  // here BEFORE the op queue): serialize now and resolve when onBlocks finishes
+  // (its save landed or turned out to be a no-op). The timeout is a bridge safety
+  // net — a dead WebView must never hang an AI turn.
+  const saveWaiters = useRef<(() => void)[]>([]);
+  const flushEdits = useCallback((): Promise<void> => {
+    if (!activeRef.current) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      saveWaiters.current.push(resolve);
+      setTimeout(resolve, 4000);
+      flushNow();
+    });
+  }, [flushNow]);
+  useEffect(() => {
+    useLexicalEditorStore.getState().registerFlushEdits(flushEdits);
+    return () => useLexicalEditorStore.getState().registerFlushEdits(null);
+  }, [flushEdits]);
+
+  // Leaving the SCREEN (→ thesis details, export, back) — not just the Writer
+  // layer — must sync too: the workspace stays mounted in the stack, so `active`
+  // (previewMode-based) never flips and the leave-flush above doesn't fire.
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (activeRef.current) flushNow();
+      };
+    }, [flushNow]),
+  );
+
   // Re-seed from the latest server truth when the user ENTERS the Lexical view (so
   // it reflects edits made elsewhere), but never mid-session (that would clobber the
   // user's in-progress edits).
@@ -361,6 +391,11 @@ export function WorkspaceLexicalView({
   // Bridge Lexical's selection to the NATIVE tools + report the block's live format
   // (so the pill's Bold/H2/RTL/centered highlights match the caret) + schedule sync.
   const onState = useCallback((s: LexicalState) => {
+    // In-editor history availability rides every report (incl. index:-1 ones from
+    // the CAN_UNDO/CAN_REDO transition pings) — feed the dock/header buttons.
+    if (s.canUndo !== undefined || s.canRedo !== undefined) {
+      useLexicalEditorStore.getState().setHistoryAvail(!!s.canUndo, !!s.canRedo);
+    }
     scheduleSave();
     if (s.index < 0) return;
     useLexicalEditorStore.getState().setFormat({
@@ -385,28 +420,46 @@ export function WorkspaceLexicalView({
     }
   }, [scheduleSave]);
 
-  const onBlocks = useCallback(async (serialized: DocBlockDTO[]) => {
-    if (!pendingSave.current) return;
-    pendingSave.current = false;
-    const { ops } = planOps(baselineRef.current, serialized);
-    if (ops.length === 0) return; // nothing changed — stay silent (auto-save runs on every pause)
-    setSaving(true);
-    setBanner("Syncing…");
+  const runSave = useCallback(async (serialized: DocBlockDTO[]) => {
     try {
-      const res = await applyThesisOps(thesisId, ops); // ONE batch call
-      if (res.document) {
-        useThesisDocStore.getState().setDoc(thesisId, res.document);
-        syncedDocRef.current = res.document; // our own change — don't reseed from it
-        if (res.document.available) baselineRef.current = stripMedia(res.document.blocks);
+      if (!pendingSave.current) return;
+      pendingSave.current = false;
+      const { ops } = planOps(baselineRef.current, serialized);
+      if (ops.length === 0) return; // nothing changed — stay silent (auto-save runs on every pause)
+      setSaving(true);
+      setBanner("Syncing…");
+      try {
+        const res = await applyThesisOps(thesisId, ops); // ONE batch call
+        if (res.document) {
+          useThesisDocStore.getState().setDoc(thesisId, res.document);
+          syncedDocRef.current = res.document; // our own change — don't reseed from it
+          if (res.document.available) baselineRef.current = stripMedia(res.document.blocks);
+        }
+        setBanner(`Saved · ${tally(ops)}${res.skipped?.length ? ` (${res.skipped.length} skipped)` : ""}`);
+      } catch {
+        setBanner("Save failed");
+      } finally {
+        setSaving(false);
+        setTimeout(() => setBanner(null), 2600);
       }
-      setBanner(`Saved · ${tally(ops)}${res.skipped?.length ? ` (${res.skipped.length} skipped)` : ""}`);
-    } catch {
-      setBanner("Save failed");
     } finally {
-      setSaving(false);
-      setTimeout(() => setBanner(null), 2600);
+      // Settle every waiting flushEdits() on ALL exits (saved, no-op, failed) —
+      // callers only need to know the pending state has been dealt with.
+      saveWaiters.current.splice(0).forEach((resolve) => resolve());
     }
   }, [thesisId]);
+
+  // Saves are CHAINED, never concurrent: a serialize landing while a save is
+  // still in flight (pause-save + forced flush overlapping) would otherwise diff
+  // against the not-yet-updated baseline and re-apply the same ops — inserts/
+  // deletes are positional, so that duplicates content. The later run waits,
+  // then plans against the reconciled baseline (usually a no-op).
+  const saveChain = useRef<Promise<void>>(Promise.resolve());
+  const onBlocks = useCallback((serialized: DocBlockDTO[]) => {
+    const run = saveChain.current.then(() => runSave(serialized));
+    saveChain.current = run.catch(() => {});
+    return run;
+  }, [runSave]);
 
   // ── AI table proposal (in-place diff) ──
   // The ✦ dock put a proposal in the table-suggestion store; mirror it into the

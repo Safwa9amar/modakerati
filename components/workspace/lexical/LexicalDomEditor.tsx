@@ -57,6 +57,9 @@ import {
   FORMAT_ELEMENT_COMMAND,
   UNDO_COMMAND,
   REDO_COMMAND,
+  CAN_UNDO_COMMAND,
+  CAN_REDO_COMMAND,
+  CLEAR_HISTORY_COMMAND,
   COMMAND_PRIORITY_LOW,
   SKIP_DOM_SELECTION_TAG,
   type ElementFormatType,
@@ -148,6 +151,11 @@ export type LexicalState = {
   // Optional so the lab screens' bare initial-state literals still type-check.
   blocks?: { index: number; text: string }[];
   y?: number; // the block's top in WebView-viewport px (for anchoring the native pill)
+  // In-editor HistoryPlugin availability — lets the native undo/redo buttons step
+  // Lexical's own history (instant, offline) before falling back to the op queue /
+  // server snapshots. Optional so the lab screens' bare literals still type-check.
+  canUndo?: boolean;
+  canRedo?: boolean;
 };
 
 // Lexical maps active formats to THESE class names; the CSS below styles them.
@@ -350,6 +358,11 @@ function EditorBridge({
     // re-focuses + scrolls it into view (the reported "Approve jumps to the
     // bottom"). No focus, no caret → nothing to scroll to.
     withScrollPinned(editor, () => { $blocksToLexical(reseed.blocks); $setSelection(null); }, true);
+    // An authoritative external apply (AI turn, server restore, table op) replaced
+    // the content — undoing PAST it would silently revert that apply and sync the
+    // reversion. Drop the in-editor stack; the server history ring covers those
+    // steps. (In-place pill edits skip the reseed, so typing history survives them.)
+    editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reseed?.nonce]);
 
@@ -372,8 +385,10 @@ function EditorBridge({
     if (!command) return;
     // Don't focus for the block-scoped pill format or serialize — focusing the
     // content-editable pops the keyboard and scrolls (the pill applies formatting
-    // without moving the caret). The lab's selection commands still focus.
-    if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list") editor.focus();
+    // without moving the caret). The lab's selection commands still focus. Undo/
+    // redo also skip focus: tapped from the dock with the keyboard closed, they
+    // must not pop it (Lexical's history doesn't need a live selection).
+    if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list" && command.type !== "undo" && command.type !== "redo") editor.focus();
     switch (command.type) {
       case "bold":
       case "italic":
@@ -443,6 +458,21 @@ function EditorBridge({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command?.nonce]);
+
+  // HistoryPlugin availability, merged into every state report below. The plugin
+  // fires CAN_UNDO/CAN_REDO on empty↔non-empty stack transitions; we also push a
+  // minimal report right away so the native buttons update even when the
+  // transition isn't followed by a selection change (e.g. the very last undo).
+  const canUndoRef = useRef(false);
+  const canRedoRef = useRef(false);
+  useEffect(() => {
+    const report = () =>
+      onState({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, alignment: null, index: -1, text: "", y: -1, canUndo: canUndoRef.current, canRedo: canRedoRef.current });
+    return mergeRegister(
+      editor.registerCommand(CAN_UNDO_COMMAND, (v) => { canUndoRef.current = v; report(); return false; }, COMMAND_PRIORITY_LOW),
+      editor.registerCommand(CAN_REDO_COMMAND, (v) => { canRedoRef.current = v; report(); return false; }, COMMAND_PRIORITY_LOW),
+    );
+  }, [editor, onState]);
 
   // Report the focused block (formats, index, text, screen-Y) to the native side
   // so the reused native pill / AI dock can attach to the Lexical selection.
@@ -514,7 +544,7 @@ function EditorBridge({
         const el = editor.getElementByKey(key);
         if (el) payload = { ...payload, y: el.getBoundingClientRect().top };
       }
-      onState(payload);
+      onState({ ...payload, canUndo: canUndoRef.current, canRedo: canRedoRef.current });
     });
   }, [editor, onState]);
 

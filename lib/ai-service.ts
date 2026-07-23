@@ -1,5 +1,6 @@
 import { useChatStore } from "@/stores/chat-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { chatSend, chatSendStream, chatConfirmAction, chatCancelAction, getChatHistory, getChatHistoryPage } from "./api";
 import { getLatestMessages, getOlderMessages, upsertMessages, deletePending, getLastSyncedAt, setLastSyncedAt } from "./chat-cache";
 import type { ChatMessage } from "@/types/chat";
@@ -72,7 +73,9 @@ async function runAssistantTurn(
   // a stale doc AND the held ops' positional indices get poisoned by its edits
   // (flush-time rejection would drop the user's local work). The turn needs the
   // network anyway; a failed drain (offline) just proceeds to fail like the
-  // chat call itself would.
+  // chat call itself would. Lexical Writer typing serializes FIRST (it lives in
+  // the WebView until serialized — a pending pause-save isn't in the op queue).
+  await (useLexicalEditorStore.getState().flushEdits?.() ?? Promise.resolve()).catch(() => {});
   await useThesisDocStore.getState().flushOps(thesisId).catch(() => {});
 
   const store = useChatStore.getState();

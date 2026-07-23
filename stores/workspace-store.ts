@@ -85,6 +85,11 @@ interface WorkspaceState {
   // Tap while in multi mode: add the block if absent, remove it if present.
   // Removing the last block drops back out of multi mode.
   toggleBlock: (index: number, text: string | null) => void;
+  // Replace the whole selection with an explicit set of blocks at once. Used by the
+  // Lexical bridge, which reports EVERY block a cross-paragraph selection spans in
+  // one update (a running long-press/toggle sequence can't model that). `multi`
+  // forces multi-select mode; defaults to true when the set has >1 block.
+  setSelection: (blocks: SelectedBlock[], multi?: boolean) => void;
   clearSelection: () => void;
   setEditingBlock: (index: number | null, caretPos?: number) => void;
   setInlineEditing: (v: boolean) => void;
@@ -159,6 +164,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         : [...s.selectedBlocks, { index, text: text ?? "" }];
       // Removing the last block exits multi mode (back to single-tap behaviour).
       return { selectedBlocks: next, multiSelect: next.length > 0 };
+    }),
+
+  setSelection: (blocks, multi) =>
+    set({
+      selectedBlocks: blocks.map((b) => ({ index: b.index, text: b.text ?? "" })),
+      multiSelect: multi ?? blocks.length > 1,
     }),
 
   clearSelection: () =>

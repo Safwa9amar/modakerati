@@ -1,16 +1,26 @@
-import { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, FlatList, TextInput } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, Pressable, FlatList, TextInput, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, usePathname } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { Search, X, ChevronDown, ChevronRight, ChevronLeft, ChevronsDownUp } from "lucide-react-native";
+import {
+  Search,
+  X,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  ChevronsDownUp,
+  Table as TableIcon,
+  Image as ImageIcon,
+} from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useAuthHeader } from "@/hooks/useAuthHeader";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useOutlineStore } from "@/stores/outline-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
-import { type OutlineNodeDTO } from "@/lib/api";
+import { thesisBlockImageUrl, type OutlineNodeDTO, type DocBlockDTO } from "@/lib/api";
 import { normalize } from "@/lib/text-normalize";
 
 // Whether any heading title contains Arabic/Hebrew letters → render right-to-left.
@@ -21,6 +31,33 @@ function isRtlText(s: string): boolean {
 
 const INDENT_STEP = 16;
 type FlatRow = { node: OutlineNodeDTO; depth: number; hasChildren: boolean; collapsed: boolean };
+
+// The three navigator tabs: the heading tree (Contents), the tables list, and the
+// figures list. Contents mirrors a Word table-of-contents; Tables/Figures are the
+// "list of tables" / "list of figures" front-matter, built live from the document.
+type Tab = "toc" | "tables" | "figures";
+type ImageBlock = Extract<DocBlockDTO, { kind: "image" }>;
+type FigureItem = { index: number; n: number; caption: string; block: ImageBlock };
+type TableItem = { index: number; n: number; caption: string; rows: number; cols: number };
+
+// Word table captions are a short paragraph adjacent to the table (usually the line
+// just above it, sometimes below) that starts with a "Table"/"Tableau"/"جدول"
+// keyword. Figure captions already arrive on the image block from the server; tables
+// have no caption field, so we derive one here from the neighbouring paragraph.
+function isTableCaption(t: string): boolean {
+  if (!t || t.length > 200) return false;
+  return /^(table|tableau)\b/i.test(t) || t.startsWith("جدول") || t.startsWith("الجدول");
+}
+function deriveTableCaption(blocks: DocBlockDTO[], i: number): string {
+  for (const j of [i - 1, i + 1]) {
+    const b = blocks[j];
+    if (b && b.kind === "paragraph") {
+      const text = b.text.trim();
+      if (isTableCaption(text)) return text;
+    }
+  }
+  return "";
+}
 
 // Pre-order DFS → a flat [{ node, depth }] list the FlatList can virtualize. A
 // collapsed node contributes its own row but NOT its descendants, so the tree can
@@ -131,11 +168,131 @@ function OutlineRow({
   );
 }
 
+// A small live thumbnail of a figure, reusing the same dataUri/authed-media path as
+// the document view. Falls back to a picture-icon tile until the token/bytes resolve
+// or if the load fails, so a row never renders blank.
+function FigureThumb({
+  block,
+  thesisId,
+  tick,
+  colors,
+}: {
+  block: ImageBlock;
+  thesisId: string;
+  tick: number;
+  colors: ReturnType<typeof useThemeColors>;
+}) {
+  const authHeader = useAuthHeader();
+  const [failed, setFailed] = useState(false);
+  const needsAuth = !block.dataUri;
+  const uri = block.dataUri ?? (block.hasMedia ? thesisBlockImageUrl(thesisId, block.index, tick) : undefined);
+  if (!uri || failed || (needsAuth && !authHeader)) {
+    return (
+      <View style={[styles.thumb, styles.thumbTile, { backgroundColor: colors.bgInput }]}>
+        <ImageIcon size={18} color={colors.textSecondary} />
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={needsAuth && authHeader ? { uri, headers: authHeader } : { uri }}
+      resizeMode="cover"
+      onError={() => setFailed(true)}
+      style={[styles.thumb, { backgroundColor: colors.bgInput }]}
+    />
+  );
+}
+
+// One "list of figures" row: a thumbnail + the caption (or a native "Figure N" when
+// the figure has no caption — the thumbnail is then the visual identifier).
+function FigureRow({
+  item,
+  rtl,
+  colors,
+  thesisId,
+  tick,
+  onPress,
+  numberLabel,
+}: {
+  item: FigureItem;
+  rtl: boolean;
+  colors: ReturnType<typeof useThemeColors>;
+  thesisId: string;
+  tick: number;
+  onPress: (index: number, label: string) => void;
+  numberLabel: string;
+}) {
+  const label = item.caption || numberLabel;
+  const align = rtl ? "right" : "left";
+  return (
+    <Pressable
+      onPress={() => onPress(item.index, label)}
+      style={[styles.mediaRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+    >
+      <FigureThumb block={item.block} thesisId={thesisId} tick={tick} colors={colors} />
+      <View style={styles.mediaText}>
+        <Text style={[styles.mediaLabel, { color: colors.textPrimary, textAlign: align }]} numberOfLines={2}>
+          {label}
+        </Text>
+        {item.caption ? (
+          <Text style={[styles.mediaSub, { color: colors.textSecondary, textAlign: align }]} numberOfLines={1}>
+            {numberLabel}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+// One "list of tables" row: a table-icon tile + the caption (or a native "Table N")
+// with the grid size as a subtitle.
+function TableRow({
+  item,
+  rtl,
+  colors,
+  onPress,
+  numberLabel,
+  sizeLabel,
+}: {
+  item: TableItem;
+  rtl: boolean;
+  colors: ReturnType<typeof useThemeColors>;
+  onPress: (index: number, label: string) => void;
+  numberLabel: string;
+  sizeLabel: string;
+}) {
+  const label = item.caption || numberLabel;
+  const sub = item.caption ? `${numberLabel} · ${sizeLabel}` : sizeLabel;
+  const align = rtl ? "right" : "left";
+  return (
+    <Pressable
+      onPress={() => onPress(item.index, label)}
+      style={[styles.mediaRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+    >
+      <View style={[styles.thumb, styles.thumbTile, { backgroundColor: colors.bgInput }]}>
+        <TableIcon size={18} color={colors.textSecondary} />
+      </View>
+      <View style={styles.mediaText}>
+        <Text style={[styles.mediaLabel, { color: colors.textPrimary, textAlign: align }]} numberOfLines={2}>
+          {label}
+        </Text>
+        <Text style={[styles.mediaSub, { color: colors.textSecondary, textAlign: align }]} numberOfLines={1}>
+          {sub}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
 /**
- * The Thesis Structure navigator's CONTENTS — the heading tree as a virtualized,
- * searchable, collapsible list. Hosted by the root `PushDrawer`. Reads the cached
- * `outline-store` (instant, no fetch on open). Highlights the heading the reader is
- * under ("you are here"); tapping a heading closes the drawer and scrolls to it.
+ * The Thesis Structure navigator's CONTENTS — a three-tab drawer:
+ *   • Contents — the heading tree (table of contents), virtualized + collapsible.
+ *   • Tables   — every table in the document ("list of tables").
+ *   • Figures  — every figure/image ("list of figures"), with thumbnails.
+ * Headings come from the cached `outline-store`; tables & figures from the cached
+ * `thesis-doc-store` blocks. Each entry labels itself by its caption when present,
+ * else a native "Table N"/"Figure N". Tapping any entry closes the drawer and
+ * scrolls the workspace to that block. Hosted by the root `PushDrawer`.
  */
 export function ThesisOutlinePanel() {
   const { t } = useTranslation();
@@ -147,22 +304,30 @@ export function ThesisOutlinePanel() {
   const open = useNavDrawerStore((s) => s.open);
   // Stable-ref selector (the stored object, or undefined) → no zustand loop.
   const outline = useOutlineStore((s) => (thesis ? s.byId[thesis.id] : undefined));
+  // Live document (blocks) for the Tables/Figures tabs. Stable ref + primitive tick.
+  const doc = useThesisDocStore((s) => (thesis ? s.byId[thesis.id] : undefined));
+  const docTick = useThesisDocStore((s) => (thesis ? s.tick[thesis.id] ?? 0 : 0));
   // "You are here" anchor: the caret's block while inline-editing, else the block
   // at the top of the doc view (from the outline view's scroll). Primitive selectors.
   const activeBlockIndex = useWorkspaceStore((s) => s.activeBlockIndex);
   const editingBlockIndex = useWorkspaceStore((s) => s.editingBlockIndex);
   const listRef = useRef<FlatList<FlatRow>>(null);
 
+  const [tab, setTab] = useState<Tab>("toc");
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
 
-  // Fresh state per thesis; drop the query each time the drawer closes.
+  // Fresh state per thesis; drop the query + tab each time the drawer closes.
   useEffect(() => {
     setQuery("");
+    setTab("toc");
     setCollapsed(new Set());
   }, [thesis?.id]);
   useEffect(() => {
-    if (!open) setQuery("");
+    if (!open) {
+      setQuery("");
+      setTab("toc");
+    }
   }, [open]);
 
   // On open, paint from cache ONLY (no fetch). If nothing is cached yet (e.g. the
@@ -178,13 +343,58 @@ export function ThesisOutlinePanel() {
       const unsynced = (useThesisDocStore.getState().pending[thesis.id] ?? 0) > 0;
       if (!unsynced && useOutlineStore.getState().byId[thesis.id] === undefined) void store.sync(thesis.id);
     });
+    // The Tables/Figures tabs read the live document blocks — hydrate them from the
+    // SQLite cache (and revalidate) if this drawer opened before the workspace did.
+    if (useThesisDocStore.getState().byId[thesis.id] === undefined) void useThesisDocStore.getState().load(thesis.id);
   }, [open, thesis?.id]);
 
   const liveOutline = outline?.available ? outline : null;
   const nodes: OutlineNodeDTO[] = liveOutline ? liveOutline.nodes : [];
   const sectionCount = liveOutline ? liveOutline.sectionCount : 0;
   const chapterCount = liveOutline ? liveOutline.chapterCount : 0;
-  const rtl = nodes.length > 0 && isRtlText(nodes.map((n) => n.title).join(" "));
+
+  const blocks: DocBlockDTO[] = doc?.available ? doc.blocks : EMPTY_BLOCKS;
+
+  // Figures & tables in document order, each 1-based numbered. Figure captions ride
+  // the image block (server-derived); table captions are derived from a neighbour.
+  const figures = useMemo<FigureItem[]>(() => {
+    const out: FigureItem[] = [];
+    let n = 0;
+    for (const b of blocks) {
+      if (b.kind === "image") {
+        n += 1;
+        out.push({ index: b.index, n, caption: (b.caption ?? "").trim(), block: b });
+      }
+    }
+    return out;
+  }, [blocks]);
+
+  const tables = useMemo<TableItem[]>(() => {
+    const out: TableItem[] = [];
+    let n = 0;
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (b.kind !== "table") continue;
+      n += 1;
+      const rows = b.rows.length;
+      const cols = rows > 0 ? Math.max(...b.rows.map((r) => r.length)) : 0;
+      out.push({ index: b.index, n, caption: deriveTableCaption(blocks, i), rows, cols });
+    }
+    return out;
+  }, [blocks]);
+
+  // Direction from the document's own text (headings first — the most reliable —
+  // then captions), so the whole drawer flips as one for an Arabic thesis.
+  const rtl =
+    isRtlText(nodes.map((n) => n.title).join(" ")) ||
+    isRtlText(figures.map((f) => f.caption).join(" ") + " " + tables.map((tb) => tb.caption).join(" "));
+
+  const numberLabel = (kind: "table" | "figure", n: number) =>
+    kind === "table"
+      ? t("thesis.tableN", { n, defaultValue: `Table ${n}` })
+      : t("thesis.figureN", { n, defaultValue: `Figure ${n}` });
+  const sizeLabel = (rows: number, cols: number) =>
+    t("thesis.tableSize", { rows, cols, defaultValue: `${rows} × ${cols}` });
 
   // Fully-expanded flatten drives search + the active-heading calc (both ignore
   // the collapse state). Browsing uses the collapsed flatten.
@@ -194,6 +404,14 @@ export function ThesisOutlinePanel() {
   const visibleRows = searching
     ? allRows.filter((r) => normalize(r.node.title).includes(q))
     : flattenOutline(nodes, collapsed);
+
+  // Tables/Figures search by caption OR native number label (so "figure 3" matches).
+  const visibleFigures = searching
+    ? figures.filter((f) => normalize(`${f.caption} ${numberLabel("figure", f.n)}`).includes(q))
+    : figures;
+  const visibleTables = searching
+    ? tables.filter((tb) => normalize(`${tb.caption} ${numberLabel("table", tb.n)}`).includes(q))
+    : tables;
 
   // The active heading = the last heading whose block index is ≤ the anchor. Rows
   // are document-ordered (pre-order DFS → increasing index), so scan-keep-last.
@@ -206,11 +424,11 @@ export function ThesisOutlinePanel() {
     }
   }
 
-  // When the drawer opens, bring the active ("you are here") heading into view.
-  // Only on the open transition — never on scroll updates, or the list would jump
-  // around under the reader.
+  // When the drawer opens on the Contents tab, bring the active ("you are here")
+  // heading into view. Only on the open transition — never on scroll updates, or
+  // the list would jump around under the reader.
   useEffect(() => {
-    if (!open || activeNodeIndex == null) return;
+    if (!open || tab !== "toc" || activeNodeIndex == null) return;
     const pos = visibleRows.findIndex((r) => r.node.index === activeNodeIndex);
     if (pos < 0) return;
     const id = requestAnimationFrame(() => {
@@ -233,12 +451,13 @@ export function ThesisOutlinePanel() {
   const collapseAllToggle = () =>
     setCollapsed((prev) => (prev.size > 0 ? new Set() : new Set(collectParents(nodes))));
 
-  // Tap any heading → close the drawer and bring that block into view.
-  function handleHeadingPress(index: number, title: string) {
+  // Tap any entry (heading / table / figure) → close the drawer and bring that
+  // block into view.
+  function handleEntryPress(index: number, label: string) {
     if (!thesis) return;
     useNavDrawerStore.getState().closeDrawer();
     const ws = useWorkspaceStore.getState();
-    ws.selectBlock(index, title);
+    ws.selectBlock(index, label);
     ws.requestScrollToBlock(index);
     // Already in the workspace → scroll in place; else navigate there.
     if (pathname?.includes("thesis-workspace")) return;
@@ -248,9 +467,22 @@ export function ThesisOutlinePanel() {
     });
   }
 
+  const searchPlaceholder =
+    tab === "tables"
+      ? t("thesis.searchTables", { defaultValue: "Search tables" })
+      : tab === "figures"
+        ? t("thesis.searchFigures", { defaultValue: "Search figures" })
+        : t("thesis.searchHeadings", { defaultValue: "Search headings" });
+
+  const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: "toc", label: t("thesis.tabContents", { defaultValue: "Contents" }), count: allRows.length },
+    { key: "tables", label: t("thesis.tabTables", { defaultValue: "Tables" }), count: tables.length },
+    { key: "figures", label: t("thesis.tabFigures", { defaultValue: "Figures" }), count: figures.length },
+  ];
+
   return (
     <View style={[styles.panel, { backgroundColor: colors.bgModal }]}>
-      {/* Sticky header: title + collapse-all, counts, and the search field. */}
+      {/* Sticky header: title + close, the tab switcher, and the search field. */}
       <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <View style={[styles.titleRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
           <Text
@@ -270,29 +502,58 @@ export function ThesisOutlinePanel() {
           </Pressable>
         </View>
 
-        <View style={[styles.statusRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
-          <View style={[styles.statusBadges, { flexDirection: rtl ? "row-reverse" : "row" }]}>
-            <View style={styles.statusBadge}>
-              <View style={[styles.statusDot, { backgroundColor: colors.brandPrimary }]} />
-              <Text style={[styles.statusText, { color: colors.textSecondary }]}>{sectionCount} {t("home.sections")}</Text>
-            </View>
-            <View style={styles.statusBadge}>
-              <View style={[styles.statusDot, { backgroundColor: colors.brandAccent }]} />
-              <Text style={[styles.statusText, { color: colors.textSecondary }]}>{chapterCount} {t("home.chapters")}</Text>
-            </View>
-          </View>
-          {nodes.length > 0 && (
-            <Pressable
-              onPress={collapseAllToggle}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={t("thesis.collapseAll", { defaultValue: "Collapse all" })}
-              style={styles.iconBtn}
-            >
-              <ChevronsDownUp size={18} color={colors.textSecondary} />
-            </Pressable>
-          )}
+        {/* Tab switcher: Contents / Tables / Figures (segmented, RTL-aware). */}
+        <View style={[styles.tabBar, { backgroundColor: colors.bgInput, flexDirection: rtl ? "row-reverse" : "row" }]}>
+          {tabs.map((it) => {
+            const active = it.key === tab;
+            return (
+              <Pressable
+                key={it.key}
+                onPress={() => {
+                  setTab(it.key);
+                  setQuery("");
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                style={[styles.tabItem, active && { backgroundColor: colors.bgModal }]}
+              >
+                <Text
+                  style={[styles.tabLabel, { color: active ? colors.brandPrimary : colors.textSecondary }]}
+                  numberOfLines={1}
+                >
+                  {it.label}
+                  {it.count > 0 ? `  ${it.count}` : ""}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
+
+        {tab === "toc" && (
+          <View style={[styles.statusRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+            <View style={[styles.statusBadges, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+              <View style={styles.statusBadge}>
+                <View style={[styles.statusDot, { backgroundColor: colors.brandPrimary }]} />
+                <Text style={[styles.statusText, { color: colors.textSecondary }]}>{sectionCount} {t("home.sections")}</Text>
+              </View>
+              <View style={styles.statusBadge}>
+                <View style={[styles.statusDot, { backgroundColor: colors.brandAccent }]} />
+                <Text style={[styles.statusText, { color: colors.textSecondary }]}>{chapterCount} {t("home.chapters")}</Text>
+              </View>
+            </View>
+            {nodes.length > 0 && (
+              <Pressable
+                onPress={collapseAllToggle}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={t("thesis.collapseAll", { defaultValue: "Collapse all" })}
+                style={styles.iconBtn}
+              >
+                <ChevronsDownUp size={18} color={colors.textSecondary} />
+              </Pressable>
+            )}
+          </View>
+        )}
 
         <View
           style={[
@@ -304,7 +565,7 @@ export function ThesisOutlinePanel() {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder={t("thesis.searchHeadings", { defaultValue: "Search headings" })}
+            placeholder={searchPlaceholder}
             placeholderTextColor={colors.textPlaceholder}
             style={[styles.searchInput, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}
             returnKeyType="search"
@@ -318,48 +579,115 @@ export function ThesisOutlinePanel() {
         </View>
       </View>
 
-      <FlatList
-        ref={listRef}
-        data={visibleRows}
-        keyExtractor={(item) => String(item.node.index)}
-        renderItem={({ item }) => (
-          <OutlineRow
-            node={item.node}
-            depth={searching ? 0 : item.depth}
-            rtl={rtl}
-            active={item.node.index === activeNodeIndex}
-            hasChildren={item.hasChildren}
-            collapsed={item.collapsed}
-            showChevron={!searching}
-            colors={colors}
-            onPress={handleHeadingPress}
-            onToggle={toggleCollapse}
-          />
-        )}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-        showsVerticalScrollIndicator={false}
-        initialNumToRender={16}
-        windowSize={11}
-        removeClippedSubviews
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        onScrollToIndexFailed={({ index, averageItemLength }) => {
-          listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false });
-        }}
-        ListEmptyComponent={
-          <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
-            {searching
-              ? t("thesis.noMatches", { defaultValue: "No headings match your search." })
-              : t("thesis.noChapters", { defaultValue: "No headings found in this document yet." })}
-          </Text>
-        }
-      />
+      {tab === "toc" && (
+        <FlatList
+          ref={listRef}
+          data={visibleRows}
+          keyExtractor={(item) => String(item.node.index)}
+          renderItem={({ item }) => (
+            <OutlineRow
+              node={item.node}
+              depth={searching ? 0 : item.depth}
+              rtl={rtl}
+              active={item.node.index === activeNodeIndex}
+              hasChildren={item.hasChildren}
+              collapsed={item.collapsed}
+              showChevron={!searching}
+              colors={colors}
+              onPress={handleEntryPress}
+              onToggle={toggleCollapse}
+            />
+          )}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={16}
+          windowSize={11}
+          removeClippedSubviews
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          onScrollToIndexFailed={({ index, averageItemLength }) => {
+            listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false });
+          }}
+          ListEmptyComponent={
+            <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+              {searching
+                ? t("thesis.noMatches", { defaultValue: "No headings match your search." })
+                : t("thesis.noChapters", { defaultValue: "No headings found in this document yet." })}
+            </Text>
+          }
+        />
+      )}
+
+      {tab === "tables" && (
+        <FlatList
+          data={visibleTables}
+          keyExtractor={(item) => String(item.index)}
+          renderItem={({ item }) => (
+            <TableRow
+              item={item}
+              rtl={rtl}
+              colors={colors}
+              onPress={handleEntryPress}
+              numberLabel={numberLabel("table", item.n)}
+              sizeLabel={sizeLabel(item.rows, item.cols)}
+            />
+          )}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={16}
+          windowSize={11}
+          removeClippedSubviews
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          ListEmptyComponent={
+            <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+              {searching
+                ? t("thesis.noMatches", { defaultValue: "No matches for your search." })
+                : t("thesis.noTables", { defaultValue: "No tables in this document yet." })}
+            </Text>
+          }
+        />
+      )}
+
+      {tab === "figures" && (
+        <FlatList
+          data={visibleFigures}
+          keyExtractor={(item) => String(item.index)}
+          renderItem={({ item }) => (
+            <FigureRow
+              item={item}
+              rtl={rtl}
+              colors={colors}
+              thesisId={thesis?.id ?? ""}
+              tick={docTick}
+              onPress={handleEntryPress}
+              numberLabel={numberLabel("figure", item.n)}
+            />
+          )}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={12}
+          windowSize={11}
+          removeClippedSubviews
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          ListEmptyComponent={
+            <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+              {searching
+                ? t("thesis.noMatches", { defaultValue: "No matches for your search." })
+                : t("thesis.noFigures", { defaultValue: "No figures in this document yet." })}
+            </Text>
+          }
+        />
+      )}
     </View>
   );
 }
 
 // Shared empty set for the fully-expanded flatten (never mutated).
 const EMPTY_SET: Set<number> = new Set();
+// Shared empty blocks list, so a not-yet-loaded document doesn't churn the memos.
+const EMPTY_BLOCKS: DocBlockDTO[] = [];
 
 const styles = StyleSheet.create({
   panel: { flex: 1 },
@@ -367,6 +695,9 @@ const styles = StyleSheet.create({
   titleRow: { alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   title: { flex: 1, fontSize: 20, fontFamily: "Inter_700Bold" },
   iconBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  tabBar: { padding: 3, borderRadius: 12, gap: 3, marginBottom: 12 },
+  tabItem: { flex: 1, height: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  tabLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   statusRow: { alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   statusBadges: { flexDirection: "row", alignItems: "center", gap: 16 },
   statusBadge: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -389,4 +720,11 @@ const styles = StyleSheet.create({
   rowTitle: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
   rowTitleActive: { fontFamily: "Inter_600SemiBold" },
   emptyText: { fontSize: 13, fontFamily: "Inter_400Regular", paddingVertical: 24 },
+  // Tables / figures rows.
+  mediaRow: { alignItems: "center", gap: 12, paddingVertical: 8 },
+  thumb: { width: 44, height: 44, borderRadius: 8, flexShrink: 0 },
+  thumbTile: { alignItems: "center", justifyContent: "center" },
+  mediaText: { flex: 1, gap: 2 },
+  mediaLabel: { fontSize: 14, fontFamily: "Inter_500Medium", lineHeight: 19 },
+  mediaSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
 });

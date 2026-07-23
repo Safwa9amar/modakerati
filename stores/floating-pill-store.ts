@@ -7,7 +7,8 @@ interface Pos {
 
 interface FloatingPillState {
   /** Whether the persistent floating pill is on screen at all. Set true on the
-   *  first block selection; only set false by a drag-to-X dismiss. */
+   *  first block selection; only set false by a drag-to-X dismiss of the GLOBAL
+   *  ✦ bubble (a block bubble's dismiss just reverts it to the global bubble). */
   visible: boolean;
   /** Last dragged top-left position (screen coords). null → the overlay uses its
    *  computed default spawn spot. Session-scoped (reset on workspace exit). */

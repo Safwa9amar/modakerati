@@ -36,7 +36,6 @@ interface Props {
   rtl: boolean;
 }
 
-const PILL_W = 320; // approximate — used only for the initial center + clamp math
 const PILL_H = 56;
 const BUBBLE_SIZE = 52;
 // Extra tap/drag margin around the collapsed bubble — touches this far outside
@@ -49,8 +48,11 @@ const DOCK_CLEARANCE = 240;
 /**
  * The persistent, draggable, screen-level floating ✦ AI bubble. Mounted ONCE by
  * thesis-workspace and shown on entry — it is ALWAYS ON, not spawned by selection:
- * it lives from workspace entry until dragged onto the bottom-center X (which also
- * clears the selection), and stays dismissed until the workspace is re-entered.
+ * it lives from workspace entry until dragged onto the bottom-center X. Dismissal
+ * is mode-aware: dragging a BLOCK bubble onto the X only closes the block context
+ * (selection clears, the bubble reverts to the default global ✦ AI bubble at its
+ * home spot); dragging the global ✦ bubble onto the X hides the overlay until the
+ * workspace is re-entered.
  * Two modes, both reachable from the same bubble:
  *   • count === 0 (nothing selected) → the bubble shows ✦ Sparkles; expanding opens
  *     the AI dock (quick actions, suggested chips, on-demand Ask input).
@@ -109,6 +111,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     [selectedBlocks],
   );
   const indices = useMemo(() => ordered.map((b) => b.index), [ordered]);
+  // Combined text of the selected blocks (doc order) — grounds a multi-block AI ask.
+  // Capped so a big multi-select doesn't push a huge body across the bridge/network
+  // (the server truncates further); empty for the whole-memoir scope.
+  const scopeText = useMemo(
+    () => ordered.map((b) => b.text).filter(Boolean).join("\n\n").slice(0, 6000),
+    [ordered],
+  );
   const count = selectedBlocks.length;
   const paragraphSelection = useMemo(() => {
     if (!ordered.length) return [] as ParagraphBlock[];
@@ -133,15 +142,20 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           t("workspace.selectedBlock", { defaultValue: "Selected section" }))
         : t("workspace.nSelected", { count, defaultValue: `${count} selected` });
 
-  // Container width depends on form; drives centering, clamp, and the drag hit-test.
-  const curW = expanded ? PILL_W : BUBBLE_SIZE;
-
   // Suggestion suppression: sole selected paragraph currently in review.
   const soleSuggested = useSuggestionStore((s) => {
     if (count !== 1) return false;
     const b = selectedBlock;
     return !!b && b.kind === "paragraph" && s.byIndex[b.index]?.original === b.text;
   });
+  // A range rewrite (multi-block dynamic proposal) owns the bottom while it's under
+  // review — hide the bubble/dock so it doesn't overlap the inline card's pill.
+  const rangeActive = useSuggestionStore((s) => s.range != null);
+
+  const maxPillW = Math.min(420, width - 24);
+
+  // Container width depends on form; drives centering, clamp, and the drag hit-test.
+  const curW = expanded ? maxPillW : BUBBLE_SIZE;
 
   // Always-on: the bubble lives from workspace entry until drag-to-X. `visible`
   // is the persist flag (only hide() clears it); a dismissed bubble stays hidden
@@ -169,7 +183,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   }, [selectedBlocks]);
 
   // ── Drag position ──
-  const defaultX = (width - PILL_W) / 2;
+  const defaultX = (width - maxPillW) / 2;
   const defaultY = height - insets.bottom - PILL_H - 120;
   const startX = pos?.x ?? defaultX;
   const startY = pos?.y ?? defaultY;
@@ -180,11 +194,11 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // JUST wrote on a drag drop would overwrite (and cut short) the spring-back.
   useEffect(() => {
     if (pos == null) {
-      tx.value = (width - PILL_W) / 2;
+      tx.value = (width - maxPillW) / 2;
       ty.value = height - insets.bottom - PILL_H - 120;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pos, width, height, insets.bottom]);
+  }, [pos, width, height, insets.bottom, maxPillW]);
 
   const dragActive = useSharedValue(0); // DismissTarget fade
   const overTarget = useSharedValue(0); // DismissTarget grow
@@ -235,10 +249,27 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   }, [curW]);
 
   const dismiss = () => {
-    useFloatingPillStore.getState().hide();
-    useWorkspaceStore.getState().clearSelection();
+    const ws = useWorkspaceStore.getState();
+    const pill = useFloatingPillStore.getState();
     // Reset so re-selecting the SAME block re-anchors beside it (not over the X).
     lastAnchoredIndex.current = null;
+    if (ws.selectedBlocks.length === 0) {
+      // The global ✦ bubble dragged onto the X → the overlay hides until the
+      // workspace is re-entered (or a block is selected again).
+      pill.hide();
+      return;
+    }
+    // A BLOCK bubble dragged onto the X closes only the block context: the
+    // selection clears and the bubble falls back to the default global ✦ AI
+    // bubble, springing to its home spot instead of vanishing.
+    ws.clearSelection();
+    pill.setExpanded(false);
+    pill.setInputOpen(false);
+    const homeX = defaultX;
+    const homeY = Math.min(defaultY, maxY);
+    pill.setPos({ x: homeX, y: homeY });
+    tx.value = withSpring(homeX, SPRING);
+    ty.value = withSpring(homeY, SPRING);
   };
   // JS-thread wrapper: reanimated must persist via runOnJS(persistPos) — NOT
   // runOnJS(useFloatingPillStore.getState().setPos), which would evaluate
@@ -337,7 +368,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     const isFirst = lastAnchoredIndex.current == null;
     lastAnchoredIndex.current = soleIndex;
     if (anchorY == null) return;
-    const w = expanded ? PILL_W : BUBBLE_SIZE;
+    const w = expanded ? maxPillW : BUBBLE_SIZE;
     const sideX = rtl ? minX : Math.max(minX, width - w - 12);
     const yy = Math.min(Math.max(anchorY - BUBBLE_SIZE / 2, minY), maxY);
     if (isFirst) { tx.value = sideX; ty.value = yy; }
@@ -351,7 +382,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // BlockContextBar (Task 4, untouched here) can still set it, and the bubble must
   // yield the bottom surface to that legacy bar while it's up.
   const suppressed =
-    askAiOpen || aiGateActive || soleSuggested || !composerOpen || previewMode != null;
+    askAiOpen || aiGateActive || soleSuggested || rangeActive || !composerOpen || previewMode != null;
   if (!visible || suppressed) {
     // Still render the target host? No — nothing to show when suppressed.
     return null;
@@ -371,6 +402,8 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                   scopeLabel={scopeLabel}
                   scopeIndices={indices}
                   selectedBlock={selectedBlock}
+                  scopeText={scopeText}
+                  scopeBlocks={paragraphSelection.map((b) => ({ index: b.index, text: b.text, level: b.level }))}
                 />
               </View>
             ) : (
@@ -389,6 +422,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                 onAskAI={() => useFloatingPillStore.getState().setInputOpen(true)}
                 onCollapse={() => useFloatingPillStore.getState().setExpanded(false)}
                 bottomInset={0}
+                blocks={blocks}
               />
             )
           ) : (

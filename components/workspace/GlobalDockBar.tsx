@@ -32,6 +32,8 @@ import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useSearchStore } from "@/stores/search-store";
+import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
+import { useSuggestionStore } from "@/stores/suggestion-store";
 import {
   undoThesisHistory,
   redoThesisHistory,
@@ -130,13 +132,27 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
   const dismissKeyboard = () => Keyboard.dismiss();
 
   // ── Undo / redo (local-first — mirrors thesis-workspace's runHistory) ──
-  // Local steps unwind the on-device op queue synchronously (works mid-compose,
-  // offline, zero network); the server snapshot restore is the fallback once
-  // the queue has flushed.
+  // Three tiers, cheapest first: (1) the Lexical Writer's own in-editor history
+  // (instant, offline — covers typing + in-editor formatting while the Writer is
+  // active); (2) the on-device op queue (native pill/dock ops still unflushed);
+  // (3) the server snapshot restore — the only tier that needs the network, now
+  // reached only for steps from BEFORE this editing session.
   const localUndo = useThesisDocStore((s) => s.localUndo[thesisId] ?? 0);
   const localRedo = useThesisDocStore((s) => s.localRedo[thesisId] ?? 0);
+  const lexActive = useLexicalEditorStore((s) => s.active);
+  const lexCanUndo = useLexicalEditorStore((s) => s.canUndo);
+  const lexCanRedo = useLexicalEditorStore((s) => s.canRedo);
   const runHistory = async (kind: "undo" | "redo") => {
     if (historyBusy) return;
+    const lex = useLexicalEditorStore.getState();
+    if (lex.active && (kind === "undo" ? lex.canUndo : lex.canRedo)) {
+      // Never step Lexical history while an inline AI proposal is in the editor —
+      // undo would unravel the proposal nodes. The tap is simply ignored.
+      const sug = useSuggestionStore.getState();
+      if (sug.range || Object.keys(sug.byIndex).length > 0) return;
+      lex.dispatch(kind);
+      return;
+    }
     const store = useThesisDocStore.getState();
     if (kind === "undo" ? store.undoLocal(thesisId) : store.redoLocal(thesisId)) return;
     // Server restore requires a clean queue (applyRestoredDoc contract): with ops
@@ -153,8 +169,8 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
       setHistoryBusy(false);
     }
   };
-  const undoDisabled = historyBusy || isGenerating || (localUndo === 0 && (!canUndo || pendingOps > 0));
-  const redoDisabled = historyBusy || isGenerating || (localRedo === 0 && (!canRedo || pendingOps > 0));
+  const undoDisabled = historyBusy || isGenerating || (!(lexActive && lexCanUndo) && localUndo === 0 && (!canUndo || pendingOps > 0));
+  const redoDisabled = historyBusy || isGenerating || (!(lexActive && lexCanRedo) && localRedo === 0 && (!canRedo || pendingOps > 0));
 
   // ── Outline (the root Thesis Structure push-drawer) ──
   const openOutline = () => {

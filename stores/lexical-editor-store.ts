@@ -45,14 +45,32 @@ interface LexicalEditorState {
   // True while the Lexical Writer is the active surface (previewMode === null) —
   // the pill uses it to decide whether to route formatting to Lexical.
   active: boolean;
+  // The in-editor HistoryPlugin's availability (reported by the editor). While the
+  // Writer is active, the dock/header undo-redo step THIS history first — instant
+  // and offline — before the op-queue / server-snapshot fallbacks.
+  canUndo: boolean;
+  canRedo: boolean;
+  // Waitable flush of un-serialized Writer edits (registered by the Writer view).
+  // Callers that are about to act on the SERVER doc (AI turn) await it so pending
+  // typing lands first; resolves immediately when no Writer is mounted.
+  flushEdits: (() => Promise<void>) | null;
   // Consume-once flag: set right before a pill edit mutates the doc so the editor
   // view skips the reseed (it already applied the edit in place).
   skipReseed: boolean;
+  // Consume-once flag: set right before a DELIBERATE authoritative apply (e.g. a
+  // range-rewrite approve) publishes its doc, so the editor view reseeds to it
+  // UNCONDITIONALLY — bypassing the pending-save / proposal guards and cancelling any
+  // stale debounced typing-save that would otherwise block it (revert bug).
+  forceReseed: boolean;
   dispatch: (type: string, value?: string) => void;
   setFormat: (f: LexicalFormat) => void;
   setActive: (a: boolean) => void;
+  setHistoryAvail: (canUndo: boolean, canRedo: boolean) => void;
+  registerFlushEdits: (f: (() => Promise<void>) | null) => void;
   requestSkipReseed: () => void;
   consumeSkipReseed: () => boolean;
+  requestForceReseed: () => void;
+  consumeForceReseed: () => boolean;
 }
 
 let nonce = 0;
@@ -73,16 +91,31 @@ export const useLexicalEditorStore = create<LexicalEditorState>((set, get) => ({
   command: null,
   format: EMPTY_FORMAT,
   active: false,
+  canUndo: false,
+  canRedo: false,
+  flushEdits: null,
   skipReseed: false,
+  forceReseed: false,
   dispatch: (type, value) => set({ command: { type, value, nonce: ++nonce } }),
   setFormat: (f) => {
     if (!sameFormat(get().format, f)) set({ format: f });
   },
   setActive: (a) => set({ active: a }),
+  setHistoryAvail: (canUndo, canRedo) => {
+    const s = get();
+    if (s.canUndo !== canUndo || s.canRedo !== canRedo) set({ canUndo, canRedo });
+  },
+  registerFlushEdits: (f) => set({ flushEdits: f }),
   requestSkipReseed: () => set({ skipReseed: true }),
   consumeSkipReseed: () => {
     if (!get().skipReseed) return false;
     set({ skipReseed: false });
+    return true;
+  },
+  requestForceReseed: () => set({ forceReseed: true }),
+  consumeForceReseed: () => {
+    if (!get().forceReseed) return false;
+    set({ forceReseed: false });
     return true;
   },
 }));
