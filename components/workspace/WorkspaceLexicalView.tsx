@@ -422,7 +422,15 @@ export function WorkspaceLexicalView({
             newRows: tblProposal.newRows,
             diff: tblProposal.diff,
             thoughtMs: tblProposal.thoughtMs,
-            layout: tblProposal.layout ? { headerFill: tblProposal.layout.headerFill } : null,
+            layout: tblProposal.layout
+              ? {
+                  headerFill: tblProposal.layout.headerFill,
+                  borders: tblProposal.layout.borders,
+                  borderStyle: tblProposal.layout.borderStyle,
+                  borderSizePt: tblProposal.layout.borderSizePt,
+                  borderColor: tblProposal.layout.borderColor,
+                }
+              : null,
             fills: tblProposal.fills ?? null,
             textColors: tblProposal.textColors ?? null,
           }

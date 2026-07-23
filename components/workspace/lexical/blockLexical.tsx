@@ -56,7 +56,20 @@ export type TableStyleExtra = {
   textColors?: (string | null)[][];
   /** Merge spans: {cs,rs} on the rendered cell, "skip" = vMerge continuation. */
   spans?: ({ cs: number; rs: number } | "skip" | null)[][];
+  /** Actual table border from the docx: null = borderless, undefined = default. */
+  border?: { style: string; pt: number; color: string } | null;
 };
+
+// OOXML border style → CSS border-style (best-effort approximation).
+const BORDER_CSS: Record<string, string> = {
+  single: "solid", thick: "solid", double: "double", dashed: "dashed", dotted: "dotted",
+};
+function cellBorderCss(border: TableStyleExtra["border"]): string {
+  if (border === null) return "none";
+  if (!border) return "1px solid #c8c8d0"; // no explicit borders → light default grid
+  const px = Math.max(1, Math.round(border.style === "thick" ? Math.max(2, border.pt) : border.pt));
+  return `${px}px ${BORDER_CSS[border.style] ?? "solid"} ${border.color}`;
+}
 type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
 
 // ── Opaque structural-block node (table / image / other) ─────────────────────
@@ -98,8 +111,8 @@ export interface TableProposalData {
   diff: TableDiff;
   /** How long the model reasoned, ms — the "Thought for Xs" chip. */
   thoughtMs?: number | null;
-  /** Proposed layout styling (headerFill previews on row 0). */
-  layout?: { headerFill?: string } | null;
+  /** Proposed layout styling (headerFill previews on row 0; border fields preview on all cells). */
+  layout?: { headerFill?: string; borders?: boolean; borderStyle?: string; borderSizePt?: number; borderColor?: string } | null;
   /** Proposed per-cell 6-hex shading aligned with newRows (null = unchanged). */
   fills?: (string | null)[][] | null;
   /** Proposed per-cell 6-hex FONT colors aligned with newRows (null = unchanged). */
@@ -347,7 +360,15 @@ function ProposalDiffTable({
     return entries;
   }, [newRows, diff]);
 
-  const baseCell: React.CSSProperties = { border: "1px solid #c8c8d0", padding: "4px 8px", maxWidth: CELL_MAX_WIDTH };
+  // Preview the PROPOSED borders on all cells (falls back to the default grid).
+  const pl = proposal.layout;
+  const proposedBorder =
+    pl?.borders === false
+      ? "none"
+      : pl?.borderStyle || pl?.borderSizePt || pl?.borderColor
+        ? cellBorderCss({ style: pl.borderStyle ?? "single", pt: pl.borderSizePt ?? 0.5, color: `#${(pl.borderColor ?? "000000").replace("#", "")}` })
+        : "1px solid #c8c8d0";
+  const baseCell: React.CSSProperties = { border: proposedBorder, padding: "4px 8px", maxWidth: CELL_MAX_WIDTH };
   // Natural width inside a horizontal scroller — wide tables stay readable.
   const table = (body: React.ReactNode) =>
     React.createElement(
@@ -510,6 +531,7 @@ function EditableTable({
   const fills = t.fills;
   const textColors = t.textColors;
   const spans = t.spans;
+  const cellBorder = cellBorderCss(t.border);
   const dir = t.direction ?? undefined;
 
   // AI proposal targeting THIS table → diff mode (loading dims it in place; an
@@ -594,7 +616,7 @@ function EditableTable({
             const isEditing = editing?.r === ri && editing?.c === ci;
             const fill = fills?.[ri]?.[ci] ?? null;
             const cellStyle: Record<string, unknown> = {
-              border: "1px solid #c8c8d0",
+              border: cellBorder,
               padding: "4px 8px",
               maxWidth: CELL_MAX_WIDTH,
               cursor: onEditCell ? "text" : "default",

@@ -134,6 +134,10 @@ export interface TableLayoutProposal {
   /** 6-hex (no #) background for the header row — shades row 0. */
   headerFill?: string;
   borders?: boolean;
+  /** Styled borders (all sides): line style / width in points / 6-hex color. */
+  borderStyle?: "single" | "double" | "dashed" | "dotted" | "thick";
+  borderSizePt?: number;
+  borderColor?: string;
 }
 export function layoutDelta(
   current: { align?: string | null; direction?: string; header?: boolean },
@@ -146,7 +150,25 @@ export function layoutDelta(
   if (proposed.headerRow === true && !current.header) out.headerRow = true; // engine can't un-header
   if (proposed.headerFill) out.headerFill = proposed.headerFill.replace("#", ""); // current fill unknown — trust intent
   if (proposed.borders !== undefined) out.borders = proposed.borders; // current borders unknown — trust intent
+  if (proposed.borderStyle || proposed.borderSizePt || proposed.borderColor) {
+    out.borderStyle = proposed.borderStyle;
+    out.borderSizePt = proposed.borderSizePt;
+    out.borderColor = proposed.borderColor?.replace("#", "");
+  }
   return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The layout op the server /ops handler forwards to Doc.setTableLayout — the
+ * flat proposal border fields become the engine's `borders` object here.
+ */
+export function layoutToOpts(l: TableLayoutProposal): Record<string, unknown> {
+  const { borderStyle, borderSizePt, borderColor, ...rest } = l;
+  const opts: Record<string, unknown> = { ...rest };
+  if (borderStyle || borderSizePt || borderColor) {
+    opts.borders = { style: borderStyle, sizePt: borderSizePt, color: borderColor };
+  }
+  return opts;
 }
 
 /** Refuse absurd proposals: more ops than this and the batch is rejected. */
@@ -217,8 +239,8 @@ export function diffToOps(
       }
     }
   }
-  // 6. Layout, once.
-  if (layout) ops.push({ type: "tableOp", index, action: "layout", opts: layout });
+  // 6. Layout, once (flat border fields → the engine's borders object).
+  if (layout) ops.push({ type: "tableOp", index, action: "layout", opts: layoutToOpts(layout) as Extract<ThesisOp, { type: "tableOp" }>["opts"] });
   // 7. Per-cell styling, once — both grids are aligned with newRows, i.e.
   //    FINAL coordinates, valid after the structure ops above.
   const hasAny = (g?: (string | null)[][] | null) => !!g && g.some((r) => r?.some((f) => !!f));

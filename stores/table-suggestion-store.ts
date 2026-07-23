@@ -102,6 +102,9 @@ function parseProposedGrid(
     if (typeof l.headerRow === "boolean") layout.headerRow = l.headerRow;
     if (typeof l.headerFill === "string" && HEX6.test(l.headerFill)) layout.headerFill = l.headerFill.replace("#", "").toUpperCase();
     if (typeof l.borders === "boolean") layout.borders = l.borders;
+    if (l.borderStyle === "single" || l.borderStyle === "double" || l.borderStyle === "dashed" || l.borderStyle === "dotted" || l.borderStyle === "thick") layout.borderStyle = l.borderStyle;
+    if (typeof l.borderSizePt === "number" && l.borderSizePt > 0 && l.borderSizePt <= 6) layout.borderSizePt = l.borderSizePt;
+    if (typeof l.borderColor === "string" && HEX6.test(l.borderColor)) layout.borderColor = l.borderColor.replace("#", "").toUpperCase();
     if (Object.keys(layout).length === 0) layout = undefined;
   }
   // Optional per-cell background + font-color grids aligned with rows.

@@ -79,7 +79,23 @@ import type { FormatChange, ParaRun, ThesisOp } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
-type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade";
+type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders";
+
+// Border pickers for the table Borders sub-pill: OOXML line styles (glyph
+// labels), widths in points, and line colors (6-hex, no '#').
+const BORDER_STYLES: { key: "single" | "double" | "dashed" | "dotted" | "thick"; glyph: string }[] = [
+  { key: "single", glyph: "─" },
+  { key: "double", glyph: "═" },
+  { key: "dashed", glyph: "┄" },
+  { key: "dotted", glyph: "┈" },
+  { key: "thick", glyph: "━" },
+];
+const BORDER_WIDTHS: { pt: number; label: string }[] = [
+  { pt: 0.5, label: "½" },
+  { pt: 1, label: "1" },
+  { pt: 2, label: "2" },
+];
+const BORDER_COLORS = ["000000", "808080", "4472C4", "ED7D31", "C00000"];
 
 // Header-fill swatches for the table Shading sub-pill (6-hex, no '#') — the
 // classic Word accent set + neutral gray.
@@ -213,6 +229,11 @@ export function BlockContextBar({
   // chip shows numbered chips so the user deletes a SPECIFIC row/column (not
   // just the last one).
   const [delPick, setDelPick] = useState<"row" | "col" | null>(null);
+  // Borders sub-pill selection: style × width × color combine, and every tap
+  // applies the combined config immediately (silent layout op).
+  const [bStyle, setBStyle] = useState<"single" | "double" | "dashed" | "dotted" | "thick">("single");
+  const [bSizePt, setBSizePt] = useState(0.5);
+  const [bColor, setBColor] = useState("000000");
   const [pillExpanded, setPillExpanded] = useState(false);
   const pickingRef = useRef(false);
   // Advanced picture ops: `busy` guards the async rotate/flip/remove-bg (disables
@@ -682,9 +703,10 @@ export function BlockContextBar({
       {categoryChip("tblCols", Columns3, t("blockBar.columns", { defaultValue: "Columns" }), 1)}
       {categoryChip("tblLayout", LayoutGrid, t("blockBar.tableLayout", { defaultValue: "Table layout" }), 2)}
       {categoryChip("tblShade", Palette, t("blockBar.tableShading", { defaultValue: "Table colors" }), 3)}
+      {categoryChip("tblBorders", Grid2x2, t("blockBar.tableBorders", { defaultValue: "Borders" }), 4)}
       {sep("ts1")}
-      {imageMoveDeleteChips(4)}
-      {chip({ keyProp: "tbl-search", Icon: Search, accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }), enterIndex: 7, onPress: openSearch })}
+      {imageMoveDeleteChips(5)}
+      {chip({ keyProp: "tbl-search", Icon: Search, accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }), enterIndex: 8, onPress: openSearch })}
     </>
   );
 
@@ -775,7 +797,8 @@ export function BlockContextBar({
     // only apply to a table, the paragraph categories only to text/headings. Skip
     // rendering a stale category that lingered across a block-kind change.
     const isTableCat =
-      activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout" || activeCategory === "tblShade";
+      activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout" ||
+      activeCategory === "tblShade" || activeCategory === "tblBorders";
     if (isTableCat !== isTable) return null;
     let body: React.ReactNode = null;
     // A table sub-pill option chip (icon-only, same look as the align/style opts).
@@ -1005,6 +1028,64 @@ export function BlockContextBar({
           </AnimatedChip>
         </>
       );
+    } else if (activeCategory === "tblBorders") {
+      // Borders sub-pill: style × width × color combine; every tap applies the
+      // combined config to ALL sides immediately. Trailing "none" removes borders.
+      const applyBorders = (style = bStyle, sizePt = bSizePt, color = bColor) =>
+        void tableEdit({ action: "layout", opts: { borders: { style, sizePt, color } } });
+      body = (
+        <>
+          {BORDER_STYLES.map(({ key, glyph }, i) => (
+            <AnimatedChip
+              key={`bs-${key}`}
+              enterIndex={i}
+              onPress={() => { setBStyle(key); applyBorders(key); }}
+              active={bStyle === key}
+              accessibilityLabel={t(`blockBar.borderStyle.${key}`, { defaultValue: `${key} border` })}
+              style={optPill(bStyle === key)}
+            >
+              <Text style={[styles.optText, { color: bStyle === key ? colors.bgPrimary : colors.textPrimary }]}>{glyph}</Text>
+            </AnimatedChip>
+          ))}
+          {BORDER_WIDTHS.map(({ pt, label }, i) => (
+            <AnimatedChip
+              key={`bw-${pt}`}
+              enterIndex={BORDER_STYLES.length + i}
+              onPress={() => { setBSizePt(pt); applyBorders(undefined, pt); }}
+              active={bSizePt === pt}
+              accessibilityLabel={t("blockBar.borderWidth", { defaultValue: `${label}pt border`, label })}
+              style={optPill(bSizePt === pt)}
+            >
+              <Text style={[styles.optText, { color: bSizePt === pt ? colors.bgPrimary : colors.textPrimary }]}>{label}</Text>
+            </AnimatedChip>
+          ))}
+          {BORDER_COLORS.map((hex, i) => (
+            <AnimatedChip
+              key={`bc-${hex}`}
+              enterIndex={BORDER_STYLES.length + BORDER_WIDTHS.length + i}
+              onPress={() => { setBColor(hex); applyBorders(undefined, undefined, hex); }}
+              active={bColor === hex}
+              accessibilityLabel={t("blockBar.borderColor", { defaultValue: `Border color #${hex}`, hex })}
+              style={optPill(false)}
+            >
+              <View
+                style={[
+                  styles.swatch,
+                  { backgroundColor: `#${hex}`, borderColor: colors.borderDefault },
+                  bColor === hex && { borderColor: colors.brandPrimary, borderWidth: 2 },
+                ]}
+              />
+            </AnimatedChip>
+          ))}
+          {tblOpt(
+            "bd-none",
+            Square,
+            t("blockBar.bordersOff", { defaultValue: "No borders" }),
+            BORDER_STYLES.length + BORDER_WIDTHS.length + BORDER_COLORS.length,
+            () => void tableEdit({ action: "layout", opts: { borders: false } }),
+          )}
+        </>
+      );
     } else if (activeCategory === "tblLayout") {
       // Layout sub-pill: header row, table alignment, text direction, borders.
       body = (
@@ -1015,9 +1096,7 @@ export function BlockContextBar({
           {tblOpt("tl-ar", AlignRight, t("blockBar.alignRight", { defaultValue: "Right" }), 3, () => void tableEdit({ action: "layout", opts: { alignment: "right" } }), { active: tableAlign === "right" })}
           {tblOpt("tl-rtl", PilcrowLeft, t("blockBar.dirRtl", { defaultValue: "Right to left" }), 4, () => void tableEdit({ action: "layout", opts: { direction: "rtl" } }), { active: tableDirection === "rtl" })}
           {tblOpt("tl-ltr", PilcrowRight, t("blockBar.dirLtr", { defaultValue: "Left to right" }), 5, () => void tableEdit({ action: "layout", opts: { direction: "ltr" } }), { active: tableDirection === "ltr" })}
-          {tblOpt("tl-bord-on", Grid2x2, t("blockBar.bordersOn", { defaultValue: "Borders" }), 6, () => void tableEdit({ action: "layout", opts: { borders: true } }))}
-          {tblOpt("tl-bord-off", Square, t("blockBar.bordersOff", { defaultValue: "No borders" }), 7, () => void tableEdit({ action: "layout", opts: { borders: false } }))}
-          {tblOpt("tl-fit", StretchHorizontal, t("blockBar.fitPageWidth", { defaultValue: "Fit page width" }), 8, () => void tableEdit({ action: "layout", opts: { widthPct: 100 } }))}
+          {tblOpt("tl-fit", StretchHorizontal, t("blockBar.fitPageWidth", { defaultValue: "Fit page width" }), 6, () => void tableEdit({ action: "layout", opts: { widthPct: 100 } }))}
         </>
       );
     } else if (lexActive) {

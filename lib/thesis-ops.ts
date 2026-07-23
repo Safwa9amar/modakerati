@@ -111,7 +111,8 @@ export type ThesisOp =
         direction?: "rtl" | "ltr";
         headerRow?: boolean;
         headerFill?: string;
-        borders?: boolean;
+        /** true/false = plain grid on/off; object = styled borders on all sides. */
+        borders?: boolean | { style?: string; sizePt?: number; color?: string };
         /** Table width as a % of the page (10..100). */
         widthPct?: number;
         /** Equalize all row heights / column widths. */
@@ -342,6 +343,18 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
           if (op.opts?.alignment) patched.align = op.opts.alignment;
           if (op.opts?.direction) patched.direction = op.opts.direction;
           if (op.opts?.headerRow || op.opts?.headerFill) patched.header = true;
+          // Border render source is the DTO `border` extra — patch it so the
+          // Writer repaints instantly (echo reconciles the exact values).
+          const bo = op.opts?.borders;
+          if (bo === false) patched.border = null;
+          else if (bo === true) patched.border = { style: "single", pt: 0.5, color: "#000000" };
+          else if (bo && typeof bo === "object") {
+            patched.border = {
+              style: bo.style ?? "single",
+              pt: bo.sizePt ?? 0.5,
+              color: `#${(bo.color ?? "000000").replace("#", "").toUpperCase()}`,
+            };
+          }
           if (op.opts?.headerFill) {
             const prev = ((b as unknown as { fills?: (string | null)[][] }).fills ?? []).map((r) => [...r]);
             while (prev.length < rows.length) prev.push([]);
