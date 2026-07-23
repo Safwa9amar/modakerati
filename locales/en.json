@@ -232,6 +232,8 @@
     "syncWhileEditingWarnTitle": "Sync every edit?",
     "syncWhileEditingWarnMessage": "Your work is always saved on your device and syncs automatically when you leave the editor. Turning this on sends every single edit to the server as you type, which can make editing feel slower. (Beta)",
     "syncWhileEditingWarnConfirm": "Turn on anyway",
+    "autocomplete": "AI text completion",
+    "autocompleteDesc": "Suggest the next words as you type",
     "aiModel": "AI Model",
     "notificationsSection": "Notifications",
     "pushNotifications": "Push Notifications",

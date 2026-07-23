@@ -232,6 +232,8 @@
     "syncWhileEditingWarnTitle": "مزامنة كل تعديل؟",
     "syncWhileEditingWarnMessage": "عملك محفوظ دائمًا على جهازك ويُزامَن تلقائيًا عند مغادرة المحرر. تفعيل هذا الخيار يرسل كل تعديل إلى الخادم أثناء الكتابة، مما قد يجعل التحرير أبطأ. (تجريبي)",
     "syncWhileEditingWarnConfirm": "التفعيل على أي حال",
+    "autocomplete": "الإكمال التلقائي بالذكاء الاصطناعي",
+    "autocompleteDesc": "اقتراح الكلمات التالية أثناء الكتابة",
     "aiModel": "نموذج الذكاء",
     "notificationsSection": "الإشعارات",
     "pushNotifications": "الإشعارات الفورية",

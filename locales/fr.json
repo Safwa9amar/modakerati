@@ -232,6 +232,8 @@
     "syncWhileEditingWarnTitle": "Synchroniser chaque modification ?",
     "syncWhileEditingWarnMessage": "Votre travail est toujours enregistré sur votre appareil et se synchronise automatiquement quand vous quittez l'éditeur. Activer cette option envoie chaque modification au serveur pendant la frappe, ce qui peut ralentir l'édition. (Bêta)",
     "syncWhileEditingWarnConfirm": "Activer quand même",
+    "autocomplete": "Complétion IA du texte",
+    "autocompleteDesc": "Proposer la suite du texte pendant la saisie",
     "aiModel": "Modele IA",
     "notificationsSection": "Notifications",
     "pushNotifications": "Notifications push",

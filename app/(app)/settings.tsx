@@ -53,6 +53,8 @@ export default function SettingsScreen() {
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const syncWhileEditing = useSettingsStore((s) => s.syncWhileEditing);
   const setSyncWhileEditing = useSettingsStore((s) => s.setSyncWhileEditing);
+  const autocompleteEnabled = useSettingsStore((s) => s.autocompleteEnabled);
+  const setAutocompleteEnabled = useSettingsStore((s) => s.setAutocompleteEnabled);
 
   const preferences = useNotificationStore((s) => s.preferences);
   const updatePreferences = useNotificationStore((s) => s.updatePreferences);
@@ -143,6 +145,11 @@ export default function SettingsScreen() {
               ],
             );
           },
+        },
+        {
+          icon: Sparkles, iconColor: colors.brandAccent, label: t("settings.autocomplete"),
+          type: "toggle", toggleValue: autocompleteEnabled,
+          onToggle: (v: boolean) => setAutocompleteEnabled(v),
         },
       ],
     },
