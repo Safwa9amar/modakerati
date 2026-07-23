@@ -1093,31 +1093,46 @@ function SlashPlugin({
   suppressed: boolean;
 }) {
   const [editor] = useLexicalComposerContext();
-  // Live slash location for deletion: the text node key + the offset of "/".
-  const slashRef = useRef<{ nodeKey: string; start: number } | null>(null);
+  // Live slash location for deletion: the text node key + the [start,end) offsets
+  // of the "/query" run. `end` is captured HERE at detection time (the caret offset
+  // used to build `before`) rather than re-read from the live selection when the
+  // command fires — by then (e.g. after the Task 6 search input steals focus) the
+  // selection may have moved to a different node, which would otherwise delete the
+  // wrong range of text.
+  const slashRef = useRef<{ nodeKey: string; start: number; end: number } | null>(null);
 
   // Detect + report.
   useEffect(() =>
     editor.registerUpdateListener(({ editorState, tags }) => {
       if (tags.has(SKIP_DOM_SELECTION_TAG)) return;
-      let hit: { index: number; query: string; nodeKey: string; start: number } | null = null;
+      // Gate BEFORE the read transaction (mirrors CompletionPlugin) so a suppressed
+      // keystroke — e.g. while a suggestion/range/table proposal is showing — does
+      // zero read work. A stale tracked slash still clears/reports inactive.
+      if (suppressed) {
+        if (slashRef.current) {
+          slashRef.current = null;
+          onInsertTrigger?.({ active: false, index: -1, query: "" });
+        }
+        return;
+      }
+      let hit: { index: number; query: string; nodeKey: string; start: number; end: number } | null = null;
       editorState.read(() => {
-        if (suppressed) return;
         const sel = $getSelection();
         if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
         const node = sel.anchor.getNode();
         if (!$isTextNode(node)) return;
         const top = node.getTopLevelElement();
         if (!top || !($isParagraphNode(top) || $isHeadingNode(top))) return;
-        const before = node.getTextContent().slice(0, sel.anchor.offset);
+        const offset = sel.anchor.offset;
+        const before = node.getTextContent().slice(0, offset);
         const m = before.match(SLASH_RE);
         if (!m) return;
         const start = m.index! + (m[0].startsWith("/") ? 0 : 1); // offset of "/"
-        hit = { index: $blockIndexOfNode(node), query: m[1], nodeKey: node.getKey(), start };
+        hit = { index: $blockIndexOfNode(node), query: m[1], nodeKey: node.getKey(), start, end: offset };
       });
-      const chosen = hit as { index: number; query: string; nodeKey: string; start: number } | null;
+      const chosen = hit as { index: number; query: string; nodeKey: string; start: number; end: number } | null;
       if (chosen) {
-        slashRef.current = { nodeKey: chosen.nodeKey, start: chosen.start };
+        slashRef.current = { nodeKey: chosen.nodeKey, start: chosen.start, end: chosen.end };
         onInsertTrigger?.({ active: true, index: chosen.index, query: chosen.query });
       } else if (slashRef.current) {
         slashRef.current = null;
@@ -1132,13 +1147,19 @@ function SlashPlugin({
       INSERT_BLOCK_COMMAND,
       (payload) => {
         editor.update(() => {
-          // 1) delete the /query run from the tracked text node
+          // 1) delete the /query run from the tracked text node, using the
+          // [start,end) captured at DETECTION time (not the live selection, which
+          // may have moved to a different node by the time this command fires —
+          // e.g. once the search input steals focus). Clamp to the node's current
+          // text size in case an intervening edit shrank it.
           const loc = slashRef.current;
           if (loc) {
             const n = $getNodeByKey(loc.nodeKey);
             if (n && $isTextNode(n)) {
-              const end = Math.min(n.getTextContentSize(), (($getSelection() as any)?.anchor?.offset ?? n.getTextContentSize()));
-              n.spliceText(loc.start, Math.max(0, end - loc.start), "", true);
+              const size = n.getTextContentSize();
+              const start = Math.min(loc.start, size);
+              const end = Math.min(loc.end, size);
+              if (end > start) n.spliceText(start, end - start, "", true);
             }
           }
           slashRef.current = null;
