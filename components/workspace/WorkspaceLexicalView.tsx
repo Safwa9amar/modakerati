@@ -212,7 +212,7 @@ export function WorkspaceLexicalView({
       // Boundary log: if this fires, the in-editor CompletionPlugin (WebView) reached
       // native across the DOM bridge. If typing never logs this, the trigger/bridge
       // is the issue (not the server). See [autocomplete] in the Metro console.
-      if (__DEV__) console.log(`[autocomplete] onRequestCompletion (DOM→native) index=${ctx.index} textLen=${ctx.text.length}`);
+      console.log(`[autocomplete] onRequestCompletion (DOM→native) index=${ctx.index} textLen=${ctx.text.length}`);
       void useCompletionStore.getState().request(thesisId, ctx.index, ctx.text);
     },
     [thesisId],
@@ -227,6 +227,13 @@ export function WorkspaceLexicalView({
     [thesisId],
   );
   const onCancelCompletion = useCallback(() => { useCompletionStore.getState().cancel(); }, []);
+
+  // One-time probe: proves the NEW autocomplete-wired Writer code is running in THIS
+  // build. If you open the Writer and never see this line in Metro, the app is stale
+  // (rebuild/reinstall the dev build, or fully quit + restart Metro and reload).
+  useEffect(() => {
+    console.log(`[autocomplete] Writer mounted — completionEnabled=${completionEnabled} thesis=${thesisId} active=${active}`);
+  }, [completionEnabled, thesisId, active]);
 
   // Force-reseed the editor from the current (unchanged) stored doc — used when a
   // range proposal is REJECTED: the server never changed, so restore the editor to

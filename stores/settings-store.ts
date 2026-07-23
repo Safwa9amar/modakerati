@@ -39,7 +39,7 @@ export const useSettingsStore = create<SettingsState>()(
       completeOnboarding: () => set({ hasCompletedOnboarding: true }),
       setSyncWhileEditing: (v) => set({ syncWhileEditing: v }),
       setAutocompleteEnabled: (v) => {
-        if (__DEV__) console.log(`[autocomplete] setting toggled ${v ? "ON" : "OFF"}`);
+        console.log(`[autocomplete] setting toggled ${v ? "ON" : "OFF"}`);
         set({ autocompleteEnabled: v });
       },
     }),

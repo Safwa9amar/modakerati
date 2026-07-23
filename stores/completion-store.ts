@@ -61,8 +61,8 @@ export const useCompletionStore = create<CompletionState>((set, get) => ({
 
   request: async (thesisId, index, text) => {
     const enabled = useSettingsStore.getState().autocompleteEnabled;
-    if (__DEV__) console.log(`[autocomplete] request FIRED index=${index} textLen=${text?.length ?? 0} enabled=${enabled}`);
-    if (!enabled) { if (__DEV__) console.log("[autocomplete] skipped — setting is OFF"); return; }
+    console.log(`[autocomplete] request FIRED index=${index} textLen=${text?.length ?? 0} enabled=${enabled}`);
+    if (!enabled) { console.log("[autocomplete] skipped — setting is OFF"); return; }
     get().controller?.abort();
     const controller = new AbortController();
     const nonce = get().nonce + 1;
@@ -95,23 +95,23 @@ export const useCompletionStore = create<CompletionState>((set, get) => ({
       if (isMine()) {
         const final = acc.trim();
         set({ text: final, status: final ? "done" : "error", controller: null });
-        if (__DEV__) console.log(`[autocomplete] result index=${index} chars=${final.length} status=${final ? "done" : "empty"}`);
+        console.log(`[autocomplete] result index=${index} chars=${final.length} status=${final ? "done" : "empty"}`);
       }
     } catch (e) {
       if (isMine()) set({ status: "error", controller: null });
-      if (__DEV__) console.log(`[autocomplete] error index=${index}`, e);
+      console.log(`[autocomplete] error index=${index}`, e);
     }
   },
 
   accept: (thesisId, index, fullText) => {
-    if (__DEV__) console.log(`[autocomplete] accept index=${index} len=${fullText.length}`);
+    console.log(`[autocomplete] accept index=${index} len=${fullText.length}`);
     void useThesisDocStore.getState().mutate(thesisId, { type: "editText", index, text: fullText });
     get().controller?.abort();
     set({ index: -1, text: "", status: "idle", controller: null });
   },
 
   cancel: () => {
-    if (__DEV__ && get().index >= 0) console.log("[autocomplete] cancel (dismiss/leave)");
+    if (get().index >= 0) console.log("[autocomplete] cancel (dismiss/leave)");
     get().controller?.abort();
     set({ index: -1, text: "", status: "idle", controller: null });
   },
