@@ -4,7 +4,7 @@ import Animated, { useSharedValue, useAnimatedStyle, useAnimatedReaction, withSp
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import { ImagePlus, Pilcrow, Type as TypeIcon, Search as SearchIcon, type LucideIcon } from "lucide-react-native";
+import { ImagePlus, Pilcrow, Plus, Type as TypeIcon, Search as SearchIcon, type LucideIcon } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
@@ -14,7 +14,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { INSERT_BLOCKS, INSERT_CATEGORIES, filterBlocks, type InsertBlockDef, type InsertCategory } from "@/components/workspace/insert/insert-blocks";
 import { pickAndInsertImage } from "@/lib/insert-image";
-import { getThesisStyles, type ThesisStyle } from "@/lib/thesis-styles";
+import { createThesisStyle, getThesisStyles, type ThesisStyle } from "@/lib/thesis-styles";
 
 const DRAWER_FRACTION = 0.64;
 const SPRING = { damping: 22, stiffness: 240, mass: 0.7 } as const;
@@ -145,6 +145,13 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
   // The real Word styles defined in THIS thesis (word/styles.xml), fetched lazily.
   const [docStyles, setDocStyles] = useState<ThesisStyle[]>([]);
   const loadedFor = useRef<string | null>(null);
+  // Inline "create a new style" form state.
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newBold, setNewBold] = useState(false);
+  const [newItalic, setNewItalic] = useState(false);
+  const [savingStyle, setSavingStyle] = useState(false);
+  const [createErr, setCreateErr] = useState<string | null>(null);
 
   // Reset to All (and clear any stale search) each time the drawer opens.
   useEffect(() => {
@@ -206,6 +213,25 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
     if (a && thesisId) await useThesisDocStore.getState().mutate(thesisId, { type: "format", indices: [a.index], changes: { styleId } });
   };
 
+  // Create a new custom paragraph style and add it to the list (does not close the drawer).
+  const doCreateStyle = async () => {
+    if (!newName.trim() || !thesisId || savingStyle) return;
+    setSavingStyle(true);
+    setCreateErr(null);
+    try {
+      const s = await createThesisStyle(thesisId, { name: newName.trim(), bold: newBold, italic: newItalic });
+      setDocStyles((prev) => (prev.some((p) => p.id === s.id) ? prev : [...prev, s]));
+      setCreating(false);
+      setNewName("");
+      setNewBold(false);
+      setNewItalic(false);
+    } catch (e: any) {
+      setCreateErr(e?.message ?? "Failed to create style");
+    } finally {
+      setSavingStyle(false);
+    }
+  };
+
   const Tile = ({ Icon, text, fg, bg, ready, onPress }: { Icon: LucideIcon; text: string; fg: string; bg: string; ready: boolean; onPress?: () => void }) => (
     <Pressable
       onPress={onPress}
@@ -247,27 +273,66 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
   const q = query.trim().toLowerCase();
   const stylesForView = searching ? docStyles.filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)) : docStyles;
   const StylesSection = ({ showHeader }: { showHeader: boolean }) => {
-    const ordered = [...stylesForView.filter((s) => s.type === "paragraph"), ...stylesForView.filter((s) => s.type !== "paragraph")];
-    if (!ordered.length) return null;
+    const dyn = [...stylesForView.filter((s) => s.type === "paragraph"), ...stylesForView.filter((s) => s.type !== "paragraph")];
+    const useDyn = docStyles.length > 0;
+    const fallback = useDyn ? [] : catItems("styles");
     const col = CAT_COLOR.styles;
+    // Nothing to show while searching (and not creating) → skip the section.
+    if (searching && !creating && (useDyn ? !dyn.length : !fallback.length)) return null;
     return (
       <View>
         {showHeader ? <Text style={[styles.cat, { color: colors.textPlaceholder, textAlign }]}>{t("insertMenu.cat.styles")}</Text> : <View style={{ height: 8 }} />}
-        <View style={styles.tilesWrap}>
-          {ordered.map((s) => {
-            const isPara = s.type === "paragraph";
-            return <Tile key={s.id} Icon={isPara ? Pilcrow : TypeIcon} text={s.name} fg={col.fg} bg={col.bg} ready={isPara} onPress={isPara ? () => void applyStyleId(s.id) : undefined} />;
-          })}
-        </View>
+        {creating ? (
+          <View style={[styles.createCard, { borderColor: colors.borderSubtle, backgroundColor: colors.bgSurface }]}>
+            <TextInput
+              placeholder={t("insertMenu.styleName")}
+              placeholderTextColor={colors.textPlaceholder}
+              value={newName}
+              onChangeText={setNewName}
+              autoFocus
+              style={[styles.createInput, { color: colors.textPrimary, borderColor: colors.borderSubtle, textAlign }]}
+            />
+            <View style={[styles.createRow, { flexDirection: rowDir }]}>
+              <Pressable onPress={() => setNewBold((v) => !v)} style={[styles.toggleChip, { backgroundColor: newBold ? colors.brandPrimary : colors.bgPrimary, borderColor: colors.borderSubtle }]}>
+                <Text style={{ color: newBold ? "#fff" : colors.textSecondary, fontFamily: "Inter_700Bold", fontSize: 12 }}>{t("insertMenu.bold")}</Text>
+              </Pressable>
+              <Pressable onPress={() => setNewItalic((v) => !v)} style={[styles.toggleChip, { backgroundColor: newItalic ? colors.brandPrimary : colors.bgPrimary, borderColor: colors.borderSubtle }]}>
+                <Text style={{ color: newItalic ? "#fff" : colors.textSecondary, fontFamily: "Inter_600SemiBold", fontStyle: "italic", fontSize: 12 }}>{t("insertMenu.italic")}</Text>
+              </Pressable>
+            </View>
+            {createErr ? <Text style={{ color: "#d64545", fontSize: 11, paddingHorizontal: 2 }}>{createErr}</Text> : null}
+            <View style={[styles.createRow, { flexDirection: rowDir }]}>
+              <Pressable onPress={() => void doCreateStyle()} disabled={!newName.trim() || savingStyle} style={[styles.createBtn, { backgroundColor: colors.brandPrimary, opacity: !newName.trim() || savingStyle ? 0.5 : 1 }]}>
+                <Text style={{ color: "#fff", fontFamily: "Inter_700Bold", fontSize: 13 }}>{savingStyle ? t("insertMenu.creating") : t("insertMenu.create")}</Text>
+              </Pressable>
+              <Pressable onPress={() => { setCreating(false); setCreateErr(null); }} style={[styles.createBtn, { backgroundColor: colors.bgPrimary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderSubtle }]}>
+                <Text style={{ color: colors.textSecondary, fontFamily: "Inter_600SemiBold", fontSize: 13 }}>{t("insertMenu.cancel")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.tilesWrap}>
+            {!searching ? (
+              <Pressable onPress={() => setCreating(true)} accessibilityRole="button" accessibilityLabel={t("insertMenu.newStyle")} style={[styles.tile, { width: tileW }]}>
+                <View style={[styles.tileIcon, { backgroundColor: col.bg, borderWidth: StyleSheet.hairlineWidth, borderColor: col.fg, borderStyle: "dashed" }]}>
+                  <Plus size={20} color={col.fg} />
+                </View>
+                <Text numberOfLines={1} style={[styles.tileLabel, { color: colors.textPrimary }]}>{t("insertMenu.newStyle")}</Text>
+              </Pressable>
+            ) : null}
+            {useDyn
+              ? dyn.map((s) => {
+                  const isPara = s.type === "paragraph";
+                  return <Tile key={s.id} Icon={isPara ? Pilcrow : TypeIcon} text={s.name} fg={col.fg} bg={col.bg} ready={isPara} onPress={isPara ? () => void applyStyleId(s.id) : undefined} />;
+                })
+              : fallback.map((d) => <Tile key={d.kind} Icon={d.Icon} text={label(d)} fg={col.fg} bg={col.bg} ready={d.status === "ready"} onPress={() => void pick(d)} />)}
+          </View>
+        )}
       </View>
     );
   };
   const renderCat = (c: InsertCategory, showHeader: boolean) =>
-    c === "styles" && docStyles.length ? (
-      <StylesSection key="styles" showHeader={showHeader} />
-    ) : (
-      <Section key={c} header={t(`insertMenu.cat.${c}`)} showHeader={showHeader} items={catItems(c)} />
-    );
+    c === "styles" ? <StylesSection key="styles" showHeader={showHeader} /> : <Section key={c} header={t(`insertMenu.cat.${c}`)} showHeader={showHeader} items={catItems(c)} />;
 
   const tabLabel = (k: TabKey) => (k === "all" ? t("insertMenu.all") : t(`insertMenu.cat.${k}`));
 
@@ -362,4 +427,9 @@ const styles = StyleSheet.create({
   tileIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   tileLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", textAlign: "center" },
   tileSoon: { fontSize: 8.5, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 0.3 },
+  createCard: { marginHorizontal: PAD, marginTop: 4, padding: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, gap: 10 },
+  createInput: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, fontFamily: "Inter_500Medium" },
+  createRow: { gap: 8, alignItems: "center" },
+  toggleChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth },
+  createBtn: { flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: "center" },
 });
