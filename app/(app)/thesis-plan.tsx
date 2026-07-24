@@ -8,6 +8,7 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -22,6 +23,8 @@ import { generateThesisPlan, streamThesisPlan, createThesis, getThesis } from "@
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import { ChevronUp, ChevronDown, Trash2, Plus } from "lucide-react-native";
+
+const LOGO = require("../../assets/icon.png");
 
 const KIND_LABELS: Record<WizardPlanSection["kind"], string> = {
   introduction: "Introduction",
@@ -258,7 +261,7 @@ export default function ThesisPlanScreen() {
         </View>
         <ScrollView contentContainerStyle={styles.genContent} showsVerticalScrollIndicator={false}>
           <View style={styles.genHero}>
-            <Text style={[styles.genSpark, { color: colors.brandPrimary }]}>✦</Text>
+            <Image source={LOGO} style={styles.genLogo} resizeMode="contain" />
             <Text style={[styles.genTitle, { color: colors.textPrimary }]}>
               {t("wizard.gen.building", { defaultValue: "Building your plan" })}
             </Text>
@@ -593,7 +596,7 @@ const styles = StyleSheet.create({
   },
   genContent: { padding: 24, paddingBottom: 40 },
   genHero: { alignItems: "center", gap: 4, marginTop: 12 },
-  genSpark: { fontSize: 26 },
+  genLogo: { width: 52, height: 52, borderRadius: 13 },
   genTitle: { fontSize: 20, fontFamily: "Inter_700Bold", marginTop: 6 },
   genSubj: { fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic", textAlign: "center", marginTop: 2 },
   genMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
