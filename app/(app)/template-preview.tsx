@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -6,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
-import { generateThesisPlan } from "@/lib/api";
 import { BackButton } from "@/components/BackButton";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -18,7 +16,6 @@ export default function TemplatePreviewScreen() {
   const router = useRouter();
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
   const { templates } = useThesisStore();
-  const [generating, setGenerating] = useState(false);
 
   const template = templates.find((tpl) => tpl.id === templateId);
 
@@ -42,34 +39,12 @@ export default function TemplatePreviewScreen() {
     );
   }
 
-  // Record the chosen template on the wizard, generate an AI plan for the
-  // captured title, then advance to the plan-review step. The thesis is not
-  // created until the user confirms the plan.
-  const handleUseTemplate = async () => {
-    if (generating) return;
-    const wizard = useThesisWizard.getState();
-    wizard.set({ templateId: template.id, language: template.language });
-    // If the template declares placeholder fields, collect them next; otherwise
-    // go straight to the plan. The AI plan generates in the background either way.
-    const hasFields = (template.config.placeholderFields?.length ?? 0) > 0;
-    const nextRoute = hasFields ? "/(app)/thesis-fields" : "/(app)/thesis-plan";
-    setGenerating(true);
-    try {
-      const { sections } = await generateThesisPlan({
-        title: useThesisWizard.getState().title || template.name,
-        language: template.language,
-        bodyPreset: template.bodyPreset,
-        templateId: template.id,
-      });
-      useThesisWizard.getState().set({ plan: sections });
-      router.push(nextRoute);
-    } catch (e) {
-      console.error("Failed to generate plan:", e instanceof Error ? e.message : e);
-      // The plan screen regenerates / falls back when no plan is present.
-      router.push(nextRoute);
-    } finally {
-      setGenerating(false);
-    }
+  const handleUseTemplate = () => {
+    // Record the chosen template and advance to the Topic step. The plan is NOT
+    // generated here anymore — it streams later (in thesis-plan) once the student
+    // has filled the topic brief + cover details, so the AI has the full picture.
+    useThesisWizard.getState().set({ templateId: template.id, language: template.language });
+    router.push("/(app)/thesis-topic");
   };
 
   return (
@@ -162,15 +137,9 @@ export default function TemplatePreviewScreen() {
       {/* Bottom button */}
       <View style={styles.bottomBar}>
         <Button
-          title={
-            generating
-              ? t("wizard.generating", { defaultValue: "Generating your plan…" })
-              : t("template.useTemplate")
-          }
+          title={t("template.useTemplate")}
           onPress={handleUseTemplate}
           variant="accent"
-          loading={generating}
-          disabled={generating}
         />
       </View>
     </SafeAreaView>
