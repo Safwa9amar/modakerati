@@ -2,11 +2,12 @@ import { fetch as expoFetch } from "expo/fetch";
 import { getAuthHeader } from "@/lib/api";
 import type { DocumentDTO, HistoryStateDTO } from "@/lib/api";
 
-// Which unified action a suggestion applies on approval: rewrite a paragraph, or
-// set a figure's caption. Mirrors the server's SuggestAction. New action kinds are
-// added here + on the server's actionFrame (the [[MODK_ACTION:x]] header) + in the
-// suggestion store's approve dispatch.
-export type SuggestAction = "rewrite" | "setCaption";
+// Which unified action a suggestion applies on approval: rewrite a paragraph, set a
+// figure's caption, or insert a new table (fill of an empty paragraph). "rewrite"/
+// "setCaption" mirror the server's actionFrame ([[MODK_ACTION:x]] header); "insertTable"
+// is APP-ONLY — it comes from the /fill JSON ({"kind":"table"}), never an action header
+// — and dispatches the insertTable op on approve.
+export type SuggestAction = "rewrite" | "setCaption" | "insertTable";
 
 // Ask the server to REWRITE a single paragraph per an instruction and return the
 // proposed text WITHOUT applying it. The caller (suggestion-store) surfaces the
@@ -247,6 +248,137 @@ export async function proposeBlockEditStream(
         actionParsed = true;
       }
     }
+    while (true) {
+      if (mode === "answer") {
+        const ti = buf.indexOf(THINK_OPEN);
+        if (ti === -1) {
+          const hold = isFinal ? 0 : heldLen(buf, [THINK_OPEN]);
+          const out = buf.slice(0, buf.length - hold);
+          if (out) handlers.onProposed(out);
+          buf = buf.slice(buf.length - hold);
+          break;
+        }
+        const before = buf.slice(0, ti);
+        if (before) handlers.onProposed(before);
+        buf = buf.slice(ti + THINK_OPEN.length);
+        mode = "think";
+        continue;
+      } else {
+        const ci = buf.indexOf(THINK_CLOSE);
+        if (ci === -1) {
+          const hold = isFinal ? 0 : heldLen(buf, [THINK_CLOSE]);
+          const out = buf.slice(0, buf.length - hold);
+          if (out) handlers.onReasoning(out);
+          buf = buf.slice(buf.length - hold);
+          break;
+        }
+        const reason = buf.slice(0, ci);
+        if (reason) handlers.onReasoning(reason);
+        buf = buf.slice(ci + THINK_CLOSE.length);
+        mode = "answer";
+        continue;
+      }
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const cut = safeEscapeBoundary(pending);
+      const ready = pending.slice(0, cut);
+      pending = pending.slice(cut);
+      if (ready) pump(unescapeUnicode(ready), false);
+    }
+    pending += decoder.decode();
+    pump(pending ? unescapeUnicode(pending) : "", true);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Empty-paragraph FILL — POST /api/thesis/:id/paragraphs/:index/fill/stream.
+// The model streams reasoning between [[MODK_THINK]] markers, then a STRICT JSON
+// answer as plain text: {"kind":"text","text":"…"} or {"kind":"table","rows":[…],
+// "layout":{…}}. Same THINK-framed pump as the range rewrite (no action header).
+// The caller (suggestion-store) accumulates the JSON via onProposed and parses it
+// with parseFillReply at the end, then renders the matching inline proposal.
+// ---------------------------------------------------------------------------
+
+// A parsed fill proposal: prose to write into the empty paragraph, or a new table.
+export type FillProposal =
+  | { kind: "text"; text: string }
+  | {
+      kind: "table";
+      rows: string[][];
+      /** row 0 is a header (shade + bold) — from layout.headerRow. */
+      header: boolean;
+      /** right-to-left table — from layout.direction === "rtl". */
+      rtl: boolean;
+    };
+
+// Parse the streamed fill JSON. Mirrors the server's FILL shapes + the table caps of
+// parseProposedGrid. Returns null on unparseable / empty output (→ the store shows
+// the "no suggestion" error card, exactly like an empty rewrite).
+export function parseFillReply(raw: string): FillProposal | null {
+  const text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const obj = parsed as { kind?: unknown; text?: unknown; rows?: unknown; layout?: unknown };
+  if (obj.kind === "text") {
+    return typeof obj.text === "string" && obj.text.trim() ? { kind: "text", text: obj.text } : null;
+  }
+  if (obj.kind === "table" && Array.isArray(obj.rows)) {
+    const MAX_ROWS = 60, MAX_COLS = 12;
+    const rows: string[][] = [];
+    let width = 0;
+    for (const r of obj.rows.slice(0, MAX_ROWS)) {
+      if (!Array.isArray(r)) return null;
+      const cells = r.slice(0, MAX_COLS).map((c) => (typeof c === "string" ? c : String(c ?? "")));
+      width = Math.max(width, cells.length);
+      rows.push(cells);
+    }
+    if (rows.length === 0 || width === 0) return null;
+    for (const r of rows) while (r.length < width) r.push(""); // pad ragged rows
+    const layout = (obj.layout && typeof obj.layout === "object" ? obj.layout : {}) as Record<string, unknown>;
+    return { kind: "table", rows, header: layout.headerRow === true, rtl: layout.direction === "rtl" };
+  }
+  return null;
+}
+
+export async function proposeBlockFillStream(
+  thesisId: string,
+  index: number,
+  instruction: string,
+  handlers: { onReasoning: (delta: string) => void; onProposed: (delta: string) => void },
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await expoFetch(
+    `${process.env.EXPO_PUBLIC_API_URL}/api/thesis/${thesisId}/paragraphs/${index}/fill/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+      body: JSON.stringify({ instruction }),
+      signal,
+    },
+  );
+  if (!res.ok || !res.body) throw new Error(`fill stream ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = ""; // trailing partial \uXXXX escape held across a chunk boundary
+  let mode: "answer" | "think" = "answer";
+  let buf = ""; // unescaped text awaiting routing
+
+  const pump = (chunk: string, isFinal: boolean) => {
+    buf += chunk;
     while (true) {
       if (mode === "answer") {
         const ti = buf.indexOf(THINK_OPEN);

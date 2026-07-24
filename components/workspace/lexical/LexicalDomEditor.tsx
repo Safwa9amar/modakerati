@@ -76,6 +76,7 @@ import {
   $blocksToLexical,
   $lexicalToBlocks,
   BlockDataNode,
+  $createBlockDataNode,
   $isBlockDataNode,
   MediaContext,
   EditCellContext,
@@ -127,6 +128,13 @@ export type SuggestionInput = {
   label: string;
   reasoning: string;
   reasoningMs?: number;
+  // action "insertTable": render the proposed grid as a table preview instead of
+  // proposed text (SuggestionView branches on proposedRows). Applied via the
+  // insertTable op on approve. Absent for a text rewrite / caption.
+  action?: string;
+  proposedRows?: string[][];
+  tableHeader?: boolean;
+  tableRtl?: boolean;
 };
 
 // The pending RANGE proposal (multi-block dynamic rewrite) handed to the editor.
@@ -1059,7 +1067,26 @@ function SuggestionPlugin({
       if (!suggestion || suggestion.index < 0) {
         if (existing) {
           const applied = lastActionRef.current === "approve";
-          existing.replace(rebuildOriginal(applied ? existing.__sug.proposed : existing.__sug.original, existing.__origType));
+          const sug = existing.__sug;
+          if (applied && sug.action === "insertTable" && sug.proposedRows?.length) {
+            // Settle a table proposal IN PLACE (instant, no full reseed): insert the
+            // real table node BEFORE the node, then leave the original (empty) paragraph
+            // as the trailing spacer — matching the insertTable op's effect (table at
+            // index, empty paragraph at index+1). The op syncs in the background and the
+            // server echo reconciles. `index` is fixed by that reseed.
+            existing.insertBefore(
+              $createBlockDataNode({
+                index: 0,
+                kind: "table",
+                rows: sug.proposedRows,
+                ...(sug.tableHeader ? { header: true } : {}),
+                ...(sug.tableRtl ? { direction: "rtl" } : {}),
+              } as unknown as DocBlockDTO),
+            );
+            existing.replace(rebuildOriginal(sug.original, existing.__origType));
+          } else {
+            existing.replace(rebuildOriginal(applied ? sug.proposed : sug.original, existing.__origType));
+          }
           $setSelection(null);
         }
         lastActionRef.current = "";
@@ -1073,6 +1100,10 @@ function SuggestionPlugin({
         label: suggestion.label,
         reasoning: suggestion.reasoning,
         reasoningMs: suggestion.reasoningMs,
+        action: suggestion.action,
+        proposedRows: suggestion.proposedRows,
+        tableHeader: suggestion.tableHeader,
+        tableRtl: suggestion.tableRtl,
       };
       if (existing) { existing.getWritable().__sug = data; return; } // stream in place
       const target = $nodeAtBlockIndex(suggestion.index);
@@ -1097,7 +1128,7 @@ function SuggestionPlugin({
     if (structural) withScrollPinned(editor, mutate, isClear);
     else editor.update(mutate, { tag: SKIP_DOM_SELECTION_TAG }); // stream in place — never touch focus/scroll
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestion?.index, suggestion?.proposed, suggestion?.status, suggestion?.reasoning, suggestion?.label]);
+  }, [suggestion?.index, suggestion?.proposed, suggestion?.status, suggestion?.reasoning, suggestion?.label, suggestion?.proposedRows]);
   return null;
 }
 

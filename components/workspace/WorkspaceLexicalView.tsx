@@ -15,6 +15,7 @@ import { useCompletionStore } from "@/stores/completion-store";
 import { useSearchStore } from "@/stores/search-store";
 import { useTableSuggestionStore } from "@/stores/table-suggestion-store";
 import { diffToOps, layoutDelta } from "@/lib/table-diff";
+import { applyOpToDoc } from "@/lib/thesis-ops";
 import { planOps, tally } from "@/lib/lexical-writeback";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { useEditorScrollStore, type ScrollAnchor } from "@/stores/editor-scroll-store";
@@ -209,6 +210,12 @@ export function WorkspaceLexicalView({
       label: p.label,
       reasoning: p.reasoning,
       reasoningMs: p.reasoningMs,
+      // action "insertTable" → the proposed grid is rendered as a table preview in
+      // the inline card (SuggestionView) instead of proposed text.
+      action: p.action as string,
+      proposedRows: p.proposedRows,
+      tableHeader: p.tableHeader,
+      tableRtl: p.tableRtl,
     };
   }, [byIndex]);
   // The range proposal (multi-block dynamic rewrite) passed to the editor as an
@@ -250,7 +257,15 @@ export function WorkspaceLexicalView({
     const keys = Object.keys(store.byIndex);
     if (!keys.length) return;
     const idx = Number(keys[0]);
-    if (action === "approve") { useLexicalEditorStore.getState().requestSkipReseed(); store.approve(thesisId, idx); }
+    if (action === "approve") {
+      // Both text and table settle the node IN PLACE (skip the full reseed) so the
+      // apply is INSTANT: the SuggestionPlugin clear path swaps the node for the
+      // proposed text, or inserts the real table node + keeps the empty paragraph.
+      // The op (editText / insertTable) syncs in the background; skipReseed updates
+      // the save baseline to the optimistic doc so no spurious diff is sent.
+      useLexicalEditorStore.getState().requestSkipReseed();
+      store.approve(thesisId, idx);
+    }
     else if (action === "again") void store.again(thesisId, idx);
     else if (action === "edit") { if (text) store.setProposed(idx, text); }
     else store.reject(idx);
@@ -622,9 +637,19 @@ export function WorkspaceLexicalView({
           return;
         }
         if (ops.length === 0) return; // nothing to change
+        // Optimistic: apply the diff LOCALLY first so the edited table repaints
+        // instantly (was: awaited the server, so the un-edited table lingered). Then
+        // sync — the server echo reconciles the exact result (borders/layout are
+        // resolved server-side).
+        const cur = docStore.byId[thesisId];
+        if (cur?.available) {
+          let optimistic = cur;
+          for (const op of ops) optimistic = applyOpToDoc(optimistic, op);
+          docStore.setDoc(thesisId, optimistic);
+        }
         try {
           const res = await applyThesisOps(thesisId, ops);
-          if (res.document) docStore.setDoc(thesisId, res.document); // reseed repaints
+          if (res.document) docStore.setDoc(thesisId, res.document); // reconcile to server truth
           void docStore.refreshHistoryState(thesisId);
         } catch {
           void docStore.revalidate(thesisId);

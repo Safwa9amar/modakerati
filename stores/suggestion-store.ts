@@ -1,11 +1,14 @@
 import { create } from "zustand";
 import {
   proposeBlockEditStream,
+  proposeBlockFillStream,
   proposeRangeRewriteStream,
   applyThesisRangeReplace,
+  parseFillReply,
   type SuggestAction,
 } from "@/lib/thesis-suggest";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { type ThesisOp } from "@/lib/thesis-ops";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import i18n from "@/lib/i18n";
 
@@ -16,9 +19,9 @@ type SuggestKind = "paragraph" | "image";
 // Localised label shown at the top of the inline card so the student sees WHAT the
 // approval will do ("Rewrite" vs "Add caption").
 function actionLabel(action: SuggestAction): string {
-  return action === "setCaption"
-    ? i18n.t("suggestion.actionCaption", { defaultValue: "Add caption" })
-    : i18n.t("suggestion.actionRewrite", { defaultValue: "Rewrite" });
+  if (action === "setCaption") return i18n.t("suggestion.actionCaption", { defaultValue: "Add caption" });
+  if (action === "insertTable") return i18n.t("suggestion.actionInsertTable", { defaultValue: "Insert table" });
+  return i18n.t("suggestion.actionRewrite", { defaultValue: "Rewrite" });
 }
 
 // Per-block pending AI suggestion: the student asks the AI to rewrite a single
@@ -38,12 +41,18 @@ export interface PendingSuggestion {
   proposed: string;
   instruction: string;
   status: Status;
-  // Which unified action the approval applies: "rewrite" (paragraph) or
-  // "setCaption" (figure). Initialised from the requested block kind, then
-  // confirmed by the server's [[MODK_ACTION]] header. `approve` dispatches on it.
+  // Which unified action the approval applies: "rewrite" (paragraph), "setCaption"
+  // (figure), or "insertTable" (a new table filling an empty paragraph). Initialised
+  // from the requested block kind / fill result; `approve` dispatches on it.
   action: SuggestAction;
   // Localised label for `action`, rendered at the top of the inline card.
   label: string;
+  // action "insertTable": the proposed table grid (rendered as a preview in the
+  // inline card; applied via the insertTable op on approve). Absent for text/caption.
+  proposedRows?: string[][];
+  // action "insertTable": row 0 is a header / right-to-left table — carried to the op.
+  tableHeader?: boolean;
+  tableRtl?: boolean;
   // The model's reasoning ("thinking"), streamed live while `loading` and shown
   // in the collapsible ThinkingTrace on the inline card. Empty when the model
   // emits none (a short rewrite often does) — the card then just shows the spinner.
@@ -91,6 +100,10 @@ interface SuggestionState {
   // proposed text (ready) or mark error. `original` is kept from the arg. `kind`
   // (default "paragraph") picks the initial action so an image asks for a caption.
   request: (thesisId: string, index: number, original: string, instruction: string, kind?: SuggestKind) => Promise<void>;
+  // Fill an EMPTY paragraph: the model decides text-vs-table (POST /fill/stream) and
+  // this produces EITHER a text proposal (action "rewrite") or a table proposal
+  // (action "insertTable", carrying proposedRows). Shown in the same inline card.
+  requestFill: (thesisId: string, index: number, instruction: string) => Promise<void>;
   // Apply a ready suggestion via the doc op queue, dispatching by action
   // (rewrite → editText, setCaption → setCaption), then drop it.
   approve: (thesisId: string, index: number) => void;
@@ -208,16 +221,76 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
     }
   },
 
+  requestFill: async (thesisId, index, instruction) => {
+    // Empty paragraph → the model decides text-vs-table. Start as a "rewrite"-shaped
+    // loading card (same "Thinking…" UX); the parsed JSON below sets the real action.
+    // `original` is "" (the paragraph is empty) so the ready-gate never mistakes a
+    // valid fill for an unchanged rewrite.
+    set((s) => ({
+      byIndex: {
+        ...s.byIndex,
+        [index]: {
+          index, original: "", instruction, proposed: "", status: "loading", reasoning: "",
+          action: "rewrite", label: actionLabel("rewrite"),
+        },
+      },
+    }));
+    let reasoning = "";
+    let jsonBuf = "";
+    let reasoningStart = 0;
+    let reasoningMs: number | undefined;
+    const isMine = (cur: PendingSuggestion | undefined) =>
+      !!cur && cur.status === "loading" && cur.instruction === instruction;
+    try {
+      await proposeBlockFillStream(thesisId, index, instruction, {
+        onReasoning: (delta) => {
+          if (!reasoningStart) reasoningStart = Date.now();
+          reasoning += delta;
+          set((s) => {
+            const cur = s.byIndex[index];
+            if (!isMine(cur)) return {};
+            return { byIndex: { ...s.byIndex, [index]: { ...cur!, reasoning } } };
+          });
+        },
+        onProposed: (delta) => {
+          if (reasoningStart && reasoningMs == null) reasoningMs = Date.now() - reasoningStart;
+          jsonBuf += delta; // accumulate the JSON answer; parsed once at the end
+        },
+      });
+      if (reasoningStart && reasoningMs == null) reasoningMs = Date.now() - reasoningStart;
+      const fill = parseFillReply(jsonBuf);
+      set((s) => {
+        const cur = s.byIndex[index];
+        if (!isMine(cur)) return {};
+        // Unparseable / empty → error card (mirrors an empty rewrite).
+        if (!fill) return { byIndex: { ...s.byIndex, [index]: { ...cur!, reasoning, reasoningMs, status: "error" } } };
+        const next: PendingSuggestion =
+          fill.kind === "table"
+            ? { ...cur!, action: "insertTable", label: actionLabel("insertTable"), proposedRows: fill.rows, tableHeader: fill.header, tableRtl: fill.rtl, reasoning, reasoningMs, status: "ready" }
+            : { ...cur!, action: "rewrite", label: actionLabel("rewrite"), proposed: fill.text.trim(), reasoning, reasoningMs, status: "ready" };
+        return { byIndex: { ...s.byIndex, [index]: next } };
+      });
+    } catch {
+      set((s) => {
+        const cur = s.byIndex[index];
+        if (!cur || cur.status !== "loading") return {};
+        return { byIndex: { ...s.byIndex, [index]: { ...cur, status: "error" } } };
+      });
+    }
+  },
+
   approve: (thesisId, index) => {
     const cur = get().byIndex[index];
     if (!cur || cur.status !== "ready") return;
-    // Dispatch by action: a paragraph rewrite goes through editText (unchanged); a
-    // figure caption goes through the new setCaption op. Both flow through the
-    // durable op queue so they flush / reconcile like any other manual edit.
-    const op =
-      cur.action === "setCaption"
-        ? ({ type: "setCaption", index, caption: cur.proposed } as const)
-        : ({ type: "editText", index, text: cur.proposed } as const);
+    // Dispatch by action: a paragraph rewrite → editText; a figure caption →
+    // setCaption; a filled empty paragraph → insertTable (inserts a real Word table
+    // so it occupies this block). All flow through the durable op queue so they
+    // flush / reconcile like any other manual edit.
+    let op: ThesisOp;
+    if (cur.action === "setCaption") op = { type: "setCaption", index, caption: cur.proposed } as const;
+    else if (cur.action === "insertTable" && cur.proposedRows?.length)
+      op = { type: "insertTable", index, rows: cur.proposedRows, header: cur.tableHeader, rtl: cur.tableRtl } as const;
+    else op = { type: "editText", index, text: cur.proposed } as const;
     void useThesisDocStore.getState().mutate(thesisId, op);
     set((s) => ({ byIndex: without(s.byIndex, index), justApplied: index }));
   },
@@ -227,7 +300,12 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
   again: async (thesisId, index) => {
     const cur = get().byIndex[index];
     if (!cur) return;
-    // Re-run against the same block kind so the server picks the same action.
+    // A filled empty paragraph (table proposal, or a text fill of a still-empty line)
+    // re-runs through the fill flow; a figure caption re-asks as an image; else rewrite.
+    if (cur.action === "insertTable" || !cur.original.trim()) {
+      await get().requestFill(thesisId, index, cur.instruction);
+      return;
+    }
     const kind: SuggestKind = cur.action === "setCaption" ? "image" : "paragraph";
     await get().request(thesisId, index, cur.original, cur.instruction, kind);
   },

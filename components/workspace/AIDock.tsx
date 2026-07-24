@@ -227,7 +227,14 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scop
     if (isGenerating) return;
     const pill = useFloatingPillStore.getState();
     if (scopeIndices.length === 1 && selectedBlock?.kind === "paragraph") {
-      void useSuggestionStore.getState().request(thesisId, selectedBlock.index, selectedBlock.text, prompt);
+      // A single paragraph gets the inline suggestion proposal (peek/approve on the
+      // block). With TEXT → rewrite it. EMPTY → the fill flow lets the model decide
+      // text-vs-table: it WRITES fresh prose OR proposes a real table (shown as an
+      // inline table preview, inserted on approve). The server grounds both on the
+      // surrounding section + neighbours + sources so the result fits in place.
+      const store = useSuggestionStore.getState();
+      if (!selectedBlock.text.trim()) store.requestFill(thesisId, selectedBlock.index, prompt);
+      else store.request(thesisId, selectedBlock.index, selectedBlock.text, prompt);
       pill.setExpanded(false);
       return;
     }

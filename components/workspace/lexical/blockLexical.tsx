@@ -827,6 +827,12 @@ export type SugData = {
   label: string;
   reasoning: string;
   reasoningMs?: number;
+  // action "insertTable": render the proposed grid as a read-only table preview in
+  // place of proposed text; approve inserts a real Word table (insertTable op).
+  action?: string;
+  proposedRows?: string[][];
+  tableHeader?: boolean; // row 0 is a header (shade it in the preview)
+  tableRtl?: boolean; // right-to-left table
 };
 type SerializedSuggestionNode = SerializedLexicalNode & { sug: SugData; origType: string };
 
@@ -875,6 +881,40 @@ function pillBtn(key: string, opts: { primary?: boolean; icon: string; label?: s
     svgIcon(opts.icon, opts.primary ? 15 : 16),
     opts.primary && opts.label ? React.createElement("span", { key: "t" }, opts.label) : null,
   );
+}
+
+// Read-only preview of a proposed NEW table (action "insertTable"), rendered inside
+// the inline suggestion card exactly where proposed text otherwise shows. Row 0 is
+// shaded when `header`; `rtl` flips column direction. Approve inserts the real Word
+// table via the insertTable op. Mirrors EditableTable's grid, minus editing.
+function renderTablePreview(rows: string[][], header: boolean, rtl: boolean): React.ReactNode {
+  const dir = rtl ? "rtl" : "ltr";
+  const tableEl = React.createElement(
+    "table",
+    { dir, style: { borderCollapse: "collapse" as const, width: "100%" } },
+    React.createElement(
+      "tbody",
+      null,
+      rows.map((row, ri) =>
+        React.createElement(
+          "tr",
+          { key: ri },
+          row.map((cell, ci) => {
+            const isHeader = header && ri === 0;
+            const cellStyle: React.CSSProperties = {
+              border: "1px solid #c8c8d0",
+              padding: "4px 8px",
+              maxWidth: CELL_MAX_WIDTH,
+              textAlign: dir === "rtl" ? "right" : "left",
+              ...(isHeader ? { backgroundColor: "#f0f0f3", fontWeight: 600 } : null),
+            };
+            return React.createElement(isHeader ? "th" : "td", { key: ci, style: cellStyle, dir: "auto" }, cell);
+          }),
+        ),
+      ),
+    ),
+  );
+  return React.createElement(ScrollWrap, null, tableEl);
 }
 
 function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }) {
@@ -961,6 +1001,24 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
       React.createElement("div", { className: "lx-sug-err" }, "Couldn’t generate a suggestion."),
       pill([
         pillBtn("again", { primary: true, icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
+        pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
+      ]),
+    );
+  }
+
+  // ---- ready: TABLE proposal (fill of an empty paragraph) ----
+  // Render the proposed grid where text otherwise shows; no Edit (text-only) and no
+  // peek teaser (the empty paragraph has no original to diff). Approve → insertTable op.
+  if (sug.action === "insertTable" && sug.proposedRows?.length) {
+    return React.createElement(
+      "div",
+      { className: rootCls },
+      chip,
+      trace,
+      renderTablePreview(sug.proposedRows, !!sug.tableHeader, !!sug.tableRtl),
+      pill([
+        pillBtn("approve", { primary: true, icon: ICON_CHECK, label: "Approve", onClick: doApprove }),
+        pillBtn("again", { icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
         pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
       ]),
     );

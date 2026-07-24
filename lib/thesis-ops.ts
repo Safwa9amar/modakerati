@@ -133,7 +133,15 @@ export type ThesisOp =
   // sets that block's `caption` (no block count change); the server edits the
   // caption paragraph after the image (or inserts one) and echoes the document, so
   // the reconcile brings any inserted-block truth. Not folded with anything.
-  | { type: "setCaption"; index: number; caption: string };
+  | { type: "setCaption"; index: number; caption: string }
+  // Insert a NEW Word table so it occupies block `index` (the empty paragraph the
+  // student asked to fill stays as the trailing spacer AFTER the table — Word needs
+  // a paragraph after a table anyway). Approving an inline AI table proposal routes
+  // here. Positional: inserts one block, so later indices shift +1. The optimistic
+  // patch splices a table DTO in at `index`; the server (batch /ops) inserts the
+  // real Word table via Doc.addTable and echoes the authoritative document, which
+  // reconciles the exact borders/styling.
+  | { type: "insertTable"; index: number; rows: string[][]; header?: boolean; rtl?: boolean };
 
 // ── Edit coalescing (fold rapid same-block typing into one op) ────────────────
 //
@@ -397,6 +405,19 @@ export function applyOpToBlocks(blocks: DocBlockDTO[], op: ThesisOp): DocBlockDT
         }
         return { ...b, rows };
       });
+    case "insertTable": {
+      // Splice a table DTO in at `index` so it renders instantly (the empty
+      // paragraph shifts down to become the trailing spacer). `header`/`direction`
+      // are DTO extensions patched on via cast (like the tableOp path); the server
+      // echo reconciles the authoritative borders/styling. Mirrors patchInsertImage.
+      const at = Math.min(Math.max(op.index, 0), blocks.length);
+      const table: Record<string, unknown> = { index: at, kind: "table", rows: op.rows.map((r) => [...r]) };
+      if (op.header) table.header = true;
+      if (op.rtl) table.direction = "rtl";
+      const arr = [...blocks];
+      arr.splice(at, 0, table as unknown as DocBlockDTO);
+      return reindex(arr);
+    }
   }
 }
 
@@ -416,6 +437,10 @@ export function applyOpToSections(
     case "insertImage": {
       const at = Math.max(op.afterIndex + 1, 0);
       return shift((st) => (st > at ? st + 1 : st));
+    }
+    case "insertTable": {
+      const at = Math.max(op.index, 0);
+      return shift((st) => (st >= at ? st + 1 : st));
     }
     case "splitParagraph": {
       const at = op.index + 1;
@@ -505,6 +530,9 @@ export async function executeOp(
       return applyThesisOps(thesisId, [op]);
     case "tableOp":
       // Table edits are applied server-side by the /ops handler (engine Doc facade).
+      return applyThesisOps(thesisId, [op]);
+    case "insertTable":
+      // New-table insert is applied server-side by the /ops handler (Doc.addTable).
       return applyThesisOps(thesisId, [op]);
   }
 }
