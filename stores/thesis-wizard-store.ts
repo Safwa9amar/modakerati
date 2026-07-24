@@ -6,7 +6,7 @@ export interface WizardPlanSection {
   chapters: { title: string; hint?: string; content?: string }[];
 }
 
-export type WizardStep = "template" | "title" | "plan" | "confirm";
+export type WizardStep = "template" | "title" | "fields" | "plan" | "confirm";
 
 interface WizardState {
   step: WizardStep;
@@ -16,12 +16,13 @@ interface WizardState {
   normProfileId: string | null;
   supervisor: string;
   academicYear: string;
+  fieldValues: Record<string, string>;
   plan: WizardPlanSection[] | null;
-  set: (patch: Partial<Pick<WizardState, "step" | "title" | "language" | "templateId" | "normProfileId" | "supervisor" | "academicYear" | "plan">>) => void;
+  set: (patch: Partial<Pick<WizardState, "step" | "title" | "language" | "templateId" | "normProfileId" | "supervisor" | "academicYear" | "fieldValues" | "plan">>) => void;
   reset: () => void;
 }
 
-const INITIAL: Pick<WizardState, "step" | "title" | "language" | "templateId" | "normProfileId" | "supervisor" | "academicYear" | "plan"> = {
+const INITIAL: Pick<WizardState, "step" | "title" | "language" | "templateId" | "normProfileId" | "supervisor" | "academicYear" | "fieldValues" | "plan"> = {
   step: "template",
   title: "",
   language: "fr",
@@ -29,6 +30,7 @@ const INITIAL: Pick<WizardState, "step" | "title" | "language" | "templateId" | 
   normProfileId: null,
   supervisor: "",
   academicYear: "",
+  fieldValues: {},
   plan: null,
 };
 
