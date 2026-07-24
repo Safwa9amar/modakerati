@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export interface WizardPlanSection {
   title: string;
@@ -45,8 +47,32 @@ const INITIAL: Pick<WizardState, "step" | "title" | "language" | "templateId" | 
   plan: null,
 };
 
-export const useThesisWizard = create<WizardState>((set) => ({
-  ...INITIAL,
-  set: (patch) => set(patch),
-  reset: () => set({ ...INITIAL, brief: { ...EMPTY_BRIEF } }),
-}));
+// PERSISTED to AsyncStorage so an app quit, crash, or Metro reload never loses the
+// student's in-progress thesis inputs. Only the collected values are persisted (not
+// the methods); reset() — called on a successful create — clears the saved draft too.
+export const useThesisWizard = create<WizardState>()(
+  persist(
+    (set) => ({
+      ...INITIAL,
+      set: (patch) => set(patch),
+      reset: () => set({ ...INITIAL, brief: { ...EMPTY_BRIEF } }),
+    }),
+    {
+      name: "modakerati-thesis-wizard",
+      storage: createJSONStorage(() => AsyncStorage),
+      partialize: (s) => ({
+        step: s.step,
+        title: s.title,
+        language: s.language,
+        templateId: s.templateId,
+        normProfileId: s.normProfileId,
+        supervisor: s.supervisor,
+        academicYear: s.academicYear,
+        fieldValues: s.fieldValues,
+        brief: s.brief,
+        plan: s.plan,
+      }),
+      version: 1,
+    },
+  ),
+);
