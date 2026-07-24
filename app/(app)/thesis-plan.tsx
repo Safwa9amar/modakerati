@@ -167,11 +167,13 @@ export default function ThesisPlanScreen() {
     setCreating(true);
     try {
       const wiz = useThesisWizard.getState();
+      const frontMatter = Object.keys(wiz.fieldValues).length ? wiz.fieldValues : undefined;
       const created = await createThesis({
         title,
         templateId: templateId ?? undefined,
         language,
         normProfileId: wiz.normProfileId || undefined,
+        frontMatter,
         sections: localPlan.map((s) => ({
           title: s.title || "Partie",
           kind: s.kind,
