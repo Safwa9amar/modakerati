@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, useWindowDimensions, Keyboard, BackHandler } from "react-native";
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedReaction, withSpring, runOnJS, interpolate } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import { ImagePlus, Search as SearchIcon, type LucideIcon } from "lucide-react-native";
+import { ImagePlus, Pilcrow, Type as TypeIcon, Search as SearchIcon, type LucideIcon } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
@@ -14,6 +14,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { INSERT_BLOCKS, INSERT_CATEGORIES, filterBlocks, type InsertBlockDef, type InsertCategory } from "@/components/workspace/insert/insert-blocks";
 import { pickAndInsertImage } from "@/lib/insert-image";
+import { getThesisStyles, type ThesisStyle } from "@/lib/thesis-styles";
 
 const DRAWER_FRACTION = 0.64;
 const SPRING = { damping: 22, stiffness: 240, mass: 0.7 } as const;
@@ -141,11 +142,26 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
   const aiEnabled = useSettingsStore((s) => s.autocompleteEnabled);
   const thesisId = useThesisStore((s) => s.currentThesisId);
   const [tab, setTab] = useState<TabKey>("all");
+  // The real Word styles defined in THIS thesis (word/styles.xml), fetched lazily.
+  const [docStyles, setDocStyles] = useState<ThesisStyle[]>([]);
+  const loadedFor = useRef<string | null>(null);
 
   // Reset to All (and clear any stale search) each time the drawer opens.
   useEffect(() => {
     if (open) setTab("all");
   }, [open]);
+
+  // Fetch the thesis's real styles the first time the drawer opens for a thesis.
+  // Failures fall back silently to the hardcoded Styles palette.
+  useEffect(() => {
+    if (!open || !thesisId || loadedFor.current === thesisId) return;
+    loadedFor.current = thesisId;
+    getThesisStyles(thesisId)
+      .then(setDocStyles)
+      .catch(() => {
+        loadedFor.current = null;
+      });
+  }, [open, thesisId]);
 
   const label = (d: InsertBlockDef) => t(`insertMenu.block.${d.labelKey}`);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- label closes over t (stable per session)
@@ -178,6 +194,16 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
     if (!a || !thesisId) return;
     if (d.kind === "pageBreak") await useThesisDocStore.getState().mutate(thesisId, { type: "startOnNewPage", indices: [a.index] });
     else if (d.kind === "figure") await pickAndInsertImage(thesisId, a.index);
+  };
+
+  // Apply a Word paragraph styleId (from a fetched thesis style) to the current block.
+  const applyStyleId = async (styleId: string) => {
+    const a = useInsertMenuStore.getState().anchor;
+    useInsertMenuStore.getState().close();
+    const lex = useLexicalEditorStore.getState();
+    lex.dispatch("insert", JSON.stringify({ kind: "clearSlash" }));
+    await lex.flushEdits?.();
+    if (a && thesisId) await useThesisDocStore.getState().mutate(thesisId, { type: "format", indices: [a.index], changes: { styleId } });
   };
 
   const Tile = ({ Icon, text, fg, bg, ready, onPress }: { Icon: LucideIcon; text: string; fg: string; bg: string; ready: boolean; onPress?: () => void }) => (
@@ -215,6 +241,33 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
   const catItems = (c: InsertCategory) => filtered.filter((b) => b.category === c);
   const showAll = searching || tab === "all";
   const showHeaders = searching || tab === "all";
+
+  // Dynamic Styles section from the thesis's real styles (paragraph = applyable,
+  // character = shown disabled). Falls back to the hardcoded palette when none loaded.
+  const q = query.trim().toLowerCase();
+  const stylesForView = searching ? docStyles.filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)) : docStyles;
+  const StylesSection = ({ showHeader }: { showHeader: boolean }) => {
+    const ordered = [...stylesForView.filter((s) => s.type === "paragraph"), ...stylesForView.filter((s) => s.type !== "paragraph")];
+    if (!ordered.length) return null;
+    const col = CAT_COLOR.styles;
+    return (
+      <View>
+        {showHeader ? <Text style={[styles.cat, { color: colors.textPlaceholder, textAlign }]}>{t("insertMenu.cat.styles")}</Text> : <View style={{ height: 8 }} />}
+        <View style={styles.tilesWrap}>
+          {ordered.map((s) => {
+            const isPara = s.type === "paragraph";
+            return <Tile key={s.id} Icon={isPara ? Pilcrow : TypeIcon} text={s.name} fg={col.fg} bg={col.bg} ready={isPara} onPress={isPara ? () => void applyStyleId(s.id) : undefined} />;
+          })}
+        </View>
+      </View>
+    );
+  };
+  const renderCat = (c: InsertCategory, showHeader: boolean) =>
+    c === "styles" && docStyles.length ? (
+      <StylesSection key="styles" showHeader={showHeader} />
+    ) : (
+      <Section key={c} header={t(`insertMenu.cat.${c}`)} showHeader={showHeader} items={catItems(c)} />
+    );
 
   const tabLabel = (k: TabKey) => (k === "all" ? t("insertMenu.all") : t(`insertMenu.cat.${k}`));
 
@@ -258,12 +311,10 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
             {!searching && recents.length > 0 ? (
               <Section header={t("insertMenu.recent")} showHeader items={recents.map((k) => INSERT_BLOCKS.find((b) => b.kind === k)).filter(Boolean) as InsertBlockDef[]} />
             ) : null}
-            {INSERT_CATEGORIES.map((c) => (
-              <Section key={c} header={t(`insertMenu.cat.${c}`)} showHeader={showHeaders} items={catItems(c)} />
-            ))}
+            {INSERT_CATEGORIES.map((c) => renderCat(c, showHeaders))}
           </>
         ) : (
-          <Section header={tabLabel(tab)} showHeader={false} items={catItems(tab as InsertCategory)} />
+          renderCat(tab as InsertCategory, false)
         )}
 
         {aiEnabled && tab === "all" && !searching ? (
