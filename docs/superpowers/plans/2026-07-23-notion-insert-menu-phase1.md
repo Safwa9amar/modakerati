@@ -778,3 +778,9 @@ git commit -m "fix(workspace/insert): device QA adjustments"
 - **Spec coverage:** entry points (slash + dock `+`) → Tasks 4/8; native-overlay architecture → Tasks 4–7; motion bloom → Task 6; compact recents + coming-soon → Task 6; full-screen search → Task 6; ready blocks → Tasks 4/5/6; placement rule (transform vs insert-after) → Task 4 Step 2; persistence dual-path (Lexical for text, mutate for structural) → Task 6 `pick`; i18n ar/fr/en + RTL → Tasks 2/6; dismissible → Task 6 backdrop/`onInsertTrigger` inactive.
 - **Deferred to later phases (per spec):** Table create + N×M picker + Divider (Phase 2); Equation/TOC/Footnote server work (Phase 3); dynamic ✦ AI suggestion chips (Phase 4, only the disabled image-gen placeholder ships now). Recents persistence deferred (session-scoped in Phase 1).
 - **Type consistency:** `BlockKind` (store) is the one kind union; `InsertBlockPayload.kind = BlockKind | "clearSlash"`; `onInsertTrigger` payload `{active,index,query}` identical in editor + view; `INSERT_BLOCK_COMMAND` used in Task 4 only.
+
+---
+
+## ⚠️ As-built note (2026-07-24)
+
+This plan was executed (Tasks 1–8, subagent-driven), then the UI **pivoted** during device QA. Tasks 1–5 (store, i18n, palette, SlashPlugin/`INSERT_BLOCK_COMMAND`, image helper) still stand. **Tasks 6–8 were superseded:** the caret popover `InsertMenu.tsx` was deleted and replaced by a bottom push-drawer (`components/BottomInsertDrawer.tsx`) with the "F-B" tabs + colored-tile grid. Also added since: **H1–H6**, and a **Styles** category (Word paragraph `styleId`, app + `modakerati-server` `format` op). Correction to Task 4 Step 1: `INSERT_BLOCK_COMMAND` + `InsertBlockPayload` must be **file-local (no `export`)** — `LexicalDomEditor.tsx` is a `"use dom"` module (single default export only); the `export` version broke the iOS bundle and `tsc` doesn't catch it. See the spec's "As-built addendum" for the full picture.

@@ -91,3 +91,18 @@ No JS test runner in the app — gate with `npx tsc --noEmit` + device QA per ph
 - Table N×M inserts a real table; Divider renders + persists; Equation LTR input → renders + round-trips to .docx (Phase 3).
 - Persistence: text via serialize→planOps, structural via mutate; undo/redo + doc history intact.
 - Full ar/fr/en pass, both directions.
+
+---
+
+## As-built addendum (2026-07-24) — the UI pivoted away from the caret popover
+
+Phase 1 shipped, then device QA drove a redesign. What's actually in the code now differs from the original "bubble blooms at the caret" design above:
+
+- **Bottom push-drawer, not a caret popover.** The caret-anchored compact/full popover (and its `/`-caret positioning, flip/clamp, bloom motion) was **removed**. Insert is now a root-level **`components/BottomInsertDrawer.tsx`** — the vertical twin of `PushDrawer`, mounted in `app/_layout.tsx` wrapping the app. Opening (from `/` or the dock `+`, via `insert-menu-store`) recedes the app (scale + round) and slides an insert panel up from the bottom (64% height). Reads the thesis id from `useThesisStore`; drag-handle to close, scrim to dismiss, Android back closes. The old `components/workspace/insert/InsertMenu.tsx` is deleted.
+- **Menu layout = "F-B": tabs + colored tile grid.** Segmented category tabs (All + categories, brand-active) **filter** a 3-column grid of colour-coded tiles (per-category accent, theme-safe rgba). Recently-used pinned first on All; search overrides tabs. Tiles are icon-over-label (sidesteps a row-alignment issue).
+- **All six heading levels (H1–H6).** Not just H1–H3.
+- **New "Styles" category (Word paragraph styles).** Normal / Title / Subtitle / Intense Quote / No Spacing apply a Word named `styleId` to the current paragraph via the `format` op (`FormatChange.styleId` → optimistic `patchFormat` + **server** `setBlockStyle`; see `modakerati-server/src/routes/thesis.ts` `/ops` format handler). ⚠️ Applied styles show in **Preview/PDF/export** only — the Lexical editor renders them as plain paragraphs. Built-in Word styles are latent in OOXML so they render without being in `styles.xml`. Character styles (Strong/Emphasis/…, inline run-level) are NOT done — deferred follow-up.
+- **`"use dom"` constraint (important).** `LexicalDomEditor.tsx` is an Expo `"use dom"` module → **a single default export only**. The Phase-1 plan's `export const INSERT_BLOCK_COMMAND` broke the iOS bundle; it and its payload type must be **file-local** (no `export`). `tsc` does NOT catch this — verify with `npx expo export -p ios`.
+- **Motion/compact concepts retired:** bubble fly-to-caret bloom, compact-vs-full modes, recents-strip, drag-to-expand/collapse gestures — all superseded by the drawer. The `insert-menu-store` still carries `mode`/`expand`/`collapse`/`anchor.y` fields that are now unused (anchor.index is still used for structural inserts).
+
+Net: entry points (`/` + dock `+`), the native-overlay principle, the categorized thesis palette, the persistence split (text→Lexical, structural/styles→ops), dismissible-always, and ar/fr/en + RTL all held. The surface + motion changed.
