@@ -446,6 +446,21 @@
     "documentPreview": "Document preview"
   },
   "wizard": {
+    "fieldsStepTitle": "Your details",
+    "fieldsStepSubtitle": "Fill in the details that appear on your cover page.",
+    "fieldsRequired": "This field is required.",
+    "fields": {
+      "title": "Thesis title",
+      "subtitle": "Subtitle",
+      "student_name": "Student name",
+      "supervisor_name": "Supervisor",
+      "institute_name": "Institute",
+      "faculty": "Faculty",
+      "class_name": "Department",
+      "branch_name": "Branch",
+      "specialty_name": "Specialty",
+      "academic_year": "Academic year"
+    },
     "pickTemplate": "Choose a template",
     "blank": "Blank thesis",
     "blankDesc": "Start from scratch",

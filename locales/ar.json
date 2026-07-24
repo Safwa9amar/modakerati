@@ -446,6 +446,21 @@
     "documentPreview": "معاينة المستند"
   },
   "wizard": {
+    "fieldsStepTitle": "معلوماتك",
+    "fieldsStepSubtitle": "أدخل المعلومات التي تظهر في صفحة الغلاف.",
+    "fieldsRequired": "هذا الحقل مطلوب.",
+    "fields": {
+      "title": "عنوان المذكرة",
+      "subtitle": "العنوان الفرعي",
+      "student_name": "اسم الطالب",
+      "supervisor_name": "المشرف",
+      "institute_name": "المعهد",
+      "faculty": "الكلية",
+      "class_name": "القسم",
+      "branch_name": "الفرع",
+      "specialty_name": "التخصص",
+      "academic_year": "السنة الجامعية"
+    },
     "pickTemplate": "اختر قالبا",
     "blank": "مذكرة فارغة",
     "blankDesc": "ابدا من الصفر",

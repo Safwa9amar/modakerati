@@ -446,6 +446,21 @@
     "documentPreview": "Aperçu du document"
   },
   "wizard": {
+    "fieldsStepTitle": "Vos informations",
+    "fieldsStepSubtitle": "Renseignez les informations qui figurent sur votre page de garde.",
+    "fieldsRequired": "Ce champ est obligatoire.",
+    "fields": {
+      "title": "Titre du mémoire",
+      "subtitle": "Sous-titre",
+      "student_name": "Nom de l'étudiant",
+      "supervisor_name": "Encadrant",
+      "institute_name": "Institut",
+      "faculty": "Faculté",
+      "class_name": "Département",
+      "branch_name": "Filière",
+      "specialty_name": "Spécialité",
+      "academic_year": "Année universitaire"
+    },
     "pickTemplate": "Choisir un modele",
     "blank": "Memoire vierge",
     "blankDesc": "Commencer de zero",
