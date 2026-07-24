@@ -410,7 +410,7 @@ export async function createThesis(input: {
   language?: string;
   // Canonical placeholder values collected in the wizard's fields step; the
   // server substitutes them into the copied template cover.
-  frontMatter?: Record<string, string>;
+  frontMatter?: Record<string, unknown>;
   // The generated outline that SEEDS the working .docx. It is not persisted as
   // section/chapter rows — the .docx is the source of truth.
   sections?: Array<{ title: string; kind?: "introduction" | "section" | "conclusion"; chapters?: Array<{ title: string; content?: string }> }>;
@@ -454,8 +454,67 @@ export async function getNormProfile(id: string) {
   return apiGet<NormProfile>(`/api/norm-profiles/${id}`);
 }
 
-export async function generateThesisPlan(input: { title: string; language?: string; bodyPreset?: string; templateId?: string }) {
-  return apiPost<{ sections: Array<{ title: string; kind: "introduction" | "section" | "conclusion"; chapters: Array<{ title: string; hint?: string; content?: string }> }> }>("/api/thesis/generate-plan", input);
+export interface PlanBrief { description?: string; objectives?: string; keywords?: string; methodology?: string }
+
+export type PlanSectionDTO = { title: string; kind: "introduction" | "section" | "conclusion"; chapters: Array<{ title: string; hint?: string; content?: string }> };
+
+export async function generateThesisPlan(input: { title: string; language?: string; bodyPreset?: string; templateId?: string; brief?: PlanBrief }) {
+  return apiPost<{ sections: PlanSectionDTO[] }>("/api/thesis/generate-plan", input);
+}
+
+/**
+ * Streams the generated outline from `/api/thesis/generate-plan` (stream:true),
+ * invoking `onSection` for each NDJSON section as it arrives. Uses `expo/fetch`
+ * (real ReadableStream body; core RN fetch buffers the whole response) with a
+ * streaming TextDecoder so multi-byte UTF-8 (Arabic) isn't split. Throws on a
+ * non-OK/bodyless response so callers can fall back to `generateThesisPlan`.
+ */
+export async function streamThesisPlan(
+  input: { title: string; language?: string; bodyPreset?: string; templateId?: string; brief?: PlanBrief },
+  onSection: (section: PlanSectionDTO) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const headers = await getAuthHeaders();
+  const response = await expoFetch(`${API_URL}/api/thesis/generate-plan`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ...input, stream: true }),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    const err = new Error(`API Error: ${response.status}`) as Error & { status?: number };
+    err.status = response.status;
+    throw err;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  const drain = (flushAll: boolean) => {
+    const parts = buf.split("\n");
+    // Keep the last (possibly partial) line buffered — unless this is the final
+    // flush, in which case every part (including the last) is complete.
+    buf = flushAll ? "" : (parts.pop() ?? "");
+    for (const line of parts) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        const obj = JSON.parse(t);
+        if (obj && typeof obj.title === "string") onSection(obj as PlanSectionDTO);
+      } catch { /* partial/garbage line — skip */ }
+    }
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      drain(false);
+    }
+    buf += decoder.decode();
+    drain(true);
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 // ============================================================
