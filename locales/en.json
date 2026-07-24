@@ -446,6 +446,27 @@
     "documentPreview": "Document preview"
   },
   "wizard": {
+    "gen": {
+      "building": "Building your plan",
+      "stepReading": "Reading your topic",
+      "stepStructure": "Choosing a structure",
+      "stepDrafting": "Drafting parts & chapters…",
+      "stepFinalizing": "Finalizing",
+      "outlineSoFar": "Outline so far",
+      "keywords": "{{count}} keywords",
+      "caption": "This can take up to a minute — you can edit everything next."
+    },
+    "topic": {
+      "stepTitle": "Your topic",
+      "stepSubtitle": "Describe your thesis so the AI can build a plan that fits it.",
+      "description": "Description",
+      "descriptionPlaceholder": "What is your thesis about?",
+      "objectives": "Objectives & research questions",
+      "keywords": "Keywords",
+      "keywordsPlaceholder": "e.g. machine learning, education, Algeria",
+      "methodology": "Methodology",
+      "method": { "experimental": "Experimental", "theoretical": "Theoretical", "case_study": "Case study", "survey": "Survey", "mixed": "Mixed" }
+    },
     "fieldsStepTitle": "Your details",
     "fieldsStepSubtitle": "Fill in the details that appear on your cover page.",
     "fieldsRequired": "This field is required.",
@@ -666,6 +687,7 @@
     "cropApply": "Apply",
     "pdfFailed": "Couldn't generate the PDF. Please try again.",
     "pdfUnavailable": "PDF preview isn't available for this document.",
+    "restoringPosition": "Restoring your place…",
     "milestoneWords": "🎉 {{count}} words!",
     "searchTitle": "Search",
     "searchPlaceholder": "Find in document",

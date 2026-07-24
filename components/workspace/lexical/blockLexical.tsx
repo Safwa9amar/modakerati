@@ -165,14 +165,27 @@ export const TableProposalContext = React.createContext<{
 
 const FIGURE_STYLE: React.CSSProperties = { maxWidth: "100%", maxHeight: "320px", borderRadius: "6px", display: "block", margin: "8px auto" };
 
+// Reserve the figure's box from its intrinsic aspect ratio BEFORE the image loads,
+// so a figure loading in mid-scroll (its bytes arrive over the network) doesn't grow
+// from 0→height and reflow everything below it — which yanks the scroll ("scroll
+// jumps/resets while scrolling", especially fast, right after opening). With the box
+// pre-sized, the loaded image just fills it (object-fit: contain, no distortion) and
+// nothing moves. Falls back to the un-reserved style when the server sent no dims.
+function figureStyle(block: Extract<DocBlockDTO, { kind: "image" }>): React.CSSProperties {
+  if (block.width && block.height) {
+    return { ...FIGURE_STYLE, width: `${block.width}px`, aspectRatio: `${block.width} / ${block.height}`, objectFit: "contain" };
+  }
+  return FIGURE_STYLE;
+}
+
 // A figure: inline dataUri when the server sent it (small), else the authed media
 // URL (large), else a placeholder (a drawing with no resolvable image).
 function Figure({ block }: { block: Extract<DocBlockDTO, { kind: "image" }> }) {
   const media = React.useContext(MediaContext);
-  if (block.dataUri) return React.createElement("img", { src: block.dataUri, style: FIGURE_STYLE, alt: block.caption ?? "" });
+  if (block.dataUri) return React.createElement("img", { src: block.dataUri, style: figureStyle(block), alt: block.caption ?? "" });
   if (block.hasMedia && media.base && media.token) {
     const url = `${media.base}/api/thesis/${media.thesisId}/document/media/${block.index}?token=${encodeURIComponent(media.token)}&v=${encodeURIComponent(String(media.version))}`;
-    return React.createElement("img", { src: url, style: FIGURE_STYLE, alt: block.caption ?? "", referrerPolicy: "no-referrer" });
+    return React.createElement("img", { src: url, style: figureStyle(block), alt: block.caption ?? "", referrerPolicy: "no-referrer" });
   }
   return React.createElement("div", { style: PLACEHOLDER }, `🖼 figure${block.caption ? ` · ${block.caption}` : ""}`);
 }

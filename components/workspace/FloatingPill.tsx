@@ -39,6 +39,9 @@ interface Props {
 
 const PILL_H = 56;
 const BUBBLE_SIZE = 52;
+// Vertical clearance kept between the bubble's bottom edge and the caret line it
+// anchors to, so the bubble floats just ABOVE the text instead of covering it.
+const BUBBLE_ABOVE_GAP = 10;
 // Extra tap/drag margin around the collapsed bubble — touches this far outside
 // the visible circle still grab it (small circles are hard targets).
 const BUBBLE_SLOP = 18;
@@ -374,7 +377,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     if (anchorY == null) return;
     const w = expanded ? maxPillW : BUBBLE_SIZE;
     const sideX = rtl ? minX : Math.max(minX, width - w - 12);
-    const yy = Math.min(Math.max(anchorY - BUBBLE_SIZE / 2, minY), maxY);
+    // Sit the bubble ABOVE the caret line, not centered on it. anchorY is the
+    // block's TOP, so centering (anchorY - BUBBLE_SIZE/2) parks the bubble's lower
+    // half over the first line — it covers the caret and the text being typed
+    // (worst in LTR, where the caret and the edge-pinned bubble share a side).
+    // Lifting a full bubble-height + gap above the top clears the line entirely;
+    // near the very top the minY clamp keeps it on-screen.
+    const yy = Math.min(Math.max(anchorY - BUBBLE_SIZE - BUBBLE_ABOVE_GAP, minY), maxY);
     if (isFirst) { tx.value = sideX; ty.value = yy; }
     else { tx.value = withSpring(sideX, SPRING); ty.value = withSpring(yy, SPRING); }
     useFloatingPillStore.getState().setPos({ x: sideX, y: yy });

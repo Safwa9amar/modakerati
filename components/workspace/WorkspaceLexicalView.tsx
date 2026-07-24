@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { View, Text, StyleSheet, AppState } from "react-native";
+import { View, Text, StyleSheet, AppState, ActivityIndicator } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
@@ -17,6 +17,7 @@ import { useTableSuggestionStore } from "@/stores/table-suggestion-store";
 import { diffToOps, layoutDelta } from "@/lib/table-diff";
 import { planOps, tally } from "@/lib/lexical-writeback";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
+import { useEditorScrollStore, type ScrollAnchor } from "@/stores/editor-scroll-store";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -83,6 +84,56 @@ export function WorkspaceLexicalView({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
+
+  // Scroll persistence: remember where the user left off so re-entering the editor
+  // (or returning from a Preview) lands there instead of at the top. The editor is
+  // re-keyed on `seedNonce`, so capture the anchor to restore at each (re)seed; the
+  // store (module-level, not reset on workspace-leave) holds it across screen exits.
+  const onScroll = useCallback((a: ScrollAnchor) => {
+    useEditorScrollStore.getState().save(thesisId, a);
+  }, [thesisId]);
+  // Restore is nonce-driven, not mount-driven: inside a native-stack the WebView can
+  // reset to the top on re-focus WITHOUT remounting the React tree, so a mount-only
+  // restore would never re-fire. `restoreTargetRef` captures the good anchor at the
+  // moment we LEAVE (blur / preview) so the fresh view's top-position poll can't
+  // overwrite it before we restore. `triggerRestore` bumps the nonce → DOM re-anchors.
+  const [scrollRestore, setScrollRestore] = useState<{ anchor: ScrollAnchor; nonce: number } | null>(null);
+  const restoreTargetRef = useRef<ScrollAnchor | null>(useEditorScrollStore.getState().get(thesisId));
+  const restoreNonce = useRef(0);
+  // Loading overlay while the (re)loaded WebView renders this large doc and scrolls
+  // to the saved block — otherwise the user watches it load at the top and jump down.
+  // Start covered if we already know we'll restore to a non-top position on mount.
+  const initTarget = restoreTargetRef.current;
+  const [restoring, setRestoring] = useState<boolean>(!!initTarget && initTarget.index > 2);
+  const triggerRestore = useCallback(() => {
+    const a = restoreTargetRef.current ?? useEditorScrollStore.getState().get(thesisId);
+    if (!a || a.index < 0) return;
+    setScrollRestore({ anchor: a, nonce: ++restoreNonce.current });
+    if (a.index > 2) setRestoring(true); // cover the reload + scroll-to-block
+  }, [thesisId]);
+  // The DOM reached the target (or the user scrolled) → reveal the editor.
+  const onScrollRestored = useCallback(() => { setRestoring(false); }, []);
+  const captureRestoreTarget = useCallback(() => {
+    const a = useEditorScrollStore.getState().get(thesisId);
+    if (a && a.index >= 0) restoreTargetRef.current = a;
+  }, [thesisId]);
+  // Safety: whenever the overlay is up, force it down after 6s (beyond the DOM's own
+  // settle cap) so a missed onScrollRestored (dead bridge, no target) can't leave it
+  // stuck. Normally the DOM fires onScrollRestored once the scroll actually lands.
+  useEffect(() => {
+    if (!restoring) return;
+    const id = setTimeout(() => setRestoring(false), 7000);
+    return () => clearTimeout(id);
+  }, [restoring]);
+  // The saved position is persisted (AsyncStorage) so it survives an app reload/quit,
+  // but rehydration is async — if the workspace mounts before it finishes (e.g. a
+  // reload while already here), the focus trigger read nothing. Re-trigger once the
+  // persisted map has hydrated.
+  useEffect(() => {
+    const p = useEditorScrollStore.persist;
+    if (p.hasHydrated()) return;
+    return p.onFinishHydration(() => triggerRestore());
+  }, [triggerRestore]);
 
   // SYNC LAYER (block model → Lexical): subscribe to this thesis's doc in the
   // store. When it changes because of something OTHER than our own save — the
@@ -294,10 +345,12 @@ export function WorkspaceLexicalView({
   // (previewMode-based) never flips and the leave-flush above doesn't fire.
   useFocusEffect(
     useCallback(() => {
+      // Entering the screen (incl. fresh mount) → restore the last reading position.
+      triggerRestore();
       return () => {
-        if (activeRef.current) flushNow();
+        if (activeRef.current) { flushNow(); captureRestoreTarget(); }
       };
-    }, [flushNow]),
+    }, [flushNow, triggerRestore, captureRestoreTarget]),
   );
 
   // Re-seed from the latest server truth when the user ENTERS the Lexical view (so
@@ -311,13 +364,17 @@ export function WorkspaceLexicalView({
       setSeed(latest);
       setSeedNonce((n) => n + 1);
       syncedDocRef.current = cur;
+      // Re-keying the editor resets the WebView to the top → re-anchor to the
+      // position saved before we left the Writer (e.g. to open a Preview).
+      triggerRestore();
     } else if (!active && wasActive.current) {
+      captureRestoreTarget(); // remember where we were before the preview round-trip
       flushNow(); // leaving the Writer (e.g. opening a preview) → flush edits
       useCompletionStore.getState().cancel(); // don't leave a pending/showing completion behind
       useInsertMenuStore.getState().close(); // don't leave a stale /insert menu across a Preview round-trip
     }
     wasActive.current = active;
-  }, [active, thesisId, blocks, flushNow]);
+  }, [active, thesisId, blocks, flushNow, triggerRestore, captureRestoreTarget]);
 
   // Turning the autocomplete setting OFF mid-session should clear any showing/loading
   // completion immediately (not just gate future requests).
@@ -633,6 +690,9 @@ export function WorkspaceLexicalView({
           onInsertTrigger={onInsertTrigger}
           onBlocks={onBlocks}
           reseed={reseed}
+          scrollRestore={scrollRestore}
+          onScroll={onScroll}
+          onScrollRestored={onScrollRestored}
           scrollToIndex={scrollTarget ? { index: scrollTarget.index, nonce: scrollTarget.nonce } : undefined}
           suggestion={suggestion ?? undefined}
           onSuggestAction={onSuggestAction}
@@ -663,6 +723,16 @@ export function WorkspaceLexicalView({
             </View>
           </View>
         ) : null}
+        {/* Cover the reload + scroll-to-saved-block on a large doc so the user
+            doesn't watch it load at the top and jump down. */}
+        {restoring ? (
+          <View style={[styles.restoreOverlay, { backgroundColor: colors.bgPrimary }]}>
+            <ActivityIndicator size="large" color={colors.brandPrimary} />
+            <Text style={[styles.restoreText, { color: colors.textSecondary }]}>
+              {t("workspace.restoringPosition", { defaultValue: "Restoring your place…" })}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -674,6 +744,8 @@ const styles = StyleSheet.create({
   saveRow: { position: "absolute", top: 8, right: 10, flexDirection: "row", alignItems: "center", gap: 8 },
   banner: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, maxWidth: 220 },
   bannerText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  restoreOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center", gap: 14, zIndex: 20 },
+  restoreText: { fontSize: 13, fontFamily: "Inter_500Medium" },
   saveBtn: { minWidth: 64, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", paddingHorizontal: 14, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 6, elevation: 4 },
   saveText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

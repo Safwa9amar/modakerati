@@ -446,6 +446,27 @@
     "documentPreview": "Aperçu du document"
   },
   "wizard": {
+    "gen": {
+      "building": "Construction de votre plan",
+      "stepReading": "Lecture de votre sujet",
+      "stepStructure": "Choix d'une structure",
+      "stepDrafting": "Rédaction des parties et chapitres…",
+      "stepFinalizing": "Finalisation",
+      "outlineSoFar": "Plan en cours",
+      "keywords": "{{count}} mots-clés",
+      "caption": "Cela peut prendre jusqu'à une minute — vous pourrez tout modifier ensuite."
+    },
+    "topic": {
+      "stepTitle": "Votre sujet",
+      "stepSubtitle": "Décrivez votre mémoire pour que l'IA construise un plan adapté.",
+      "description": "Description",
+      "descriptionPlaceholder": "De quoi parle votre mémoire ?",
+      "objectives": "Objectifs & questions de recherche",
+      "keywords": "Mots-clés",
+      "keywordsPlaceholder": "ex. apprentissage automatique, éducation, Algérie",
+      "methodology": "Méthodologie",
+      "method": { "experimental": "Expérimentale", "theoretical": "Théorique", "case_study": "Étude de cas", "survey": "Enquête", "mixed": "Mixte" }
+    },
     "fieldsStepTitle": "Vos informations",
     "fieldsStepSubtitle": "Renseignez les informations qui figurent sur votre page de garde.",
     "fieldsRequired": "Ce champ est obligatoire.",
@@ -666,6 +687,7 @@
     "cropApply": "Appliquer",
     "pdfFailed": "Impossible de générer le PDF. Veuillez réessayer.",
     "pdfUnavailable": "L'aperçu PDF n'est pas disponible pour ce document.",
+    "restoringPosition": "Retour à votre position…",
     "milestoneWords": "🎉 {{count}} mots !",
     "searchTitle": "Recherche",
     "searchPlaceholder": "Rechercher dans le document",

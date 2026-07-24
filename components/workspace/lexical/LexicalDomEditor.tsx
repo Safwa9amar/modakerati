@@ -724,6 +724,168 @@ function withScrollPinned(editor: LexicalEditor, mutator: () => void, _blurAfter
   });
 }
 
+// A saved reading position: the top-level block that was at the top of the
+// viewport (by DOM child index) + how far it was scrolled past, with a raw pixel
+// fallback. Anchoring to a BLOCK (not a pixel) survives figures loading in and
+// reflowing the page after a fresh mount — we re-align that block once its images,
+// and the ones above it, have laid out. Mirrors `ScrollAnchor` in editor-scroll-store.
+type ScrollAnchor = { y: number; index: number; delta: number };
+
+function lxGetRoot(editor: LexicalEditor): HTMLElement | null {
+  // .lx-content — its children are the top-level block elements.
+  return editor.getRootElement() ?? (typeof document !== "undefined" ? (document.querySelector(".lx-content") as HTMLElement | null) : null);
+}
+
+// Binary-search the first top-level block whose bottom is below the viewport top
+// (blocks stack top→bottom, so `bottom > 0` is monotonic). getBoundingClientRect is
+// viewport-relative, so it reflects the REAL scroll even where window.scrollY is
+// unreliable inside a WebView.
+function lxFirstVisible(kids: HTMLCollection): number {
+  let lo = 0, hi = kids.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (kids[mid].getBoundingClientRect().bottom > 0) { ans = mid; hi = mid - 1; }
+    else lo = mid + 1;
+  }
+  return ans;
+}
+
+// Persist + restore the reading position so the user re-enters the document where
+// they left off. The Writer is destroyed on a workspace-leave (back), re-keyed on a
+// Preview round-trip, and — inside a native-stack — its WebView can reset to the top
+// on re-focus WITHOUT a React remount. So restore is driven by `restore.nonce`
+// (native bumps it on every focus / preview-return), not by mount alone. `onScroll`
+// reports the live position out (throttled) for native to keep.
+//
+// Reliability notes (learned the hard way): inside this WebView `window.scrollTo` is
+// unreliable, so restore uses `element.scrollIntoView()` (the ONE proven primitive —
+// the outline-nav scrollToIndex uses it). And DOM scroll events fire unreliably, so
+// detection leans on a 700ms POLL (getBoundingClientRect is accurate) plus capture-
+// phase scroll listeners.
+function ScrollSyncPlugin({
+  restore,
+  onScroll,
+  onRestored,
+}: {
+  restore?: { anchor: ScrollAnchor; nonce: number } | null;
+  onScroll?: (anchor: ScrollAnchor) => void;
+  onRestored?: () => void;
+}) {
+  const [editor] = useLexicalComposerContext();
+  // Shared gate: while a restore is settling, reporting is suppressed so the fresh
+  // (reset-to-top) position isn't saved over the anchor we're about to restore to.
+  const armedRef = useRef(true);
+  const cancelRestoreRef = useRef<(() => void) | null>(null);
+
+  // ── Reporting (mount-lifetime): capture-phase events + a poll backstop. ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const measure = (): ScrollAnchor => {
+      const kids = lxGetRoot(editor)?.children;
+      if (kids && kids.length) {
+        const i = lxFirstVisible(kids);
+        if (i >= 0) {
+          const r = kids[i].getBoundingClientRect();
+          return { y: window.scrollY, index: i, delta: Math.max(0, Math.round(-r.top)) };
+        }
+      }
+      return { y: window.scrollY, index: -1, delta: 0 };
+    };
+    let lastKey = "";
+    const emit = () => {
+      if (!armedRef.current) return;
+      const a = measure();
+      const key = `${a.index}:${a.delta}`;
+      if (key === lastKey) return;
+      lastKey = key;
+      onScroll?.(a);
+    };
+    let throttle: ReturnType<typeof setTimeout> | null = null;
+    const onScrollEvt = () => {
+      if (throttle) return;
+      throttle = setTimeout(() => { throttle = null; emit(); }, 200);
+    };
+    const root0 = lxGetRoot(editor);
+    window.addEventListener("scroll", onScrollEvt, true);
+    root0?.addEventListener("scroll", onScrollEvt, true);
+    const poll = setInterval(emit, 700);
+    return () => {
+      if (throttle) clearTimeout(throttle);
+      clearInterval(poll);
+      window.removeEventListener("scroll", onScrollEvt, true);
+      root0?.removeEventListener("scroll", onScrollEvt, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Restore (on nonce change): scrollIntoView the anchor block over a short
+  // settle window; suppress reporting until it settles so a reset-to-top can't be
+  // saved over the target. ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!restore || !restore.anchor || restore.anchor.index < 0) return;
+    const a = restore.anchor;
+    cancelRestoreRef.current?.(); // supersede any in-flight restore
+    armedRef.current = false; // suppress reporting while we settle
+
+    let cancelled = false;
+    let frames = 0, hStable = 0, lastH = -1, everApplied = false;
+    const cleanups: Array<() => void> = [];
+    // `notify` tells native the restore reached the target (→ hide the loading
+    // overlay). Superseding / unmounting cleans up WITHOUT notifying.
+    const finish = (notify?: boolean) => {
+      if (cancelled) return;
+      cancelled = true;
+      armedRef.current = true;
+      cleanups.splice(0).forEach((f) => f());
+      if (cancelRestoreRef.current === finish) cancelRestoreRef.current = null;
+      if (notify) onRestored?.();
+    };
+    cancelRestoreRef.current = finish;
+
+    // Re-apply the anchor every frame while a big doc is still laying out (its
+    // scrollHeight keeps growing), and only finish once the page has STOPPED growing
+    // for several frames — i.e. layout is actually complete and the last scrollIntoView
+    // truly landed. Gating on layout-done (not on "block.top ≈ target") is essential:
+    // before layout, every block reports top≈0, so a delta:0 anchor would look
+    // "arrived" at the very top and hide the overlay before anything scrolled. Figures
+    // pre-reserve height (figureStyle) so images don't keep the height growing.
+    let raf = requestAnimationFrame(function step() {
+      if (cancelled) return;
+      const h = document.documentElement.scrollHeight;
+      hStable = h === lastH ? hStable + 1 : 0;
+      lastH = h;
+      const kids = lxGetRoot(editor)?.children;
+      const el = kids && a.index < kids.length ? (kids[a.index] as HTMLElement) : null;
+      if (el) {
+        el.scrollIntoView({ block: "start" });
+        if (a.delta > 0) window.scrollBy(0, a.delta);
+        everApplied = true;
+      }
+      frames++;
+      if (frames < 300 && (!everApplied || hStable < 8)) raf = requestAnimationFrame(step);
+      else finish(true);
+    });
+    cleanups.push(() => cancelAnimationFrame(raf));
+
+    // Stop the moment the user scrolls (don't fight them), and hard-cap the window.
+    const userTook = () => finish(true);
+    window.addEventListener("touchstart", userTook, { passive: true, capture: true });
+    window.addEventListener("wheel", userTook, { passive: true, capture: true });
+    cleanups.push(() => {
+      window.removeEventListener("touchstart", userTook, true);
+      window.removeEventListener("wheel", userTook, true);
+    });
+    const hardStop = setTimeout(() => finish(true), 5500);
+    cleanups.push(() => clearTimeout(hardStop));
+
+    return () => { finish(false); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restore?.nonce]);
+
+  return null;
+}
+
 // Whole-block formatting from the native pill (mirror of the server's
 // whole-paragraph `format` op): inline marks to every text child, level via a
 // paragraph⇄heading swap, alignment/direction on the element. Call inside update().
@@ -1422,6 +1584,9 @@ export default function LexicalDomEditor({
   tableLabels,
   onTableProposalAction,
   onInsertTrigger,
+  scrollRestore,
+  onScroll,
+  onScrollRestored,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -1476,6 +1641,13 @@ export default function LexicalDomEditor({
   // Notion-style Insert menu: fires when a "/query" is detected/cleared at the
   // caret (active + block index + query text) so native can bloom the menu.
   onInsertTrigger?: (t: { active: boolean; index: number; query: string }) => void;
+  // Scroll persistence: `scrollRestore` requests a restore to `anchor` whenever its
+  // `nonce` changes (native bumps it on focus / preview-return); `onScroll` reports
+  // the live position out (throttled) so native keeps it; `onScrollRestored` fires
+  // when a restore reaches its target (→ native hides the loading overlay).
+  scrollRestore?: { anchor: ScrollAnchor; nonce: number } | null;
+  onScroll?: (anchor: ScrollAnchor) => void;
+  onScrollRestored?: () => void;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -1525,6 +1697,7 @@ export default function LexicalDomEditor({
         <RangeSuggestionPlugin rangeSuggestion={rangeSuggestion} onRangeAction={onRangeAction} />
         <SelectionHighlightPlugin indices={selectedIndices} />
         <SearchHighlightPlugin search={search} />
+        <ScrollSyncPlugin restore={scrollRestore} onScroll={onScroll} onRestored={onScrollRestored} />
       </div>
       </TableProposalContext.Provider>
       </EditCellContext.Provider>

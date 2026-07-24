@@ -446,6 +446,27 @@
     "documentPreview": "معاينة المستند"
   },
   "wizard": {
+    "gen": {
+      "building": "جارٍ بناء خطتك",
+      "stepReading": "قراءة موضوعك",
+      "stepStructure": "اختيار الهيكل",
+      "stepDrafting": "صياغة الأجزاء والفصول…",
+      "stepFinalizing": "اللمسات الأخيرة",
+      "outlineSoFar": "المخطط حتى الآن",
+      "keywords": "{{count}} كلمات مفتاحية",
+      "caption": "قد يستغرق هذا دقيقة — يمكنك تعديل كل شيء بعد ذلك."
+    },
+    "topic": {
+      "stepTitle": "موضوعك",
+      "stepSubtitle": "صف مذكرتك حتى يبني الذكاء الاصطناعي خطة تناسبها.",
+      "description": "الوصف",
+      "descriptionPlaceholder": "ما هو موضوع مذكرتك؟",
+      "objectives": "الأهداف وأسئلة البحث",
+      "keywords": "الكلمات المفتاحية",
+      "keywordsPlaceholder": "مثال: تعلم الآلة، التعليم، الجزائر",
+      "methodology": "المنهجية",
+      "method": { "experimental": "تجريبية", "theoretical": "نظرية", "case_study": "دراسة حالة", "survey": "استبيان", "mixed": "مختلطة" }
+    },
     "fieldsStepTitle": "معلوماتك",
     "fieldsStepSubtitle": "أدخل المعلومات التي تظهر في صفحة الغلاف.",
     "fieldsRequired": "هذا الحقل مطلوب.",
@@ -666,6 +687,7 @@
     "cropApply": "تطبيق",
     "pdfFailed": "تعذّر إنشاء ملف PDF. يرجى المحاولة مرة أخرى.",
     "pdfUnavailable": "معاينة PDF غير متاحة لهذا المستند.",
+    "restoringPosition": "جارٍ استعادة موضعك…",
     "milestoneWords": "🎉 {{count}} كلمة!",
     "searchTitle": "بحث",
     "searchPlaceholder": "ابحث في المستند",
