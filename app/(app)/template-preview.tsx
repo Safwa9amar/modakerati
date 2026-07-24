@@ -49,6 +49,10 @@ export default function TemplatePreviewScreen() {
     if (generating) return;
     const wizard = useThesisWizard.getState();
     wizard.set({ templateId: template.id, language: template.language });
+    // If the template declares placeholder fields, collect them next; otherwise
+    // go straight to the plan. The AI plan generates in the background either way.
+    const hasFields = (template.config.placeholderFields?.length ?? 0) > 0;
+    const nextRoute = hasFields ? "/(app)/thesis-fields" : "/(app)/thesis-plan";
     setGenerating(true);
     try {
       const { sections } = await generateThesisPlan({
@@ -58,11 +62,11 @@ export default function TemplatePreviewScreen() {
         templateId: template.id,
       });
       useThesisWizard.getState().set({ plan: sections });
-      router.push("/(app)/thesis-plan");
+      router.push(nextRoute);
     } catch (e) {
       console.error("Failed to generate plan:", e instanceof Error ? e.message : e);
       // The plan screen regenerates / falls back when no plan is present.
-      router.push("/(app)/thesis-plan");
+      router.push(nextRoute);
     } finally {
       setGenerating(false);
     }
