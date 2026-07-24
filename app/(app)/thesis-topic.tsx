@@ -20,9 +20,11 @@ export default function ThesisTopicScreen() {
   const templates = useThesisStore((s) => s.templates);
 
   const [values, setValues] = useState<WizardBrief>(brief);
+  const [titleValue, setTitleValue] = useState(title);
   const [showErrors, setShowErrors] = useState(false);
   const [suggested, setSuggested] = useState<string | null>(null);
 
+  const titleMissing = !titleValue.trim();
   const descMissing = !values.description.trim();
 
   // Best-effort AI hint: when the student finishes the description, recommend a
@@ -30,13 +32,13 @@ export default function ThesisTopicScreen() {
   const handleSuggestMethodology = async () => {
     const description = values.description.trim();
     if (description.length < 10) return;
-    const m = await suggestMethodology({ title, description, keywords: values.keywords, language });
+    const m = await suggestMethodology({ title: titleValue, description, keywords: values.keywords, language });
     if (m) setSuggested(m);
   };
 
   const handleContinue = () => {
-    if (descMissing) { setShowErrors(true); return; }
-    useThesisWizard.getState().set({ brief: values });
+    if (titleMissing || descMissing) { setShowErrors(true); return; }
+    useThesisWizard.getState().set({ title: titleValue.trim(), brief: values });
     const tpl = templates.find((x) => x.id === templateId);
     const hasFields = (tpl?.config.placeholderFields?.length ?? 0) > 0;
     router.push(hasFields ? "/(app)/thesis-fields" : "/(app)/thesis-plan");
@@ -54,6 +56,18 @@ export default function ThesisTopicScreen() {
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{t("wizard.topic.stepSubtitle")}</Text>
+
+        <View style={styles.field}>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>{t("wizard.enterTitle")} *</Text>
+          <TextInput
+            value={titleValue}
+            onChangeText={setTitleValue}
+            placeholder={t("wizard.titlePlaceholder")}
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.bgInput, borderColor: showErrors && titleMissing ? "#E5484D" : colors.borderDefault, height: 48 }]}
+          />
+          {showErrors && titleMissing && <Text style={styles.errText}>{t("wizard.fieldsRequired")}</Text>}
+        </View>
 
         <View style={styles.field}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>{t("wizard.topic.description")} *</Text>
@@ -116,7 +130,7 @@ export default function ThesisTopicScreen() {
       </ScrollView>
 
       <View style={styles.bottomBar}>
-        <Button title={t("wizard.continue")} onPress={handleContinue} variant="accent" disabled={showErrors && descMissing} />
+        <Button title={t("wizard.continue")} onPress={handleContinue} variant="accent" disabled={showErrors && (titleMissing || descMissing)} />
       </View>
     </SafeAreaView>
   );
