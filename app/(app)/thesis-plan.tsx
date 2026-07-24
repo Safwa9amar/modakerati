@@ -40,6 +40,20 @@ export default function ThesisPlanScreen() {
   const [localPlan, setLocalPlan] = useState<WizardPlanSection[]>(plan ?? []);
   const [generating, setGenerating] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Drives the narrated steps on the generating screen. The model streams without
+  // per-phase events, so we advance on a short timer: 0=reading, 1=structure, 2=drafting.
+  const [phase, setPhase] = useState(0);
+
+  useEffect(() => {
+    if (!generating) return;
+    setPhase(0);
+    const t1 = setTimeout(() => setPhase(1), 700);
+    const t2 = setTimeout(() => setPhase(2), 1600);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [generating]);
 
   // If we arrived without a plan (e.g. plan generation failed upstream), kick
   // off generation on mount and show a centered loader.
@@ -213,8 +227,23 @@ export default function ThesisPlanScreen() {
     }
   };
 
-  // Centered loader while generating an initial plan (no plan to edit yet).
-  if (generating && localPlan.length === 0) {
+  // Rich generating screen: context header + narrated steps + the outline
+  // streaming in. Shown for the whole stream; flips to the editable list on done.
+  if (generating) {
+    const methodologyLabel = brief.methodology
+      ? t(`wizard.topic.method.${brief.methodology}`)
+      : null;
+    const keywordCount = brief.keywords
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean).length;
+    const stepStatus = (i: number): "done" | "active" | "pending" => {
+      if (i === 0) return phase >= 1 ? "done" : "active";
+      if (i === 1) return phase >= 2 ? "done" : phase === 1 ? "active" : "pending";
+      if (i === 2) return phase >= 2 ? "active" : "pending";
+      return "pending";
+    };
+    const STEP_KEYS = ["stepReading", "stepStructure", "stepDrafting", "stepFinalizing"] as const;
     return (
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.bgPrimary }]}
@@ -227,12 +256,88 @@ export default function ThesisPlanScreen() {
           </Text>
           <View style={{ width: 40 }} />
         </View>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.brandPrimary} />
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-            {t("wizard.generating", { defaultValue: "Generating your plan…" })}
+        <ScrollView contentContainerStyle={styles.genContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.genHero}>
+            <Text style={[styles.genSpark, { color: colors.brandPrimary }]}>✦</Text>
+            <Text style={[styles.genTitle, { color: colors.textPrimary }]}>
+              {t("wizard.gen.building", { defaultValue: "Building your plan" })}
+            </Text>
+            {!!title && (
+              <Text style={[styles.genSubj, { color: colors.textSecondary }]} numberOfLines={2}>
+                {`“${title}”`}
+              </Text>
+            )}
+            {(methodologyLabel || keywordCount > 0) && (
+              <View style={styles.genMeta}>
+                {methodologyLabel && (
+                  <View style={[styles.genPill, { backgroundColor: colors.brandPrimary + "18" }]}>
+                    <Text style={[styles.genPillText, { color: colors.brandPrimary }]}>{methodologyLabel}</Text>
+                  </View>
+                )}
+                {keywordCount > 0 && (
+                  <Text style={[styles.genKw, { color: colors.textSecondary }]}>
+                    {t("wizard.gen.keywords", { count: keywordCount, defaultValue: `${keywordCount} keywords` })}
+                  </Text>
+                )}
+              </View>
+            )}
+          </View>
+
+          <View style={[styles.genRule, { backgroundColor: colors.borderSubtle }]} />
+
+          <View style={styles.genSteps}>
+            {STEP_KEYS.map((key, i) => {
+              const status = stepStatus(i);
+              return (
+                <View key={key} style={styles.genStep}>
+                  <View style={styles.genIcWrap}>
+                    {status === "done" ? (
+                      <View style={[styles.genIc, { backgroundColor: "#22B573" }]}>
+                        <Text style={styles.genIcCheck}>✓</Text>
+                      </View>
+                    ) : status === "active" ? (
+                      <ActivityIndicator size="small" color={colors.brandPrimary} />
+                    ) : (
+                      <View style={[styles.genIc, styles.genIcPending, { borderColor: colors.borderDefault }]} />
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      styles.genStepLbl,
+                      {
+                        color: status === "pending" ? colors.textPlaceholder : colors.textPrimary,
+                        fontFamily: status === "active" ? "Inter_600SemiBold" : "Inter_400Regular",
+                      },
+                    ]}
+                  >
+                    {t(`wizard.gen.${key}`)}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+
+          {localPlan.length > 0 && (
+            <>
+              <View style={[styles.genRule, { backgroundColor: colors.borderSubtle }]} />
+              <Text style={[styles.genLabelSm, { color: colors.textSecondary }]}>
+                {t("wizard.gen.outlineSoFar", { defaultValue: "Outline so far" })}
+              </Text>
+              <View style={styles.genOutline}>
+                {localPlan.map((s, i) => (
+                  <View key={i} style={[styles.genSec, { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle }]}>
+                    <View style={[styles.genDot, { backgroundColor: colors.brandPrimary }]} />
+                    <Text style={[styles.genSecText, { color: colors.textPrimary }]} numberOfLines={1}>{s.title}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          <Text style={[styles.genCaption, { color: colors.textPlaceholder }]}>
+            {t("wizard.gen.caption", { defaultValue: "This can take up to a minute — you can edit everything next." })}
           </Text>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -486,6 +591,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_500Medium",
   },
+  genContent: { padding: 24, paddingBottom: 40 },
+  genHero: { alignItems: "center", gap: 4, marginTop: 12 },
+  genSpark: { fontSize: 26 },
+  genTitle: { fontSize: 20, fontFamily: "Inter_700Bold", marginTop: 6 },
+  genSubj: { fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic", textAlign: "center", marginTop: 2 },
+  genMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
+  genPill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  genPillText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  genKw: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  genRule: { height: 1, marginVertical: 18 },
+  genSteps: { gap: 14 },
+  genStep: { flexDirection: "row", alignItems: "center", gap: 12 },
+  genIcWrap: { width: 22, height: 22, alignItems: "center", justifyContent: "center" },
+  genIc: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  genIcPending: { borderWidth: 2, backgroundColor: "transparent" },
+  genIcCheck: { color: "#FFFFFF", fontSize: 12, fontFamily: "Inter_700Bold" },
+  genStepLbl: { fontSize: 14 },
+  genLabelSm: { fontSize: 11, letterSpacing: 0.5, fontFamily: "Inter_600SemiBold", marginBottom: 10, textTransform: "uppercase" },
+  genOutline: { gap: 8 },
+  genSec: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11 },
+  genDot: { width: 7, height: 7, borderRadius: 3.5 },
+  genSecText: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium" },
+  genCaption: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 22 },
   content: {
     padding: 20,
     gap: 16,
