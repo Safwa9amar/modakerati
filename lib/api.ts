@@ -408,6 +408,9 @@ export async function createThesis(input: {
   templateId?: string;
   normProfileId?: string;
   language?: string;
+  // Canonical placeholder values collected in the wizard's fields step; the
+  // server substitutes them into the copied template cover.
+  frontMatter?: Record<string, string>;
   // The generated outline that SEEDS the working .docx. It is not persisted as
   // section/chapter rows — the .docx is the source of truth.
   sections?: Array<{ title: string; kind?: "introduction" | "section" | "conclusion"; chapters?: Array<{ title: string; content?: string }> }>;

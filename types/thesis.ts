@@ -37,6 +37,13 @@ export type CitationStyle = "apa" | "footnote-ar";
 export type Discipline = "science" | "law-humanities" | "generic";
 export type BodyPreset = "imrad" | "chapters" | "law-humanities";
 
+export interface TemplateField {
+  key: string;
+  type: "text" | "multiline" | "year";
+  required: boolean;
+  prefill?: "profile.fullName" | "profile.university" | "profile.department" | "currentYear";
+}
+
 export interface Template {
   id: string;
   university: string;
@@ -52,6 +59,7 @@ export interface Template {
     bodyFont: string; bodySize: string; headingFont: string; lineSpacing: string; paperSize: string;
     pdfUrl?: string; // optional public URL to the template's PDF version
     thumbUrl?: string; // optional public URL to the template's preview image / thumbnail
+    placeholderFields?: TemplateField[]; // auto-detected fields the create wizard collects
   };
   frontMatter: {
     pageDeGarde: string[];
