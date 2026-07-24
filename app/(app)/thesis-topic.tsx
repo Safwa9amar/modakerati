@@ -8,6 +8,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { useThesisWizard, type WizardBrief } from "@/stores/thesis-wizard-store";
 import { BackButton } from "@/components/BackButton";
 import { Button } from "@/components/ui/Button";
+import { suggestMethodology } from "@/lib/api";
 
 const METHODOLOGIES = ["experimental", "theoretical", "case_study", "survey", "mixed"] as const;
 
@@ -15,13 +16,23 @@ export default function ThesisTopicScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
-  const { templateId, brief } = useThesisWizard();
+  const { templateId, brief, title, language } = useThesisWizard();
   const templates = useThesisStore((s) => s.templates);
 
   const [values, setValues] = useState<WizardBrief>(brief);
   const [showErrors, setShowErrors] = useState(false);
+  const [suggested, setSuggested] = useState<string | null>(null);
 
   const descMissing = !values.description.trim();
+
+  // Best-effort AI hint: when the student finishes the description, recommend a
+  // methodology. Badge only — it never auto-selects; the student stays in control.
+  const handleSuggestMethodology = async () => {
+    const description = values.description.trim();
+    if (description.length < 10) return;
+    const m = await suggestMethodology({ title, description, keywords: values.keywords, language });
+    if (m) setSuggested(m);
+  };
 
   const handleContinue = () => {
     if (descMissing) { setShowErrors(true); return; }
@@ -49,6 +60,7 @@ export default function ThesisTopicScreen() {
           <TextInput
             value={values.description}
             onChangeText={(v) => patch("description", v)}
+            onBlur={handleSuggestMethodology}
             multiline
             placeholder={t("wizard.topic.descriptionPlaceholder")}
             placeholderTextColor={colors.textSecondary}
@@ -90,7 +102,12 @@ export default function ThesisTopicScreen() {
                   onPress={() => patch("methodology", selected ? "" : m)}
                   style={[styles.chip, { borderColor: selected ? colors.brandPrimary : colors.borderDefault, backgroundColor: selected ? colors.brandPrimary : "transparent" }]}
                 >
-                  <Text style={[styles.chipText, { color: selected ? "#FFFFFF" : colors.textPrimary }]}>{t(`wizard.topic.method.${m}`)}</Text>
+                  <Text style={[styles.chipText, { color: selected ? "#FFFFFF" : colors.textPrimary }]}>
+                    {suggested === m && (
+                      <Text style={{ color: selected ? "#FFFFFF" : colors.brandPrimary }}>✦ </Text>
+                    )}
+                    {t(`wizard.topic.method.${m}`)}
+                  </Text>
                 </Pressable>
               );
             })}

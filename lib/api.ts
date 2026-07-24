@@ -434,6 +434,23 @@ export async function suggestThesisTitles(input: string, language?: string): Pro
   }
 }
 
+// Best-effort AI hint: classify the most likely methodology from the student's
+// topic. Returns null on any failure (or when AI Suggestions are off) so it never
+// blocks the wizard. One of: experimental | theoretical | case_study | survey | mixed.
+export async function suggestMethodology(input: { title?: string; description: string; keywords?: string; language?: string }): Promise<string | null> {
+  try {
+    const res = await apiPost<{ methodology: string | null }>("/api/thesis/methodology-suggestion", {
+      title: input.title ?? "",
+      description: input.description,
+      keywords: input.keywords ?? "",
+      language: input.language ?? i18n.language,
+    });
+    return res.methodology ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function updateThesis(id: string, updates: any) {
   return apiPut<any>(`/api/thesis/${id}`, updates);
 }
