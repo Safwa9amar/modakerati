@@ -24,6 +24,7 @@ const PAD = 16;
 // on BOTH light and dark drawer backgrounds.
 const CAT_COLOR: Record<InsertCategory, { fg: string; bg: string }> = {
   text: { fg: "#3b6bdb", bg: "rgba(59,107,219,0.14)" },
+  styles: { fg: "#0d9488", bg: "rgba(13,148,136,0.15)" },
   lists: { fg: "#1f9d52", bg: "rgba(31,157,82,0.16)" },
   media: { fg: "#d9791a", bg: "rgba(217,121,26,0.16)" },
   academic: { fg: "#8b5bd6", bg: "rgba(139,91,214,0.16)" },
@@ -160,6 +161,14 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
     useInsertMenuStore.getState().pushRecent(d.kind);
     useInsertMenuStore.getState().close();
     const lex = useLexicalEditorStore.getState();
+    if (d.styleId) {
+      // Word named paragraph style → clear the /query, then set styleId on the
+      // current block via a format op (shows in Preview/PDF/export).
+      lex.dispatch("insert", JSON.stringify({ kind: "clearSlash" }));
+      await lex.flushEdits?.();
+      if (a && thesisId) await useThesisDocStore.getState().mutate(thesisId, { type: "format", indices: [a.index], changes: { styleId: d.styleId } });
+      return;
+    }
     if (TEXT_KINDS.includes(d.kind)) {
       lex.dispatch("insert", JSON.stringify({ kind: d.kind }));
       return;

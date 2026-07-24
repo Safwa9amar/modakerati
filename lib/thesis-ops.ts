@@ -36,6 +36,10 @@ export type UiAlign = "left" | "center" | "right" | "justify";
 
 export interface FormatChange {
   level?: number;
+  // A Word named paragraph style to apply directly (e.g. "Title", "Subtitle",
+  // "IntenseQuote", "NoSpacing", "Normal"). The server maps it via setBlockStyle.
+  // Mutually exclusive with `level` (which derives its own Heading{n}/Normal style).
+  styleId?: string;
   alignment?: UiAlign;
   direction?: "rtl" | "ltr";
   clearFormatting?: boolean;
@@ -210,6 +214,10 @@ function patchFormat(blocks: DocBlockDTO[], indices: number[], ch: FormatChange)
     if (ch.level != null) {
       nb.level = Math.max(0, Math.min(6, ch.level)) as ParagraphBlock["level"];
       nb.styleId = ch.level === 0 ? "Normal" : `Heading${ch.level}`;
+    } else if (ch.styleId !== undefined) {
+      // Named Word paragraph style (Title/Subtitle/…). Stays level 0 — the Lexical
+      // editor renders it as a plain paragraph; the style shows in Preview/PDF/export.
+      nb.styleId = ch.styleId;
     }
     if (ch.alignment != null) nb.alignment = ch.alignment === "justify" ? "both" : ch.alignment;
     if (ch.direction != null) nb.direction = ch.direction;

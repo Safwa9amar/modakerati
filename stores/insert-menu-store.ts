@@ -4,6 +4,7 @@ import { create } from "zustand";
 // Phase 2+ kinds are declared so the palette config and types are stable.
 export type BlockKind =
   | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "quote" | "bullet" | "number" // text (Lexical transform)
+  | "normal" | "title" | "subtitle" | "intenseQuote" | "noSpacing" // Word paragraph styles (styleId)
   | "figure" | "pageBreak"                              // structural (native op)
   | "table" | "divider" | "equation" | "toc" | "footnote"; // Phase 2+
 

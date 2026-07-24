@@ -2,10 +2,11 @@ import type { LucideIcon } from "lucide-react-native";
 import {
   Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, Quote, List, ListOrdered,
   Image as ImageIcon, SquareSplitVertical, Table, Minus, Sigma, ListTree, Superscript,
+  Heading, Type as TypeIcon, Pilcrow, Baseline,
 } from "lucide-react-native";
 import type { BlockKind } from "@/stores/insert-menu-store";
 
-export type InsertCategory = "text" | "lists" | "media" | "academic" | "layout";
+export type InsertCategory = "text" | "styles" | "lists" | "media" | "academic" | "layout";
 
 export interface InsertBlockDef {
   kind: BlockKind;
@@ -13,6 +14,7 @@ export interface InsertBlockDef {
   Icon: LucideIcon;
   labelKey: string;        // → t(`insertMenu.block.${...}`)
   status: "ready" | "soon"; // Phase 1 wires "ready"; "soon" render disabled
+  styleId?: string; // Word named paragraph style to apply (styles category); undefined for block kinds
 }
 
 // Order here is the render order inside each category.
@@ -24,6 +26,11 @@ export const INSERT_BLOCKS: InsertBlockDef[] = [
   { kind: "h5",       category: "text",     Icon: Heading5,            labelKey: "h5",       status: "ready" },
   { kind: "h6",       category: "text",     Icon: Heading6,            labelKey: "h6",       status: "ready" },
   { kind: "quote",    category: "text",     Icon: Quote,               labelKey: "quote",    status: "ready" },
+  { kind: "normal",       category: "styles", Icon: Pilcrow,  labelKey: "normal",       status: "ready", styleId: "Normal" },
+  { kind: "title",        category: "styles", Icon: Heading,  labelKey: "title",        status: "ready", styleId: "Title" },
+  { kind: "subtitle",     category: "styles", Icon: TypeIcon, labelKey: "subtitle",     status: "ready", styleId: "Subtitle" },
+  { kind: "intenseQuote", category: "styles", Icon: Quote,    labelKey: "intenseQuote", status: "ready", styleId: "IntenseQuote" },
+  { kind: "noSpacing",    category: "styles", Icon: Baseline, labelKey: "noSpacing",    status: "ready", styleId: "NoSpacing" },
   { kind: "bullet",   category: "lists",    Icon: List,                labelKey: "bullet",   status: "ready" },
   { kind: "number",   category: "lists",    Icon: ListOrdered,         labelKey: "number",   status: "ready" },
   { kind: "table",    category: "media",    Icon: Table,               labelKey: "table",    status: "soon" },  // Phase 2
@@ -35,7 +42,7 @@ export const INSERT_BLOCKS: InsertBlockDef[] = [
   { kind: "pageBreak",category: "layout",   Icon: SquareSplitVertical, labelKey: "pageBreak",status: "ready" },
 ];
 
-export const INSERT_CATEGORIES: InsertCategory[] = ["text", "lists", "media", "academic", "layout"];
+export const INSERT_CATEGORIES: InsertCategory[] = ["text", "styles", "lists", "media", "academic", "layout"];
 
 // Filter helper shared by compact (/query) and full-screen (search field). Matches
 // the localized label OR the kind — caller passes the already-localized label getter.
