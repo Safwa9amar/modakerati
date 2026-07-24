@@ -33,6 +33,11 @@ export interface NewStyleInput {
   bold?: boolean;
   italic?: boolean;
   sizePt?: number;
+  alignment?: "left" | "center" | "right" | "both";
+  lineSpacing?: number; // multiple: 1, 1.5, 2
+  spacingBeforePt?: number;
+  spacingAfterPt?: number;
+  indentLeftCm?: number;
 }
 
 // Create a new custom paragraph style in the thesis's styles.xml; returns the

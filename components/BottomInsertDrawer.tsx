@@ -4,7 +4,7 @@ import Animated, { useSharedValue, useAnimatedStyle, useAnimatedReaction, withSp
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import { ImagePlus, Pilcrow, Plus, Type as TypeIcon, Search as SearchIcon, type LucideIcon } from "lucide-react-native";
+import { ImagePlus, Pilcrow, Plus, Type as TypeIcon, Search as SearchIcon, AlignLeft, AlignCenter, AlignRight, AlignJustify, type LucideIcon } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
@@ -152,6 +152,24 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
   const [newItalic, setNewItalic] = useState(false);
   const [savingStyle, setSavingStyle] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
+  const [fontSize, setFontSize] = useState<number | null>(null);
+  const [align, setAlign] = useState<"left" | "center" | "right" | "both" | null>(null);
+  const [lineSp, setLineSp] = useState<number | null>(null);
+  const [spBefore, setSpBefore] = useState<number | null>(null);
+  const [spAfter, setSpAfter] = useState<number | null>(null);
+  const [indent, setIndent] = useState<number | null>(null);
+  const resetCreate = () => {
+    setNewName("");
+    setNewBold(false);
+    setNewItalic(false);
+    setFontSize(null);
+    setAlign(null);
+    setLineSp(null);
+    setSpBefore(null);
+    setSpAfter(null);
+    setIndent(null);
+    setCreateErr(null);
+  };
 
   // Reset to All (and clear any stale search) each time the drawer opens.
   useEffect(() => {
@@ -219,12 +237,20 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
     setSavingStyle(true);
     setCreateErr(null);
     try {
-      const s = await createThesisStyle(thesisId, { name: newName.trim(), bold: newBold, italic: newItalic });
+      const s = await createThesisStyle(thesisId, {
+        name: newName.trim(),
+        bold: newBold,
+        italic: newItalic,
+        sizePt: fontSize ?? undefined,
+        alignment: align ?? undefined,
+        lineSpacing: lineSp ?? undefined,
+        spacingBeforePt: spBefore ?? undefined,
+        spacingAfterPt: spAfter ?? undefined,
+        indentLeftCm: indent ?? undefined,
+      });
       setDocStyles((prev) => (prev.some((p) => p.id === s.id) ? prev : [...prev, s]));
       setCreating(false);
-      setNewName("");
-      setNewBold(false);
-      setNewItalic(false);
+      resetCreate();
     } catch (e: any) {
       setCreateErr(e?.message ?? "Failed to create style");
     } finally {
@@ -272,6 +298,21 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
   // character = shown disabled). Falls back to the hardcoded palette when none loaded.
   const q = query.trim().toLowerCase();
   const stylesForView = searching ? docStyles.filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)) : docStyles;
+  const alignOpts: Array<["left" | "center" | "right" | "both", LucideIcon]> = [["left", AlignLeft], ["center", AlignCenter], ["right", AlignRight], ["both", AlignJustify]];
+  const Stepper = ({ label, value, unit, min, max, step, def, set }: { label: string; value: number | null; unit: string; min: number; max: number; step: number; def: number; set: (n: number | null) => void }) => (
+    <View style={[styles.stepRow, { flexDirection: rowDir }]}>
+      <Text style={[styles.stepLabel, { color: colors.textSecondary, textAlign }]}>{label}</Text>
+      <View style={[styles.stepper, { borderColor: colors.borderSubtle, flexDirection: rowDir }]}>
+        <Pressable hitSlop={6} onPress={() => set(value == null ? min : Math.max(min, +(value - step).toFixed(2)))} style={styles.stepBtn}>
+          <Text style={[styles.stepSign, { color: colors.textPrimary }]}>−</Text>
+        </Pressable>
+        <Text style={[styles.stepVal, { color: colors.textPrimary }]}>{value == null ? "—" : `${value}${unit}`}</Text>
+        <Pressable hitSlop={6} onPress={() => set(value == null ? def : Math.min(max, +(value + step).toFixed(2)))} style={styles.stepBtn}>
+          <Text style={[styles.stepSign, { color: colors.textPrimary }]}>+</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
   const StylesSection = ({ showHeader }: { showHeader: boolean }) => {
     const dyn = [...stylesForView.filter((s) => s.type === "paragraph"), ...stylesForView.filter((s) => s.type !== "paragraph")];
     const useDyn = docStyles.length > 0;
@@ -300,12 +341,28 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
                 <Text style={{ color: newItalic ? "#fff" : colors.textSecondary, fontFamily: "Inter_600SemiBold", fontStyle: "italic", fontSize: 12 }}>{t("insertMenu.italic")}</Text>
               </Pressable>
             </View>
+            <View style={[styles.createRow, { flexDirection: rowDir, flexWrap: "wrap" }]}>
+              {alignOpts.map(([a, Ic]) => (
+                <Pressable key={a} onPress={() => setAlign((v) => (v === a ? null : a))} style={[styles.alignChip, { backgroundColor: align === a ? colors.brandPrimary : colors.bgPrimary, borderColor: colors.borderSubtle }]}>
+                  <Ic size={16} color={align === a ? "#fff" : colors.textSecondary} />
+                </Pressable>
+              ))}
+              {[1, 1.5, 2].map((v) => (
+                <Pressable key={v} onPress={() => setLineSp((c) => (c === v ? null : v))} style={[styles.alignChip, { minWidth: 46, backgroundColor: lineSp === v ? colors.brandPrimary : colors.bgPrimary, borderColor: colors.borderSubtle }]}>
+                  <Text style={{ color: lineSp === v ? "#fff" : colors.textSecondary, fontFamily: "Inter_700Bold", fontSize: 11 }}>{v.toFixed(1)}×</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Stepper label={t("insertMenu.size")} value={fontSize} unit="pt" min={6} max={96} step={1} def={12} set={setFontSize} />
+            <Stepper label={t("insertMenu.spaceBefore")} value={spBefore} unit="pt" min={0} max={72} step={3} def={6} set={setSpBefore} />
+            <Stepper label={t("insertMenu.spaceAfter")} value={spAfter} unit="pt" min={0} max={72} step={3} def={6} set={setSpAfter} />
+            <Stepper label={t("insertMenu.indent")} value={indent} unit="cm" min={0} max={5} step={0.5} def={1} set={setIndent} />
             {createErr ? <Text style={{ color: "#d64545", fontSize: 11, paddingHorizontal: 2 }}>{createErr}</Text> : null}
             <View style={[styles.createRow, { flexDirection: rowDir }]}>
               <Pressable onPress={() => void doCreateStyle()} disabled={!newName.trim() || savingStyle} style={[styles.createBtn, { backgroundColor: colors.brandPrimary, opacity: !newName.trim() || savingStyle ? 0.5 : 1 }]}>
                 <Text style={{ color: "#fff", fontFamily: "Inter_700Bold", fontSize: 13 }}>{savingStyle ? t("insertMenu.creating") : t("insertMenu.create")}</Text>
               </Pressable>
-              <Pressable onPress={() => { setCreating(false); setCreateErr(null); }} style={[styles.createBtn, { backgroundColor: colors.bgPrimary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderSubtle }]}>
+              <Pressable onPress={() => { setCreating(false); resetCreate(); }} style={[styles.createBtn, { backgroundColor: colors.bgPrimary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderSubtle }]}>
                 <Text style={{ color: colors.textSecondary, fontFamily: "Inter_600SemiBold", fontSize: 13 }}>{t("insertMenu.cancel")}</Text>
               </Pressable>
             </View>
@@ -432,4 +489,11 @@ const styles = StyleSheet.create({
   createRow: { gap: 8, alignItems: "center" },
   toggleChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth },
   createBtn: { flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: "center" },
+  alignChip: { minWidth: 40, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
+  stepRow: { alignItems: "center", justifyContent: "space-between", gap: 10 },
+  stepLabel: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  stepper: { alignItems: "center", borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, overflow: "hidden" },
+  stepBtn: { paddingHorizontal: 14, paddingVertical: 6 },
+  stepSign: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  stepVal: { minWidth: 52, textAlign: "center", fontSize: 13, fontFamily: "Inter_600SemiBold" },
 });

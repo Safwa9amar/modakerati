@@ -587,6 +587,7 @@
     "expandHint": "Glissez vers le haut pour tout rechercher",
     "comingSoon": "Bientôt",
     "newStyle": "Nouveau style", "styleName": "Nom du style", "bold": "Gras", "italic": "Italique", "create": "Créer", "creating": "Création…", "cancel": "Annuler",
+    "size": "Taille", "spaceBefore": "Espace avant", "spaceAfter": "Espace après", "indent": "Retrait",
     "cat": { "text": "Texte", "styles": "Styles", "lists": "Listes", "media": "Médias et tableaux", "academic": "Académique", "layout": "Mise en page" },
     "block": {
       "h1": "Titre 1", "h2": "Titre 2", "h3": "Titre 3", "h4": "Titre 4", "h5": "Titre 5", "h6": "Titre 6",
