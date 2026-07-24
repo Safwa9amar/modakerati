@@ -18,7 +18,7 @@ import {
   useThesisWizard,
   type WizardPlanSection,
 } from "@/stores/thesis-wizard-store";
-import { generateThesisPlan, createThesis, getThesis } from "@/lib/api";
+import { generateThesisPlan, streamThesisPlan, createThesis, getThesis } from "@/lib/api";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import { ChevronUp, ChevronDown, Trash2, Plus } from "lucide-react-native";
@@ -34,7 +34,7 @@ export default function ThesisPlanScreen() {
   const colors = useThemeColors();
   const router = useRouter();
 
-  const { plan, title, language, templateId } = useThesisWizard();
+  const { plan, title, language, templateId, brief } = useThesisWizard();
 
   // The local copy is the editing surface; the wizard store is kept in sync.
   const [localPlan, setLocalPlan] = useState<WizardPlanSection[]>(plan ?? []);
@@ -46,19 +46,31 @@ export default function ThesisPlanScreen() {
   useEffect(() => {
     if (plan && plan.length > 0) return;
     let active = true;
+    const controller = new AbortController();
     setGenerating(true);
+    setLocalPlan([]);
     (async () => {
+      const streamed: WizardPlanSection[] = [];
       try {
-        const { sections } = await generateThesisPlan({ title, language });
-        if (!active) return;
-        setLocalPlan(sections);
-        useThesisWizard.getState().set({ plan: sections });
-      } catch (e) {
-        if (active) {
-          Alert.alert(
-            t("common.error", { defaultValue: "Error" }),
-            e instanceof Error ? e.message : String(e)
-          );
+        await streamThesisPlan(
+          { title, language, templateId: templateId ?? undefined, brief },
+          (section) => {
+            if (!active) return;
+            streamed.push(section as WizardPlanSection);
+            setLocalPlan((prev) => [...prev, section as WizardPlanSection]);
+          },
+          controller.signal,
+        );
+        if (active && streamed.length > 0) useThesisWizard.getState().set({ plan: streamed });
+      } catch {
+        // Streaming unavailable → one-shot fallback so a plan still appears.
+        try {
+          const { sections } = await generateThesisPlan({ title, language, templateId: templateId ?? undefined, brief });
+          if (!active) return;
+          setLocalPlan(sections);
+          useThesisWizard.getState().set({ plan: sections });
+        } catch (e) {
+          if (active) Alert.alert(t("common.error", { defaultValue: "Error" }), e instanceof Error ? e.message : String(e));
         }
       } finally {
         if (active) setGenerating(false);
@@ -66,6 +78,7 @@ export default function ThesisPlanScreen() {
     })();
     return () => {
       active = false;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -167,13 +180,15 @@ export default function ThesisPlanScreen() {
     setCreating(true);
     try {
       const wiz = useThesisWizard.getState();
-      const frontMatter = Object.keys(wiz.fieldValues).length ? wiz.fieldValues : undefined;
+      const hasBrief = Object.values(wiz.brief).some((v) => v && v.trim());
+      const frontMatter: Record<string, unknown> = { ...wiz.fieldValues };
+      if (hasBrief) frontMatter.brief = wiz.brief;
       const created = await createThesis({
         title,
         templateId: templateId ?? undefined,
         language,
         normProfileId: wiz.normProfileId || undefined,
-        frontMatter,
+        frontMatter: Object.keys(frontMatter).length ? frontMatter : undefined,
         sections: localPlan.map((s) => ({
           title: s.title || "Partie",
           kind: s.kind,
