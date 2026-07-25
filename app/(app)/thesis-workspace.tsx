@@ -32,7 +32,6 @@ import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSearchStore } from "@/stores/search-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
-import { useSettingsStore } from "@/stores/settings-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { BackButton } from "@/components/BackButton";
 import { WordDocxView, type DocTapBlock } from "@/components/workspace/WordDocxView";
@@ -283,29 +282,6 @@ export default function ThesisWorkspaceScreen() {
     }, [thesisId, refreshEditorCfg]),
   );
 
-  // ── Composing gate (local-first editing) ────────────────────────────────────
-  // While the user is actually composing — this screen focused, on the Writer
-  // (outline) view, and "sync while editing" off — the doc store's flush pump is
-  // HELD: every edit applies locally (memory + SQLite) with zero network traffic.
-  // The hold releases (and the queue background-syncs, then the drain effect
-  // below refreshes editor-config/history/outline) when the user leaves the
-  // composer: screen blur, switch to the Word/PDF preview, or navigation away.
-  // App-background flush is handled centrally in the doc store.
-  const [screenFocused, setScreenFocused] = useState(false);
-  useFocusEffect(
-    useCallback(() => {
-      setScreenFocused(true);
-      return () => setScreenFocused(false);
-    }, []),
-  );
-  const syncWhileEditing = useSettingsStore((s) => s.syncWhileEditing);
-  useEffect(() => {
-    if (!thesisId || syncWhileEditing || !screenFocused || previewMode !== null) return;
-    const store = useThesisDocStore.getState();
-    store.holdSync(thesisId);
-    return () => store.releaseSync(thesisId);
-  }, [thesisId, syncWhileEditing, screenFocused, previewMode]);
-
   // When the durable edit queue fully drains, the .docx bytes changed on the
   // server → re-fetch the editor config so the OnlyOffice layer (document.key)
   // and the PDF view (keyed on it) reload the fresh bytes. The outline view
@@ -377,20 +353,17 @@ export default function ThesisWorkspaceScreen() {
   // Entering the thesis → sync the Thesis Structure outline into the cache once the
   // live doc is loaded and idle, so the navigator sheet later opens INSTANTLY from
   // cache (no fetch on open). Once per thesis; heading changes re-sync below.
-  // Skipped entirely while the composing gate is held — the drawer renders the
-  // on-device cached outline until the document itself syncs (drain re-syncs it).
-  const syncHeld = useThesisDocStore((s) => s.held[thesisId] ?? false);
   const outlineWarmedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isLiveDoc || !thesisId) return;
-    if (isGenerating || pendingOps > 0 || syncHeld) return;
+    if (isGenerating || pendingOps > 0) return;
     if (outlineWarmedRef.current === thesisId) return;
     const id = setTimeout(() => {
       outlineWarmedRef.current = thesisId;
       void useOutlineStore.getState().sync(thesisId);
     }, 1500);
     return () => clearTimeout(id);
-  }, [isLiveDoc, thesisId, isGenerating, pendingOps, syncHeld]);
+  }, [isLiveDoc, thesisId, isGenerating, pendingOps]);
 
   // Base text direction for rendering. The thesis `language` field is unreliable
   // (imports default to "fr" even for Arabic docs), so detect from the actual
