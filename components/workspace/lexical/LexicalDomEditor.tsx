@@ -79,6 +79,7 @@ import {
   $createBlockDataNode,
   $isBlockDataNode,
   ChromeNode,
+  $isChromeNode,
   type ChromeData,
   MediaContext,
   EditCellContext,
@@ -528,8 +529,25 @@ function EditorBridge({
         // so the native pill shows the image/table/… toolset.
         if ($isNodeSelection(sel)) {
           const nodes = sel.getNodes();
+          // A tapped chrome band (section header/footer/section-break) → NodeSelection
+          // on its display-only ChromeNode. Report it with a "chrome:"-prefixed
+          // blockType so the native side shows the chrome bubble (not a block toolset).
+          // Mutually exclusive with the BlockDataNode path below (a selection is ONE
+          // node): check chrome first, else the structural block.
+          const cn = nodes.length === 1 && $isChromeNode(nodes[0]) ? nodes[0] : null;
           const bd = nodes.length === 1 && $isBlockDataNode(nodes[0]) ? nodes[0] : null;
-          if (bd) {
+          if (cn) {
+            const cd = cn.getData();
+            key = cn.getKey();
+            payload = {
+              bold: false, italic: false, underline: false,
+              blockType: "chrome:" + cd.kind, // "chrome:top" | "chrome:bottom" | "chrome:section"
+              isRTL: cd.rtl, alignment: null,
+              index: cd.startBlockIndex, text: cd.text,
+              blocks: [{ index: cd.startBlockIndex, text: cd.text }],
+              y: -1,
+            };
+          } else if (bd) {
             const idx = $rootChildBlockIndex(bd);
             key = bd.getKey();
             payload = { bold: false, italic: false, underline: false, blockType: bd.getBlock().kind, isRTL: false, alignment: null, index: idx, text: "", blocks: [{ index: idx, text: "" }], y: -1 };
@@ -628,6 +646,10 @@ function FloatingToolbar() {
         }
       } else if ($isNodeSelection(sel)) {
         const ns = sel.getNodes();
+        // Chrome bands (section header/footer/section-break) are display-only and the
+        // native side owns their bubble — never surface the web fallback toolbar for
+        // them (leave `info` null → the toolbar renders nothing).
+        if (ns.length === 1 && $isChromeNode(ns[0])) return;
         if (ns.length === 1 && $isBlockDataNode(ns[0])) info = { key: ns[0].getKey(), kind: "block", block: (ns[0] as BlockDataNode).getBlock().kind, bold: false, italic: false, underline: false };
       }
     });
