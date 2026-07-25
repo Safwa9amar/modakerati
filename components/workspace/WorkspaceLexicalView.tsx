@@ -512,6 +512,26 @@ export function WorkspaceLexicalView({
     }
     scheduleSave();
     if (s.index < 0) return;
+    // A Word chrome band (section header / footer / section-break marker) reports with
+    // blockType "chrome:*" and index = the section's START block index. Park it in the
+    // dedicated chrome slot and CLEAR the normal block selection — otherwise the
+    // block-selection path below would wrongly select the paragraph at that index.
+    if (s.blockType && s.blockType.startsWith("chrome:")) {
+      const kind = s.blockType.slice("chrome:".length) as "top" | "bottom" | "section";
+      const ws = useWorkspaceStore.getState();
+      ws.setChromeSelection({ kind, index: s.index, text: s.text });
+      ws.clearSelection();
+      useLexicalEditorStore.getState().setFormat({
+        bold: false, italic: false, underline: false,
+        blockType: s.blockType, isRTL: s.isRTL, alignment: s.alignment,
+      });
+      if (typeof s.y === "number" && s.y >= 0) {
+        useFloatingPillStore.getState().setAnchorY(editorTopRef.current + s.y);
+      }
+      return;
+    }
+    // Any non-chrome selection clears a stale chrome selection.
+    useWorkspaceStore.getState().setChromeSelection(null);
     useLexicalEditorStore.getState().setFormat({
       bold: s.bold, italic: s.italic, underline: s.underline,
       blockType: s.blockType, isRTL: s.isRTL, alignment: s.alignment,

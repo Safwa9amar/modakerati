@@ -74,6 +74,12 @@ interface WorkspaceState {
   // viewability / scroll). The Structure drawer highlights the heading at/above it
   // so the user always sees where they are — a table-of-contents "you are here".
   activeBlockIndex: number | null;
+  // The currently-selected Word chrome band (a section header / footer / section-break
+  // marker rendered inline in the Writer). Distinct from the block selection: a chrome
+  // band has no editable paragraph, so selecting one clears the block selection and
+  // parks its identity here (`index` = the section's start block index). null = no
+  // chrome band selected. Cleared on any normal block selection.
+  chromeSelection: { kind: "top" | "bottom" | "section"; index: number; text: string } | null;
 
   setThesis: (id: string) => void;
   // Single-select: replace the whole selection with just this block and exit
@@ -114,6 +120,7 @@ interface WorkspaceState {
   setNavigating: (v: boolean) => void;
   flashBlock: (index: number) => void;
   setActiveBlockIndex: (index: number | null) => void;
+  setChromeSelection: (c: { kind: "top" | "bottom" | "section"; index: number; text: string } | null) => void;
   reset: () => void;
 }
 
@@ -137,6 +144,7 @@ const INITIAL = {
   navigating: false,
   flashTarget: null as { index: number; nonce: number } | null,
   activeBlockIndex: null as number | null,
+  chromeSelection: null as { kind: "top" | "bottom" | "section"; index: number; text: string } | null,
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -236,6 +244,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setActiveBlockIndex: (index) =>
     set((s) => (s.activeBlockIndex === index ? {} : { activeBlockIndex: index })),
+
+  // Store the passed object AS-IS (no fresh literal wrapping) — consumers select
+  // `s.chromeSelection` directly, so a new object each call would loop; the caller
+  // owns identity (a stable null when clearing).
+  setChromeSelection: (c) => set({ chromeSelection: c }),
 
   reset: () => set(INITIAL),
 }));
