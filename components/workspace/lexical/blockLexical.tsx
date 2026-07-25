@@ -866,7 +866,7 @@ export class ChromeNode extends DecoratorNode<React.ReactNode> {
   }
   createDOM(): HTMLElement {
     const el = document.createElement("div");
-    el.style.cssText = "margin:6px 0;";
+    el.style.cssText = "";
     el.contentEditable = "false";
     return el;
   }
