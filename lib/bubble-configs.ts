@@ -1,8 +1,10 @@
-import { BarChart3, Heading1, Image as ImageIcon, Shapes, Sparkles, Table, Type, type LucideIcon } from "lucide-react-native";
+import { BarChart3, Heading1, Image as ImageIcon, PanelBottom, PanelTop, SeparatorHorizontal, Shapes, Sparkles, Table, Type, type LucideIcon } from "lucide-react-native";
 import type { DocBlockDTO } from "@/lib/api";
 
-/** Which bubble/toolset family a selection belongs to. "ai" = nothing selected. */
-export type BubbleKind = "ai" | "text" | "heading" | "image" | "chart" | "table" | "other";
+/** Which bubble/toolset family a selection belongs to. "ai" = nothing selected.
+ *  The "hf*" kinds are the Word chrome bands (section top-of-page / bottom-of-page /
+ *  section break) — they have no DocBlockDTO, so they never come from resolveBubbleKind. */
+export type BubbleKind = "ai" | "text" | "heading" | "image" | "chart" | "table" | "other" | "hfTop" | "hfBottom" | "hfSection";
 
 /** Resolve the sole selected block (or null) to its bubble kind. Charts arrive as
  *  image blocks WITHOUT media bytes (the placeholder case); headings are
@@ -24,6 +26,11 @@ export function resolveBubbleKind(block: DocBlockDTO | null | undefined): Bubble
   }
 }
 
+/** Map a chrome-band kind to its bubble family (chrome bands aren't DocBlockDTOs). */
+export function chromeBubbleKind(kind: "top" | "bottom" | "section"): BubbleKind {
+  return kind === "top" ? "hfTop" : kind === "bottom" ? "hfBottom" : "hfSection";
+}
+
 /** Bubble icon per kind — the collapsed circle's glyph. */
 export const BUBBLE_ICONS: Record<BubbleKind, LucideIcon> = {
   ai: Sparkles,
@@ -33,4 +40,7 @@ export const BUBBLE_ICONS: Record<BubbleKind, LucideIcon> = {
   chart: BarChart3,
   table: Table,
   other: Shapes,
+  hfTop: PanelTop,
+  hfBottom: PanelBottom,
+  hfSection: SeparatorHorizontal,
 };
