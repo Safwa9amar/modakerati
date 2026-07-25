@@ -949,6 +949,7 @@ function listItemsOf(list: ListNode): ListItemNode[] {
 function $nodeAtBlockIndex(idx: number): ElementNode | null {
   let acc = 0;
   for (const child of $getRoot().getChildren()) {
+    if ($isChromeNode(child)) continue; // display-only chrome — not a block
     if ($isListNode(child)) {
       const items = listItemsOf(child);
       if (idx < acc + items.length) return items[idx - acc];
@@ -968,6 +969,7 @@ function $nodeAtBlockIndex(idx: number): ElementNode | null {
 function $anyNodeAtBlockIndex(idx: number): LexicalNode | null {
   let acc = 0;
   for (const child of $getRoot().getChildren()) {
+    if ($isChromeNode(child)) continue; // display-only chrome — not a block
     if ($isListNode(child)) {
       const items = listItemsOf(child);
       if (idx < acc + items.length) return items[idx - acc];
@@ -984,6 +986,7 @@ function $anyNodeAtBlockIndex(idx: number): LexicalNode | null {
 function $rootChildBlockIndex(node: LexicalNode): number {
   let acc = 0;
   for (const child of $getRoot().getChildren()) {
+    if ($isChromeNode(child)) continue; // display-only chrome — not a block
     if (child === node) return acc;
     acc += $isListNode(child) ? listItemsOf(child).length : 1;
   }
@@ -999,6 +1002,7 @@ function $blockIndexOfNode(node: LexicalNode): number {
   while (item && !$isListItemNode(item)) item = item.getParent();
   let acc = 0;
   for (const child of $getRoot().getChildren()) {
+    if ($isChromeNode(child)) continue; // display-only chrome — not a block
     if (child === top) {
       if ($isListNode(top) && $isListItemNode(item)) acc += listItemsOf(top).indexOf(item);
       return acc;
