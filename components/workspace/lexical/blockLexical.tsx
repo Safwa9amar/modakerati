@@ -72,6 +72,18 @@ function cellBorderCss(border: TableStyleExtra["border"]): string {
 }
 type ParagraphDTO = Extract<DocBlockDTO, { kind: "paragraph" }>;
 
+export type ChromeKind = "top" | "bottom" | "section";
+
+/** One inline chrome band interleaved into the editor tree (display-only). */
+export type ChromeData = {
+  kind: ChromeKind;
+  sectionIndex: number;    // index into DocumentDTO.sections
+  startBlockIndex: number; // the section's first block index — AI target + pill anchor row
+  text: string;            // running-title text (top) / footer text (bottom); "" allowed
+  label: string;           // localized short band label, e.g. "Top of every page" (baked in natively)
+  rtl: boolean;
+};
+
 // ── Opaque structural-block node (table / image / other) ─────────────────────
 type SerializedBlockDataNode = SerializedLexicalNode & { block: DocBlockDTO };
 
@@ -807,6 +819,89 @@ export function $createBlockDataNode(block: DocBlockDTO): BlockDataNode {
 }
 export function $isBlockDataNode(node: LexicalNode | null | undefined): node is BlockDataNode {
   return node instanceof BlockDataNode;
+}
+
+// ── Display-only chrome band (section header/footer/section-break) ───────────
+type SerializedChromeNode = SerializedLexicalNode & { data: ChromeData };
+
+/** The band rendered inside the WebView for a chrome node. */
+function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }): React.ReactElement {
+  const isSection = data.kind === "section";
+  const glyph = data.kind === "top" ? "⊤" : data.kind === "bottom" ? "⊥" : "§";
+  if (isSection) {
+    return React.createElement(
+      "div",
+      { className: "lx-chrome lx-chrome-break", onClick: onPick },
+      React.createElement("span", { className: "lx-chrome-line" }),
+      React.createElement("span", { className: "lx-chrome-lbl" }, `${glyph} ${data.label}`),
+      React.createElement("span", { className: "lx-chrome-line" }),
+    );
+  }
+  return React.createElement(
+    "div",
+    { className: "lx-chrome lx-chrome-band", dir: data.rtl ? "rtl" : "ltr", onClick: onPick },
+    React.createElement("span", { className: "lx-chrome-tag" }, `${glyph} ${data.label}`),
+    React.createElement("span", { className: "lx-chrome-text" }, data.text || "—"),
+  );
+}
+
+export class ChromeNode extends DecoratorNode<React.ReactNode> {
+  __data: ChromeData;
+
+  static getType(): string {
+    return "doc-chrome";
+  }
+  static clone(node: ChromeNode): ChromeNode {
+    return new ChromeNode(node.__data, node.__key);
+  }
+  constructor(data: ChromeData, key?: NodeKey) {
+    super(key);
+    this.__data = data;
+  }
+  getData(): ChromeData {
+    return this.getLatest().__data;
+  }
+  getTextContent(): string {
+    return ""; // invisible to $lexicalToBlocks / the block model
+  }
+  createDOM(): HTMLElement {
+    const el = document.createElement("div");
+    el.style.cssText = "margin:6px 0;";
+    el.contentEditable = "false";
+    return el;
+  }
+  updateDOM(): false {
+    return false;
+  }
+  isInline(): false {
+    return false;
+  }
+  decorate(editor: LexicalEditor): React.ReactNode {
+    const key = this.getKey();
+    const pick = () =>
+      editor.update(
+        () => {
+          const ns = $createNodeSelection();
+          ns.add(key);
+          $setSelection(ns);
+        },
+        { tag: SKIP_DOM_SELECTION_TAG },
+      );
+    return React.createElement(ChromeBand, { data: this.__data, onPick: pick });
+  }
+  exportJSON(): SerializedChromeNode {
+    return { ...super.exportJSON(), type: "doc-chrome", version: 1, data: this.__data };
+  }
+  static importJSON(json: SerializedChromeNode): ChromeNode {
+    return new ChromeNode(json.data);
+  }
+}
+
+export function $createChromeNode(data: ChromeData): ChromeNode {
+  return new ChromeNode(data);
+}
+export function $isChromeNode(node: LexicalNode | null | undefined): node is ChromeNode {
+  return node instanceof ChromeNode;
 }
 
 // ── AI suggestion node (in-place proposal, replaces its block) ────────────────
