@@ -47,7 +47,8 @@
     "dismissKeyboard": "Masquer le clavier",
     "prevBlock": "Bloc précédent",
     "nextBlock": "Bloc suivant",
-    "search": "Recherche"
+    "search": "Recherche",
+    "sectionMarkers": "Repères de section"
   },
   "common": {
     "continue": "Continuer",

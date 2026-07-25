@@ -182,11 +182,14 @@ export function WorkspaceLexicalView({
   const doc = useThesisDocStore((s) => s.byId[thesisId]);
   const syncedDocRef = useRef<DocumentDTO | undefined>(undefined);
   const inited = useRef(false);
+  // Global view toggle (from the ✦ dock): show/hide the document-structure indicators
+  // (header/footer bands + section markers). Off → no bands, a clean writing view.
+  const showChrome = useWorkspaceStore((s) => s.showChrome);
   // Display-only section chrome bands, interleaved into the initial seed (below) by
   // block index. Reseeds rebuild their own chrome from the reseeded blocks/sections.
   const chrome = useMemo(
-    () => buildChrome(doc?.available ? doc.sections : undefined, blocks, rtl, t),
-    [doc, blocks, rtl, t],
+    () => (showChrome ? buildChrome(doc?.available ? doc.sections : undefined, blocks, rtl, t) : []),
+    [showChrome, doc, blocks, rtl, t],
   );
   // Auth token for loading LARGE figures in the WebView (via <img src>?token=). The
   // server accepts the token query param; refreshed on doc change (freshness).
@@ -357,8 +360,16 @@ export function WorkspaceLexicalView({
     const latest = stripMedia(cur.blocks);
     baselineRef.current = latest;
     syncedDocRef.current = cur;
-    setReseed({ blocks: latest, chrome: buildChrome(cur.sections, latest, rtl, t), nonce: ++reseedNonce.current });
+    setReseed({ blocks: latest, chrome: useWorkspaceStore.getState().showChrome ? buildChrome(cur.sections, latest, rtl, t) : [], nonce: ++reseedNonce.current });
   }, [thesisId, rtl, t]);
+
+  // Toggling the structure indicators reseeds the editor so the bands appear/disappear
+  // in place (no remount → scroll + undo preserved). Skips the initial mount.
+  const chromeToggleMount = useRef(true);
+  useEffect(() => {
+    if (chromeToggleMount.current) { chromeToggleMount.current = false; return; }
+    reseedFromCurrentDoc();
+  }, [showChrome, reseedFromCurrentDoc]);
 
   // Approve/reject/again/edit from the in-editor RANGE node → the native store.
   // Approve applies the replace-range (server echoes the doc → the sync layer reseeds
@@ -488,7 +499,7 @@ export function WorkspaceLexicalView({
       baselineRef.current = latest;
       syncedDocRef.current = doc;
       // in-place, no remount — rebuild the chrome bands from this same reseeded doc.
-      setReseed({ blocks: latest, chrome: buildChrome(doc.sections, latest, rtl, t), nonce: ++reseedNonce.current });
+      setReseed({ blocks: latest, chrome: useWorkspaceStore.getState().showChrome ? buildChrome(doc.sections, latest, rtl, t) : [], nonce: ++reseedNonce.current });
     }
   }, [doc, active, rtl, t]);
 

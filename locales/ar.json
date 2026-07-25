@@ -47,7 +47,8 @@
     "dismissKeyboard": "إخفاء لوحة المفاتيح",
     "prevBlock": "الكتلة السابقة",
     "nextBlock": "الكتلة التالية",
-    "search": "بحث"
+    "search": "بحث",
+    "sectionMarkers": "علامات الأقسام"
   },
   "common": {
     "continue": "متابعة",

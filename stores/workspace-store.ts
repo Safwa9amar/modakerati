@@ -56,6 +56,11 @@ interface WorkspaceState {
   // one being worked on (the inline-edited block, else the single selected block)
   // to reduce distraction while writing. Does not touch the data model.
   focusMode: boolean;
+  // Show/hide the document-structure indicators (header/footer bands + section-break
+  // markers) in the writer — a view toggle (default on) in the global ✦ dock. Reseeds
+  // the editor so the bands appear/disappear in place (keeps scroll).
+  showChrome: boolean;
+  toggleShowChrome: () => void;
   // True while the block-scoped "✦ Ask AI" input is open (the block-anchored AI
   // composer at the screen bottom). Lifted out of BlockComposer so the inline
   // block toolbar pill (rendered on the selected block) can open it, and so the
@@ -143,6 +148,7 @@ const INITIAL = {
   composerOpen: true,
   composerInputFocused: false,
   focusMode: false,
+  showChrome: true,
   askAiOpen: false,
   scrollTarget: null as { index: number; nonce: number } | null,
   navigating: false,
@@ -232,6 +238,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setFocusMode: (v) => set({ focusMode: v }),
 
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
+
+  toggleShowChrome: () => set((s) => ({ showChrome: !s.showChrome })),
 
   setAskAiOpen: (v) => set({ askAiOpen: v }),
 

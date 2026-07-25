@@ -8,7 +8,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { Calculator, ChevronsDownUp, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Rows3, Search, Send, Table2, type LucideIcon } from "lucide-react-native";
+import { Calculator, ChevronsDownUp, Eye, EyeOff, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Rows3, Search, Send, Table2, type LucideIcon } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
@@ -288,6 +288,9 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scop
 
   // Open the top-pinned document search (only offered in the whole-memoir scope —
   // i.e. no block selected). Collapse the dock and drop any preview (Writer-only).
+  // Global view toggle: show/hide the document-structure indicators (header/footer
+  // bands + section markers) in the writer.
+  const showChrome = useWorkspaceStore((s) => s.showChrome);
   const openSearch = () => {
     const ws = useWorkspaceStore.getState();
     if (ws.previewMode != null) ws.closePreview();
@@ -331,6 +334,28 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scop
             <Search size={15} color={colors.textPrimary} strokeWidth={2} />
             <Text numberOfLines={1} style={[styles.actionChipText, { color: colors.textPrimary }]}>
               {t("dockBar.search", { defaultValue: "Search" })}
+            </Text>
+          </AnimatedChip>
+        ) : null}
+        {/* Section-structure indicators on/off — a VIEW toggle (not an AI prompt),
+            global bubble only. Reseeds the writer so the bands appear/disappear. */}
+        {scopeIndices.length === 0 ? (
+          <AnimatedChip
+            onPress={() => useWorkspaceStore.getState().toggleShowChrome()}
+            accessibilityLabel={t("dockBar.sectionMarkers", { defaultValue: "Section markers" })}
+            enterIndex={2}
+            style={[
+              styles.actionChip,
+              { flexDirection, borderColor: showChrome ? colors.brandPrimary : colors.borderDefault, backgroundColor: showChrome ? colors.brandPrimary : colors.bgCard },
+            ]}
+          >
+            {showChrome ? (
+              <Eye size={15} color={colors.bgPrimary} strokeWidth={2} />
+            ) : (
+              <EyeOff size={15} color={colors.textPrimary} strokeWidth={2} />
+            )}
+            <Text numberOfLines={1} style={[styles.actionChipText, { color: showChrome ? colors.bgPrimary : colors.textPrimary }]}>
+              {t("dockBar.sectionMarkers", { defaultValue: "Section markers" })}
             </Text>
           </AnimatedChip>
         ) : null}

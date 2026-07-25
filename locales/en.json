@@ -47,7 +47,8 @@
     "dismissKeyboard": "Dismiss keyboard",
     "prevBlock": "Previous block",
     "nextBlock": "Next block",
-    "search": "Search"
+    "search": "Search",
+    "sectionMarkers": "Section markers"
   },
   "common": {
     "continue": "Continue",
