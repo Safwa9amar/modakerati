@@ -647,7 +647,14 @@ export type DocBlockDTO =
 // One Word section's page chrome (mirror of the server's DocSectionDTO).
 export type DocSectionDTO = {
   startBlockIndex: number;
-  header: { text: string } | null;
+  header: {
+    text: string;
+    // Tab-separated positioned parts (e.g. a right/left running header → two entries)
+    // so the writer's band renders the header faithfully, not concatenated.
+    segments: string[];
+    // The header's bottom rule (Word's header line): present + 6-hex colour|null.
+    border: { bottom: boolean; color: string | null };
+  } | null;
   footer: {
     text: string; // "" when the footer is page-numbers-only
     pageNumbers: { format: string; startAt: number | null } | null;

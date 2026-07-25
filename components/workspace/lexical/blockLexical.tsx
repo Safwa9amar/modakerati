@@ -82,6 +82,11 @@ export type ChromeData = {
   text: string;            // running-title text (top) / footer text (bottom); "" allowed
   label: string;           // localized short band label, e.g. "Top of every page" (baked in natively)
   rtl: boolean;
+  // Top band only: the header's tab-positioned segments + bottom rule, so the band
+  // renders like the docx (two parts spread apart + the brown line) instead of the
+  // concatenated flat `text`. Absent/empty → fall back to `text`.
+  segments?: string[];
+  border?: { bottom: boolean; color: string | null };
 };
 
 // ── Opaque structural-block node (table / image / other) ─────────────────────
@@ -835,6 +840,27 @@ function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }):
       React.createElement("span", { className: "lx-chrome-line" }),
       React.createElement("span", { className: "lx-chrome-lbl" }, `${glyph} ${data.label}`),
       React.createElement("span", { className: "lx-chrome-line" }),
+    );
+  }
+  // Header with tab-positioned segments → render like the docx: the parts spread
+  // across the row (space-between) with the bottom rule (its own colour, or the
+  // thesis brown) underneath, instead of the concatenated flat text.
+  if (data.kind === "top" && data.segments && data.segments.length) {
+    const ruleColor = data.border?.bottom ? (data.border.color ? `#${data.border.color}` : "#9A5A31") : null;
+    return React.createElement(
+      "div",
+      { className: "lx-chrome lx-chrome-band lx-chrome-hdr", dir: data.rtl ? "rtl" : "ltr", onClick: onPick },
+      React.createElement("span", { className: "lx-chrome-tag" }, `${glyph} ${data.label}`),
+      React.createElement(
+        "div",
+        { className: "lx-chrome-hdr-preview" },
+        React.createElement(
+          "div",
+          { className: "lx-chrome-hdr-row" },
+          data.segments.map((seg, i) => React.createElement("span", { key: i, className: "lx-chrome-hdr-seg" }, seg || " ")),
+        ),
+        ruleColor ? React.createElement("div", { className: "lx-chrome-hdr-rule", style: { background: ruleColor } }) : null,
+      ),
     );
   }
   return React.createElement(

@@ -72,7 +72,8 @@ function buildChrome(
     }
     if (s.header) {
       out.push({ kind: "top", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: s.header.text,
-        label: t("workspace.hf.topOfPage", { defaultValue: "Top of every page" }), rtl });
+        label: t("workspace.hf.topOfPage", { defaultValue: "Top of every page" }), rtl,
+        segments: s.header.segments, border: s.header.border });
     }
     if (s.footer) {
       const bottomText = s.footer.text || t("workspace.hf.pageNumberValue", { defaultValue: "page number" });
