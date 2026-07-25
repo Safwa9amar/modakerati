@@ -1426,27 +1426,52 @@ function blockList(b: DocBlockDTO): "bullet" | "number" | null {
   return l === "bullet" || l === "number" ? l : null;
 }
 
-export function $blocksToLexical(blocks: DocBlockDTO[]): void {
+export function $blocksToLexical(blocks: DocBlockDTO[], chrome?: ChromeData[]): void {
   const root = $getRoot();
   root.clear();
+
+  // "top" + "section" bands render BEFORE the block at their startBlockIndex.
+  // "bottom" bands render AFTER the block at their startBlockIndex (anchor = last block of the section,
+  // computed natively in WorkspaceLexicalView). Interleave by BLOCK INDEX (b.index),
+  // not the loop counter — a list run collapses multiple blocks into one node.
+  const before = new Map<number, ChromeData[]>();
+  const after = new Map<number, ChromeData[]>();
+  for (const c of chrome ?? []) {
+    const map = c.kind === "bottom" ? after : before;
+    const arr = map.get(c.startBlockIndex) ?? [];
+    arr.push(c);
+    map.set(c.startBlockIndex, arr);
+  }
+  const emitBefore = (idx: number) => {
+    for (const c of before.get(idx) ?? []) root.append($createChromeNode(c));
+  };
+  const emitAfter = (idx: number) => {
+    for (const c of after.get(idx) ?? []) root.append($createChromeNode(c));
+  };
+
   let i = 0;
   while (i < blocks.length) {
     const b = blocks[i];
     const lk = b.kind === "paragraph" ? blockList(b) : null;
     // A run of consecutive same-kind list paragraphs → ONE Lexical list.
     if (b.kind === "paragraph" && lk) {
+      emitBefore(blocks[i].index);
       const listNode = $createListNode(lk === "number" ? "number" : "bullet");
+      let lastIdx = blocks[i].index;
       while (i < blocks.length && blocks[i].kind === "paragraph" && blockList(blocks[i]) === lk) {
         const bb = blocks[i] as ParagraphDTO;
         const li = $createListItemNode();
         appendRuns(li, bb);
         if (bb.direction) li.setDirection(bb.direction);
         listNode.append(li);
+        lastIdx = bb.index;
         i++;
       }
       root.append(listNode);
+      emitAfter(lastIdx);
       continue;
     }
+    emitBefore(b.index);
     if (b.kind === "paragraph") {
       const el: ElementNode =
         b.level >= 1
@@ -1460,6 +1485,7 @@ export function $blocksToLexical(blocks: DocBlockDTO[]): void {
     } else {
       root.append($createBlockDataNode(b));
     }
+    emitAfter(b.index);
     i++;
   }
   if (root.getFirstChild() === null) root.append($createParagraphNode());

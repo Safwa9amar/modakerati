@@ -4,7 +4,10 @@ import { View, Text, StyleSheet, AppState, ActivityIndicator } from "react-nativ
 import { useFocusEffect } from "expo-router";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
-import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocumentDTO } from "@/lib/api";
+// type-only — blockLexical is a web-only ('use dom') module; importing the type is
+// erased at compile time so no Lexical/DOM globals enter this native bundle.
+import type { ChromeData } from "@/components/workspace/lexical/blockLexical";
+import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocSectionDTO, type DocumentDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
@@ -47,6 +50,39 @@ function stripMedia(blocks: DocBlockDTO[]): DocBlockDTO[] {
   });
 }
 
+// Build the display-only chrome bands (section header / footer / section-break) that
+// $blocksToLexical interleaves into the editor tree by BLOCK INDEX. One "section"
+// marker before each section after the first, a "top" band for a section header, and
+// a "bottom" band for a footer anchored at the section's LAST block index (so it
+// renders after that block). Text is baked native-side (the DOM bundle has no i18n).
+function buildChrome(
+  sections: DocSectionDTO[] | undefined,
+  blocks: DocBlockDTO[],
+  rtl: boolean,
+  t: (k: string, o?: Record<string, unknown>) => string,
+): ChromeData[] {
+  if (!sections || sections.length === 0 || blocks.length === 0) return [];
+  const lastIdx = blocks[blocks.length - 1].index;
+  const out: ChromeData[] = [];
+  sections.forEach((s, si) => {
+    const nextStart = sections[si + 1]?.startBlockIndex ?? lastIdx + 1;
+    if (si > 0) {
+      out.push({ kind: "section", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: "",
+        label: t("workspace.hf.newSectionHere", { defaultValue: "New section" }), rtl });
+    }
+    if (s.header) {
+      out.push({ kind: "top", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: s.header.text,
+        label: t("workspace.hf.topOfPage", { defaultValue: "Top of every page" }), rtl });
+    }
+    if (s.footer) {
+      const bottomText = s.footer.text || t("workspace.hf.pageNumberValue", { defaultValue: "page number" });
+      out.push({ kind: "bottom", sectionIndex: si, startBlockIndex: Math.max(s.startBlockIndex, nextStart - 1),
+        text: bottomText, label: t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" }), rtl });
+    }
+  });
+  return out;
+}
+
 export function WorkspaceLexicalView({
   thesisId,
   blocks,
@@ -59,11 +95,12 @@ export function WorkspaceLexicalView({
   active: boolean;
 }) {
   const colors = useThemeColors();
+  const { t } = useTranslation();
   const baselineRef = useRef<DocBlockDTO[]>(stripMedia(blocks));
   const [seed, setSeed] = useState<DocBlockDTO[]>(baselineRef.current);
   const [seedNonce, setSeedNonce] = useState(0);
   // In-place reconcile trigger (surgical reseed — no remount) for external edits.
-  const [reseed, setReseed] = useState<{ blocks: DocBlockDTO[]; nonce: number } | undefined>(undefined);
+  const [reseed, setReseed] = useState<{ blocks: DocBlockDTO[]; chrome?: ChromeData[]; nonce: number } | undefined>(undefined);
   const reseedNonce = useRef(0);
   // Commands (formatting from the native pill + our own serialize) flow through the
   // shared editor store so BlockContextBar can drive Lexical directly.
@@ -144,6 +181,12 @@ export function WorkspaceLexicalView({
   const doc = useThesisDocStore((s) => s.byId[thesisId]);
   const syncedDocRef = useRef<DocumentDTO | undefined>(undefined);
   const inited = useRef(false);
+  // Display-only section chrome bands, interleaved into the initial seed (below) by
+  // block index. Reseeds rebuild their own chrome from the reseeded blocks/sections.
+  const chrome = useMemo(
+    () => buildChrome(doc?.available ? doc.sections : undefined, blocks, rtl, t),
+    [doc, blocks, rtl, t],
+  );
   // Auth token for loading LARGE figures in the WebView (via <img src>?token=). The
   // server accepts the token query param; refreshed on doc change (freshness).
   const [mediaToken, setMediaToken] = useState("");
@@ -313,8 +356,8 @@ export function WorkspaceLexicalView({
     const latest = stripMedia(cur.blocks);
     baselineRef.current = latest;
     syncedDocRef.current = cur;
-    setReseed({ blocks: latest, nonce: ++reseedNonce.current });
-  }, [thesisId]);
+    setReseed({ blocks: latest, chrome: buildChrome(cur.sections, latest, rtl, t), nonce: ++reseedNonce.current });
+  }, [thesisId, rtl, t]);
 
   // Approve/reject/again/edit from the in-editor RANGE node → the native store.
   // Approve applies the replace-range (server echoes the doc → the sync layer reseeds
@@ -443,9 +486,10 @@ export function WorkspaceLexicalView({
       const latest = stripMedia(doc.blocks);
       baselineRef.current = latest;
       syncedDocRef.current = doc;
-      setReseed({ blocks: latest, nonce: ++reseedNonce.current }); // in-place, no remount
+      // in-place, no remount — rebuild the chrome bands from this same reseeded doc.
+      setReseed({ blocks: latest, chrome: buildChrome(doc.sections, latest, rtl, t), nonce: ++reseedNonce.current });
     }
-  }, [doc, active]);
+  }, [doc, active, rtl, t]);
 
   // Auto-sync (no manual Save): the Writer ALWAYS saves to the server shortly
   // after the user pauses. (Debounced, because Lexical edits — unlike the durable
@@ -555,7 +599,6 @@ export function WorkspaceLexicalView({
   // reconciles via plain setDoc — the reseed re-renders the approved table
   // (scroll is pinned by the reseed path). Reject/dismiss just clears the store.
   // Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
-  const { t } = useTranslation();
   const tblProposal = useTableSuggestionStore((s) => s.proposal);
   const tblLoadingIndex = useTableSuggestionStore((s) => s.loadingIndex);
   const tblThinking = useTableSuggestionStore((s) => s.thinking);
@@ -706,6 +749,7 @@ export function WorkspaceLexicalView({
         <LexicalDomEditor
           key={`ws:${thesisId}:${seedNonce}`}
           initialBlocks={seed}
+          chrome={chrome}
           command={command}
           onState={onState}
           onInsertTrigger={onInsertTrigger}

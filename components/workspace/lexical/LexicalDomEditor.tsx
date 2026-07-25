@@ -79,6 +79,7 @@ import {
   $createBlockDataNode,
   $isBlockDataNode,
   ChromeNode,
+  type ChromeData,
   MediaContext,
   EditCellContext,
   TableProposalContext,
@@ -378,7 +379,7 @@ function EditorBridge({
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
   onBlocks?: (blocks: DocBlockDTO[]) => void;
-  reseed?: { blocks: DocBlockDTO[]; nonce: number };
+  reseed?: { blocks: DocBlockDTO[]; chrome?: ChromeData[]; nonce: number };
   scrollToIndex?: { index: number; nonce: number };
 }) {
   const [editor] = useLexicalComposerContext();
@@ -392,7 +393,7 @@ function EditorBridge({
     // rebuild otherwise leaves the caret at the document END and the WebView
     // re-focuses + scrolls it into view (the reported "Approve jumps to the
     // bottom"). No focus, no caret → nothing to scroll to.
-    withScrollPinned(editor, () => { $blocksToLexical(reseed.blocks); $setSelection(null); }, true);
+    withScrollPinned(editor, () => { $blocksToLexical(reseed.blocks, reseed.chrome); $setSelection(null); }, true);
     // An authoritative external apply (AI turn, server restore, table op) replaced
     // the content — undoing PAST it would silently revert that apply and sync the
     // reversion. Drop the in-editor stack; the server history ring covers those
@@ -1606,6 +1607,7 @@ export default function LexicalDomEditor({
   onState,
   onBlocks,
   initialBlocks,
+  chrome,
   reseed,
   scrollToIndex,
   suggestion,
@@ -1638,9 +1640,12 @@ export default function LexicalDomEditor({
   onBlocks?: (blocks: DocBlockDTO[]) => void;
   // When provided, the editor is seeded FROM these blocks instead of the demo text.
   initialBlocks?: DocBlockDTO[];
+  // Display-only section chrome (header/footer/section-break bands) interleaved into
+  // the seed/reseed by BLOCK INDEX; carried alongside `initialBlocks` and `reseed`.
+  chrome?: ChromeData[];
   // In-place reconcile trigger: on nonce change, rebuild content from `blocks`
-  // WITHOUT remounting (used to reflect external native/AI edits).
-  reseed?: { blocks: DocBlockDTO[]; nonce: number };
+  // (+ its chrome) WITHOUT remounting (used to reflect external native/AI edits).
+  reseed?: { blocks: DocBlockDTO[]; chrome?: ChromeData[]; nonce: number };
   // Outline-drawer navigation: on nonce change, scroll the block at `index` into view.
   scrollToIndex?: { index: number; nonce: number };
   // Pending AI proposal to render in-flow, and its approve/reject callback.
@@ -1701,7 +1706,7 @@ export default function LexicalDomEditor({
     theme,
     onError: (error: Error) => console.error("[lexical]", error),
     nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode, RangeSuggestionNode, GhostCompletionNode, ChromeNode],
-    editorState: () => (initialBlocks && initialBlocks.length ? $blocksToLexical(initialBlocks) : seed()),
+    editorState: () => (initialBlocks && initialBlocks.length ? $blocksToLexical(initialBlocks, chrome) : seed()),
   };
 
   return (
