@@ -6,7 +6,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
 // type-only — blockLexical is a web-only ('use dom') module; importing the type is
 // erased at compile time so no Lexical/DOM globals enter this native bundle.
-import type { ChromeData } from "@/components/workspace/lexical/blockLexical";
+import type { ChromeData, ChromeKind } from "@/components/workspace/lexical/blockLexical";
 import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocSectionDTO, type DocumentDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -517,7 +517,7 @@ export function WorkspaceLexicalView({
     // dedicated chrome slot and CLEAR the normal block selection — otherwise the
     // block-selection path below would wrongly select the paragraph at that index.
     if (s.blockType && s.blockType.startsWith("chrome:")) {
-      const kind = s.blockType.slice("chrome:".length) as "top" | "bottom" | "section";
+      const kind = s.blockType.slice("chrome:".length) as ChromeKind;
       const ws = useWorkspaceStore.getState();
       ws.setChromeSelection({ kind, index: s.index, text: s.text });
       ws.clearSelection();

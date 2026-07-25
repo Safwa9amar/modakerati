@@ -1,6 +1,10 @@
 import { create } from "zustand";
+import type { ChromeKind } from "@/components/workspace/lexical/blockLexical";
 
 export type ActivePanel = "sources" | "outline" | null;
+
+/** A selected Word chrome band (section header / footer / section-break marker). */
+export type ChromeSelection = { kind: ChromeKind; index: number; text: string };
 // The native outline ("the Writer") is the single editing surface. A read-only
 // preview overlay may sit on top of it: "docx" = Word-fidelity pages (OnlyOffice /
 // docx-preview), "pdf" = the OnlyOffice-converted PDF (PDF.js). null = writing
@@ -79,7 +83,7 @@ interface WorkspaceState {
   // band has no editable paragraph, so selecting one clears the block selection and
   // parks its identity here (`index` = the section's start block index). null = no
   // chrome band selected. Cleared on any normal block selection.
-  chromeSelection: { kind: "top" | "bottom" | "section"; index: number; text: string } | null;
+  chromeSelection: ChromeSelection | null;
 
   setThesis: (id: string) => void;
   // Single-select: replace the whole selection with just this block and exit
@@ -120,7 +124,7 @@ interface WorkspaceState {
   setNavigating: (v: boolean) => void;
   flashBlock: (index: number) => void;
   setActiveBlockIndex: (index: number | null) => void;
-  setChromeSelection: (c: { kind: "top" | "bottom" | "section"; index: number; text: string } | null) => void;
+  setChromeSelection: (c: ChromeSelection | null) => void;
   reset: () => void;
 }
 
@@ -144,7 +148,7 @@ const INITIAL = {
   navigating: false,
   flashTarget: null as { index: number; nonce: number } | null,
   activeBlockIndex: null as number | null,
-  chromeSelection: null as { kind: "top" | "bottom" | "section"; index: number; text: string } | null,
+  chromeSelection: null as ChromeSelection | null,
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -246,9 +250,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set((s) => (s.activeBlockIndex === index ? {} : { activeBlockIndex: index })),
 
   // Store the passed object AS-IS (no fresh literal wrapping) — consumers select
-  // `s.chromeSelection` directly, so a new object each call would loop; the caller
-  // owns identity (a stable null when clearing).
-  setChromeSelection: (c) => set({ chromeSelection: c }),
+  // `s.chromeSelection` directly, so a new object each call would loop. Guard the
+  // no-op case: setChromeSelection(null) fires on every non-chrome onState tick
+  // (every keystroke/caret move), so bail when nothing actually changes.
+  setChromeSelection: (c) =>
+    set((s) => {
+      const cur = s.chromeSelection;
+      if (cur === c) return {};
+      if (cur == null && c == null) return {};
+      if (cur && c && cur.kind === c.kind && cur.index === c.index && cur.text === c.text) return {};
+      return { chromeSelection: c };
+    }),
 
   reset: () => set(INITIAL),
 }));
