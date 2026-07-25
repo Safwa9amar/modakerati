@@ -243,10 +243,12 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 .lx-chrome-lbl { font-size: 10px; font-weight: 800; color: #9A5A31; padding: 3px 9px;
   border: 1px solid rgba(154,90,49,.35); border-radius: 20px; white-space: nowrap; }
 /* Faithful header preview: the tab-positioned segments spread apart + the bottom rule. */
-.lx-chrome-hdr { align-items: stretch; }
-.lx-chrome-hdr-preview { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.lx-chrome-hdr-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.lx-chrome-hdr-seg { font-size: 12.5px; font-weight: 700; color: #2A2622; white-space: nowrap;
+/* The header preview renders CLEAN — like the real running head (the parts spread +
+   the rule), NOT a dashed UI box: override the .lx-chrome-band chrome look. */
+.lx-chrome-hdr { align-items: stretch; border: none; background: transparent; padding: 10px 2px 4px; margin: 2px 0; }
+.lx-chrome-hdr-preview { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.lx-chrome-hdr-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.lx-chrome-hdr-seg { font-size: 13.5px; font-weight: 700; color: #1A1A26; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .lx-chrome-hdr-rule { height: 2px; border-radius: 1px; }
 /* AI inline autocomplete ghost text — dim, non-selectable, tap/swipe to accept. */
