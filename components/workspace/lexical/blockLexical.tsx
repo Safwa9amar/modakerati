@@ -847,10 +847,11 @@ function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }):
   // thesis brown) underneath, instead of the concatenated flat text.
   if (data.kind === "top" && data.segments && data.segments.length) {
     const ruleColor = data.border?.bottom ? (data.border.color ? `#${data.border.color}` : "#9A5A31") : null;
+    // No "Top of every page" tag here — the faithful preview (segments + rule) reads
+    // as the header on its own; the plain-language label still shows in the bubble.
     return React.createElement(
       "div",
       { className: "lx-chrome lx-chrome-band lx-chrome-hdr", dir: data.rtl ? "rtl" : "ltr", onClick: onPick },
-      React.createElement("span", { className: "lx-chrome-tag" }, `${glyph} ${data.label}`),
       React.createElement(
         "div",
         { className: "lx-chrome-hdr-preview" },
