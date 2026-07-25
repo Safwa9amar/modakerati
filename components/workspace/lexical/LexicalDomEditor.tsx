@@ -44,6 +44,7 @@ import { mergeRegister } from "@lexical/utils";
 import {
   $getRoot,
   $getNodeByKey,
+  $getNearestNodeFromDOMNode,
   $addUpdateTag,
   $getSelection,
   $setSelection,
@@ -829,8 +830,22 @@ function ScrollSyncPlugin({
       if (kids && kids.length) {
         const i = lxFirstVisible(kids);
         if (i >= 0) {
-          const r = kids[i].getBoundingClientRect();
-          return { y: window.scrollY, index: i, delta: Math.max(0, Math.round(-r.top)) };
+          const el = kids[i] as HTMLElement;
+          const r = el.getBoundingClientRect();
+          // Report a BLOCK index (chrome bands skipped, lists expanded), NOT the raw
+          // DOM child index. Chrome bands (section header/footer/break) render as
+          // top-level root DOM children but are excluded from the block model, so a
+          // raw DOM index wouldn't line up with the chrome-aware $anyNodeAtBlockIndex
+          // used on restore — it'd be off by the chrome count for every block below
+          // the first band. Map the first-visible element → its Lexical node → block
+          // index; if that element is a chrome band, anchor to the block it precedes.
+          let index = -1;
+          editor.getEditorState().read(() => {
+            let node = $getNearestNodeFromDOMNode(el);
+            while (node && $isChromeNode(node)) node = node.getNextSibling();
+            if (node) index = $blockIndexOfNode(node);
+          });
+          return { y: window.scrollY, index, delta: Math.max(0, Math.round(-r.top)) };
         }
       }
       return { y: window.scrollY, index: -1, delta: 0 };
@@ -887,6 +902,19 @@ function ScrollSyncPlugin({
     };
     cancelRestoreRef.current = finish;
 
+    // Resolve the anchor's BLOCK index → node → its DOM element via the chrome-aware
+    // $anyNodeAtBlockIndex (chrome bands are top-level root DOM children but excluded
+    // from the block model, so indexing raw DOM children would be off by the chrome
+    // count for every block below the first band). Resolve the KEY once: the tree
+    // isn't edited while layout settles, so the target node is stable across the
+    // window — only its element geometry changes per frame. A null key (index out of
+    // range) leaves `el` null below, preserving the original no-op guard.
+    let targetKey: string | null = null;
+    editor.getEditorState().read(() => {
+      const node = $anyNodeAtBlockIndex(a.index);
+      targetKey = node ? node.getKey() : null;
+    });
+
     // Re-apply the anchor every frame while a big doc is still laying out (its
     // scrollHeight keeps growing), and only finish once the page has STOPPED growing
     // for several frames — i.e. layout is actually complete and the last scrollIntoView
@@ -899,8 +927,10 @@ function ScrollSyncPlugin({
       const h = document.documentElement.scrollHeight;
       hStable = h === lastH ? hStable + 1 : 0;
       lastH = h;
-      const kids = lxGetRoot(editor)?.children;
-      const el = kids && a.index < kids.length ? (kids[a.index] as HTMLElement) : null;
+      // Resolve the block index → DOM element via the chrome-aware key computed
+      // above. Raw root DOM children now include chrome bands, so kids[a.index]
+      // would be off by the chrome count for every block below the first band.
+      const el = targetKey ? editor.getElementByKey(targetKey) : null;
       if (el) {
         el.scrollIntoView({ block: "start" });
         if (a.delta > 0) window.scrollBy(0, a.delta);
