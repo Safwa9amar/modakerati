@@ -78,6 +78,7 @@ import {
   BlockDataNode,
   $createBlockDataNode,
   $isBlockDataNode,
+  ChromeNode,
   MediaContext,
   EditCellContext,
   TableProposalContext,
@@ -1699,7 +1700,7 @@ export default function LexicalDomEditor({
     namespace: "modakerati-lexical-lab",
     theme,
     onError: (error: Error) => console.error("[lexical]", error),
-    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode, RangeSuggestionNode, GhostCompletionNode],
+    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode, RangeSuggestionNode, GhostCompletionNode, ChromeNode],
     editorState: () => (initialBlocks && initialBlocks.length ? $blocksToLexical(initialBlocks) : seed()),
   };
 

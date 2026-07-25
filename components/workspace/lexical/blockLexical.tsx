@@ -1469,6 +1469,7 @@ export function $blocksToLexical(blocks: DocBlockDTO[]): void {
 export function $lexicalToBlocks(): DocBlockDTO[] {
   const out: DocBlockDTO[] = [];
   for (const node of $getRoot().getChildren()) {
+    if ($isChromeNode(node)) continue; // display-only chrome — never serializes to a block
     if ($isSuggestionNode(node)) {
       // A pending proposal occupies its block's slot — serialize the ORIGINAL block
       // (unapplied) so a flush while it's showing never drops or mutates the block.
