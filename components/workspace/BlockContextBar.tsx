@@ -71,7 +71,7 @@ import { useSearchStore } from "@/stores/search-store";
 import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
-import { resolveBubbleKind, type BubbleKind } from "@/lib/bubble-configs";
+import { resolveBubbleKind, chromeBubbleKind, type BubbleKind } from "@/lib/bubble-configs";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
 import { chipOut, layoutSpring, pillIn, pillOutUnlessHandoff, rowIn, rowOutUnlessHandoff, SPRING_SOFT } from "@/lib/motion";
@@ -193,6 +193,10 @@ interface Props {
    *  docked bar never passes it. */
   onCollapse?: () => void;
   blocks?: DocBlockDTO[];
+  /** When set, the selection is a Word chrome band (running header / footer / section
+   *  break) rather than a block. The bar morphs to the chrome toolset using the SAME
+   *  pill shell + entrance/expansion/morph animations as every other kind. */
+  chrome?: { kind: "top" | "bottom" | "section"; index: number; text: string } | null;
 }
 
 /**
@@ -220,6 +224,7 @@ export function BlockContextBar({
   bottomInset,
   onCollapse,
   blocks,
+  chrome,
 }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -272,7 +277,10 @@ export function BlockContextBar({
   // glyph and the toolset can never disagree. `isImage` is true ONLY for a real
   // picture (media bytes present) — a chart is an "image" kind block too but
   // WITHOUT bytes, so it must not get the picture ops (rotate/crop/removeBg).
-  const bubbleKind: BubbleKind = resolveBubbleKind(selectedBlock);
+  const bubbleKind: BubbleKind = chrome ? chromeBubbleKind(chrome.kind) : resolveBubbleKind(selectedBlock);
+  // A Word chrome band (top-of-page / bottom-of-page / section break) — no block
+  // formatting applies; the shell + ✦ Ask carry it, morphing in like any other kind.
+  const isChrome = bubbleKind === "hfTop" || bubbleKind === "hfBottom" || bubbleKind === "hfSection";
   const isImage = bubbleKind === "image";
   const isTable = bubbleKind === "table";
   // Chart placeholders and raw "other" OOXML blocks share a minimal toolset
@@ -698,17 +706,32 @@ export function BlockContextBar({
   // ops either. ──
   const minimalTools = <>{imageMoveDeleteChips(0)}</>;
 
+  // Chrome bands are AI-first in v1: the only action is ✦ Ask (pinned in the shell),
+  // so the tool row is empty. The pill still uses the identical shell + entrance/
+  // expansion/morph animations — chrome is just another toolsetKind.
+  const chromeTools = <></>;
+
   // Resolve the toolset for the current block kind + form.
-  const compactTools = isImage
-    ? imagePillTools
-    : isTable
-      ? tableTools
-      : isMinimal
-        ? minimalTools
-        : bubbleKind === "heading"
-          ? headingPillTools
-          : pillTools;
-  const expandedTools = isImage ? imageFullTools : isTable ? tableTools : isMinimal ? minimalTools : fullTools;
+  const compactTools = isChrome
+    ? chromeTools
+    : isImage
+      ? imagePillTools
+      : isTable
+        ? tableTools
+        : isMinimal
+          ? minimalTools
+          : bubbleKind === "heading"
+            ? headingPillTools
+            : pillTools;
+  const expandedTools = isChrome
+    ? chromeTools
+    : isImage
+      ? imageFullTools
+      : isTable
+        ? tableTools
+        : isMinimal
+          ? minimalTools
+          : fullTools;
 
   const AskAI = (
     <Pressable
