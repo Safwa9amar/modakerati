@@ -447,17 +447,13 @@ export function WorkspaceLexicalView({
     }
   }, [doc, active]);
 
-  // Auto-sync (no manual Save): mirror the native gate — hold while actively
-  // editing, then background-flush shortly after the user pauses. (Debounced,
-  // because Lexical edits — unlike the durable op-queue — aren't in SQLite, so a
-  // pause-save avoids losing work if the app is backgrounded/killed.)
+  // Auto-sync (no manual Save): the Writer ALWAYS saves to the server shortly
+  // after the user pauses. (Debounced, because Lexical edits — unlike the durable
+  // op-queue — aren't in SQLite, so this pause-save is the only thing that stops
+  // work being lost if the app is backgrounded/killed. There is no local-first
+  // path here: skipping the save left edits nowhere, so they died on restart.)
   const scheduleSave = useCallback(() => {
     if (suggestionActiveRef.current) return; // a pending AI proposal is in the editor — don't serialize it
-    // Mirror the legacy composing gate: while editing we DON'T periodically flush
-    // (a per-pause API call is what flooded the server) — everything persists in
-    // ONE batched /ops call on leave/background. Only the explicit "sync while
-    // editing" setting re-enables the periodic flush.
-    if (!useSettingsStore.getState().syncWhileEditing) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { saveTimer.current = null; pendingSave.current = true; send("serialize"); }, 1500);
   }, [send]);

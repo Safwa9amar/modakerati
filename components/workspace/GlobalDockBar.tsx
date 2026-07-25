@@ -112,7 +112,6 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
   const canUndo = useThesisDocStore((s) => s.history[thesisId]?.canUndo ?? false);
   const canRedo = useThesisDocStore((s) => s.history[thesisId]?.canRedo ?? false);
   const pendingOps = useThesisDocStore((s) => s.pending[thesisId] ?? 0);
-  const syncHeld = useThesisDocStore((s) => s.held[thesisId] ?? false);
   const isGenerating = useChatStore((s) => s.isGenerating);
 
   const [historyBusy, setHistoryBusy] = useState(false);
@@ -304,10 +303,8 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
     </View>
   );
 
-  // Pulse only while ops are actually flushing to the server. While the composing
-  // gate holds them (local-first editing) nothing is in flight — the header
-  // shows no passive sync indicator anymore, so no dot here either.
-  const saving = pendingOps > 0 && !syncHeld;
+  // Pulse only while ops are actually flushing to the server.
+  const saving = pendingOps > 0;
 
   const renderPageSetupExpansion = () => {
     if (!pageSetupOpen) return null;
