@@ -840,7 +840,11 @@ function ScrollSyncPlugin({
           // the first band. Map the first-visible element → its Lexical node → block
           // index; if that element is a chrome band, anchor to the block it precedes.
           let index = -1;
-          editor.getEditorState().read(() => {
+          // editor.read (NOT getEditorState().read): $getNearestNodeFromDOMNode maps a
+          // DOM node → Lexical node via the editor's key↔DOM map, so it needs the active
+          // EDITOR bound, not just the active state (getEditorState().read binds only the
+          // state → getActiveEditor() throws "no active editor").
+          editor.read(() => {
             let node = $getNearestNodeFromDOMNode(el);
             while (node && $isChromeNode(node)) node = node.getNextSibling();
             if (node) index = $blockIndexOfNode(node);
