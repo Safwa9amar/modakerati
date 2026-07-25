@@ -1078,6 +1078,22 @@ export async function applyThesisOps(
   return apiPost<{ ok: true; applied: number; skipped: string[]; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/ops`, { ops });
 }
 
+// Direct (non-AI) header/footer/section-break edits for the writer's chrome-band
+// bubble. `index` is a block index INSIDE the target Word section (the band's
+// startBlockIndex). Server applies via the mdocxengine section API and echoes the
+// mutated document for the optimistic doc store.
+export type ChromeOp =
+  | { op: "setHeaderText"; index: number; text: string }
+  | { op: "setFooter"; index: number; text: string; pageNumbers: boolean; alignment?: "left" | "center" | "right" }
+  | { op: "startOnNewPage"; index: number; breakType?: "nextPage" | "evenPage" | "oddPage" };
+
+export async function chromeOp(
+  thesisId: string,
+  op: ChromeOp,
+): Promise<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/chrome-op`, op);
+}
+
 // Bulk-delete several live-.docx thesis blocks at once (the workspace multi-select).
 // `indices` are engine block indices; the server removes them high-to-low so they
 // stay valid as the list shrinks. Shares the AI's thesis lock.

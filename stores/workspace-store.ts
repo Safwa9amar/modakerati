@@ -4,7 +4,7 @@ import type { ChromeKind } from "@/components/workspace/lexical/blockLexical";
 export type ActivePanel = "sources" | "outline" | null;
 
 /** A selected Word chrome band (section header / footer / section-break marker). */
-export type ChromeSelection = { kind: ChromeKind; index: number; text: string };
+export type ChromeSelection = { kind: ChromeKind; index: number; text: string; pageNumbers?: boolean };
 // The native outline ("the Writer") is the single editing surface. A read-only
 // preview overlay may sit on top of it: "docx" = Word-fidelity pages (OnlyOffice /
 // docx-preview), "pdf" = the OnlyOffice-converted PDF (PDF.js). null = writing
@@ -258,7 +258,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const cur = s.chromeSelection;
       if (cur === c) return {};
       if (cur == null && c == null) return {};
-      if (cur && c && cur.kind === c.kind && cur.index === c.index && cur.text === c.text) return {};
+      if (cur && c && cur.kind === c.kind && cur.index === c.index && cur.text === c.text && cur.pageNumbers === c.pageNumbers) return {};
       return { chromeSelection: c };
     }),
 

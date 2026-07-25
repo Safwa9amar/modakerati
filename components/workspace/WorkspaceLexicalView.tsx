@@ -519,7 +519,22 @@ export function WorkspaceLexicalView({
     if (s.blockType && s.blockType.startsWith("chrome:")) {
       const kind = s.blockType.slice("chrome:".length) as ChromeKind;
       const ws = useWorkspaceStore.getState();
-      ws.setChromeSelection({ kind, index: s.index, text: s.text });
+      // Enrich from doc.sections so the bubble's tools get the ACTUAL header/footer
+      // text (not the "page number" display placeholder) + the footer's page-number
+      // state. The band's index is a block INSIDE its section (a footer band anchors
+      // to the section's LAST block), so find the containing section by range.
+      const curDoc = useThesisDocStore.getState().byId[thesisId];
+      const secs = curDoc?.available ? curDoc.sections ?? [] : [];
+      let sec: (typeof secs)[number] | null = null;
+      for (let i = 0; i < secs.length; i++) {
+        const start = secs[i].startBlockIndex;
+        const end = secs[i + 1]?.startBlockIndex ?? Number.POSITIVE_INFINITY;
+        if (s.index >= start && s.index < end) { sec = secs[i]; break; }
+      }
+      const text =
+        kind === "top" ? sec?.header?.text ?? s.text : kind === "bottom" ? sec?.footer?.text ?? "" : s.text;
+      const pageNumbers = kind === "bottom" ? !!sec?.footer?.pageNumbers : undefined;
+      ws.setChromeSelection({ kind, index: s.index, text, pageNumbers });
       ws.clearSelection();
       useLexicalEditorStore.getState().setFormat({
         bold: false, italic: false, underline: false,

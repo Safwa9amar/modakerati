@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, Alert, Keyboard } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, Alert, Keyboard } from "react-native";
 import type { ScrollView as RNScrollView } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -57,6 +57,9 @@ import {
   StretchHorizontal,
   AlignHorizontalSpaceAround,
   AlignVerticalSpaceAround,
+  Pencil,
+  Hash,
+  Check,
   type LucideIcon,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -68,7 +71,7 @@ import { pickAndInsertImage } from "@/lib/insert-image";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSearchStore } from "@/stores/search-store";
-import { removeThesisBlockBg, type DocBlockDTO } from "@/lib/api";
+import { removeThesisBlockBg, chromeOp, type ChromeOp, type DocBlockDTO } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
 import { resolveBubbleKind, chromeBubbleKind, type BubbleKind } from "@/lib/bubble-configs";
@@ -80,7 +83,7 @@ import type { FormatChange, ParaRun, ThesisOp } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
-type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders";
+type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders" | "hfText";
 
 // Border pickers for the table Borders sub-pill: OOXML line styles (glyph
 // labels), widths in points, and line colors (6-hex, no '#').
@@ -196,7 +199,7 @@ interface Props {
   /** When set, the selection is a Word chrome band (running header / footer / section
    *  break) rather than a block. The bar morphs to the chrome toolset using the SAME
    *  pill shell + entrance/expansion/morph animations as every other kind. */
-  chrome?: { kind: "top" | "bottom" | "section"; index: number; text: string } | null;
+  chrome?: { kind: "top" | "bottom" | "section"; index: number; text: string; pageNumbers?: boolean } | null;
 }
 
 /**
@@ -246,6 +249,8 @@ export function BlockContextBar({
   // those chips while one runs); `cropIndex` drives the interactive crop modal.
   const [busy, setBusy] = useState(false);
   const [cropIndex, setCropIndex] = useState<number | null>(null);
+  // Draft text for the chrome band's inline header/footer editor (hfText category).
+  const [hfText, setHfText] = useState("");
 
   const canFormat = paragraphSelection.length > 0;
   const paraIndices = paragraphSelection.map((b) => b.index);
@@ -709,7 +714,53 @@ export function BlockContextBar({
   // Chrome bands are AI-first in v1: the only action is ✦ Ask (pinned in the shell),
   // so the tool row is empty. The pill still uses the identical shell + entrance/
   // expansion/morph animations — chrome is just another toolsetKind.
-  const chromeTools = <></>;
+  // Direct (non-AI) chrome-band edits via /chrome-op. `chrome.index` is a block
+  // inside the target Word section; the server resolves the section + persists,
+  // echoing the mutated document which we apply to the optimistic doc store.
+  const applyChrome = (op: ChromeOp) => {
+    void (async () => {
+      try {
+        const res = await chromeOp(thesisId, op);
+        if (res.document) useThesisDocStore.getState().setDoc(thesisId, res.document);
+      } catch {
+        Alert.alert(t("common.error", { defaultValue: "Something went wrong" }));
+      }
+    })();
+  };
+  const openHfEdit = () => {
+    setHfText(chrome?.text ?? "");
+    setActiveCategory((cur) => (cur === "hfText" ? null : "hfText"));
+  };
+  const saveHfText = () => {
+    if (!chrome) return;
+    const text = hfText.trim();
+    if (chrome.kind === "top") applyChrome({ op: "setHeaderText", index: chrome.index, text });
+    else if (chrome.kind === "bottom") applyChrome({ op: "setFooter", index: chrome.index, text, pageNumbers: !!chrome.pageNumbers });
+    useWorkspaceStore.getState().setChromeSelection({ ...chrome, text });
+    setActiveCategory(null);
+    Keyboard.dismiss();
+  };
+  const togglePageNumbers = () => {
+    if (!chrome || chrome.kind !== "bottom") return;
+    const next = !chrome.pageNumbers;
+    applyChrome({ op: "setFooter", index: chrome.index, text: chrome.text, pageNumbers: next });
+    useWorkspaceStore.getState().setChromeSelection({ ...chrome, pageNumbers: next });
+  };
+
+  // Chrome-band tools — same chip look/animation as every kind. Top: edit the
+  // running title. Bottom: edit text + toggle page numbers. Section-break bands
+  // keep ✦ only (structural break edits are v2).
+  const chromeTools =
+    chrome?.kind === "top" ? (
+      <>{chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 0, onPress: openHfEdit })}</>
+    ) : chrome?.kind === "bottom" ? (
+      <>
+        {chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 0, onPress: openHfEdit })}
+        {chip({ keyProp: "hf-pgnum", Icon: Hash, accessibilityLabel: t("workspace.hf.pageNumbers", { defaultValue: "Page numbers" }), active: !!chrome?.pageNumbers, enterIndex: 1, onPress: togglePageNumbers })}
+      </>
+    ) : (
+      <></>
+    );
 
   // Resolve the toolset for the current block kind + form.
   const compactTools = isChrome
@@ -806,6 +857,7 @@ export function BlockContextBar({
       activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout" ||
       activeCategory === "tblShade" || activeCategory === "tblBorders";
     if (isTableCat !== isTable) return null;
+    if (activeCategory === "hfText" && !isChrome) return null;
     let body: React.ReactNode = null;
     // A table sub-pill option chip (icon-only, same look as the align/style opts).
     const tblOpt = (
@@ -832,7 +884,37 @@ export function BlockContextBar({
         />
       </AnimatedChip>
     );
-    if (activeCategory === "style") {
+    if (activeCategory === "hfText") {
+      // Inline header/footer text editor — a TextInput row in the same expansion
+      // container as the table/style sub-pills, with a ✓ to save via /chrome-op.
+      body = (
+        <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, flex: 1, minWidth: 220 }}>
+          <TextInput
+            value={hfText}
+            onChangeText={setHfText}
+            placeholder={t("workspace.hf.textPlaceholder", { defaultValue: "Header / footer text" })}
+            placeholderTextColor={colors.textPlaceholder}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={saveHfText}
+            style={{
+              flex: 1, minWidth: 150, height: 38, borderWidth: 1, borderRadius: 10,
+              paddingHorizontal: 12, fontSize: 14, color: colors.textPrimary,
+              borderColor: colors.borderDefault, backgroundColor: colors.bgCard,
+              textAlign: rtl ? "right" : "left",
+            }}
+          />
+          <Pressable
+            onPress={saveHfText}
+            accessibilityRole="button"
+            accessibilityLabel={t("common.save", { defaultValue: "Save" })}
+            style={{ width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandPrimary }}
+          >
+            <Check size={18} color={colors.bgPrimary} strokeWidth={2.4} />
+          </Pressable>
+        </View>
+      );
+    } else if (activeCategory === "style") {
       const levels = rtl ? [...styleLevels].reverse() : styleLevels;
       body = levels.map((l, i) => {
         const active = allLevel(l);

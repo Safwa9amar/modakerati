@@ -644,6 +644,9 @@
       "bottomExplain": "يتكرّر هذا أسفل كل صفحة — غالبًا رقم الصفحة.",
       "sectionExplain": "كل ما يأتي بعد هذه النقطة يبدأ قسمًا جديدًا في صفحة جديدة.",
       "ask": "اطلب من الذكاء الاصطناعي التغيير",
+      "editText": "تعديل النص",
+      "pageNumbers": "أرقام الصفحات",
+      "textPlaceholder": "نص الرأس / التذييل",
       "num": { "decimal": "١، ٢، ٣…", "lowerRoman": "i، ii، iii…", "upperRoman": "I، II، III…", "other": "#" }
     },
     "open": "فتح مساحة العمل",

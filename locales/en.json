@@ -644,6 +644,9 @@
       "bottomExplain": "This repeats at the bottom of every page — usually the page number.",
       "sectionExplain": "Everything after this point begins a new section on a fresh page.",
       "ask": "Ask AI to change this",
+      "editText": "Edit text",
+      "pageNumbers": "Page numbers",
+      "textPlaceholder": "Header / footer text",
       "num": { "decimal": "1, 2, 3…", "lowerRoman": "i, ii, iii…", "upperRoman": "I, II, III…", "other": "#" }
     },
     "open": "Open workspace",

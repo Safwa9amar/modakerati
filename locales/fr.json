@@ -644,6 +644,9 @@
       "bottomExplain": "Ceci se répète en bas de chaque page — souvent le numéro de page.",
       "sectionExplain": "Tout ce qui suit commence une nouvelle section sur une nouvelle page.",
       "ask": "Demander à l’IA de modifier",
+      "editText": "Modifier le texte",
+      "pageNumbers": "Numéros de page",
+      "textPlaceholder": "Texte d’en-tête / pied de page",
       "num": { "decimal": "1, 2, 3…", "lowerRoman": "i, ii, iii…", "upperRoman": "I, II, III…", "other": "#" }
     },
     "open": "Ouvrir l'espace de travail",
