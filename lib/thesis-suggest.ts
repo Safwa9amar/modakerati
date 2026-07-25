@@ -298,6 +298,101 @@ export async function proposeBlockEditStream(
   }
 }
 
+// Ask the server to PROPOSE a new running header/footer per an instruction and STREAM
+// the reasoning (thinking) then the proposed text WITHOUT applying — approval applies
+// via chromeOp. The caller (suggestion-store.requestChrome) shows the thinking trace
+// then the proposal on the band. Mirrors proposeBlockEditStream's frame parser but
+// targets POST /api/thesis/:id/chrome-suggest/stream with { instruction, kind, index };
+// the [[MODK_ACTION:chromeHeader|chromeFooter]] header is stripped (the caller knows kind).
+export async function proposeChromeStream(
+  thesisId: string,
+  index: number,
+  kind: "top" | "bottom",
+  instruction: string,
+  handlers: Pick<SuggestStreamHandlers, "onReasoning" | "onProposed">,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await expoFetch(
+    `${process.env.EXPO_PUBLIC_API_URL}/api/thesis/${thesisId}/chrome-suggest/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await getAuthHeader()) },
+      body: JSON.stringify({ instruction, kind, index }),
+      signal,
+    },
+  );
+  if (!res.ok || !res.body) throw new Error(`chrome suggest stream ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  let mode: "answer" | "think" = "answer";
+  let buf = "";
+  let actionParsed = false;
+
+  const pump = (chunk: string, isFinal: boolean) => {
+    buf += chunk;
+    if (!actionParsed) {
+      const m = buf.match(ACTION_RE);
+      if (m) {
+        actionParsed = true;
+        buf = buf.slice(m[0].length); // strip [[MODK_ACTION:chromeHeader|chromeFooter]]
+      } else if (!isFinal && (ACTION_PREFIX.startsWith(buf) || buf.startsWith(ACTION_PREFIX))) {
+        return; // a partial header still arriving
+      } else {
+        actionParsed = true;
+      }
+    }
+    while (true) {
+      if (mode === "answer") {
+        const ti = buf.indexOf(THINK_OPEN);
+        if (ti === -1) {
+          const hold = isFinal ? 0 : heldLen(buf, [THINK_OPEN]);
+          const out = buf.slice(0, buf.length - hold);
+          if (out) handlers.onProposed(out);
+          buf = buf.slice(buf.length - hold);
+          break;
+        }
+        const before = buf.slice(0, ti);
+        if (before) handlers.onProposed(before);
+        buf = buf.slice(ti + THINK_OPEN.length);
+        mode = "think";
+        continue;
+      } else {
+        const ci = buf.indexOf(THINK_CLOSE);
+        if (ci === -1) {
+          const hold = isFinal ? 0 : heldLen(buf, [THINK_CLOSE]);
+          const out = buf.slice(0, buf.length - hold);
+          if (out) handlers.onReasoning(out);
+          buf = buf.slice(buf.length - hold);
+          break;
+        }
+        const reason = buf.slice(0, ci);
+        if (reason) handlers.onReasoning(reason);
+        buf = buf.slice(ci + THINK_CLOSE.length);
+        mode = "answer";
+        continue;
+      }
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const cut = safeEscapeBoundary(pending);
+      const ready = pending.slice(0, cut);
+      pending = pending.slice(cut);
+      if (ready) pump(unescapeUnicode(ready), false);
+    }
+    pending += decoder.decode();
+    pump(pending ? unescapeUnicode(pending) : "", true);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Empty-paragraph FILL — POST /api/thesis/:id/paragraphs/:index/fill/stream.
 // The model streams reasoning between [[MODK_THINK]] markers, then a STRICT JSON

@@ -3,10 +3,12 @@ import {
   proposeBlockEditStream,
   proposeBlockFillStream,
   proposeRangeRewriteStream,
+  proposeChromeStream,
   applyThesisRangeReplace,
   parseFillReply,
   type SuggestAction,
 } from "@/lib/thesis-suggest";
+import { chromeOp } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { type ThesisOp } from "@/lib/thesis-ops";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
@@ -84,6 +86,23 @@ export interface RangeSuggestion {
   reasoningMs?: number;
 }
 
+// A chrome-band AI proposal (header/footer). The student asks the ✦ to change a
+// running header/footer; the reasoning (thinking) then the proposed text stream in and
+// show on the band's bubble; approve applies via chromeOp (setHeaderText/setFooter).
+// Only ONE chrome proposal is active at a time.
+export interface ChromeSuggestion {
+  index: number; // a block index inside the target section (the band's index)
+  kind: "top" | "bottom"; // header vs footer
+  original: string;
+  proposed: string;
+  instruction: string;
+  status: Status;
+  reasoning: string;
+  reasoningMs?: number;
+  // Footer only: current page-number state, preserved when approve applies setFooter.
+  pageNumbers?: boolean;
+}
+
 // paragraph level (0 body, 1-3 heading) → the Lexical block type used to rebuild it.
 function levelToType(level?: number): string {
   return level && level >= 1 && level <= 3 ? `h${level}` : "paragraph";
@@ -131,6 +150,16 @@ interface SuggestionState {
   againRange: (thesisId: string) => Promise<void>;
   // Edit the proposed passage in place before approving.
   setRangeProposed: (text: string) => void;
+  // ── Chrome band (header/footer) AI proposal ──
+  chrome: ChromeSuggestion | null;
+  // Kick off a header/footer proposal: stream thinking + proposed text, then ready/error.
+  requestChrome: (thesisId: string, index: number, kind: "top" | "bottom", original: string, instruction: string, pageNumbers?: boolean) => Promise<void>;
+  // Apply the ready chrome proposal via chromeOp (setHeaderText / setFooter), then clear.
+  approveChrome: (thesisId: string) => void;
+  // Dismiss the chrome proposal without applying it.
+  rejectChrome: () => void;
+  // Re-run the chrome proposal with the stored kind + instruction.
+  againChrome: (thesisId: string) => Promise<void>;
   // Clear the settle-flash marker (called by the flash animation when done).
   clearApplied: () => void;
   // Drop every pending suggestion (e.g. leaving the workspace).
@@ -149,6 +178,7 @@ function without(byIndex: Record<number, PendingSuggestion>, index: number): Rec
 export const useSuggestionStore = create<SuggestionState>((set, get) => ({
   byIndex: {},
   range: null,
+  chrome: null,
   justApplied: null,
 
   request: async (thesisId, index, original, instruction, kind = "paragraph") => {
@@ -410,7 +440,67 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
 
   setRangeProposed: (text) => set((s) => (s.range ? { range: { ...s.range, proposed: text } } : {})),
 
+  requestChrome: async (thesisId, index, kind, original, instruction, pageNumbers) => {
+    set({ chrome: { index, kind, original, proposed: "", instruction, status: "loading", reasoning: "", pageNumbers } });
+    let reasoning = "";
+    let proposed = "";
+    let reasoningStart = 0;
+    let reasoningMs: number | undefined;
+    const isMine = (c: ChromeSuggestion | null) =>
+      !!c && c.status === "loading" && c.index === index && c.instruction === instruction;
+    try {
+      await proposeChromeStream(thesisId, index, kind, instruction, {
+        onReasoning: (delta) => {
+          if (!reasoningStart) reasoningStart = Date.now();
+          reasoning += delta;
+          set((s) => (isMine(s.chrome) ? { chrome: { ...s.chrome!, reasoning } } : {}));
+        },
+        onProposed: (delta) => {
+          if (reasoningStart && reasoningMs == null) reasoningMs = Date.now() - reasoningStart;
+          proposed += delta;
+        },
+      });
+      if (reasoningStart && reasoningMs == null) reasoningMs = Date.now() - reasoningStart;
+      const finalText = proposed.trim();
+      set((s) => {
+        if (!isMine(s.chrome)) return {};
+        // Empty or unchanged proposal → error, not a ready no-op apply.
+        if (!finalText || finalText === s.chrome!.original)
+          return { chrome: { ...s.chrome!, reasoning, reasoningMs, status: "error" } };
+        return { chrome: { ...s.chrome!, proposed: finalText, reasoning, reasoningMs, status: "ready" } };
+      });
+    } catch {
+      set((s) => (s.chrome && s.chrome.status === "loading" ? { chrome: { ...s.chrome, status: "error" } } : {}));
+    }
+  },
+
+  approveChrome: (thesisId) => {
+    const cur = get().chrome;
+    if (!cur || cur.status !== "ready") return;
+    const op =
+      cur.kind === "top"
+        ? ({ op: "setHeaderText", index: cur.index, text: cur.proposed } as const)
+        : ({ op: "setFooter", index: cur.index, text: cur.proposed, pageNumbers: !!cur.pageNumbers } as const);
+    void (async () => {
+      try {
+        const res = await chromeOp(thesisId, op);
+        if (res.document) useThesisDocStore.getState().setDoc(thesisId, res.document);
+      } catch {
+        /* dropped regardless; error surfaced by the doc store's own retry paths */
+      }
+    })();
+    set({ chrome: null });
+  },
+
+  rejectChrome: () => set({ chrome: null }),
+
+  againChrome: async (thesisId) => {
+    const cur = get().chrome;
+    if (!cur) return;
+    await get().requestChrome(thesisId, cur.index, cur.kind, cur.original, cur.instruction, cur.pageNumbers);
+  },
+
   clearApplied: () => set({ justApplied: null }),
 
-  clear: () => set({ byIndex: {}, range: null, justApplied: null }),
+  clear: () => set({ byIndex: {}, range: null, chrome: null, justApplied: null }),
 }));

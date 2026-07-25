@@ -67,6 +67,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useSuggestionStore } from "@/stores/suggestion-store";
 import { pickAndInsertImage } from "@/lib/insert-image";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
@@ -83,7 +84,7 @@ import type { FormatChange, ParaRun, ThesisOp } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
-type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders" | "hfText";
+type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders" | "hfText" | "hfAI";
 
 // Border pickers for the table Borders sub-pill: OOXML line styles (glyph
 // labels), widths in points, and line colors (6-hex, no '#').
@@ -232,6 +233,8 @@ export function BlockContextBar({
   const { t } = useTranslation();
   const colors = useThemeColors();
   const saving = useThesisDocStore((s) => (s.pending[thesisId] ?? 0) > 0);
+  // The active chrome AI proposal (header/footer), if any — drives the hfAI panel.
+  const chromeSug = useSuggestionStore((s) => s.chrome);
 
   const [activeCategory, setActiveCategory] = useState<Category | null>(null);
   // Delete-pick mode inside the table Rows/Columns sub-pills: tapping the delete
@@ -251,6 +254,8 @@ export function BlockContextBar({
   const [cropIndex, setCropIndex] = useState<number | null>(null);
   // Draft text for the chrome band's inline header/footer editor (hfText category).
   const [hfText, setHfText] = useState("");
+  // Draft AI instruction for the chrome band's ✦ proposal (hfAI category).
+  const [aiText, setAiText] = useState("");
 
   const canFormat = paragraphSelection.length > 0;
   const paraIndices = paragraphSelection.map((b) => b.index);
@@ -747,16 +752,44 @@ export function BlockContextBar({
     useWorkspaceStore.getState().setChromeSelection({ ...chrome, pageNumbers: next });
   };
 
-  // Chrome-band tools — same chip look/animation as every kind. Top: edit the
-  // running title. Bottom: edit text + toggle page numbers. Section-break bands
-  // keep ✦ only (structural break edits are v2).
+  // ── Chrome ✦ AI proposal (streams thinking + a proposed header/footer, approve/
+  // reject in the hfAI panel) — mirrors the text/table inline-suggestion experience. ──
+  const mySug = chrome && chromeSug && chromeSug.index === chrome.index ? chromeSug : null;
+  const openHfAi = () => {
+    setAiText("");
+    setActiveCategory((cur) => (cur === "hfAI" ? null : "hfAI"));
+  };
+  const submitChromeAi = () => {
+    const instruction = aiText.trim();
+    if (!chrome || (chrome.kind !== "top" && chrome.kind !== "bottom") || !instruction) return;
+    void useSuggestionStore.getState().requestChrome(thesisId, chrome.index, chrome.kind, chrome.text, instruction, chrome.pageNumbers);
+    Keyboard.dismiss();
+  };
+  const approveChromeSug = () => {
+    const applied = mySug?.proposed;
+    useSuggestionStore.getState().approveChrome(thesisId);
+    setActiveCategory(null);
+    if (applied != null && chrome) useWorkspaceStore.getState().setChromeSelection({ ...chrome, text: applied });
+  };
+  const rejectChromeSug = () => {
+    useSuggestionStore.getState().rejectChrome();
+    setAiText("");
+  };
+
+  // Chrome-band tools — same chip look/animation as every kind. Top: ✦ AI + edit the
+  // running title. Bottom: ✦ AI + edit text + toggle page numbers. Section-break bands
+  // keep the pinned ✦ only (structural break edits are v2).
   const chromeTools =
     chrome?.kind === "top" ? (
-      <>{chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 0, onPress: openHfEdit })}</>
+      <>
+        {chip({ keyProp: "hf-ai", Icon: Sparkles, accessibilityLabel: t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" }), active: activeCategory === "hfAI", enterIndex: 0, onPress: openHfAi })}
+        {chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 1, onPress: openHfEdit })}
+      </>
     ) : chrome?.kind === "bottom" ? (
       <>
-        {chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 0, onPress: openHfEdit })}
-        {chip({ keyProp: "hf-pgnum", Icon: Hash, accessibilityLabel: t("workspace.hf.pageNumbers", { defaultValue: "Page numbers" }), active: !!chrome?.pageNumbers, enterIndex: 1, onPress: togglePageNumbers })}
+        {chip({ keyProp: "hf-ai", Icon: Sparkles, accessibilityLabel: t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" }), active: activeCategory === "hfAI", enterIndex: 0, onPress: openHfAi })}
+        {chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 1, onPress: openHfEdit })}
+        {chip({ keyProp: "hf-pgnum", Icon: Hash, accessibilityLabel: t("workspace.hf.pageNumbers", { defaultValue: "Page numbers" }), active: !!chrome?.pageNumbers, enterIndex: 2, onPress: togglePageNumbers })}
       </>
     ) : (
       <></>
@@ -857,7 +890,7 @@ export function BlockContextBar({
       activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout" ||
       activeCategory === "tblShade" || activeCategory === "tblBorders";
     if (isTableCat !== isTable) return null;
-    if (activeCategory === "hfText" && !isChrome) return null;
+    if ((activeCategory === "hfText" || activeCategory === "hfAI") && !isChrome) return null;
     let body: React.ReactNode = null;
     // A table sub-pill option chip (icon-only, same look as the align/style opts).
     const tblOpt = (
@@ -912,6 +945,57 @@ export function BlockContextBar({
           >
             <Check size={18} color={colors.bgPrimary} strokeWidth={2.4} />
           </Pressable>
+        </View>
+      );
+    } else if (activeCategory === "hfAI") {
+      // Chrome ✦ AI panel: instruction input → thinking → proposed header/footer with
+      // approve/reject (applied via chromeOp). Mirrors the text/table suggestion feel.
+      const sug = chrome && chromeSug && chromeSug.index === chrome.index ? chromeSug : null;
+      const busy = sug?.status === "loading";
+      const ready = sug?.status === "ready";
+      const errored = sug?.status === "error";
+      body = (
+        <View style={{ flexDirection: "column", gap: 8, flex: 1, minWidth: 240, alignItems: "stretch" }}>
+          {ready ? (
+            <>
+              <Text numberOfLines={3} style={{ fontSize: 13, lineHeight: 18, color: colors.textPrimary, textAlign: rtl ? "right" : "left" }}>
+                {sug!.proposed}
+              </Text>
+              <View style={{ flexDirection: rtl ? "row-reverse" : "row", gap: 8 }}>
+                <Pressable onPress={approveChromeSug} accessibilityRole="button" accessibilityLabel={t("common.approve", { defaultValue: "Approve" })} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.brandPrimary }}>
+                  <Check size={16} color={colors.bgPrimary} strokeWidth={2.4} />
+                  <Text style={{ color: colors.bgPrimary, fontSize: 12, fontWeight: "700" }}>{t("common.approve", { defaultValue: "Approve" })}</Text>
+                </Pressable>
+                <Pressable onPress={rejectChromeSug} accessibilityRole="button" accessibilityLabel={t("common.reject", { defaultValue: "Dismiss" })} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.borderDefault }}>
+                  <X size={16} color={colors.textPrimary} strokeWidth={2.2} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: "700" }}>{t("common.reject", { defaultValue: "Dismiss" })}</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : busy ? (
+            <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 38 }}>
+              <Sparkles size={15} color={colors.brandPrimary} strokeWidth={2.2} />
+              <Text numberOfLines={1} style={{ flex: 1, fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+                {sug?.reasoning ? sug.reasoning.slice(-80) : t("suggestion.thinking", { defaultValue: "Thinking…" })}
+              </Text>
+            </View>
+          ) : (
+            <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8 }}>
+              <TextInput
+                value={aiText}
+                onChangeText={setAiText}
+                placeholder={errored ? t("suggestion.noneRetry", { defaultValue: "No suggestion — try again" }) : t("workspace.hf.aiPlaceholder", { defaultValue: "Ask AI to change this…" })}
+                placeholderTextColor={colors.textPlaceholder}
+                autoFocus
+                returnKeyType="send"
+                onSubmitEditing={submitChromeAi}
+                style={{ flex: 1, minWidth: 150, height: 38, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, fontSize: 14, color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgCard, textAlign: rtl ? "right" : "left" }}
+              />
+              <Pressable onPress={submitChromeAi} accessibilityRole="button" accessibilityLabel={t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" })} style={{ width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandPrimary }}>
+                <Sparkles size={17} color={colors.bgPrimary} strokeWidth={2.2} />
+              </Pressable>
+            </View>
+          )}
         </View>
       );
     } else if (activeCategory === "style") {

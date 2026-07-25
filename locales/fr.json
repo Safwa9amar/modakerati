@@ -647,6 +647,8 @@
       "editText": "Modifier le texte",
       "pageNumbers": "Numéros de page",
       "textPlaceholder": "Texte d’en-tête / pied de page",
+      "aiEdit": "Demander à l’IA",
+      "aiPlaceholder": "Demander à l’IA de modifier…",
       "num": { "decimal": "1, 2, 3…", "lowerRoman": "i, ii, iii…", "upperRoman": "I, II, III…", "other": "#" }
     },
     "open": "Ouvrir l'espace de travail",

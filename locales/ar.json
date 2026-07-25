@@ -647,6 +647,8 @@
       "editText": "تعديل النص",
       "pageNumbers": "أرقام الصفحات",
       "textPlaceholder": "نص الرأس / التذييل",
+      "aiEdit": "اطلب من الذكاء الاصطناعي",
+      "aiPlaceholder": "اطلب من الذكاء الاصطناعي التغيير…",
       "num": { "decimal": "١، ٢، ٣…", "lowerRoman": "i، ii، iii…", "upperRoman": "I، II، III…", "other": "#" }
     },
     "open": "فتح مساحة العمل",

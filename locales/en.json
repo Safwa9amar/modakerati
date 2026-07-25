@@ -647,6 +647,8 @@
       "editText": "Edit text",
       "pageNumbers": "Page numbers",
       "textPlaceholder": "Header / footer text",
+      "aiEdit": "Ask AI to change",
+      "aiPlaceholder": "Ask AI to change this…",
       "num": { "decimal": "1, 2, 3…", "lowerRoman": "i, ii, iii…", "upperRoman": "I, II, III…", "other": "#" }
     },
     "open": "Open workspace",
