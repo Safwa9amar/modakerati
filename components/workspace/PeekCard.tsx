@@ -66,7 +66,9 @@ export function PeekCard({ anchorLeft, phase, snippet, onPress }: Props) {
           style={[styles.chip, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
         >
           <SpinningAsterisk color={colors.brandPrimary} />
-          <Text style={[styles.chipLabel, { color: colors.brandPrimary }]}>{label}</Text>
+          <Text numberOfLines={1} style={[styles.chipLabel, { color: colors.brandPrimary }]}>
+            {label}
+          </Text>
         </Pressable>
         <View
           style={[
@@ -122,6 +124,11 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: "row",
     alignItems: "center",
+    // Same fix as `host` below: an auto-sized absolute child nested inside
+    // FloatingPill's 52px collapsed host can get computed narrower than its
+    // own content, force-wrapping the label mid-word. A firm minWidth (not
+    // a fixed width — still lets a longer translated label grow) fixes it.
+    minWidth: 96,
     gap: 6,
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
