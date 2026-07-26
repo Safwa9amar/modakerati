@@ -95,7 +95,10 @@ export function PeekCard({ anchorLeft, phase, snippet, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  host: { position: "absolute", bottom: BUBBLE_CLEARANCE, maxWidth: 220 },
+  // A firm `width` (not just `maxWidth`) — nested inside FloatingPill's own
+  // 52px-wide collapsed host, an absolutely-positioned child with only a cap
+  // and no concrete width let Yoga shrink-wrap it far narrower than intended.
+  host: { position: "absolute", bottom: BUBBLE_CLEARANCE, width: 240 },
   card: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
