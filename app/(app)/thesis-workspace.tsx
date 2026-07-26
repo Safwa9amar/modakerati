@@ -26,6 +26,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useRibbonStore } from "@/stores/ribbon-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useChatHead } from "@/stores/chat-head-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useOutlineStore } from "@/stores/outline-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
@@ -178,6 +179,7 @@ export default function ThesisWorkspaceScreen() {
       // Clear an unanswered ask and make sure the outline push-drawer is closed on
       // leave, so neither ghosts open on the chat screen (both are app-global).
       useChatStore.getState().setPendingAsk(null);
+      useChatHead.getState().close();
       useNavDrawerStore.getState().closeDrawer();
     };
   }, [thesisId]);
