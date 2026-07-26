@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Dimensions, Keyboard, Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, I18nManager, Keyboard, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
@@ -20,14 +20,18 @@ import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
+import { useThesisStore } from "@/stores/thesis-store";
+import { useChatHead } from "@/stores/chat-head-store";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { hSelection } from "@/lib/haptics";
 import { layoutSpring, SPRING } from "@/lib/motion";
 import type { DocBlockDTO } from "@/lib/api";
-import { resolveBubbleKind, BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
+import { resolveBubbleKind, chromeBubbleKind, BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
 import { AIDock } from "./AIDock";
 import { BlockContextBar } from "./BlockContextBar";
 import { DismissTarget, DISMISS_HIT_RADIUS } from "./DismissTarget";
+import { PeekCard, type PeekPhase } from "./PeekCard";
+import { ChatOverlayPanel } from "@/components/ChatOverlayPanel";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 
@@ -73,7 +77,20 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const insets = useSafeAreaInsets();
   const { width, height } = Dimensions.get("window");
 
+  // Physical-LEFT anchor for the drag host that survives RN's global RTL
+  // left↔right style swap. All the position math below is in physical left→right
+  // screen coords (tx = offset from the left edge). When the app language is
+  // Arabic (I18nManager.forceRTL), RN swaps a plain `left:0` to the right edge —
+  // regardless of the host's own `direction:"ltr"` — which pins the pill to the
+  // right half and makes it undraggable leftward. Writing `right:0` in that case
+  // lets the SAME swap turn it back into a physical `left:0`. In LTR, `left:0` as
+  // usual. Pairs with `direction:"ltr"` on styles.host (un-mirrors translateX).
+  const hostAnchor = I18nManager.isRTL ? ({ right: 0 } as const) : ({ left: 0 } as const);
+
   const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
+  // A selected Word chrome band (top/bottom/section) — when set it takes over the
+  // bubble (its own ChromeContextBar) and the normal block selection is empty.
+  const chromeSelection = useWorkspaceStore((s) => s.chromeSelection);
   const askAiOpen = useWorkspaceStore((s) => s.askAiOpen);
   // Composer visibility + preview mode — the floating pill must yield the bottom
   // surface to the whole-memoir composer (count===0), hide when the composer is
@@ -94,6 +111,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const colors = useThemeColors();
   // Busy spinner: the bubble spins while an AI turn is generating, in either mode.
   const busy = useChatStore((s) => s.isGenerating);
+  // Peek-card state: whether a plain chat ask is awaiting the user's read, plus
+  // the raw chat-store fields the card's content derives from (no copy kept).
+  const awaitingReply = useFloatingPillStore((s) => s.awaitingReply);
+  const generatingPhase = useChatStore((s) => s.generatingPhase);
+  const streamingId = useChatStore((s) => s.streamingId);
+  const threadMessages = useChatStore((s) => s.messages[thesisId]);
+  const thesisTitle = useThesisStore((s) => s.theses.find((th) => th.id === thesisId)?.title ?? "");
 
   // Keyboard HEIGHT tracking — positioning ONLY (the bubble is NOT suppressed by
   // the keyboard). Used to float the drag-to-X target + clamp above the keyboard
@@ -140,7 +164,11 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // Which bubble/toolset family drives the collapsed bubble icon AND (via
   // BlockContextBar's own resolveBubbleKind call) the expanded toolset — one
   // registry, so they can never disagree.
-  const bubbleKind: BubbleKind = count === 0 ? "ai" : resolveBubbleKind(selectedBlock);
+  const bubbleKind: BubbleKind = chromeSelection
+    ? chromeBubbleKind(chromeSelection.kind)
+    : count === 0
+      ? "ai"
+      : resolveBubbleKind(selectedBlock);
   const scopeLabel =
     count === 0
       ? t("workspace.wholeMemoir", { defaultValue: "Whole memoir" })
@@ -148,6 +176,16 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
         ? (selectedBlocks[0]?.text?.replace(/\s+/g, " ").trim().slice(0, 32) ||
           t("workspace.selectedBlock", { defaultValue: "Selected section" }))
         : t("workspace.nSelected", { count, defaultValue: `${count} selected` });
+
+  // Section-scoped AI label for a chrome band — feeds AIDock's existing scope props
+  // so "✦ Ask" edits this section's header/footer via the AI tool loop (v1 write path).
+  const chromeScopeLabel = chromeSelection
+    ? chromeSelection.kind === "top"
+      ? t("workspace.hf.topOfPage", { defaultValue: "Top of every page" })
+      : chromeSelection.kind === "bottom"
+        ? t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" })
+        : t("workspace.hf.newSectionHere", { defaultValue: "New section" })
+    : "";
 
   // Suggestion suppression: sole selected paragraph currently in review.
   const soleSuggested = useSuggestionStore((s) => {
@@ -194,6 +232,31 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const defaultY = height - insets.bottom - PILL_H - 120;
   const startX = pos?.x ?? defaultX;
   const startY = pos?.y ?? defaultY;
+
+  // Peek card content: while generating, the live/streaming message; once the
+  // turn ends, the last assistant message — both read straight off the shared
+  // chat thread. `!busy` (not `generatingPhase === "idle"`) decides "done" so a
+  // brief post-stream gap before the store settles doesn't flash "thinking".
+  const peekPhase: PeekPhase = !busy ? "done" : generatingPhase === "writing" ? "writing" : "thinking";
+  const peekMessage = !busy
+    ? threadMessages?.[threadMessages.length - 1]
+    : threadMessages?.find((m) => m.id === streamingId);
+  const peekSnippet = peekMessage?.content ?? "";
+  // Anchor the card's tail toward whichever half of the screen the bubble is
+  // currently settled in, so it never overhangs an edge. Read from the last
+  // PERSISTED position (not the live drag shared value) — a rare cosmetic
+  // trade-off: the anchor side won't flip mid-drag, only after the bubble
+  // settles, which is fine since a peek is never shown while actively dragging.
+  const peekAnchorLeft = startX + BUBBLE_SIZE / 2 < width / 2;
+
+  // Tapping the peek card — or the bubble itself while a reply is unread —
+  // opens the shared chat-overlay panel instead of expanding the AI dock.
+  // Marks the reply read.
+  const revealReply = () => {
+    useChatHead.getState().open();
+    useFloatingPillStore.getState().setAwaitingReply(false);
+    useFloatingPillStore.getState().setExpanded(false);
+  };
 
   const tx = useSharedValue(startX);
   const ty = useSharedValue(startY);
@@ -260,6 +323,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     const pill = useFloatingPillStore.getState();
     // Reset so re-selecting the SAME block re-anchors beside it (not over the X).
     lastAnchoredIndex.current = null;
+    ws.setChromeSelection(null);
     if (ws.selectedBlocks.length === 0) {
       // The global ✦ bubble dragged onto the X → the overlay hides until the
       // workspace is re-entered (or a block is selected again).
@@ -368,7 +432,17 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // DIRECT set — no diagonal slide from the center-bottom default. Subsequent
   // re-anchors spring across. Drag overrides until the next selection change;
   // scrolling does not re-anchor.
-  const soleIndex = selectedBlock ? selectedBlock.index : count === 1 ? indices[0] ?? null : null;
+  // Chrome bands anchor in a NEGATIVE index space (-(index+2)) so switching between a
+  // band and the paragraph that shares its startBlockIndex still counts as a change
+  // and re-anchors the pill (a top band and its section's first paragraph collide at
+  // the same block index otherwise). -1 stays reserved for "none".
+  const soleIndex = chromeSelection
+    ? -(chromeSelection.index + 2)
+    : selectedBlock
+      ? selectedBlock.index
+      : count === 1
+        ? indices[0] ?? null
+        : null;
   useEffect(() => {
     if (soleIndex == null) return;
     if (soleIndex === lastAnchoredIndex.current) return;
@@ -396,18 +470,54 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // yield the bottom surface to that legacy bar while it's up.
   const suppressed =
     askAiOpen || aiGateActive || soleSuggested || rangeActive || !composerOpen || previewMode != null || insertMenuOpen;
-  if (!visible || suppressed) {
-    // Still render the target host? No — nothing to show when suppressed.
-    return null;
-  }
+  // The pill itself hides when suppressed/not visible, same as before — but the
+  // chat-overlay panel (mounted unconditionally below) must NOT unmount just
+  // because one of those flags flips while the user is actively using it.
+  const pillVisible = visible && !suppressed;
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <DismissTarget visible={dragActive} active={overTarget} centerY={targetCY} bottomInset={dismissBottom} />
-      <GestureDetector gesture={pan}>
-        <Animated.View layout={layoutSpring} style={[styles.host, { width: curW }, pillStyle]}>
-          {expanded ? (
-            count === 0 || inputOpen ? (
+    <>
+      {pillVisible && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <DismissTarget visible={dragActive} active={overTarget} centerY={targetCY} bottomInset={dismissBottom} />
+          <GestureDetector gesture={pan}>
+            <Animated.View layout={layoutSpring} style={[styles.host, hostAnchor, { width: curW }, pillStyle]}>
+              {expanded ? (
+            chromeSelection ? (
+              inputOpen ? (
+                <View style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}>
+                  {/* ✦ Ask on a chrome band → section-scoped AI (reuses AIDock scope props). */}
+                  <AIDock
+                    thesisId={thesisId}
+                    scopeLabel={chromeScopeLabel}
+                    scopeIndices={[chromeSelection.index]}
+                    selectedBlock={null}
+                    scopeText={chromeSelection.text}
+                    scopeBlocks={[]}
+                  />
+                </View>
+              ) : (
+                // Chrome band → the SAME BlockContextBar shell/animations as text/
+                // heading/table (chrome is just another bubbleKind); ✦ Ask opens the
+                // section-scoped AIDock above.
+                <BlockContextBar
+                  thesisId={thesisId}
+                  rtl={rtl}
+                  paragraphSelection={[]}
+                  selectedBlock={null}
+                  selectedIndices={[chromeSelection.index]}
+                  count={0}
+                  blockCount={blocks.length}
+                  keyboardOpen={false}
+                  scopeLabel={chromeScopeLabel}
+                  onAskAI={() => useFloatingPillStore.getState().setInputOpen(true)}
+                  onCollapse={() => useFloatingPillStore.getState().setExpanded(false)}
+                  bottomInset={0}
+                  blocks={blocks}
+                  chrome={chromeSelection}
+                />
+              )
+            ) : count === 0 || inputOpen ? (
               <View style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}>
                 {/* AIDock lays out by APP language (useRTL inside), not thesis rtl. */}
                 <AIDock
@@ -439,21 +549,29 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
               />
             )
           ) : (
-            <Bubble
-              colors={colors}
-              kind={bubbleKind}
-              busy={busy}
-              label={
-                count === 0
-                  ? t("blockBar.askAi", { defaultValue: "Ask AI" })
-                  : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
-              }
-              onPress={() => useFloatingPillStore.getState().setExpanded(true)}
-            />
+            <>
+              {awaitingReply && (
+                <PeekCard anchorLeft={peekAnchorLeft} phase={peekPhase} snippet={peekSnippet} onPress={revealReply} />
+              )}
+              <Bubble
+                colors={colors}
+                kind={bubbleKind}
+                busy={busy}
+                label={
+                  count === 0
+                    ? t("blockBar.askAi", { defaultValue: "Ask AI" })
+                    : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
+                }
+                onPress={awaitingReply ? revealReply : () => useFloatingPillStore.getState().setExpanded(true)}
+              />
+            </>
           )}
-        </Animated.View>
-      </GestureDetector>
-    </View>
+            </Animated.View>
+          </GestureDetector>
+        </View>
+      )}
+      <ChatOverlayPanel thesisId={thesisId} thesisTitle={thesisTitle} />
+    </>
   );
 }
 
@@ -511,7 +629,19 @@ function Bubble({
 }
 
 const styles = StyleSheet.create({
-  host: { position: "absolute", top: 0, left: 0 },
+  // Two independent RTL breakages had to be countered so the pill drags across the
+  // FULL width in every app language (the position math is all physical left→right):
+  //  1. direction:"ltr" — on the New Architecture (Fabric) a view laid out RTL
+  //     MIRRORS `translateX`; without this the pill's positive translateX drove it
+  //     the wrong way (it stuck to the left edge).
+  //  2. NO `left`/`right` here — RN's global RTL left↔right style swap flips a
+  //     `left:0` anchor to the right edge REGARDLESS of this node's direction, which
+  //     pinned the pill to the right half (undraggable leftward). The physical-left
+  //     anchor is applied inline via `hostAnchor` instead (right:0 when
+  //     I18nManager.isRTL, which the same swap turns back into physical left:0).
+  // Content (AIDock/BlockContextBar) still lays out RTL via explicit useRTL()
+  // flexDirection/textAlign — no inherited-direction reliance — so this is safe.
+  host: { position: "absolute", top: 0, direction: "ltr" },
   // AI-dock wrapper — mirrors BlockContextBar's fullCard surface language (dark
   // panel, hairline border, pill-matching shadow) since AIDock only owns its rows.
   dockPanel: {
