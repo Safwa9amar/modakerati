@@ -1587,6 +1587,54 @@ export function $lexicalToBlocks(): DocBlockDTO[] {
   return out.map((b, i) => ({ ...b, index: i }));
 }
 
+// One draggable unit: a top-level node, its DOM element, and the block-index range
+// it occupies. Lists occupy `count` > 1. Call inside editor.read() and pass the
+// editor so we can resolve elements. Chrome/suggestion nodes are excluded.
+export type BlockEntry = {
+  key: string;
+  from: number;      // first block index this unit occupies
+  count: number;     // number of block indices (1, except lists)
+  isHeading: boolean;
+  level: number;     // 0 for body, 1..6 for headings; 0 for non-paragraph units
+};
+
+export function $blockEntries(): BlockEntry[] {
+  const out: BlockEntry[] = [];
+  let idx = 0;
+  for (const node of $getRoot().getChildren()) {
+    if ($isChromeNode(node)) continue;           // display-only, not draggable
+    if ($isSuggestionNode(node) || $isRangeSuggestionNode(node)) {
+      // reorder is suppressed while a proposal shows; still advance the index so a
+      // stray call stays consistent with $lexicalToBlocks.
+      idx += $isRangeSuggestionNode(node) ? node.__originals.length : 1;
+      continue;
+    }
+    if ($isListNode(node)) {
+      const items = countListItems(node);
+      out.push({ key: node.getKey(), from: idx, count: items, isHeading: false, level: 0 });
+      idx += items;
+      continue;
+    }
+    const isHeading = $isHeadingNode(node);
+    const level = isHeading ? Number((node as HeadingNode).getTag().slice(1)) : 0;
+    out.push({ key: node.getKey(), from: idx, count: 1, isHeading, level });
+    idx += 1;
+  }
+  return out;
+}
+
+// Count leaf list items the way pushListItems flattens them (nested lists included).
+function countListItems(list: ListNode): number {
+  let n = 0;
+  for (const item of list.getChildren()) {
+    if (!$isListItemNode(item)) continue;
+    const nested = item.getChildren().find($isListNode) as ListNode | undefined;
+    if (nested) n += countListItems(nested);
+    else n += 1;
+  }
+  return n;
+}
+
 // One paragraph DTO from a text-holding element (paragraph / heading / list item):
 // gathers inline runs (bold/italic/underline/color) + flat text + block props.
 function $paraFromElement(el: ElementNode, level: number): ParagraphDTO {
