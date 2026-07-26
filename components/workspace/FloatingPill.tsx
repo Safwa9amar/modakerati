@@ -623,22 +623,24 @@ function Bubble({
 }) {
   const Icon = BUBBLE_ICONS[kind];
 
-  const spin = useSharedValue(0);
+  // Busy indicator: the whole bubble breathes (scales up/down) in a loop
+  // instead of spinning the icon in place.
+  const pulse = useSharedValue(1);
   useEffect(() => {
     if (busy) {
-      spin.value = 0;
-      spin.value = withRepeat(withTiming(360, { duration: 1200, easing: Easing.linear }), -1, false);
+      pulse.value = withRepeat(withTiming(1.12, { duration: 600, easing: Easing.inOut(Easing.ease) }), -1, true);
     } else {
-      cancelAnimation(spin);
-      spin.value = withTiming(0, { duration: 200 });
+      cancelAnimation(pulse);
+      pulse.value = withTiming(1, { duration: 200 });
     }
-  }, [busy, spin]);
-  const spinStyle = useAnimatedStyle(() => ({ transform: [{ rotate: spin.value + "deg" }] }));
+  }, [busy, pulse]);
+  const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
 
   return (
     <Animated.View
       entering={ZoomIn.springify().damping(30).stiffness(700)}
       exiting={ZoomOut.springify().damping(30).stiffness(700)}
+      style={pulseStyle}
     >
       <Pressable
         onPress={onPress}
@@ -649,9 +651,7 @@ function Bubble({
         accessibilityLabel={label}
         style={[styles.bubble, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
       >
-        <Animated.View style={spinStyle}>
-          <Icon size={22} color={colors.bgPrimary} strokeWidth={2.2} />
-        </Animated.View>
+        <Icon size={22} color={colors.bgPrimary} strokeWidth={2.2} />
         {unread && (
           <Animated.View
             entering={FadeIn}
