@@ -10,7 +10,7 @@ import Animated, {
 import { useTranslation } from "react-i18next";
 import { Asterisk, ChevronDown, ChevronUp } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { windowLines, formatThinkingDuration } from "@/lib/thinking";
+import { windowLines, formatThinkingDuration, estimateTokenCount } from "@/lib/thinking";
 
 // How many trailing reasoning lines the live window shows.
 const LIVE_LINES = 6;
@@ -106,11 +106,18 @@ export function ThinkingTrace({
 
   const Scroll = ScrollComponent ?? RNScrollView;
   const durLabel = durationMs != null ? formatThinkingDuration(durationMs) : "";
-  const label = streaming
-    ? t("chat.thinkingEllipsis", { defaultValue: "Thinking…" })
-    : durationMs != null
-      ? t("chat.thoughtFor", { d: durLabel, defaultValue: `Thought for ${durLabel}` })
-      : t("chat.thinking", { defaultValue: "Thinking" });
+  // Live token estimate while reasoning streams in — an approximation (see
+  // estimateTokenCount), not the provider's actual billed usage. Only shown
+  // while streaming; the completed "Thought for Xs" chip stays as-is.
+  const tokenCount = streaming ? estimateTokenCount(text) : 0;
+  const tokenLabel =
+    tokenCount > 0 ? t("chat.tokenCount", { count: tokenCount, defaultValue: `${tokenCount} tokens` }) : "";
+  const label =
+    (streaming
+      ? t("chat.thinkingEllipsis", { defaultValue: "Thinking…" })
+      : durationMs != null
+        ? t("chat.thoughtFor", { d: durLabel, defaultValue: `Thought for ${durLabel}` })
+        : t("chat.thinking", { defaultValue: "Thinking" })) + (tokenLabel ? ` · ${tokenLabel}` : "");
 
   const liveLines = windowLines(text, LIVE_LINES);
 

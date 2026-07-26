@@ -28,3 +28,12 @@ export function formatThinkingDuration(ms: number): string {
   const s = secs % 60;
   return s === 0 ? `${m}m` : `${m}m ${s}s`;
 }
+
+/** Rough token estimate from character count (~4 chars/token, the common
+ *  rule-of-thumb for English text) — a live approximation for the reasoning
+ *  streaming in, NOT the model provider's actual billed usage (which isn't
+ *  available to the app during — or after — a streamed turn). */
+export function estimateTokenCount(text: string): number {
+  const trimmed = text.trim();
+  return trimmed.length === 0 ? 0 : Math.ceil(trimmed.length / 4);
+}

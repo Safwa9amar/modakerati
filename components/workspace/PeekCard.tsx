@@ -22,6 +22,11 @@ interface Props {
    *  component trims/truncates it for display). Empty string while there's
    *  no content yet (e.g. still in the "thinking" phase). */
   snippet: string;
+  /** Live token estimate for the "thinking" phase only (0/undefined
+   *  elsewhere) — an approximation of the streaming reasoning's length, not
+   *  the provider's actual billed usage; see lib/thinking.ts's
+   *  estimateTokenCount. Appended to the chip's label when > 0. */
+  thinkingTokens?: number;
   onPress: () => void;
 }
 
@@ -33,7 +38,7 @@ interface Props {
  * thinking, a wider card once there's text to show) and which side its tail
  * points from.
  */
-export function PeekCard({ anchorLeft, phase, snippet, onPress }: Props) {
+export function PeekCard({ anchorLeft, phase, snippet, thinkingTokens, onPress }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
 
@@ -57,17 +62,22 @@ export function PeekCard({ anchorLeft, phase, snippet, onPress }: Props) {
   // spinning ✻ + label, matching the app's shared ThinkingTrace collapsed
   // row — instead of the wider card the writing/done states need for text.
   if (phase === "thinking") {
+    const tokenSuffix =
+      thinkingTokens && thinkingTokens > 0
+        ? ` · ${t("chat.tokenCount", { count: thinkingTokens, defaultValue: `${thinkingTokens} tokens` })}`
+        : "";
     return (
       <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.chipHost, anchorStyle]}>
         <Pressable
           onPress={onPress}
           accessibilityRole="button"
-          accessibilityLabel={label}
+          accessibilityLabel={label + tokenSuffix}
           style={[styles.chip, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
         >
           <SpinningAsterisk color={colors.brandPrimary} />
           <Text numberOfLines={1} style={[styles.chipLabel, { color: colors.brandPrimary }]}>
             {label}
+            {tokenSuffix}
           </Text>
         </Pressable>
         <View
@@ -127,8 +137,11 @@ const styles = StyleSheet.create({
     // Same fix as `host` below: an auto-sized absolute child nested inside
     // FloatingPill's 52px collapsed host can get computed narrower than its
     // own content, force-wrapping the label mid-word. A firm minWidth (not
-    // a fixed width — still lets a longer translated label grow) fixes it.
+    // a fixed width — still lets a longer translated label grow) fixes it;
+    // maxWidth caps it once the token-count suffix makes the label longer
+    // (numberOfLines={1} above ellipsizes past it, rather than wrapping).
     minWidth: 96,
+    maxWidth: 220,
     gap: 6,
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,

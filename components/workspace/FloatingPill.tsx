@@ -27,6 +27,7 @@ import { useChatHead } from "@/stores/chat-head-store";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { hSelection } from "@/lib/haptics";
 import { layoutSpring, SPRING } from "@/lib/motion";
+import { estimateTokenCount } from "@/lib/thinking";
 import type { DocBlockDTO } from "@/lib/api";
 import { resolveBubbleKind, chromeBubbleKind, BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
 import { AIDock } from "./AIDock";
@@ -246,6 +247,11 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     ? threadMessages?.[threadMessages.length - 1]
     : threadMessages?.find((m) => m.id === streamingId);
   const peekSnippet = peekMessage?.content ?? "";
+  // Live token estimate for the collapsed "thinking" chip — an approximation
+  // of the streamed reasoning's length (see estimateTokenCount), not the
+  // provider's actual billed usage. 0 elsewhere, which PeekCard treats as
+  // "no suffix".
+  const peekThinkingTokens = peekPhase === "thinking" ? estimateTokenCount(peekMessage?.thinking ?? "") : 0;
   // Anchor the card's tail toward whichever half of the screen the bubble is
   // currently settled in, so it never overhangs an edge. Read from the last
   // PERSISTED position (not the live drag shared value) — a rare cosmetic
@@ -575,7 +581,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           ) : (
             <>
               {awaitingReply && !peekCardExpired && (
-                <PeekCard anchorLeft={peekAnchorLeft} phase={peekPhase} snippet={peekSnippet} onPress={revealReply} />
+                <PeekCard
+                  anchorLeft={peekAnchorLeft}
+                  phase={peekPhase}
+                  snippet={peekSnippet}
+                  thinkingTokens={peekThinkingTokens}
+                  onPress={revealReply}
+                />
               )}
               <Bubble
                 colors={colors}
