@@ -664,6 +664,7 @@
       "aiPlaceholder": "Demander à l’IA de modifier…",
       "templates": "Modèles",
       "orChooseTemplate": "Ou choisir un modèle",
+      "fillTokens": "Renseignez les champs",
       "templatesEmpty": "Aucun modèle pour l’instant",
       "templatesError": "Échec du chargement des modèles — appuyez pour réessayer",
       "applyTemplate": "Appliquer {{name}}",

@@ -1107,8 +1107,10 @@ export type ChromeOp =
   // Apply a saved Header/Footer Studio template (full OOXML: running-title
   // segments, tables, live fields, embedded logos) to the section containing
   // `index`. `region` scopes it: the header band applies "header", the footer
-  // band applies "footer" (omit → both).
-  | { op: "applyTemplate"; index: number; templateId: string; region?: "header" | "footer" }
+  // band applies "footer" (omit → both). `values` fills the template's {tokens}
+  // (see HfTemplateSummary.tokens) with what the student typed — omit for a
+  // template with no tokens.
+  | { op: "applyTemplate"; index: number; templateId: string; region?: "header" | "footer"; values?: Record<string, string> }
   // Apply an AI-GENERATED model (from generateChromeModel below) — same full-OOXML
   // apply path as a saved template, just not persisted as one. `model` is exactly
   // what the app was shown in the preview (opaque — validated server-side).
@@ -1124,13 +1126,16 @@ export async function chromeOp(
 // A compact, render-agnostic preview digest of a template's header/footer that the
 // writer's bubble stacks before applying. A line is a list of slots (start/center/
 // end for paragraphs; cells for tables); a slot is a list of segments; fields stay
-// as typed tokens ({ field: "pageNumber" | … }) so the app localizes them.
-export type HfPreviewSeg = { text: string } | { field: string } | { logo: true };
+// as typed tokens ({ field: "pageNumber" | … }) so the app localizes them, and a
+// { token } seg is a student-filled {placeholder} rendered as a fillable chip.
+export type HfPreviewSeg = { text: string } | { field: string } | { logo: true } | { token: string };
 export type HfPreviewLine = HfPreviewSeg[][];
 export type HfPreview = { header: HfPreviewLine[]; footer: HfPreviewLine[] };
 
 // A staff-authored header/footer template (from the dashboard HF Studio) the
 // writer can apply to a section. List view only — the model/OOXML stays server-side.
+// `tokens` = the distinct {placeholder} names the student must fill before this
+// template applies (empty for a fully-literal template).
 export type HfTemplateSummary = {
   id: string;
   name: string;
@@ -1138,6 +1143,7 @@ export type HfTemplateSummary = {
   university: string | null;
   discipline: string | null;
   preview?: HfPreview;
+  tokens?: string[];
 };
 
 // List the active HF Studio templates (optionally filtered to one language) so

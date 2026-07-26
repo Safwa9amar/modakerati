@@ -286,6 +286,10 @@ export function BlockContextBar({
   const [applyingTplId, setApplyingTplId] = useState<string | null>(null);
   // Which template row is expanded to its stacked header/footer preview (accordion).
   const [expandedTplId, setExpandedTplId] = useState<string | null>(null);
+  // Draft {token} values the student types for the currently-expanded template (a
+  // template with tokens must be filled before it applies). Reset when the expanded
+  // row changes so one template's values never leak into another's.
+  const [tokenValues, setTokenValues] = useState<Record<string, string>>({});
   // Measured inner width of the expansion panel, so the template picker (a vertical
   // list inside a horizontal ScrollView) can fill the container instead of hugging
   // its content. 0 until first layout.
@@ -860,7 +864,11 @@ export function BlockContextBar({
     try {
       const { templates } = await listHfTemplates();
       setTplList(templates);
-      setExpandedTplId((cur) => (cur && templates.some((x) => x.id === cur) ? cur : templates[0]?.id ?? null));
+      setExpandedTplId((cur) => {
+        const next = cur && templates.some((x) => x.id === cur) ? cur : templates[0]?.id ?? null;
+        if (next !== cur) setTokenValues({}); // a new row opened → fresh fill draft
+        return next;
+      });
       setTplStatus("ready");
     } catch {
       if (!silent) setTplStatus("error");
@@ -873,12 +881,12 @@ export function BlockContextBar({
       return next;
     });
   };
-  const applyHfTemplate = (templateId: string) => {
+  const applyHfTemplate = (templateId: string, values?: Record<string, string>) => {
     if (!chrome || applyingTplId) return;
     setApplyingTplId(templateId);
     void (async () => {
       try {
-        const res = await chromeOp(thesisId, { op: "applyTemplate", index: chrome.index, templateId, region: tplRegion });
+        const res = await chromeOp(thesisId, { op: "applyTemplate", index: chrome.index, templateId, region: tplRegion, values });
         if (res.document) useThesisDocStore.getState().setDoc(thesisId, res.document);
         setActiveCategory(null);
         setShowTemplates(false);
@@ -902,8 +910,19 @@ export function BlockContextBar({
       default: return "⟨…⟩";
     }
   };
-  const segText = (seg: HfPreviewSeg): string =>
-    "text" in seg ? seg.text : "logo" in seg ? "🖼" : fieldToken(seg.field);
+  // A student-fillable {token}: show the live draft value once typed, else the
+  // {placeholder} so the preview reads as "this slot gets filled." `values` is the
+  // draft the fill form collects; omitted for the AI proposal preview (no tokens).
+  const segText = (seg: HfPreviewSeg, values?: Record<string, string>): string =>
+    "text" in seg ? seg.text
+      : "logo" in seg ? "🖼"
+      : "token" in seg ? (values && values[seg.token] ? values[seg.token] : `{${seg.token}}`)
+      : fieldToken(seg.field);
+  // "left_cell_text" → "Left cell text" for the fill-form input label.
+  const humanizeToken = (name: string): string => {
+    const s = name.replace(/[_-]+/g, " ").trim();
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : name;
+  };
 
   // Chrome-band tools — same chip look/animation as every kind. Top/bottom: ONE ✦ AI
   // entry point (it reads the section's content, the current header/footer, and the
@@ -1131,7 +1150,7 @@ export function BlockContextBar({
       // a right/left header genuinely reads right-to-left in an Arabic thesis); every
       // other element in this panel (input, buttons, template list) is app chrome and
       // uses `appRtl` instead.
-      const renderLine = (line: HfPreviewLine, li: number) => (
+      const renderLine = (line: HfPreviewLine, li: number, values?: Record<string, string>) => (
         <View key={li} style={{ flexDirection: rtl ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
           {line.map((slot, si) => (
             <Text
@@ -1144,7 +1163,7 @@ export function BlockContextBar({
                 textAlign: si === 0 ? (rtl ? "right" : "left") : si === line.length - 1 ? (rtl ? "left" : "right") : "center",
               }}
             >
-              {slot.map(segText).join(" ") || " "}
+              {slot.map((s) => segText(s, values)).join(" ") || " "}
             </Text>
           ))}
         </View>
@@ -1187,10 +1206,14 @@ export function BlockContextBar({
                     const applying = applyingTplId === tpl.id;
                     const caption = [tpl.university, tpl.language ? tpl.language.toUpperCase() : ""].filter(Boolean).join(" · ");
                     const lines: HfPreviewLine[] = (tplRegion === "footer" ? tpl.preview?.footer : tpl.preview?.header) ?? [];
+                    const tokens = tpl.tokens ?? [];
+                    // Live values feed the preview only for the OPEN row; a collapsed row
+                    // previews its raw {tokens}.
+                    const previewValues = open ? tokenValues : undefined;
                     return (
                       <View key={tpl.id} style={{ borderWidth: 1, borderColor: open ? colors.brandPrimary : colors.borderDefault, borderRadius: 14, backgroundColor: colors.bgCard, overflow: "hidden" }}>
                         <Pressable
-                          onPress={() => setExpandedTplId(open ? null : tpl.id)}
+                          onPress={() => { setExpandedTplId(open ? null : tpl.id); setTokenValues({}); }}
                           accessibilityRole="button"
                           style={{ flexDirection: appRtl ? "row-reverse" : "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 11 }}
                         >
@@ -1209,15 +1232,36 @@ export function BlockContextBar({
                               <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: appRtl ? "right" : "left" }}>{zoneLabel}</Text>
                               {lines.length ? (
                                 <>
-                                  {lines.map(renderLine)}
+                                  {lines.map((l, i) => renderLine(l, i, previewValues))}
                                   {tplRegion === "header" ? <View style={{ height: 1.5, backgroundColor: "#9A5A31", opacity: 0.5, borderRadius: 2, marginTop: 2 }} /> : null}
                                 </>
                               ) : (
                                 <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>{t("workspace.hf.previewNone", { defaultValue: "No preview" })}</Text>
                               )}
                             </View>
+                            {/* Fill form — one input per {token}. The student's values feed the
+                                live preview above and are sent on Apply. */}
+                            {tokens.length ? (
+                              <View style={{ gap: 7 }}>
+                                <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>
+                                  {t("workspace.hf.fillTokens", { defaultValue: "Fill in the details" })}
+                                </Text>
+                                {tokens.map((tok) => (
+                                  <View key={tok} style={{ gap: 3 }}>
+                                    <Text style={{ fontSize: 10.5, fontWeight: "600", color: colors.textPlaceholder, textAlign: appRtl ? "right" : "left" }}>{humanizeToken(tok)}</Text>
+                                    <TextInput
+                                      value={tokenValues[tok] ?? ""}
+                                      onChangeText={(v) => setTokenValues((cur) => ({ ...cur, [tok]: v }))}
+                                      placeholder={`{${tok}}`}
+                                      placeholderTextColor={colors.textPlaceholder}
+                                      style={{ height: 36, borderWidth: 1, borderRadius: 9, paddingHorizontal: 10, fontSize: 13, color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgPrimary, textAlign: appRtl ? "right" : "left" }}
+                                    />
+                                  </View>
+                                ))}
+                              </View>
+                            ) : null}
                             <Pressable
-                              onPress={() => applyHfTemplate(tpl.id)}
+                              onPress={() => applyHfTemplate(tpl.id, tokens.length ? tokenValues : undefined)}
                               disabled={!!applyingTplId}
                               accessibilityRole="button"
                               accessibilityLabel={t("workspace.hf.applyTemplate", { defaultValue: "Apply {{name}}", name: tpl.name })}
@@ -1245,7 +1289,7 @@ export function BlockContextBar({
                 <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: appRtl ? "right" : "left" }}>{zoneLabel}</Text>
                 {proposedLines.length ? (
                   <>
-                    {proposedLines.map(renderLine)}
+                    {proposedLines.map((l, i) => renderLine(l, i))}
                     {tplRegion === "header" ? <View style={{ height: 1.5, backgroundColor: "#9A5A31", opacity: 0.5, borderRadius: 2, marginTop: 2 }} /> : null}
                   </>
                 ) : (
