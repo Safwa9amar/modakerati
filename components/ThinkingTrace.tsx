@@ -41,7 +41,7 @@ interface Props {
 }
 
 /** A ✻ that spins while the model is reasoning. */
-function SpinningAsterisk({ color }: { color: string }) {
+export function SpinningAsterisk({ color }: { color: string }) {
   const rot = useSharedValue(0);
   useEffect(() => {
     rot.value = withRepeat(withTiming(360, { duration: 1200, easing: Easing.linear }), -1);

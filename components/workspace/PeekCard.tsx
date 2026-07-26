@@ -1,8 +1,8 @@
-import { useEffect } from "react";
 import { I18nManager, Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, { Easing, FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { SpinningAsterisk } from "@/components/ThinkingTrace";
 
 export type PeekPhase = "thinking" | "writing" | "done";
 
@@ -29,8 +29,9 @@ interface Props {
  * The Messenger "chat-heads" style tail-bubble card anchored above the
  * collapsed ✦ AI bubble. Purely presentational — FloatingPill derives `phase`
  * and `snippet` from the shared chat store and owns all screen-position math;
- * this component only owns its own look, the thinking-pulse animation, and
- * which side its tail points from.
+ * this component only owns its own look (a small collapsed chip while
+ * thinking, a wider card once there's text to show) and which side its tail
+ * points from.
  */
 export function PeekCard({ anchorLeft, phase, snippet, onPress }: Props) {
   const { t } = useTranslation();
@@ -43,24 +44,40 @@ export function PeekCard({ anchorLeft, phase, snippet, onPress }: Props) {
   const useLeftKey = I18nManager.isRTL ? !anchorLeft : anchorLeft;
   const anchorStyle = useLeftKey ? { left: 0 as const } : { right: 0 as const };
 
-  const pulse = useSharedValue(0.4);
-  useEffect(() => {
-    if (phase === "thinking") {
-      pulse.value = withRepeat(withTiming(1, { duration: 550, easing: Easing.inOut(Easing.ease) }), -1, true);
-    } else {
-      pulse.value = 1;
-    }
-  }, [phase, pulse]);
-  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
-
   const label =
     phase === "thinking"
-      ? t("aiDock.peek.thinking", { defaultValue: "Thinking" })
+      ? t("aiDock.peek.thinking", { defaultValue: "Thinking…" })
       : phase === "writing"
         ? t("aiDock.peek.writing", { defaultValue: "Writing…" })
         : t("aiDock.peek.done", { defaultValue: "Done" });
 
   const trimmed = snippet.trim().replace(/\s+/g, " ").slice(0, 220);
+
+  // "Thinking" has no snippet yet, so it renders as a small collapsed chip —
+  // spinning ✻ + label, matching the app's shared ThinkingTrace collapsed
+  // row — instead of the wider card the writing/done states need for text.
+  if (phase === "thinking") {
+    return (
+      <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.chipHost, anchorStyle]}>
+        <Pressable
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          style={[styles.chip, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
+        >
+          <SpinningAsterisk color={colors.brandPrimary} />
+          <Text style={[styles.chipLabel, { color: colors.brandPrimary }]}>{label}</Text>
+        </Pressable>
+        <View
+          style={[
+            styles.tail,
+            { backgroundColor: colors.bgCard, borderColor: colors.borderDefault },
+            anchorLeft ? styles.tailLeft : styles.tailRight,
+          ]}
+        />
+      </Animated.View>
+    );
+  }
 
   return (
     <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.host, anchorStyle]}>
@@ -73,10 +90,10 @@ export function PeekCard({ anchorLeft, phase, snippet, onPress }: Props) {
           { backgroundColor: colors.bgCard, borderColor: phase === "done" ? colors.brandPrimary : colors.borderDefault },
         ]}
       >
-        <Animated.View style={[styles.row, pulseStyle]}>
+        <View style={styles.row}>
           <Text style={[styles.label, { color: colors.brandPrimary }]}>{label}</Text>
           {phase === "done" && <View style={[styles.unreadDot, { backgroundColor: colors.brandPrimary }]} />}
-        </Animated.View>
+        </View>
         {trimmed.length > 0 && (
           <Text numberOfLines={4} style={[styles.snippet, { color: colors.textPrimary }]}>
             {trimmed}
@@ -99,6 +116,24 @@ const styles = StyleSheet.create({
   // 52px-wide collapsed host, an absolutely-positioned child with only a cap
   // and no concrete width let Yoga shrink-wrap it far narrower than intended.
   host: { position: "absolute", bottom: BUBBLE_CLEARANCE, width: 240 },
+  // Thinking's chip hugs its content (no fixed width) — it's always a short
+  // one-line label, unlike the writing/done card which needs room for text.
+  chipHost: { position: "absolute", bottom: BUBBLE_CLEARANCE },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  chipLabel: { fontSize: 11.5, fontFamily: "Inter_500Medium" },
   card: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
