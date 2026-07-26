@@ -4,6 +4,8 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
   Easing,
+  FadeIn,
+  FadeOut,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -248,6 +250,21 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // trade-off: the anchor side won't flip mid-drag, only after the bubble
   // settles, which is fine since a peek is never shown while actively dragging.
   const peekAnchorLeft = startX + BUBBLE_SIZE / 2 < width / 2;
+
+  // The finished-reply card auto-hides after a few seconds so it doesn't sit
+  // over the document forever; a small dot then stays on the bubble (mirrors
+  // ChatHead's activeDot) so the reply is never fully lost — tapping the
+  // bubble still reveals it via `revealReply`. Only the resting "done" state
+  // times out; "thinking"/"writing" stay up for as long as the turn runs.
+  const [peekCardExpired, setPeekCardExpired] = useState(false);
+  useEffect(() => {
+    if (!awaitingReply || peekPhase !== "done") {
+      setPeekCardExpired(false);
+      return;
+    }
+    const timer = setTimeout(() => setPeekCardExpired(true), 6000);
+    return () => clearTimeout(timer);
+  }, [awaitingReply, peekPhase]);
 
   // Tapping the peek card — or the bubble itself while a reply is unread —
   // opens the shared chat-overlay panel instead of expanding the AI dock.
@@ -550,13 +567,14 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
             )
           ) : (
             <>
-              {awaitingReply && (
+              {awaitingReply && !peekCardExpired && (
                 <PeekCard anchorLeft={peekAnchorLeft} phase={peekPhase} snippet={peekSnippet} onPress={revealReply} />
               )}
               <Bubble
                 colors={colors}
                 kind={bubbleKind}
                 busy={busy}
+                unread={awaitingReply && peekCardExpired}
                 label={
                   count === 0
                     ? t("blockBar.askAi", { defaultValue: "Ask AI" })
@@ -584,12 +602,14 @@ function Bubble({
   kind,
   label,
   busy,
+  unread,
   onPress,
 }: {
   colors: ReturnType<typeof useThemeColors>;
   kind: BubbleKind;
   label: string;
   busy: boolean;
+  unread: boolean;
   onPress: () => void;
 }) {
   const Icon = BUBBLE_ICONS[kind];
@@ -623,6 +643,13 @@ function Bubble({
         <Animated.View style={spinStyle}>
           <Icon size={22} color={colors.bgPrimary} strokeWidth={2.2} />
         </Animated.View>
+        {unread && (
+          <Animated.View
+            entering={FadeIn}
+            exiting={FadeOut}
+            style={[styles.unreadDot, { backgroundColor: colors.brandAccent, borderColor: colors.brandPrimary }]}
+          />
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -667,5 +694,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 12,
     elevation: 10,
+  },
+  unreadDot: {
+    position: "absolute",
+    top: 1,
+    right: 1,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
   },
 });

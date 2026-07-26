@@ -60,7 +60,7 @@ export function PeekCard({ anchorLeft, phase, snippet, onPress }: Props) {
         ? t("aiDock.peek.writing", { defaultValue: "Writing…" })
         : t("aiDock.peek.done", { defaultValue: "Done" });
 
-  const trimmed = snippet.trim().replace(/\s+/g, " ").slice(0, 100);
+  const trimmed = snippet.trim().replace(/\s+/g, " ").slice(0, 220);
 
   return (
     <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.host, anchorStyle]}>
@@ -78,7 +78,7 @@ export function PeekCard({ anchorLeft, phase, snippet, onPress }: Props) {
           {phase === "done" && <View style={[styles.unreadDot, { backgroundColor: colors.brandPrimary }]} />}
         </Animated.View>
         {trimmed.length > 0 && (
-          <Text numberOfLines={2} style={[styles.snippet, { color: colors.textPrimary }]}>
+          <Text numberOfLines={4} style={[styles.snippet, { color: colors.textPrimary }]}>
             {trimmed}
           </Text>
         )}
