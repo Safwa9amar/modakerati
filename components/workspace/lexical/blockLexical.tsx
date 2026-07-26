@@ -1615,10 +1615,25 @@ export function $blockEntries(): BlockEntry[] {
       idx += items;
       continue;
     }
-    const isHeading = $isHeadingNode(node);
-    const level = isHeading ? Number((node as HeadingNode).getTag().slice(1)) : 0;
-    out.push({ key: node.getKey(), from: idx, count: 1, isHeading, level });
-    idx += 1;
+    if ($isBlockDataNode(node)) {
+      out.push({ key: node.getKey(), from: idx, count: 1, isHeading: false, level: 0 });
+      idx += 1;
+      continue;
+    }
+    if ($isHeadingNode(node) || $isParagraphNode(node)) {
+      const level = $isHeadingNode(node) ? Number((node as HeadingNode).getTag().slice(1)) : 0;
+      out.push({ key: node.getKey(), from: idx, count: 1, isHeading: $isHeadingNode(node), level });
+      idx += 1;
+      continue;
+    }
+    // Anything else unknown: mirror $lexicalToBlocks's fallback — only counts as a
+    // block (and only advances idx) if it actually carries text; otherwise it
+    // contributes nothing, so the two functions' indices never drift apart.
+    const text = node.getTextContent();
+    if (text) {
+      out.push({ key: node.getKey(), from: idx, count: 1, isHeading: false, level: 0 });
+      idx += 1;
+    }
   }
   return out;
 }
