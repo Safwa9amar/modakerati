@@ -275,6 +275,10 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scop
       selection: scopeIndices.length ? scopeText || undefined : undefined,
     });
     pill.setExpanded(false);
+    // Only this plain chat-loop branch gets the Messenger-style peek card —
+    // the paragraph/image/table/range branches above already show their own
+    // in-place review UI and return before reaching here.
+    pill.setAwaitingReply(true);
   };
 
   const handleAskSend = () => {
