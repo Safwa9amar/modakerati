@@ -21,12 +21,17 @@ interface FloatingPillState {
   /** The dock's inline Ask input (on-demand variant). Opened by the Ask… chip
    *  or the pill's ✦; closed on send/hide/reset. */
   inputOpen: boolean;
+  /** True from the moment AIDock fires a plain chat-loop ask until the user
+   *  opens the Messenger-style peek reveal to read the reply. Drives the
+   *  PeekCard on the collapsed bubble; see FloatingPill.tsx. */
+  awaitingReply: boolean;
   show: () => void;
   hide: () => void;
   setPos: (pos: Pos) => void;
   setExpanded: (expanded: boolean) => void;
   setAnchorY: (y: number) => void;
   setInputOpen: (v: boolean) => void;
+  setAwaitingReply: (v: boolean) => void;
   reset: () => void;
 }
 
@@ -36,11 +41,13 @@ export const useFloatingPillStore = create<FloatingPillState>((set) => ({
   expanded: false,
   anchorY: null,
   inputOpen: false,
+  awaitingReply: false,
   show: () => set({ visible: true }),
-  hide: () => set({ visible: false, expanded: false, inputOpen: false }),
+  hide: () => set({ visible: false, expanded: false, inputOpen: false, awaitingReply: false }),
   setPos: (pos) => set({ pos }),
   setExpanded: (expanded) => set({ expanded }),
   setAnchorY: (y) => set({ anchorY: y }),
   setInputOpen: (v) => set({ inputOpen: v }),
-  reset: () => set({ visible: false, pos: null, expanded: false, anchorY: null, inputOpen: false }),
+  setAwaitingReply: (v) => set({ awaitingReply: v }),
+  reset: () => set({ visible: false, pos: null, expanded: false, anchorY: null, inputOpen: false, awaitingReply: false }),
 }));
