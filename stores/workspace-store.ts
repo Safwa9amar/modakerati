@@ -4,7 +4,19 @@ import type { ChromeKind } from "@/components/workspace/lexical/blockLexical";
 export type ActivePanel = "sources" | "outline" | null;
 
 /** A selected Word chrome band (section header / footer / section-break marker). */
-export type ChromeSelection = { kind: ChromeKind; index: number; text: string; pageNumbers?: boolean };
+export type ChromeSelection = {
+  kind: ChromeKind;
+  index: number;
+  text: string;
+  pageNumbers?: boolean;
+  // Section-break band only: Word "Link to Previous" state (null = first section)
+  // and whether the section starts on a fresh page — drive the section toolset.
+  linkedToPrevious?: boolean | null;
+  startsOnNewPage?: boolean;
+  // Top band only: the header's tab/cell-positioned segments, so the Edit-text input
+  // shows the parts separated (like the docx) rather than concatenated.
+  segments?: string[];
+};
 // The native outline ("the Writer") is the single editing surface. A read-only
 // preview overlay may sit on top of it: "docx" = Word-fidelity pages (OnlyOffice /
 // docx-preview), "pdf" = the OnlyOffice-converted PDF (PDF.js). null = writing
@@ -266,7 +278,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const cur = s.chromeSelection;
       if (cur === c) return {};
       if (cur == null && c == null) return {};
-      if (cur && c && cur.kind === c.kind && cur.index === c.index && cur.text === c.text && cur.pageNumbers === c.pageNumbers) return {};
+      if (
+        cur && c &&
+        cur.kind === c.kind && cur.index === c.index && cur.text === c.text &&
+        cur.pageNumbers === c.pageNumbers &&
+        cur.linkedToPrevious === c.linkedToPrevious && cur.startsOnNewPage === c.startsOnNewPage
+      ) return {};
       return { chromeSelection: c };
     }),
 

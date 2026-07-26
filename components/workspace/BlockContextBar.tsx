@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, Alert, Keyboard } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, Alert, Keyboard, ActivityIndicator } from "react-native";
 import type { ScrollView as RNScrollView } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -60,6 +60,9 @@ import {
   Pencil,
   Hash,
   Check,
+  Link2,
+  SeparatorHorizontal,
+  LayoutTemplate,
   type LucideIcon,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -72,7 +75,7 @@ import { pickAndInsertImage } from "@/lib/insert-image";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSearchStore } from "@/stores/search-store";
-import { removeThesisBlockBg, chromeOp, type ChromeOp, type DocBlockDTO } from "@/lib/api";
+import { removeThesisBlockBg, chromeOp, listHfTemplates, type ChromeOp, type DocBlockDTO, type HfTemplateSummary, type HfPreviewLine, type HfPreviewSeg } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
 import { resolveBubbleKind, chromeBubbleKind, type BubbleKind } from "@/lib/bubble-configs";
@@ -84,7 +87,7 @@ import type { FormatChange, ParaRun, ThesisOp } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
-type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders" | "hfText" | "hfAI";
+type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders" | "hfText" | "hfAI" | "hfLink" | "hfTemplate";
 
 // Border pickers for the table Borders sub-pill: OOXML line styles (glyph
 // labels), widths in points, and line colors (6-hex, no '#').
@@ -200,7 +203,19 @@ interface Props {
   /** When set, the selection is a Word chrome band (running header / footer / section
    *  break) rather than a block. The bar morphs to the chrome toolset using the SAME
    *  pill shell + entrance/expansion/morph animations as every other kind. */
-  chrome?: { kind: "top" | "bottom" | "section"; index: number; text: string; pageNumbers?: boolean } | null;
+  chrome?: {
+    kind: "top" | "bottom" | "section";
+    index: number;
+    text: string;
+    pageNumbers?: boolean;
+    // Section-break band only: Word "Link to Previous" state (null = first section)
+    // and whether the section already starts on a fresh page.
+    linkedToPrevious?: boolean | null;
+    startsOnNewPage?: boolean;
+    // Top band only: the header's positioned segments — Edit-text pre-fills with these
+    // (tab-joined) so the parts show separated instead of concatenated.
+    segments?: string[];
+  } | null;
 }
 
 /**
@@ -233,6 +248,9 @@ export function BlockContextBar({
   const { t } = useTranslation();
   const colors = useThemeColors();
   const saving = useThesisDocStore((s) => (s.pending[thesisId] ?? 0) > 0);
+  // The live doc — used to walk between section boundaries (Prev/Next section) from
+  // the chrome bubble. Selecting the stored object (stable ref) avoids a render loop.
+  const chromeDoc = useThesisDocStore((s) => s.byId[thesisId]);
   // The active chrome AI proposal (header/footer), if any — drives the hfAI panel.
   const chromeSug = useSuggestionStore((s) => s.chrome);
 
@@ -256,6 +274,17 @@ export function BlockContextBar({
   const [hfText, setHfText] = useState("");
   // Draft AI instruction for the chrome band's ✦ proposal (hfAI category).
   const [aiText, setAiText] = useState("");
+  // Header/footer template picker (hfTemplate category): staff-authored Studio
+  // templates fetched lazily on first open; `applyingTplId` shows a per-card spinner.
+  const [tplStatus, setTplStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [tplList, setTplList] = useState<HfTemplateSummary[]>([]);
+  const [applyingTplId, setApplyingTplId] = useState<string | null>(null);
+  // Which template row is expanded to its stacked header/footer preview (accordion).
+  const [expandedTplId, setExpandedTplId] = useState<string | null>(null);
+  // Measured inner width of the expansion panel, so the template picker (a vertical
+  // list inside a horizontal ScrollView) can fill the container instead of hugging
+  // its content. 0 until first layout.
+  const [expWidth, setExpWidth] = useState(0);
 
   const canFormat = paragraphSelection.length > 0;
   const paraIndices = paragraphSelection.map((b) => b.index);
@@ -733,7 +762,9 @@ export function BlockContextBar({
     })();
   };
   const openHfEdit = () => {
-    setHfText(chrome?.text ?? "");
+    // A multi-part (table/tab) header pre-fills with its segments tab-joined so the
+    // parts show separated (like the docx); a single-part header uses its flat text.
+    setHfText(chrome?.segments && chrome.segments.length > 1 ? chrome.segments.join("\t") : chrome?.text ?? "");
     setActiveCategory((cur) => (cur === "hfText" ? null : "hfText"));
   };
   const saveHfText = () => {
@@ -750,6 +781,41 @@ export function BlockContextBar({
     const next = !chrome.pageNumbers;
     applyChrome({ op: "setFooter", index: chrome.index, text: chrome.text, pageNumbers: next });
     useWorkspaceStore.getState().setChromeSelection({ ...chrome, pageNumbers: next });
+  };
+  // Section-break band: Word's "Link to Previous" for the whole section (header +
+  // footer). A bare link icon reads as nothing to a student, so the chip opens a
+  // sub-pill (hfLink) with two plain-language choices instead of toggling in place.
+  // Linked → the section shares the previous section's running chrome; unlink → it
+  // gets its own independent copy. Optimistically set the state; the echoed document
+  // reconciles doc.sections for the next tap.
+  const setLinkedToPrev = (linked: boolean) => {
+    if (!chrome || chrome.kind !== "section") return;
+    applyChrome({ op: linked ? "linkToPrevious" : "unlinkFromPrevious", index: chrome.index });
+    useWorkspaceStore.getState().setChromeSelection({ ...chrome, linkedToPrevious: linked });
+    setActiveCategory(null);
+  };
+  // Convert a continuous section break into a new-page break (one-way — the chip is
+  // only shown while the section still flows continuously).
+  const startOnNewPage = () => {
+    if (!chrome || chrome.kind !== "section") return;
+    applyChrome({ op: "startOnNewPage", index: chrome.index });
+    useWorkspaceStore.getState().setChromeSelection({ ...chrome, startsOnNewPage: true });
+  };
+
+  // ── Prev/Next section navigation (chrome section band) ──
+  // Walk the doc's section boundaries. A section band's `index` IS that section's
+  // startBlockIndex, so we find our position in doc.sections and scroll the writer
+  // to the adjacent boundary (which flashes it into view).
+  const chromeSecs = chromeDoc?.available ? chromeDoc.sections ?? [] : [];
+  const curSecPos =
+    chrome?.kind === "section" ? chromeSecs.findIndex((sc) => sc.startBlockIndex === chrome.index) : -1;
+  const hasPrevSection = curSecPos > 0;
+  const hasNextSection = curSecPos >= 0 && curSecPos < chromeSecs.length - 1;
+  const goToSection = (delta: -1 | 1) => {
+    const target = chromeSecs[curSecPos + delta];
+    if (!target) return;
+    setActiveCategory(null);
+    useWorkspaceStore.getState().requestScrollToBlock(target.startBlockIndex);
   };
 
   // ── Chrome ✦ AI proposal (streams thinking + a proposed header/footer, approve/
@@ -776,20 +842,125 @@ export function BlockContextBar({
     setAiText("");
   };
 
+  // ── Header/footer template picker (hfTemplate category, top + bottom bands) ──
+  // Each chrome bubble owns its own region: the top band previews + applies only the
+  // HEADER, the bottom band only the FOOTER. Fetch the staff-authored Studio
+  // templates lazily on first open (the first row auto-expands to its stacked
+  // preview), then apply the chosen region at full fidelity via chromeOp.
+  const tplRegion: "header" | "footer" = chrome?.kind === "bottom" ? "footer" : "header";
+  // Always re-fetch on open so newly created/edited Studio templates show up. When
+  // a list is already in hand, refresh silently (no loading flash) and update in
+  // place, keeping the current row expanded if it still exists.
+  const loadTemplates = async (silent = false) => {
+    if (!silent) setTplStatus("loading");
+    try {
+      const { templates } = await listHfTemplates();
+      setTplList(templates);
+      setExpandedTplId((cur) => (cur && templates.some((x) => x.id === cur) ? cur : templates[0]?.id ?? null));
+      setTplStatus("ready");
+    } catch {
+      if (!silent) setTplStatus("error");
+    }
+  };
+  const openHfTemplates = () => {
+    setActiveCategory((cur) => {
+      const next = cur === "hfTemplate" ? null : "hfTemplate";
+      if (next === "hfTemplate") void loadTemplates(tplList.length > 0);
+      return next;
+    });
+  };
+  const applyHfTemplate = (templateId: string) => {
+    if (!chrome || applyingTplId) return;
+    setApplyingTplId(templateId);
+    void (async () => {
+      try {
+        const res = await chromeOp(thesisId, { op: "applyTemplate", index: chrome.index, templateId, region: tplRegion });
+        if (res.document) useThesisDocStore.getState().setDoc(thesisId, res.document);
+        setActiveCategory(null);
+      } catch {
+        Alert.alert(t("common.error", { defaultValue: "Something went wrong" }));
+      } finally {
+        setApplyingTplId(null);
+      }
+    })();
+  };
+  // Localize a preview field token; page numbers stay as universal symbols.
+  const fieldToken = (field: string): string => {
+    switch (field) {
+      case "pageNumber": return "#";
+      case "totalPages": return "# / #";
+      case "styleRef": return t("workspace.hf.field.chapter", { defaultValue: "⟨chapter⟩" });
+      case "docTitle": return t("workspace.hf.field.title", { defaultValue: "⟨title⟩" });
+      case "author": return t("workspace.hf.field.author", { defaultValue: "⟨author⟩" });
+      case "university": return t("workspace.hf.field.university", { defaultValue: "⟨university⟩" });
+      case "date": return t("workspace.hf.field.date", { defaultValue: "⟨date⟩" });
+      default: return "⟨…⟩";
+    }
+  };
+  const segText = (seg: HfPreviewSeg): string =>
+    "text" in seg ? seg.text : "logo" in seg ? "🖼" : fieldToken(seg.field);
+
   // Chrome-band tools — same chip look/animation as every kind. Top: ✦ AI + edit the
-  // running title. Bottom: ✦ AI + edit text + toggle page numbers. Section-break bands
-  // keep the pinned ✦ only (structural break edits are v2).
+  // running title. Bottom: ✦ AI + edit text + toggle page numbers. Section-break bands:
+  // Link (labeled sub-pill) + Prev/Next section + start-on-new-page.
   const chromeTools =
     chrome?.kind === "top" ? (
       <>
         {chip({ keyProp: "hf-ai", Icon: Sparkles, accessibilityLabel: t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" }), active: activeCategory === "hfAI", enterIndex: 0, onPress: openHfAi })}
         {chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 1, onPress: openHfEdit })}
+        {chip({ keyProp: "hf-tpl", Icon: LayoutTemplate, accessibilityLabel: t("workspace.hf.templates", { defaultValue: "Templates" }), active: activeCategory === "hfTemplate", enterIndex: 2, onPress: openHfTemplates })}
       </>
     ) : chrome?.kind === "bottom" ? (
       <>
         {chip({ keyProp: "hf-ai", Icon: Sparkles, accessibilityLabel: t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" }), active: activeCategory === "hfAI", enterIndex: 0, onPress: openHfAi })}
         {chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 1, onPress: openHfEdit })}
         {chip({ keyProp: "hf-pgnum", Icon: Hash, accessibilityLabel: t("workspace.hf.pageNumbers", { defaultValue: "Page numbers" }), active: !!chrome?.pageNumbers, enterIndex: 2, onPress: togglePageNumbers })}
+        {chip({ keyProp: "hf-tpl", Icon: LayoutTemplate, accessibilityLabel: t("workspace.hf.templates", { defaultValue: "Templates" }), active: activeCategory === "hfTemplate", enterIndex: 3, onPress: openHfTemplates })}
+      </>
+    ) : chrome?.kind === "section" ? (
+      // Section-break band: the link chip opens a labeled sub-pill (hfLink) so the
+      // choice reads in words, not a bare icon. Then Prev/Next jump between section
+      // boundaries, and a one-tap "Start on a new page" appears while the break is
+      // still continuous.
+      <>
+        {chrome.linkedToPrevious != null
+          ? chip({
+              keyProp: "hf-link",
+              Icon: Link2,
+              accessibilityLabel: t("workspace.hf.linkToggle", { defaultValue: "Link to previous section" }),
+              active: activeCategory === "hfLink",
+              enterIndex: 0,
+              onPress: () => setActiveCategory((cur) => (cur === "hfLink" ? null : "hfLink")),
+            })
+          : null}
+        {chip({
+          keyProp: "hf-prev-sec",
+          Icon: ChevronUp,
+          accessibilityLabel: t("workspace.hf.prevSection", { defaultValue: "Previous section" }),
+          active: false,
+          disabled: !hasPrevSection,
+          enterIndex: 1,
+          onPress: () => goToSection(-1),
+        })}
+        {chip({
+          keyProp: "hf-next-sec",
+          Icon: ChevronDown,
+          accessibilityLabel: t("workspace.hf.nextSection", { defaultValue: "Next section" }),
+          active: false,
+          disabled: !hasNextSection,
+          enterIndex: 2,
+          onPress: () => goToSection(1),
+        })}
+        {!chrome.startsOnNewPage
+          ? chip({
+              keyProp: "hf-newpage",
+              Icon: SeparatorHorizontal,
+              accessibilityLabel: t("workspace.hf.startOnNewPage", { defaultValue: "Start on a new page" }),
+              active: false,
+              enterIndex: 3,
+              onPress: startOnNewPage,
+            })
+          : null}
       </>
     ) : (
       <></>
@@ -890,7 +1061,7 @@ export function BlockContextBar({
       activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout" ||
       activeCategory === "tblShade" || activeCategory === "tblBorders";
     if (isTableCat !== isTable) return null;
-    if ((activeCategory === "hfText" || activeCategory === "hfAI") && !isChrome) return null;
+    if ((activeCategory === "hfText" || activeCategory === "hfAI" || activeCategory === "hfLink" || activeCategory === "hfTemplate") && !isChrome) return null;
     let body: React.ReactNode = null;
     // A table sub-pill option chip (icon-only, same look as the align/style opts).
     const tblOpt = (
@@ -917,7 +1088,32 @@ export function BlockContextBar({
         />
       </AnimatedChip>
     );
-    if (activeCategory === "hfText") {
+    if (activeCategory === "hfLink") {
+      // Section-break link sub-pill: two plain-language choices instead of a cryptic
+      // link icon. The active one reflects the section's current state; tapping the
+      // other links/unlinks its running header + footer with the previous section.
+      const linked = !!chrome?.linkedToPrevious;
+      const linkOpt = (key: string, label: string, active: boolean, enterIndex: number, onPress: () => void) => (
+        <AnimatedChip
+          key={key}
+          enterIndex={enterIndex}
+          onPress={onPress}
+          active={active}
+          accessibilityLabel={label}
+          style={optPill(active)}
+        >
+          <Text numberOfLines={1} style={[styles.optText, { color: active ? colors.bgPrimary : colors.textPrimary }]}>
+            {label}
+          </Text>
+        </AnimatedChip>
+      );
+      body = (
+        <>
+          {linkOpt("lk-on", t("workspace.hf.linkToPrevious", { defaultValue: "Same as previous section" }), linked, 0, () => setLinkedToPrev(true))}
+          {linkOpt("lk-off", t("workspace.hf.unlinkFromPrevious", { defaultValue: "Give this section its own" }), !linked, 1, () => setLinkedToPrev(false))}
+        </>
+      );
+    } else if (activeCategory === "hfText") {
       // Inline header/footer text editor — a TextInput row in the same expansion
       // container as the table/style sub-pills, with a ✓ to save via /chrome-op.
       body = (
@@ -995,6 +1191,106 @@ export function BlockContextBar({
                 <Sparkles size={17} color={colors.bgPrimary} strokeWidth={2.2} />
               </Pressable>
             </View>
+          )}
+        </View>
+      );
+    } else if (activeCategory === "hfTemplate") {
+      // Template picker, scoped to THIS bubble's region: the top band previews +
+      // applies only the header, the bottom band only the footer. Each Studio
+      // template is a collapsible row that expands to a stacked preview of that
+      // region (fields shown as localized tokens) + an explicit Apply.
+      const zoneLabel = tplRegion === "footer"
+        ? t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" })
+        : t("workspace.hf.topOfPage", { defaultValue: "Top of every page" });
+      const renderLine = (line: HfPreviewLine, li: number) => (
+        <View key={li} style={{ flexDirection: rtl ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+          {line.map((slot, si) => (
+            <Text
+              key={si}
+              numberOfLines={1}
+              style={{
+                flex: line.length > 1 ? 1 : undefined,
+                fontSize: 11.5,
+                color: colors.textPrimary,
+                textAlign: si === 0 ? (rtl ? "right" : "left") : si === line.length - 1 ? (rtl ? "left" : "right") : "center",
+              }}
+            >
+              {slot.map(segText).join(" ") || " "}
+            </Text>
+          ))}
+        </View>
+      );
+      body = (
+        <View style={{ width: expWidth > 24 ? expWidth - 12 : undefined, minWidth: 260 }}>
+          {tplStatus === "loading" ? (
+            <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 42 }}>
+              <ActivityIndicator size="small" color={colors.brandPrimary} />
+              <Text style={{ fontSize: 12.5, color: colors.textSecondary }}>{t("common.loading", { defaultValue: "Loading…" })}</Text>
+            </View>
+          ) : tplStatus === "error" ? (
+            <Pressable onPress={() => void loadTemplates()} accessibilityRole="button" style={{ minHeight: 42, justifyContent: "center" }}>
+              <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+                {t("workspace.hf.templatesError", { defaultValue: "Couldn't load templates — tap to retry" })}
+              </Text>
+            </Pressable>
+          ) : tplList.length === 0 ? (
+            <View style={{ minHeight: 42, justifyContent: "center" }}>
+              <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+                {t("workspace.hf.templatesEmpty", { defaultValue: "No templates yet" })}
+              </Text>
+            </View>
+          ) : (
+            <ScrollView style={{ maxHeight: 264 }} nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+              {tplList.map((tpl) => {
+                const open = expandedTplId === tpl.id;
+                const applying = applyingTplId === tpl.id;
+                const caption = [tpl.university, tpl.language ? tpl.language.toUpperCase() : ""].filter(Boolean).join(" · ");
+                const lines: HfPreviewLine[] = (tplRegion === "footer" ? tpl.preview?.footer : tpl.preview?.header) ?? [];
+                return (
+                  <View key={tpl.id} style={{ borderWidth: 1, borderColor: open ? colors.brandPrimary : colors.borderDefault, borderRadius: 14, backgroundColor: colors.bgCard, overflow: "hidden" }}>
+                    <Pressable
+                      onPress={() => setExpandedTplId(open ? null : tpl.id)}
+                      accessibilityRole="button"
+                      style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 11 }}
+                    >
+                      <LayoutTemplate size={16} color={colors.brandPrimary} strokeWidth={2.2} />
+                      <View style={{ flex: 1 }}>
+                        <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary, textAlign: rtl ? "right" : "left" }}>{tpl.name}</Text>
+                        {caption ? <Text numberOfLines={1} style={{ fontSize: 10.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{caption}</Text> : null}
+                      </View>
+                      {open
+                        ? <ChevronUp size={16} color={colors.textPlaceholder} strokeWidth={2.2} />
+                        : <ChevronDown size={16} color={colors.textPlaceholder} strokeWidth={2.2} />}
+                    </Pressable>
+                    {open ? (
+                      <View style={{ paddingHorizontal: 11, paddingBottom: 11, gap: 9 }}>
+                        <View style={{ borderWidth: 1, borderColor: colors.borderDefault, borderRadius: 10, backgroundColor: colors.bgPrimary, padding: 10, gap: 6 }}>
+                          <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: rtl ? "right" : "left" }}>{zoneLabel}</Text>
+                          {lines.length ? (
+                            <>
+                              {lines.map(renderLine)}
+                              {tplRegion === "header" ? <View style={{ height: 1.5, backgroundColor: "#9A5A31", opacity: 0.5, borderRadius: 2, marginTop: 2 }} /> : null}
+                            </>
+                          ) : (
+                            <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{t("workspace.hf.previewNone", { defaultValue: "No preview" })}</Text>
+                          )}
+                        </View>
+                        <Pressable
+                          onPress={() => applyHfTemplate(tpl.id)}
+                          disabled={!!applyingTplId}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("workspace.hf.applyTemplate", { defaultValue: "Apply {{name}}", name: tpl.name })}
+                          style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.brandPrimary, opacity: applyingTplId && !applying ? 0.6 : 1 }}
+                        >
+                          {applying ? <ActivityIndicator size="small" color={colors.bgPrimary} /> : <Check size={16} color={colors.bgPrimary} strokeWidth={2.4} />}
+                          <Text style={{ color: colors.bgPrimary, fontSize: 12.5, fontWeight: "700" }}>{t("workspace.hf.apply", { defaultValue: "Apply" })}</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </ScrollView>
           )}
         </View>
       );
@@ -1331,6 +1627,7 @@ export function BlockContextBar({
         key={"exp-" + activeCategory}
         entering={rowIn}
         exiting={rowOutUnlessHandoff}
+        onLayout={(e) => setExpWidth(e.nativeEvent.layout.width)}
         style={[styles.expansion, { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle }]}
       >
         <ScrollView

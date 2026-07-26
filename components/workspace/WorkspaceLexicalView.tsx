@@ -546,7 +546,13 @@ export function WorkspaceLexicalView({
       const text =
         kind === "top" ? sec?.header?.text ?? s.text : kind === "bottom" ? sec?.footer?.text ?? "" : s.text;
       const pageNumbers = kind === "bottom" ? !!sec?.footer?.pageNumbers : undefined;
-      ws.setChromeSelection({ kind, index: s.index, text, pageNumbers });
+      // Section-break band carries the Link-to-Previous + starts-on-new-page state
+      // so the bubble's section toolset can render the toggles.
+      const linkedToPrevious = kind === "section" ? sec?.linkedToPrevious ?? null : undefined;
+      const startsOnNewPage = kind === "section" ? sec?.startsOnNewPage : undefined;
+      // Top band: the header's positioned segments so Edit-text shows the parts apart.
+      const segments = kind === "top" ? sec?.header?.segments : undefined;
+      ws.setChromeSelection({ kind, index: s.index, text, pageNumbers, linkedToPrevious, startsOnNewPage, segments });
       ws.clearSelection();
       useLexicalEditorStore.getState().setFormat({
         bold: false, italic: false, underline: false,
