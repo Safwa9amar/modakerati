@@ -12,6 +12,7 @@
 
 import * as React from "react";
 import { diffWords, type DiffSegment } from "@/lib/word-diff";
+import { estimateTokenCount } from "@/lib/thinking";
 import {
   $getRoot,
   $createParagraphNode,
@@ -332,10 +333,16 @@ function AIChip({ label, open, onToggle }: { label: string; open?: boolean; onTo
 // Mirrors the paragraph inline suggestion's collapsible ThinkingTrace.
 function ThinkingPanel({ text, label }: { text: string; label: string }) {
   const [open, setOpen] = React.useState(false);
+  // Live token estimate (~4 chars/token — see estimateTokenCount), not the
+  // provider's actual billed usage. Hardcoded English suffix: this DOM bundle
+  // has no i18n instance (see the file's own top-of-file note), same as the
+  // rest of ThinkingPanel/AIChip's supplementary chrome.
+  const tokenCount = estimateTokenCount(text);
+  const chipLabel = tokenCount > 0 ? `${label} · ${tokenCount} tokens` : label;
   return React.createElement(
     "div",
     { style: { margin: "6px 0" } },
-    React.createElement(AIChip, { label, open, onToggle: text ? () => setOpen((v) => !v) : undefined }),
+    React.createElement(AIChip, { label: chipLabel, open, onToggle: text ? () => setOpen((v) => !v) : undefined }),
     open && text ? React.createElement(TraceBox, { text }) : null,
   );
 }
@@ -833,10 +840,15 @@ type SerializedChromeNode = SerializedLexicalNode & { data: ChromeData };
 function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }): React.ReactElement {
   const isSection = data.kind === "section";
   const glyph = data.kind === "top" ? "⊤" : data.kind === "bottom" ? "⊥" : "§";
+  // Tapping a display-only band must NOT move DOM focus into the contentEditable
+  // root — a focused caret-less CE makes iOS WKWebView scroll to the document top
+  // (the same rule the pill buttons / table cells guard against). preventDefault on
+  // mouse-down keeps focus put; the onClick → onPick (NodeSelection) still fires.
+  const noFocus = (e: { preventDefault: () => void }) => e.preventDefault();
   if (isSection) {
     return React.createElement(
       "div",
-      { className: "lx-chrome lx-chrome-break", onClick: onPick },
+      { className: "lx-chrome lx-chrome-break", onMouseDown: noFocus, onClick: onPick },
       React.createElement("span", { className: "lx-chrome-line" }),
       React.createElement("span", { className: "lx-chrome-lbl" }, `${glyph} ${data.label}`),
       React.createElement("span", { className: "lx-chrome-line" }),
@@ -851,7 +863,7 @@ function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }):
     // as the header on its own; the plain-language label still shows in the bubble.
     return React.createElement(
       "div",
-      { className: "lx-chrome lx-chrome-band lx-chrome-hdr", dir: data.rtl ? "rtl" : "ltr", onClick: onPick },
+      { className: "lx-chrome lx-chrome-band lx-chrome-hdr", dir: data.rtl ? "rtl" : "ltr", onMouseDown: noFocus, onClick: onPick },
       React.createElement(
         "div",
         { className: "lx-chrome-hdr-preview" },
@@ -866,7 +878,7 @@ function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }):
   }
   return React.createElement(
     "div",
-    { className: "lx-chrome lx-chrome-band", dir: data.rtl ? "rtl" : "ltr", onClick: onPick },
+    { className: "lx-chrome lx-chrome-band", dir: data.rtl ? "rtl" : "ltr", onMouseDown: noFocus, onClick: onPick },
     React.createElement("span", { className: "lx-chrome-tag" }, `${glyph} ${data.label}`),
     React.createElement("span", { className: "lx-chrome-text" }, data.text || "—"),
   );
@@ -1076,6 +1088,11 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
         React.createElement("div", { key: "b", className: "lx-sug-trace-body", dir: "auto" }, sug.reasoning),
       )
     : null;
+  // Live token estimate for the loading pill's "Thinking…" label below — an
+  // approximation (see lib/thinking.ts's estimateTokenCount), not the
+  // provider's actual billed usage.
+  const sugTokenCount = estimateTokenCount(sug.reasoning);
+  const sugThinkingLabel = sugTokenCount > 0 ? `Thinking… · ${sugTokenCount} tokens` : "Thinking…";
 
   const pill = (children: React.ReactNode) =>
     React.createElement("div", { className: "lx-sug-pill" }, React.createElement("div", { className: "lx-sug-pillrow" }, children));
@@ -1108,7 +1125,7 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
       chip,
       trace,
       React.createElement("div", { className: "lx-sug-proposed lx-sug-loading", dir: "auto" }, sug.proposed || sug.original),
-      pill(React.createElement("div", { className: "lx-sug-think" }, svgIcon(ICON_SPARK, 13), React.createElement("span", { key: "t" }, "Thinking…"))),
+      pill(React.createElement("div", { className: "lx-sug-think" }, svgIcon(ICON_SPARK, 13), React.createElement("span", { key: "t" }, sugThinkingLabel))),
     );
   }
 
@@ -1319,6 +1336,11 @@ function RangeSuggestionView({ data, editor }: { data: RangeData; editor: Lexica
         React.createElement("div", { key: "b", className: "lx-sug-trace-body", dir: "auto" }, data.reasoning),
       )
     : null;
+  // Live token estimate for the loading pill's "Thinking…" label below — an
+  // approximation (see lib/thinking.ts's estimateTokenCount), not the
+  // provider's actual billed usage.
+  const rangeTokenCount = estimateTokenCount(data.reasoning);
+  const rangeThinkingLabel = rangeTokenCount > 0 ? `Thinking… · ${rangeTokenCount} tokens` : "Thinking…";
   const pill = (children: React.ReactNode) =>
     React.createElement("div", { className: "lx-sug-pill" }, React.createElement("div", { className: "lx-sug-pillrow" }, children));
 
@@ -1330,7 +1352,7 @@ function RangeSuggestionView({ data, editor }: { data: RangeData; editor: Lexica
       chip,
       trace,
       React.createElement("div", { className: "lx-sug-proposed lx-sug-loading", dir: "auto" }, data.proposed || data.original),
-      pill(React.createElement("div", { className: "lx-sug-think" }, svgIcon(ICON_SPARK, 13), React.createElement("span", { key: "t" }, "Thinking…"))),
+      pill(React.createElement("div", { className: "lx-sug-think" }, svgIcon(ICON_SPARK, 13), React.createElement("span", { key: "t" }, rangeThinkingLabel))),
     );
   }
 

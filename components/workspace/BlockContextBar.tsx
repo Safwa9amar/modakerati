@@ -78,6 +78,7 @@ import { useSearchStore } from "@/stores/search-store";
 import { removeThesisBlockBg, chromeOp, listHfTemplates, type ChromeOp, type DocBlockDTO, type HfTemplateSummary, type HfPreviewLine, type HfPreviewSeg } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
 import { hWarn } from "@/lib/haptics";
+import { estimateTokenCount } from "@/lib/thinking";
 import { resolveBubbleKind, chromeBubbleKind, type BubbleKind } from "@/lib/bubble-configs";
 import { PictureCropModal } from "./PictureCropModal";
 import { AnimatedChip } from "./AnimatedChip";
@@ -87,7 +88,7 @@ import type { FormatChange, ParaRun, ThesisOp } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
-type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders" | "hfAI" | "hfLink";
+type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders" | "hfAI" | "hfLink" | "hfAdd";
 
 // Border pickers for the table Borders sub-pill: OOXML line styles (glyph
 // labels), widths in points, and line colors (6-hex, no '#').
@@ -215,6 +216,10 @@ interface Props {
     // Top band only: the header's positioned segments — Edit-text pre-fills with these
     // (tab-joined) so the parts show separated instead of concatenated.
     segments?: string[];
+    // Section band only: whether the section already renders a header / footer band —
+    // gates the "Add header/footer" sub-pill options.
+    hasHeader?: boolean;
+    hasFooter?: boolean;
   } | null;
 }
 
@@ -807,6 +812,26 @@ export function BlockContextBar({
     useWorkspaceStore.getState().setChromeSelection({ ...chrome, startsOnNewPage: true });
   };
 
+  // Give a section that has NO header/footer band a fresh one, straight from the
+  // section bubble. `setHeaderText`/`setFooter` create the part server-side even from
+  // empty; the echoed doc re-renders the band via buildChrome. We optimistically
+  // select the new band so its tools appear at once — and because its kind becomes
+  // top/bottom, the existing "auto-open ✦ on a header/footer band" effect opens the
+  // ✦ panel, landing the student directly in "then edit".
+  const addHeader = () => {
+    if (!chrome || chrome.kind !== "section") return;
+    applyChrome({ op: "setHeaderText", index: chrome.index, text: "" });
+    useWorkspaceStore.getState().setChromeSelection({ kind: "top", index: chrome.index, text: "" });
+    setActiveCategory(null);
+  };
+  const addFooter = () => {
+    if (!chrome || chrome.kind !== "section") return;
+    // A new footer defaults to centered page numbers — the most common real footer.
+    applyChrome({ op: "setFooter", index: chrome.index, text: "", pageNumbers: true, alignment: "center" });
+    useWorkspaceStore.getState().setChromeSelection({ kind: "bottom", index: chrome.index, text: "", pageNumbers: true });
+    setActiveCategory(null);
+  };
+
   // ── Prev/Next section navigation (chrome section band) ──
   // Walk the doc's section boundaries. A section band's `index` IS that section's
   // startBlockIndex, so we find our position in doc.sections and scroll the writer
@@ -938,13 +963,23 @@ export function BlockContextBar({
       // boundaries, and a one-tap "Start on a new page" appears while the break is
       // still continuous.
       <>
+        {!chrome.hasHeader || !chrome.hasFooter
+          ? chip({
+              keyProp: "hf-add",
+              Icon: Plus,
+              accessibilityLabel: t("workspace.hf.addHeaderFooter", { defaultValue: "Add header / footer" }),
+              active: activeCategory === "hfAdd",
+              enterIndex: 0,
+              onPress: () => setActiveCategory((cur) => (cur === "hfAdd" ? null : "hfAdd")),
+            })
+          : null}
         {chrome.linkedToPrevious != null
           ? chip({
               keyProp: "hf-link",
               Icon: Link2,
               accessibilityLabel: t("workspace.hf.linkToggle", { defaultValue: "Link to previous section" }),
               active: activeCategory === "hfLink",
-              enterIndex: 0,
+              enterIndex: 1,
               onPress: () => setActiveCategory((cur) => (cur === "hfLink" ? null : "hfLink")),
             })
           : null}
@@ -954,7 +989,7 @@ export function BlockContextBar({
           accessibilityLabel: t("workspace.hf.prevSection", { defaultValue: "Previous section" }),
           active: false,
           disabled: !hasPrevSection,
-          enterIndex: 1,
+          enterIndex: 2,
           onPress: () => goToSection(-1),
         })}
         {chip({
@@ -963,7 +998,7 @@ export function BlockContextBar({
           accessibilityLabel: t("workspace.hf.nextSection", { defaultValue: "Next section" }),
           active: false,
           disabled: !hasNextSection,
-          enterIndex: 2,
+          enterIndex: 3,
           onPress: () => goToSection(1),
         })}
         {!chrome.startsOnNewPage
@@ -972,7 +1007,7 @@ export function BlockContextBar({
               Icon: SeparatorHorizontal,
               accessibilityLabel: t("workspace.hf.startOnNewPage", { defaultValue: "Start on a new page" }),
               active: false,
-              enterIndex: 3,
+              enterIndex: 4,
               onPress: startOnNewPage,
             })
           : null}
@@ -1081,7 +1116,7 @@ export function BlockContextBar({
       activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout" ||
       activeCategory === "tblShade" || activeCategory === "tblBorders";
     if (isTableCat !== isTable) return null;
-    if ((activeCategory === "hfAI" || activeCategory === "hfLink") && !isChrome) return null;
+    if ((activeCategory === "hfAI" || activeCategory === "hfLink" || activeCategory === "hfAdd") && !isChrome) return null;
     let body: React.ReactNode = null;
     // A table sub-pill option chip (icon-only, same look as the align/style opts).
     const tblOpt = (
@@ -1108,7 +1143,29 @@ export function BlockContextBar({
         />
       </AnimatedChip>
     );
-    if (activeCategory === "hfLink") {
+    if (activeCategory === "hfAdd") {
+      // Add-a-part sub-pill: plain-language actions, only for the parts the section
+      // lacks. Each creates the band (setHeaderText / setFooter) and selects it.
+      const addOpt = (key: string, label: string, enterIndex: number, onPress: () => void) => (
+        <AnimatedChip
+          key={key}
+          enterIndex={enterIndex}
+          onPress={onPress}
+          accessibilityLabel={label}
+          style={optPill(false)}
+        >
+          <Text numberOfLines={1} style={[styles.optText, { color: colors.textPrimary }]}>
+            {label}
+          </Text>
+        </AnimatedChip>
+      );
+      body = (
+        <>
+          {!chrome?.hasHeader ? addOpt("add-hdr", t("workspace.hf.addHeader", { defaultValue: "Add header" }), 0, addHeader) : null}
+          {!chrome?.hasFooter ? addOpt("add-ftr", t("workspace.hf.addFooter", { defaultValue: "Add footer" }), 1, addFooter) : null}
+        </>
+      );
+    } else if (activeCategory === "hfLink") {
       // Section-break link sub-pill: two plain-language choices instead of a cryptic
       // link icon. The active one reflects the section's current state; tapping the
       // other links/unlinks its running header + footer with the previous section.
@@ -1143,6 +1200,14 @@ export function BlockContextBar({
       const busy = sug?.status === "loading";
       const ready = sug?.status === "ready";
       const errored = sug?.status === "error";
+      // Live token estimate for the busy label below (see lib/thinking.ts's
+      // estimateTokenCount) — an approximation, not the provider's actual
+      // billed usage.
+      const busyTokenCount = sug?.reasoning ? estimateTokenCount(sug.reasoning) : 0;
+      const busyTokenSuffix =
+        busyTokenCount > 0
+          ? ` · ${t("chat.tokenCount", { count: busyTokenCount, defaultValue: `${busyTokenCount} tokens` })}`
+          : "";
       const zoneLabel = tplRegion === "footer"
         ? t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" })
         : t("workspace.hf.topOfPage", { defaultValue: "Top of every page" });
@@ -1312,6 +1377,7 @@ export function BlockContextBar({
               <Sparkles size={15} color={colors.brandPrimary} strokeWidth={2.2} />
               <Text numberOfLines={1} style={{ flex: 1, fontSize: 12.5, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>
                 {t("suggestion.thinking", { defaultValue: "Thinking…" })}
+                {busyTokenSuffix}
               </Text>
             </View>
           ) : (

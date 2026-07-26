@@ -35,6 +35,7 @@ import { ThinkingTrace } from "@/components/ThinkingTrace";
 import { paragraphTextStyle, detectDir } from "@/components/workspace/DocBlock";
 import { hSelection, hSuccess } from "@/lib/haptics";
 import { diffWords, type DiffSegment } from "@/lib/word-diff";
+import { estimateTokenCount } from "@/lib/thinking";
 import type { DocBlockDTO } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
@@ -192,6 +193,16 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
       </View>
     </View>
   );
+  // Live token estimate for the small "acts-thinking" capsule below — the
+  // capsule shows even before the expandable ThinkingTrace slip above has any
+  // reasoning worth opening, so it gets its own copy of the same estimate
+  // (see lib/thinking.ts's estimateTokenCount — an approximation, not the
+  // provider's actual billed usage).
+  const capsuleTokenCount = estimateTokenCount(sug.reasoning);
+  const capsuleTokenSuffix =
+    capsuleTokenCount > 0
+      ? ` · ${t("chat.tokenCount", { count: capsuleTokenCount, defaultValue: `${capsuleTokenCount} tokens` })}`
+      : "";
   const trace = sug.reasoning.trim() ? (
     <View style={styles.traceSlip}>
       <ThinkingTrace
@@ -245,8 +256,9 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
             style={[styles.thinkCapsule, { flexDirection: appRow }]}
           >
             <SpinSparkle color={CHIP_INK} reduce={reduce} />
-            <Text style={styles.thinkLabel}>
+            <Text numberOfLines={1} style={styles.thinkLabel}>
               {t("suggestion.thinking", { defaultValue: "Thinking…" })}
+              {capsuleTokenSuffix}
             </Text>
           </Animated.View>
         </Animated.View>
