@@ -54,6 +54,8 @@ const BUBBLE_SLOP = 18;
 // Dock panel height + margin — how far above the keyboard the inline Ask input
 // needs to clear so it isn't occluded once it opens.
 const DOCK_CLEARANCE = 240;
+// How long the finished-reply peek card stays up before auto-hiding to a dot.
+const PEEK_CARD_TIMEOUT_MS = 6000;
 
 /**
  * The persistent, draggable, screen-level floating ✦ AI bubble. Mounted ONCE by
@@ -257,12 +259,17 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // bubble still reveals it via `revealReply`. Only the resting "done" state
   // times out; "thinking"/"writing" stay up for as long as the turn runs.
   const [peekCardExpired, setPeekCardExpired] = useState(false);
+  // Reset immediately the moment a new ask begins (awaitingReply flips true) —
+  // synchronous with the dispatch, NOT dependent on the async generating-phase
+  // transition that follows it (which can lag behind a queued-ops flush, per
+  // ai-service.ts's flushEdits/flushOps await before setGenerating(true)).
   useEffect(() => {
-    if (!awaitingReply || peekPhase !== "done") {
-      setPeekCardExpired(false);
-      return;
-    }
-    const timer = setTimeout(() => setPeekCardExpired(true), 6000);
+    if (awaitingReply) setPeekCardExpired(false);
+  }, [awaitingReply]);
+  // Once the turn actually settles on "done", start the auto-hide countdown.
+  useEffect(() => {
+    if (!awaitingReply || peekPhase !== "done") return;
+    const timer = setTimeout(() => setPeekCardExpired(true), PEEK_CARD_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [awaitingReply, peekPhase]);
 
@@ -576,9 +583,11 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                 busy={busy}
                 unread={awaitingReply && peekCardExpired}
                 label={
-                  count === 0
-                    ? t("blockBar.askAi", { defaultValue: "Ask AI" })
-                    : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
+                  awaitingReply && peekCardExpired
+                    ? t("aiDock.peek.unreadLabel", { defaultValue: "Reply ready — tap to view" })
+                    : count === 0
+                      ? t("blockBar.askAi", { defaultValue: "Ask AI" })
+                      : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
                 }
                 onPress={awaitingReply ? revealReply : () => useFloatingPillStore.getState().setExpanded(true)}
               />
