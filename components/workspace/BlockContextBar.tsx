@@ -61,11 +61,13 @@ import {
   Link2,
   SeparatorHorizontal,
   LayoutTemplate,
+  Send,
   type LucideIcon,
 } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useRTL } from "@/hooks/useRTL";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
@@ -245,6 +247,10 @@ export function BlockContextBar({
 }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  // The ✦ AI panel is app CHROME, not document content — it reads in the app's UI
+  // language (e.g. a French-UI student writing an Arabic thesis still gets an LTR
+  // prompt box), unlike `rtl` (the prop below) which is the DOCUMENT's direction.
+  const { isRTL: appRtl } = useRTL();
   const saving = useThesisDocStore((s) => (s.pending[thesisId] ?? 0) > 0);
   // The live doc — used to walk between section boundaries (Prev/Next section) from
   // the chrome bubble. Selecting the stored object (stable ref) avoids a render loop.
@@ -349,6 +355,23 @@ export function BlockContextBar({
     }
     prevBubbleKindRef.current = bubbleKind;
   }, [bubbleKind, keyboardOpen, pillExpanded]);
+
+  // HEADER/FOOTER nicety: the moment a header or footer band is selected, open the
+  // ✦ AI panel DIRECTLY — no intermediate "tap the chip" step. There's nothing else
+  // to do with these bands (the smart generate + template picker is the whole
+  // toolset), so showing it immediately is strictly faster, not a surprise. Keyed
+  // on kind+index so re-selecting a DIFFERENT band re-opens fresh; the student can
+  // still collapse it manually and it stays closed until they select again.
+  const prevChromeKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const key = chrome && (chrome.kind === "top" || chrome.kind === "bottom") ? `${chrome.kind}:${chrome.index}` : null;
+    if (key && key !== prevChromeKeyRef.current) {
+      setAiText("");
+      setShowTemplates(false);
+      setActiveCategory("hfAI");
+    }
+    prevChromeKeyRef.current = key;
+  }, [chrome?.kind, chrome?.index]);
 
   // Morphing toolsets keeps the ScrollView instance alive — snap back to the start
   // so a long paragraph toolset scrolled right can't leave a short image/table row
@@ -961,7 +984,12 @@ export function BlockContextBar({
           ? minimalTools
           : fullTools;
 
-  const AskAI = (
+  // A header/footer band already has its OWN dedicated ✦ (opens the smart, section-
+  // grounded generate panel) — the generic pinned Ask-AI would be a second, redundant
+  // sparkle button right next to it. Hide it for exactly those two bands; every other
+  // kind (text/heading/table/image/section-break/…) keeps it.
+  const isHfBand = chrome?.kind === "top" || chrome?.kind === "bottom";
+  const AskAI = isHfBand ? null : (
     <Pressable
       onPress={onAskAI}
       accessibilityRole="button"
@@ -1099,6 +1127,10 @@ export function BlockContextBar({
       const zoneLabel = tplRegion === "footer"
         ? t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" })
         : t("workspace.hf.topOfPage", { defaultValue: "Top of every page" });
+      // The preview lines render in DOCUMENT direction (they show real doc content —
+      // a right/left header genuinely reads right-to-left in an Arabic thesis); every
+      // other element in this panel (input, buttons, template list) is app chrome and
+      // uses `appRtl` instead.
       const renderLine = (line: HfPreviewLine, li: number) => (
         <View key={li} style={{ flexDirection: rtl ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
           {line.map((slot, si) => (
@@ -1120,9 +1152,9 @@ export function BlockContextBar({
       const proposedLines: HfPreviewLine[] = (tplRegion === "footer" ? sug?.preview?.footer : sug?.preview?.header) ?? [];
       const templatePicker = (
         <View style={{ gap: 6 }}>
-          <Pressable onPress={toggleTemplates} accessibilityRole="button" style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 6, paddingVertical: 4 }}>
+          <Pressable onPress={toggleTemplates} accessibilityRole="button" style={{ flexDirection: appRtl ? "row-reverse" : "row", alignItems: "center", gap: 6, paddingVertical: 4 }}>
             <LayoutTemplate size={13} color={colors.textSecondary} strokeWidth={2} />
-            <Text style={{ fontSize: 11.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+            <Text style={{ fontSize: 11.5, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>
               {t("workspace.hf.orChooseTemplate", { defaultValue: "Or choose a template" })}
             </Text>
             {showTemplates
@@ -1132,19 +1164,19 @@ export function BlockContextBar({
           {showTemplates ? (
             <View style={{ width: expWidth > 24 ? expWidth - 12 : undefined, minWidth: 260 }}>
               {tplStatus === "loading" ? (
-                <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 42 }}>
+                <View style={{ flexDirection: appRtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 42 }}>
                   <ActivityIndicator size="small" color={colors.brandPrimary} />
                   <Text style={{ fontSize: 12.5, color: colors.textSecondary }}>{t("common.loading", { defaultValue: "Loading…" })}</Text>
                 </View>
               ) : tplStatus === "error" ? (
                 <Pressable onPress={() => void loadTemplates()} accessibilityRole="button" style={{ minHeight: 42, justifyContent: "center" }}>
-                  <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+                  <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>
                     {t("workspace.hf.templatesError", { defaultValue: "Couldn't load templates — tap to retry" })}
                   </Text>
                 </Pressable>
               ) : tplList.length === 0 ? (
                 <View style={{ minHeight: 42, justifyContent: "center" }}>
-                  <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+                  <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>
                     {t("workspace.hf.templatesEmpty", { defaultValue: "No templates yet" })}
                   </Text>
                 </View>
@@ -1160,12 +1192,12 @@ export function BlockContextBar({
                         <Pressable
                           onPress={() => setExpandedTplId(open ? null : tpl.id)}
                           accessibilityRole="button"
-                          style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 11 }}
+                          style={{ flexDirection: appRtl ? "row-reverse" : "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 11 }}
                         >
                           <LayoutTemplate size={16} color={colors.brandPrimary} strokeWidth={2.2} />
                           <View style={{ flex: 1 }}>
-                            <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary, textAlign: rtl ? "right" : "left" }}>{tpl.name}</Text>
-                            {caption ? <Text numberOfLines={1} style={{ fontSize: 10.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{caption}</Text> : null}
+                            <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary, textAlign: appRtl ? "right" : "left" }}>{tpl.name}</Text>
+                            {caption ? <Text numberOfLines={1} style={{ fontSize: 10.5, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>{caption}</Text> : null}
                           </View>
                           {open
                             ? <ChevronUp size={16} color={colors.textPlaceholder} strokeWidth={2.2} />
@@ -1174,14 +1206,14 @@ export function BlockContextBar({
                         {open ? (
                           <View style={{ paddingHorizontal: 11, paddingBottom: 11, gap: 9 }}>
                             <View style={{ borderWidth: 1, borderColor: colors.borderDefault, borderRadius: 10, backgroundColor: colors.bgPrimary, padding: 10, gap: 6 }}>
-                              <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: rtl ? "right" : "left" }}>{zoneLabel}</Text>
+                              <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: appRtl ? "right" : "left" }}>{zoneLabel}</Text>
                               {lines.length ? (
                                 <>
                                   {lines.map(renderLine)}
                                   {tplRegion === "header" ? <View style={{ height: 1.5, backgroundColor: "#9A5A31", opacity: 0.5, borderRadius: 2, marginTop: 2 }} /> : null}
                                 </>
                               ) : (
-                                <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{t("workspace.hf.previewNone", { defaultValue: "No preview" })}</Text>
+                                <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>{t("workspace.hf.previewNone", { defaultValue: "No preview" })}</Text>
                               )}
                             </View>
                             <Pressable
@@ -1189,7 +1221,7 @@ export function BlockContextBar({
                               disabled={!!applyingTplId}
                               accessibilityRole="button"
                               accessibilityLabel={t("workspace.hf.applyTemplate", { defaultValue: "Apply {{name}}", name: tpl.name })}
-                              style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.brandPrimary, opacity: applyingTplId && !applying ? 0.6 : 1 }}
+                              style={{ flexDirection: appRtl ? "row-reverse" : "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.brandPrimary, opacity: applyingTplId && !applying ? 0.6 : 1 }}
                             >
                               {applying ? <ActivityIndicator size="small" color={colors.bgPrimary} /> : <Check size={16} color={colors.bgPrimary} strokeWidth={2.4} />}
                               <Text style={{ color: colors.bgPrimary, fontSize: 12.5, fontWeight: "700" }}>{t("workspace.hf.apply", { defaultValue: "Apply" })}</Text>
@@ -1210,17 +1242,17 @@ export function BlockContextBar({
           {ready ? (
             <>
               <View style={{ borderWidth: 1, borderColor: colors.borderDefault, borderRadius: 10, backgroundColor: colors.bgCard, padding: 10, gap: 6 }}>
-                <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: rtl ? "right" : "left" }}>{zoneLabel}</Text>
+                <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: appRtl ? "right" : "left" }}>{zoneLabel}</Text>
                 {proposedLines.length ? (
                   <>
                     {proposedLines.map(renderLine)}
                     {tplRegion === "header" ? <View style={{ height: 1.5, backgroundColor: "#9A5A31", opacity: 0.5, borderRadius: 2, marginTop: 2 }} /> : null}
                   </>
                 ) : (
-                  <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{t("workspace.hf.previewNone", { defaultValue: "No preview" })}</Text>
+                  <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>{t("workspace.hf.previewNone", { defaultValue: "No preview" })}</Text>
                 )}
               </View>
-              <View style={{ flexDirection: rtl ? "row-reverse" : "row", gap: 8 }}>
+              <View style={{ flexDirection: appRtl ? "row-reverse" : "row", gap: 8 }}>
                 <Pressable onPress={approveChromeSug} accessibilityRole="button" accessibilityLabel={t("common.approve", { defaultValue: "Approve" })} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.brandPrimary }}>
                   <Check size={16} color={colors.bgPrimary} strokeWidth={2.4} />
                   <Text style={{ color: colors.bgPrimary, fontSize: 12, fontWeight: "700" }}>{t("common.approve", { defaultValue: "Approve" })}</Text>
@@ -1232,15 +1264,15 @@ export function BlockContextBar({
               </View>
             </>
           ) : busy ? (
-            <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 38 }}>
+            <View style={{ flexDirection: appRtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 38 }}>
               <Sparkles size={15} color={colors.brandPrimary} strokeWidth={2.2} />
-              <Text numberOfLines={1} style={{ flex: 1, fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+              <Text numberOfLines={1} style={{ flex: 1, fontSize: 12.5, color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }}>
                 {t("suggestion.thinking", { defaultValue: "Thinking…" })}
               </Text>
             </View>
           ) : (
             <>
-              <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8 }}>
+              <View style={{ flexDirection: appRtl ? "row-reverse" : "row", alignItems: "center", gap: 8 }}>
                 <TextInput
                   value={aiText}
                   onChangeText={setAiText}
@@ -1249,10 +1281,10 @@ export function BlockContextBar({
                   autoFocus
                   returnKeyType="send"
                   onSubmitEditing={submitChromeAi}
-                  style={{ flex: 1, minWidth: 150, height: 38, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, fontSize: 14, color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgCard, textAlign: rtl ? "right" : "left" }}
+                  style={{ flex: 1, minWidth: 150, height: 38, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, fontSize: 14, color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgCard, textAlign: appRtl ? "right" : "left" }}
                 />
                 <Pressable onPress={submitChromeAi} accessibilityRole="button" accessibilityLabel={t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" })} style={{ width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandPrimary }}>
-                  <Sparkles size={17} color={colors.bgPrimary} strokeWidth={2.2} />
+                  <Send size={17} color={colors.bgPrimary} strokeWidth={2.2} style={appRtl ? { transform: [{ scaleX: -1 }] } : undefined} />
                 </Pressable>
               </View>
               {templatePicker}
