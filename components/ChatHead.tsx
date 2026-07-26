@@ -1,10 +1,8 @@
 import { useCallback, useEffect } from "react";
-import { Alert, BackHandler, Image, Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Alert, BackHandler, Image, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated, {
   FadeIn,
   FadeOut,
-  ZoomIn,
-  ZoomOut,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -19,7 +17,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import ModakeratiBubble from "@/modules/modakerati-bubble";
-import { ThesisChat } from "@/app/(tabs)/chat";
+import { ChatOverlayPanel } from "./ChatOverlayPanel";
 
 const LOGO = require("../assets/icon.png");
 
@@ -28,8 +26,6 @@ const MARGIN = 12; // horizontal inset the bubble snaps to
 const TOP_RESERVE = 64; // keep the bubble clear of the status bar / notch
 const BOTTOM_RESERVE = 120; // keep it above the floating tab bar
 const SPRING = { damping: 18, stiffness: 180, mass: 0.6 } as const;
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /**
  * Messenger-style "chat head": a draggable bubble that floats over the whole app
@@ -180,26 +176,7 @@ export function ChatHead() {
         </GestureDetector>
       )}
 
-      {/* Expanded: dim backdrop + near-fullscreen chat panel, zooming open. */}
-      {expanded && (
-        <View style={StyleSheet.absoluteFill}>
-          <AnimatedPressable
-            entering={FadeIn.duration(180)}
-            exiting={FadeOut.duration(160)}
-            onPress={close}
-            style={styles.backdrop}
-            accessibilityRole="button"
-            accessibilityLabel={t("common.close", { defaultValue: "Close" })}
-          />
-          <Animated.View
-            entering={ZoomIn.duration(220)}
-            exiting={ZoomOut.duration(180)}
-            style={[styles.panel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderDefault }]}
-          >
-            <ThesisChat thesisId={thesisId} thesisTitle={thesisTitle} variant="overlay" onClose={close} />
-          </Animated.View>
-        </View>
-      )}
+      <ChatOverlayPanel thesisId={thesisId} thesisTitle={thesisTitle} />
     </View>
   );
 }
@@ -229,17 +206,5 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 7,
     borderWidth: 2,
-  },
-  backdrop: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)" },
-  panel: {
-    position: "absolute",
-    top: 8,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
   },
 });
