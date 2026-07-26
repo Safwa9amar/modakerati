@@ -1108,7 +1108,11 @@ export type ChromeOp =
   // segments, tables, live fields, embedded logos) to the section containing
   // `index`. `region` scopes it: the header band applies "header", the footer
   // band applies "footer" (omit → both).
-  | { op: "applyTemplate"; index: number; templateId: string; region?: "header" | "footer" };
+  | { op: "applyTemplate"; index: number; templateId: string; region?: "header" | "footer" }
+  // Apply an AI-GENERATED model (from generateChromeModel below) — same full-OOXML
+  // apply path as a saved template, just not persisted as one. `model` is exactly
+  // what the app was shown in the preview (opaque — validated server-side).
+  | { op: "applyModel"; index: number; model: Record<string, unknown>; region?: "header" | "footer" };
 
 export async function chromeOp(
   thesisId: string,
@@ -1141,6 +1145,23 @@ export type HfTemplateSummary = {
 export async function listHfTemplates(language?: string): Promise<{ templates: HfTemplateSummary[] }> {
   const q = language ? `?language=${encodeURIComponent(language)}` : "";
   return apiGet<{ templates: HfTemplateSummary[] }>(`/api/hf-templates${q}`);
+}
+
+// The single ✦ entry point for a header/footer band: the AI drafts a full model
+// grounded on the section's content, the CURRENT header/footer, and the
+// university's own Studio templates (server-side style reference) — one prompt in,
+// a faithful preview out. Nothing is applied; approve via
+// chromeOp({op:"applyModel", model}). `index` is a block inside the target section.
+export async function generateChromeModel(
+  thesisId: string,
+  index: number,
+  kind: "top" | "bottom",
+  instruction: string,
+): Promise<{ model: Record<string, unknown>; preview: HfPreview; warnings: string[] }> {
+  return apiPost<{ model: Record<string, unknown>; preview: HfPreview; warnings: string[] }>(
+    `/api/thesis/${thesisId}/chrome-generate`,
+    { index, kind, instruction },
+  );
 }
 
 // Bulk-delete several live-.docx thesis blocks at once (the workspace multi-select).

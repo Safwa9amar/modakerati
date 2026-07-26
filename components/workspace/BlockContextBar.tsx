@@ -57,8 +57,6 @@ import {
   StretchHorizontal,
   AlignHorizontalSpaceAround,
   AlignVerticalSpaceAround,
-  Pencil,
-  Hash,
   Check,
   Link2,
   SeparatorHorizontal,
@@ -87,7 +85,7 @@ import type { FormatChange, ParaRun, ThesisOp } from "@/lib/thesis-ops";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
-type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders" | "hfText" | "hfAI" | "hfLink" | "hfTemplate";
+type Category = "style" | "align" | "direction" | "list" | "color" | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders" | "hfAI" | "hfLink";
 
 // Border pickers for the table Borders sub-pill: OOXML line styles (glyph
 // labels), widths in points, and line colors (6-hex, no '#').
@@ -270,12 +268,13 @@ export function BlockContextBar({
   // those chips while one runs); `cropIndex` drives the interactive crop modal.
   const [busy, setBusy] = useState(false);
   const [cropIndex, setCropIndex] = useState<number | null>(null);
-  // Draft text for the chrome band's inline header/footer editor (hfText category).
-  const [hfText, setHfText] = useState("");
   // Draft AI instruction for the chrome band's ✦ proposal (hfAI category).
   const [aiText, setAiText] = useState("");
-  // Header/footer template picker (hfTemplate category): staff-authored Studio
-  // templates fetched lazily on first open; `applyingTplId` shows a per-card spinner.
+  // Header/footer template picker — a collapsible "or choose a template" section
+  // NESTED inside the single hfAI panel (not its own top-level chip): staff-authored
+  // Studio templates fetched lazily on first reveal; `applyingTplId` shows a per-card
+  // spinner. Tapping one applies it directly, same as approving an AI proposal.
+  const [showTemplates, setShowTemplates] = useState(false);
   const [tplStatus, setTplStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [tplList, setTplList] = useState<HfTemplateSummary[]>([]);
   const [applyingTplId, setApplyingTplId] = useState<string | null>(null);
@@ -761,27 +760,6 @@ export function BlockContextBar({
       }
     })();
   };
-  const openHfEdit = () => {
-    // A multi-part (table/tab) header pre-fills with its segments tab-joined so the
-    // parts show separated (like the docx); a single-part header uses its flat text.
-    setHfText(chrome?.segments && chrome.segments.length > 1 ? chrome.segments.join("\t") : chrome?.text ?? "");
-    setActiveCategory((cur) => (cur === "hfText" ? null : "hfText"));
-  };
-  const saveHfText = () => {
-    if (!chrome) return;
-    const text = hfText.trim();
-    if (chrome.kind === "top") applyChrome({ op: "setHeaderText", index: chrome.index, text });
-    else if (chrome.kind === "bottom") applyChrome({ op: "setFooter", index: chrome.index, text, pageNumbers: !!chrome.pageNumbers });
-    useWorkspaceStore.getState().setChromeSelection({ ...chrome, text });
-    setActiveCategory(null);
-    Keyboard.dismiss();
-  };
-  const togglePageNumbers = () => {
-    if (!chrome || chrome.kind !== "bottom") return;
-    const next = !chrome.pageNumbers;
-    applyChrome({ op: "setFooter", index: chrome.index, text: chrome.text, pageNumbers: next });
-    useWorkspaceStore.getState().setChromeSelection({ ...chrome, pageNumbers: next });
-  };
   // Section-break band: Word's "Link to Previous" for the whole section (header +
   // footer). A bare link icon reads as nothing to a student, so the chip opens a
   // sub-pill (hfLink) with two plain-language choices instead of toggling in place.
@@ -818,24 +796,27 @@ export function BlockContextBar({
     useWorkspaceStore.getState().requestScrollToBlock(target.startBlockIndex);
   };
 
-  // ── Chrome ✦ AI proposal (streams thinking + a proposed header/footer, approve/
-  // reject in the hfAI panel) — mirrors the text/table inline-suggestion experience. ──
-  const mySug = chrome && chromeSug && chromeSug.index === chrome.index ? chromeSug : null;
+  // ── Chrome ✦ AI proposal: the AI drafts a full model (grounded on the section +
+  // current header/footer + Studio templates), shown as a faithful compiled preview
+  // with approve/reject; a nested "or choose a template" list stays one tap away. ──
   const openHfAi = () => {
     setAiText("");
+    setShowTemplates(false);
     setActiveCategory((cur) => (cur === "hfAI" ? null : "hfAI"));
   };
   const submitChromeAi = () => {
     const instruction = aiText.trim();
     if (!chrome || (chrome.kind !== "top" && chrome.kind !== "bottom") || !instruction) return;
-    void useSuggestionStore.getState().requestChrome(thesisId, chrome.index, chrome.kind, chrome.text, instruction, chrome.pageNumbers);
+    void useSuggestionStore.getState().requestChrome(thesisId, chrome.index, chrome.kind, chrome.text, instruction);
     Keyboard.dismiss();
   };
   const approveChromeSug = () => {
-    const applied = mySug?.proposed;
+    // The applied model may be a table/multi-segment/logo result — not representable
+    // as a flat `text` patch, so no optimistic chromeSelection edit here. The doc
+    // echo (approveChrome → setDoc) updates sections[]; the band picks up the fresh
+    // header/footer + segments the next time it reports selection.
     useSuggestionStore.getState().approveChrome(thesisId);
     setActiveCategory(null);
-    if (applied != null && chrome) useWorkspaceStore.getState().setChromeSelection({ ...chrome, text: applied });
   };
   const rejectChromeSug = () => {
     useSuggestionStore.getState().rejectChrome();
@@ -862,10 +843,10 @@ export function BlockContextBar({
       if (!silent) setTplStatus("error");
     }
   };
-  const openHfTemplates = () => {
-    setActiveCategory((cur) => {
-      const next = cur === "hfTemplate" ? null : "hfTemplate";
-      if (next === "hfTemplate") void loadTemplates(tplList.length > 0);
+  const toggleTemplates = () => {
+    setShowTemplates((cur) => {
+      const next = !cur;
+      if (next) void loadTemplates(tplList.length > 0);
       return next;
     });
   };
@@ -877,6 +858,7 @@ export function BlockContextBar({
         const res = await chromeOp(thesisId, { op: "applyTemplate", index: chrome.index, templateId, region: tplRegion });
         if (res.document) useThesisDocStore.getState().setDoc(thesisId, res.document);
         setActiveCategory(null);
+        setShowTemplates(false);
       } catch {
         Alert.alert(t("common.error", { defaultValue: "Something went wrong" }));
       } finally {
@@ -900,23 +882,14 @@ export function BlockContextBar({
   const segText = (seg: HfPreviewSeg): string =>
     "text" in seg ? seg.text : "logo" in seg ? "🖼" : fieldToken(seg.field);
 
-  // Chrome-band tools — same chip look/animation as every kind. Top: ✦ AI + edit the
-  // running title. Bottom: ✦ AI + edit text + toggle page numbers. Section-break bands:
-  // Link (labeled sub-pill) + Prev/Next section + start-on-new-page.
+  // Chrome-band tools — same chip look/animation as every kind. Top/bottom: ONE ✦ AI
+  // entry point (it reads the section's content, the current header/footer, and the
+  // university's own Studio templates, then proposes a full faithful result — manual
+  // edit/page-number/template chips folded into that single flow). Section-break
+  // bands: Link (labeled sub-pill) + Prev/Next section + start-on-new-page.
   const chromeTools =
-    chrome?.kind === "top" ? (
-      <>
-        {chip({ keyProp: "hf-ai", Icon: Sparkles, accessibilityLabel: t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" }), active: activeCategory === "hfAI", enterIndex: 0, onPress: openHfAi })}
-        {chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 1, onPress: openHfEdit })}
-        {chip({ keyProp: "hf-tpl", Icon: LayoutTemplate, accessibilityLabel: t("workspace.hf.templates", { defaultValue: "Templates" }), active: activeCategory === "hfTemplate", enterIndex: 2, onPress: openHfTemplates })}
-      </>
-    ) : chrome?.kind === "bottom" ? (
-      <>
-        {chip({ keyProp: "hf-ai", Icon: Sparkles, accessibilityLabel: t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" }), active: activeCategory === "hfAI", enterIndex: 0, onPress: openHfAi })}
-        {chip({ keyProp: "hf-edit", Icon: Pencil, accessibilityLabel: t("workspace.hf.editText", { defaultValue: "Edit text" }), active: activeCategory === "hfText", enterIndex: 1, onPress: openHfEdit })}
-        {chip({ keyProp: "hf-pgnum", Icon: Hash, accessibilityLabel: t("workspace.hf.pageNumbers", { defaultValue: "Page numbers" }), active: !!chrome?.pageNumbers, enterIndex: 2, onPress: togglePageNumbers })}
-        {chip({ keyProp: "hf-tpl", Icon: LayoutTemplate, accessibilityLabel: t("workspace.hf.templates", { defaultValue: "Templates" }), active: activeCategory === "hfTemplate", enterIndex: 3, onPress: openHfTemplates })}
-      </>
+    chrome?.kind === "top" || chrome?.kind === "bottom" ? (
+      <>{chip({ keyProp: "hf-ai", Icon: Sparkles, accessibilityLabel: t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" }), active: activeCategory === "hfAI", enterIndex: 0, onPress: openHfAi })}</>
     ) : chrome?.kind === "section" ? (
       // Section-break band: the link chip opens a labeled sub-pill (hfLink) so the
       // choice reads in words, not a bare icon. Then Prev/Next jump between section
@@ -1061,7 +1034,7 @@ export function BlockContextBar({
       activeCategory === "tblRows" || activeCategory === "tblCols" || activeCategory === "tblLayout" ||
       activeCategory === "tblShade" || activeCategory === "tblBorders";
     if (isTableCat !== isTable) return null;
-    if ((activeCategory === "hfText" || activeCategory === "hfAI" || activeCategory === "hfLink" || activeCategory === "hfTemplate") && !isChrome) return null;
+    if ((activeCategory === "hfAI" || activeCategory === "hfLink") && !isChrome) return null;
     let body: React.ReactNode = null;
     // A table sub-pill option chip (icon-only, same look as the align/style opts).
     const tblOpt = (
@@ -1113,92 +1086,16 @@ export function BlockContextBar({
           {linkOpt("lk-off", t("workspace.hf.unlinkFromPrevious", { defaultValue: "Give this section its own" }), !linked, 1, () => setLinkedToPrev(false))}
         </>
       );
-    } else if (activeCategory === "hfText") {
-      // Inline header/footer text editor — a TextInput row in the same expansion
-      // container as the table/style sub-pills, with a ✓ to save via /chrome-op.
-      body = (
-        <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, flex: 1, minWidth: 220 }}>
-          <TextInput
-            value={hfText}
-            onChangeText={setHfText}
-            placeholder={t("workspace.hf.textPlaceholder", { defaultValue: "Header / footer text" })}
-            placeholderTextColor={colors.textPlaceholder}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={saveHfText}
-            style={{
-              flex: 1, minWidth: 150, height: 38, borderWidth: 1, borderRadius: 10,
-              paddingHorizontal: 12, fontSize: 14, color: colors.textPrimary,
-              borderColor: colors.borderDefault, backgroundColor: colors.bgCard,
-              textAlign: rtl ? "right" : "left",
-            }}
-          />
-          <Pressable
-            onPress={saveHfText}
-            accessibilityRole="button"
-            accessibilityLabel={t("common.save", { defaultValue: "Save" })}
-            style={{ width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandPrimary }}
-          >
-            <Check size={18} color={colors.bgPrimary} strokeWidth={2.4} />
-          </Pressable>
-        </View>
-      );
     } else if (activeCategory === "hfAI") {
-      // Chrome ✦ AI panel: instruction input → thinking → proposed header/footer with
-      // approve/reject (applied via chromeOp). Mirrors the text/table suggestion feel.
+      // The single ✦ panel: instruction input → thinking → a FAITHFUL compiled
+      // preview (segments/fields/tables, not flat text) with approve/reject — applied
+      // via chromeOp({op:"applyModel"}). A nested, collapsed-by-default "or choose a
+      // template" list stays one tap away for a direct pick (applyTemplate), so
+      // browsing the university's Studio templates never needs its own top-level chip.
       const sug = chrome && chromeSug && chromeSug.index === chrome.index ? chromeSug : null;
       const busy = sug?.status === "loading";
       const ready = sug?.status === "ready";
       const errored = sug?.status === "error";
-      body = (
-        <View style={{ flexDirection: "column", gap: 8, flex: 1, minWidth: 240, alignItems: "stretch" }}>
-          {ready ? (
-            <>
-              <Text numberOfLines={3} style={{ fontSize: 13, lineHeight: 18, color: colors.textPrimary, textAlign: rtl ? "right" : "left" }}>
-                {sug!.proposed}
-              </Text>
-              <View style={{ flexDirection: rtl ? "row-reverse" : "row", gap: 8 }}>
-                <Pressable onPress={approveChromeSug} accessibilityRole="button" accessibilityLabel={t("common.approve", { defaultValue: "Approve" })} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.brandPrimary }}>
-                  <Check size={16} color={colors.bgPrimary} strokeWidth={2.4} />
-                  <Text style={{ color: colors.bgPrimary, fontSize: 12, fontWeight: "700" }}>{t("common.approve", { defaultValue: "Approve" })}</Text>
-                </Pressable>
-                <Pressable onPress={rejectChromeSug} accessibilityRole="button" accessibilityLabel={t("common.reject", { defaultValue: "Dismiss" })} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.borderDefault }}>
-                  <X size={16} color={colors.textPrimary} strokeWidth={2.2} />
-                  <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: "700" }}>{t("common.reject", { defaultValue: "Dismiss" })}</Text>
-                </Pressable>
-              </View>
-            </>
-          ) : busy ? (
-            <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 38 }}>
-              <Sparkles size={15} color={colors.brandPrimary} strokeWidth={2.2} />
-              <Text numberOfLines={1} style={{ flex: 1, fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
-                {sug?.reasoning ? sug.reasoning.slice(-80) : t("suggestion.thinking", { defaultValue: "Thinking…" })}
-              </Text>
-            </View>
-          ) : (
-            <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8 }}>
-              <TextInput
-                value={aiText}
-                onChangeText={setAiText}
-                placeholder={errored ? t("suggestion.noneRetry", { defaultValue: "No suggestion — try again" }) : t("workspace.hf.aiPlaceholder", { defaultValue: "Ask AI to change this…" })}
-                placeholderTextColor={colors.textPlaceholder}
-                autoFocus
-                returnKeyType="send"
-                onSubmitEditing={submitChromeAi}
-                style={{ flex: 1, minWidth: 150, height: 38, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, fontSize: 14, color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgCard, textAlign: rtl ? "right" : "left" }}
-              />
-              <Pressable onPress={submitChromeAi} accessibilityRole="button" accessibilityLabel={t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" })} style={{ width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandPrimary }}>
-                <Sparkles size={17} color={colors.bgPrimary} strokeWidth={2.2} />
-              </Pressable>
-            </View>
-          )}
-        </View>
-      );
-    } else if (activeCategory === "hfTemplate") {
-      // Template picker, scoped to THIS bubble's region: the top band previews +
-      // applies only the header, the bottom band only the footer. Each Studio
-      // template is a collapsible row that expands to a stacked preview of that
-      // region (fields shown as localized tokens) + an explicit Apply.
       const zoneLabel = tplRegion === "footer"
         ? t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" })
         : t("workspace.hf.topOfPage", { defaultValue: "Top of every page" });
@@ -1220,77 +1117,146 @@ export function BlockContextBar({
           ))}
         </View>
       );
-      body = (
-        <View style={{ width: expWidth > 24 ? expWidth - 12 : undefined, minWidth: 260 }}>
-          {tplStatus === "loading" ? (
-            <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 42 }}>
-              <ActivityIndicator size="small" color={colors.brandPrimary} />
-              <Text style={{ fontSize: 12.5, color: colors.textSecondary }}>{t("common.loading", { defaultValue: "Loading…" })}</Text>
+      const proposedLines: HfPreviewLine[] = (tplRegion === "footer" ? sug?.preview?.footer : sug?.preview?.header) ?? [];
+      const templatePicker = (
+        <View style={{ gap: 6 }}>
+          <Pressable onPress={toggleTemplates} accessibilityRole="button" style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 6, paddingVertical: 4 }}>
+            <LayoutTemplate size={13} color={colors.textSecondary} strokeWidth={2} />
+            <Text style={{ fontSize: 11.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+              {t("workspace.hf.orChooseTemplate", { defaultValue: "Or choose a template" })}
+            </Text>
+            {showTemplates
+              ? <ChevronUp size={13} color={colors.textPlaceholder} strokeWidth={2} />
+              : <ChevronDown size={13} color={colors.textPlaceholder} strokeWidth={2} />}
+          </Pressable>
+          {showTemplates ? (
+            <View style={{ width: expWidth > 24 ? expWidth - 12 : undefined, minWidth: 260 }}>
+              {tplStatus === "loading" ? (
+                <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 42 }}>
+                  <ActivityIndicator size="small" color={colors.brandPrimary} />
+                  <Text style={{ fontSize: 12.5, color: colors.textSecondary }}>{t("common.loading", { defaultValue: "Loading…" })}</Text>
+                </View>
+              ) : tplStatus === "error" ? (
+                <Pressable onPress={() => void loadTemplates()} accessibilityRole="button" style={{ minHeight: 42, justifyContent: "center" }}>
+                  <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+                    {t("workspace.hf.templatesError", { defaultValue: "Couldn't load templates — tap to retry" })}
+                  </Text>
+                </Pressable>
+              ) : tplList.length === 0 ? (
+                <View style={{ minHeight: 42, justifyContent: "center" }}>
+                  <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+                    {t("workspace.hf.templatesEmpty", { defaultValue: "No templates yet" })}
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView style={{ maxHeight: 264 }} nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+                  {tplList.map((tpl) => {
+                    const open = expandedTplId === tpl.id;
+                    const applying = applyingTplId === tpl.id;
+                    const caption = [tpl.university, tpl.language ? tpl.language.toUpperCase() : ""].filter(Boolean).join(" · ");
+                    const lines: HfPreviewLine[] = (tplRegion === "footer" ? tpl.preview?.footer : tpl.preview?.header) ?? [];
+                    return (
+                      <View key={tpl.id} style={{ borderWidth: 1, borderColor: open ? colors.brandPrimary : colors.borderDefault, borderRadius: 14, backgroundColor: colors.bgCard, overflow: "hidden" }}>
+                        <Pressable
+                          onPress={() => setExpandedTplId(open ? null : tpl.id)}
+                          accessibilityRole="button"
+                          style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 11 }}
+                        >
+                          <LayoutTemplate size={16} color={colors.brandPrimary} strokeWidth={2.2} />
+                          <View style={{ flex: 1 }}>
+                            <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary, textAlign: rtl ? "right" : "left" }}>{tpl.name}</Text>
+                            {caption ? <Text numberOfLines={1} style={{ fontSize: 10.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{caption}</Text> : null}
+                          </View>
+                          {open
+                            ? <ChevronUp size={16} color={colors.textPlaceholder} strokeWidth={2.2} />
+                            : <ChevronDown size={16} color={colors.textPlaceholder} strokeWidth={2.2} />}
+                        </Pressable>
+                        {open ? (
+                          <View style={{ paddingHorizontal: 11, paddingBottom: 11, gap: 9 }}>
+                            <View style={{ borderWidth: 1, borderColor: colors.borderDefault, borderRadius: 10, backgroundColor: colors.bgPrimary, padding: 10, gap: 6 }}>
+                              <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: rtl ? "right" : "left" }}>{zoneLabel}</Text>
+                              {lines.length ? (
+                                <>
+                                  {lines.map(renderLine)}
+                                  {tplRegion === "header" ? <View style={{ height: 1.5, backgroundColor: "#9A5A31", opacity: 0.5, borderRadius: 2, marginTop: 2 }} /> : null}
+                                </>
+                              ) : (
+                                <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{t("workspace.hf.previewNone", { defaultValue: "No preview" })}</Text>
+                              )}
+                            </View>
+                            <Pressable
+                              onPress={() => applyHfTemplate(tpl.id)}
+                              disabled={!!applyingTplId}
+                              accessibilityRole="button"
+                              accessibilityLabel={t("workspace.hf.applyTemplate", { defaultValue: "Apply {{name}}", name: tpl.name })}
+                              style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.brandPrimary, opacity: applyingTplId && !applying ? 0.6 : 1 }}
+                            >
+                              {applying ? <ActivityIndicator size="small" color={colors.bgPrimary} /> : <Check size={16} color={colors.bgPrimary} strokeWidth={2.4} />}
+                              <Text style={{ color: colors.bgPrimary, fontSize: 12.5, fontWeight: "700" }}>{t("workspace.hf.apply", { defaultValue: "Apply" })}</Text>
+                            </Pressable>
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
             </View>
-          ) : tplStatus === "error" ? (
-            <Pressable onPress={() => void loadTemplates()} accessibilityRole="button" style={{ minHeight: 42, justifyContent: "center" }}>
-              <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
-                {t("workspace.hf.templatesError", { defaultValue: "Couldn't load templates — tap to retry" })}
-              </Text>
-            </Pressable>
-          ) : tplList.length === 0 ? (
-            <View style={{ minHeight: 42, justifyContent: "center" }}>
-              <Text style={{ fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
-                {t("workspace.hf.templatesEmpty", { defaultValue: "No templates yet" })}
+          ) : null}
+        </View>
+      );
+      body = (
+        <View style={{ flexDirection: "column", gap: 10, flex: 1, minWidth: 240, alignItems: "stretch" }}>
+          {ready ? (
+            <>
+              <View style={{ borderWidth: 1, borderColor: colors.borderDefault, borderRadius: 10, backgroundColor: colors.bgCard, padding: 10, gap: 6 }}>
+                <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: rtl ? "right" : "left" }}>{zoneLabel}</Text>
+                {proposedLines.length ? (
+                  <>
+                    {proposedLines.map(renderLine)}
+                    {tplRegion === "header" ? <View style={{ height: 1.5, backgroundColor: "#9A5A31", opacity: 0.5, borderRadius: 2, marginTop: 2 }} /> : null}
+                  </>
+                ) : (
+                  <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{t("workspace.hf.previewNone", { defaultValue: "No preview" })}</Text>
+                )}
+              </View>
+              <View style={{ flexDirection: rtl ? "row-reverse" : "row", gap: 8 }}>
+                <Pressable onPress={approveChromeSug} accessibilityRole="button" accessibilityLabel={t("common.approve", { defaultValue: "Approve" })} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.brandPrimary }}>
+                  <Check size={16} color={colors.bgPrimary} strokeWidth={2.4} />
+                  <Text style={{ color: colors.bgPrimary, fontSize: 12, fontWeight: "700" }}>{t("common.approve", { defaultValue: "Approve" })}</Text>
+                </Pressable>
+                <Pressable onPress={rejectChromeSug} accessibilityRole="button" accessibilityLabel={t("common.reject", { defaultValue: "Dismiss" })} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.borderDefault }}>
+                  <X size={16} color={colors.textPrimary} strokeWidth={2.2} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: "700" }}>{t("common.reject", { defaultValue: "Dismiss" })}</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : busy ? (
+            <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8, minHeight: 38 }}>
+              <Sparkles size={15} color={colors.brandPrimary} strokeWidth={2.2} />
+              <Text numberOfLines={1} style={{ flex: 1, fontSize: 12.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>
+                {t("suggestion.thinking", { defaultValue: "Thinking…" })}
               </Text>
             </View>
           ) : (
-            <ScrollView style={{ maxHeight: 264 }} nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
-              {tplList.map((tpl) => {
-                const open = expandedTplId === tpl.id;
-                const applying = applyingTplId === tpl.id;
-                const caption = [tpl.university, tpl.language ? tpl.language.toUpperCase() : ""].filter(Boolean).join(" · ");
-                const lines: HfPreviewLine[] = (tplRegion === "footer" ? tpl.preview?.footer : tpl.preview?.header) ?? [];
-                return (
-                  <View key={tpl.id} style={{ borderWidth: 1, borderColor: open ? colors.brandPrimary : colors.borderDefault, borderRadius: 14, backgroundColor: colors.bgCard, overflow: "hidden" }}>
-                    <Pressable
-                      onPress={() => setExpandedTplId(open ? null : tpl.id)}
-                      accessibilityRole="button"
-                      style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 11 }}
-                    >
-                      <LayoutTemplate size={16} color={colors.brandPrimary} strokeWidth={2.2} />
-                      <View style={{ flex: 1 }}>
-                        <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary, textAlign: rtl ? "right" : "left" }}>{tpl.name}</Text>
-                        {caption ? <Text numberOfLines={1} style={{ fontSize: 10.5, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{caption}</Text> : null}
-                      </View>
-                      {open
-                        ? <ChevronUp size={16} color={colors.textPlaceholder} strokeWidth={2.2} />
-                        : <ChevronDown size={16} color={colors.textPlaceholder} strokeWidth={2.2} />}
-                    </Pressable>
-                    {open ? (
-                      <View style={{ paddingHorizontal: 11, paddingBottom: 11, gap: 9 }}>
-                        <View style={{ borderWidth: 1, borderColor: colors.borderDefault, borderRadius: 10, backgroundColor: colors.bgPrimary, padding: 10, gap: 6 }}>
-                          <Text style={{ fontSize: 9.5, letterSpacing: 0.5, fontWeight: "700", textTransform: "uppercase", color: colors.textPlaceholder, textAlign: rtl ? "right" : "left" }}>{zoneLabel}</Text>
-                          {lines.length ? (
-                            <>
-                              {lines.map(renderLine)}
-                              {tplRegion === "header" ? <View style={{ height: 1.5, backgroundColor: "#9A5A31", opacity: 0.5, borderRadius: 2, marginTop: 2 }} /> : null}
-                            </>
-                          ) : (
-                            <Text style={{ fontSize: 11, color: colors.textSecondary, textAlign: rtl ? "right" : "left" }}>{t("workspace.hf.previewNone", { defaultValue: "No preview" })}</Text>
-                          )}
-                        </View>
-                        <Pressable
-                          onPress={() => applyHfTemplate(tpl.id)}
-                          disabled={!!applyingTplId}
-                          accessibilityRole="button"
-                          accessibilityLabel={t("workspace.hf.applyTemplate", { defaultValue: "Apply {{name}}", name: tpl.name })}
-                          style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.brandPrimary, opacity: applyingTplId && !applying ? 0.6 : 1 }}
-                        >
-                          {applying ? <ActivityIndicator size="small" color={colors.bgPrimary} /> : <Check size={16} color={colors.bgPrimary} strokeWidth={2.4} />}
-                          <Text style={{ color: colors.bgPrimary, fontSize: 12.5, fontWeight: "700" }}>{t("workspace.hf.apply", { defaultValue: "Apply" })}</Text>
-                        </Pressable>
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              })}
-            </ScrollView>
+            <>
+              <View style={{ flexDirection: rtl ? "row-reverse" : "row", alignItems: "center", gap: 8 }}>
+                <TextInput
+                  value={aiText}
+                  onChangeText={setAiText}
+                  placeholder={errored ? t("suggestion.noneRetry", { defaultValue: "No suggestion — try again" }) : t("workspace.hf.aiPlaceholder", { defaultValue: "Ask AI to change this…" })}
+                  placeholderTextColor={colors.textPlaceholder}
+                  autoFocus
+                  returnKeyType="send"
+                  onSubmitEditing={submitChromeAi}
+                  style={{ flex: 1, minWidth: 150, height: 38, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, fontSize: 14, color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgCard, textAlign: rtl ? "right" : "left" }}
+                />
+                <Pressable onPress={submitChromeAi} accessibilityRole="button" accessibilityLabel={t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" })} style={{ width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandPrimary }}>
+                  <Sparkles size={17} color={colors.bgPrimary} strokeWidth={2.2} />
+                </Pressable>
+              </View>
+              {templatePicker}
+            </>
           )}
         </View>
       );

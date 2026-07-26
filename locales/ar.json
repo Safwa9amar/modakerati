@@ -663,6 +663,7 @@
       "aiEdit": "اطلب من الذكاء الاصطناعي",
       "aiPlaceholder": "اطلب من الذكاء الاصطناعي التغيير…",
       "templates": "القوالب",
+      "orChooseTemplate": "أو اختر قالبًا",
       "templatesEmpty": "لا توجد قوالب بعد",
       "templatesError": "تعذّر تحميل القوالب — اضغط للمحاولة مجددًا",
       "applyTemplate": "تطبيق {{name}}",

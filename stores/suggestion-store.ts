@@ -3,12 +3,11 @@ import {
   proposeBlockEditStream,
   proposeBlockFillStream,
   proposeRangeRewriteStream,
-  proposeChromeStream,
   applyThesisRangeReplace,
   parseFillReply,
   type SuggestAction,
 } from "@/lib/thesis-suggest";
-import { chromeOp } from "@/lib/api";
+import { chromeOp, generateChromeModel, type HfPreview } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { type ThesisOp } from "@/lib/thesis-ops";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
@@ -87,20 +86,27 @@ export interface RangeSuggestion {
 }
 
 // A chrome-band AI proposal (header/footer). The student asks the ✦ to change a
-// running header/footer; the reasoning (thinking) then the proposed text stream in and
-// show on the band's bubble; approve applies via chromeOp (setHeaderText/setFooter).
-// Only ONE chrome proposal is active at a time.
+// running header/footer; the AI drafts a full MODEL — grounded on the section's
+// content, the current header/footer, and the university's own Studio templates —
+// shown as a faithful compiled PREVIEW on the band's bubble; approve applies the
+// model via chromeOp (full OOXML fidelity, not flat text). Only ONE chrome
+// proposal is active at a time.
 export interface ChromeSuggestion {
   index: number; // a block index inside the target section (the band's index)
   kind: "top" | "bottom"; // header vs footer
   original: string;
+  // Legacy flat-text field — unused by the model-based flow (kept only so an
+  // in-flight/empty state never needs an `undefined` check); the PREVIEW (below)
+  // is what actually renders.
   proposed: string;
   instruction: string;
   status: Status;
   reasoning: string;
   reasoningMs?: number;
-  // Footer only: current page-number state, preserved when approve applies setFooter.
-  pageNumbers?: boolean;
+  // The generated model — opaque to the app, sent back verbatim on approve.
+  model?: Record<string, unknown>;
+  // The faithful compiled preview (segments/fields/tables) for the ready state.
+  preview?: HfPreview;
 }
 
 // paragraph level (0 body, 1-3 heading) → the Lexical block type used to rebuild it.
@@ -153,7 +159,7 @@ interface SuggestionState {
   // ── Chrome band (header/footer) AI proposal ──
   chrome: ChromeSuggestion | null;
   // Kick off a header/footer proposal: stream thinking + proposed text, then ready/error.
-  requestChrome: (thesisId: string, index: number, kind: "top" | "bottom", original: string, instruction: string, pageNumbers?: boolean) => Promise<void>;
+  requestChrome: (thesisId: string, index: number, kind: "top" | "bottom", original: string, instruction: string) => Promise<void>;
   // Apply the ready chrome proposal via chromeOp (setHeaderText / setFooter), then clear.
   approveChrome: (thesisId: string) => void;
   // Dismiss the chrome proposal without applying it.
@@ -440,35 +446,13 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
 
   setRangeProposed: (text) => set((s) => (s.range ? { range: { ...s.range, proposed: text } } : {})),
 
-  requestChrome: async (thesisId, index, kind, original, instruction, pageNumbers) => {
-    set({ chrome: { index, kind, original, proposed: "", instruction, status: "loading", reasoning: "", pageNumbers } });
-    let reasoning = "";
-    let proposed = "";
-    let reasoningStart = 0;
-    let reasoningMs: number | undefined;
+  requestChrome: async (thesisId, index, kind, original, instruction) => {
+    set({ chrome: { index, kind, original, proposed: "", instruction, status: "loading", reasoning: "" } });
     const isMine = (c: ChromeSuggestion | null) =>
       !!c && c.status === "loading" && c.index === index && c.instruction === instruction;
     try {
-      await proposeChromeStream(thesisId, index, kind, instruction, {
-        onReasoning: (delta) => {
-          if (!reasoningStart) reasoningStart = Date.now();
-          reasoning += delta;
-          set((s) => (isMine(s.chrome) ? { chrome: { ...s.chrome!, reasoning } } : {}));
-        },
-        onProposed: (delta) => {
-          if (reasoningStart && reasoningMs == null) reasoningMs = Date.now() - reasoningStart;
-          proposed += delta;
-        },
-      });
-      if (reasoningStart && reasoningMs == null) reasoningMs = Date.now() - reasoningStart;
-      const finalText = proposed.trim();
-      set((s) => {
-        if (!isMine(s.chrome)) return {};
-        // Empty or unchanged proposal → error, not a ready no-op apply.
-        if (!finalText || finalText === s.chrome!.original)
-          return { chrome: { ...s.chrome!, reasoning, reasoningMs, status: "error" } };
-        return { chrome: { ...s.chrome!, proposed: finalText, reasoning, reasoningMs, status: "ready" } };
-      });
+      const { model, preview } = await generateChromeModel(thesisId, index, kind, instruction);
+      set((s) => (isMine(s.chrome) ? { chrome: { ...s.chrome!, model, preview, status: "ready" } } : {}));
     } catch {
       set((s) => (s.chrome && s.chrome.status === "loading" ? { chrome: { ...s.chrome, status: "error" } } : {}));
     }
@@ -476,14 +460,11 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
 
   approveChrome: (thesisId) => {
     const cur = get().chrome;
-    if (!cur || cur.status !== "ready") return;
-    const op =
-      cur.kind === "top"
-        ? ({ op: "setHeaderText", index: cur.index, text: cur.proposed } as const)
-        : ({ op: "setFooter", index: cur.index, text: cur.proposed, pageNumbers: !!cur.pageNumbers } as const);
+    if (!cur || cur.status !== "ready" || !cur.model) return;
+    const region = cur.kind === "top" ? "header" : "footer";
     void (async () => {
       try {
-        const res = await chromeOp(thesisId, op);
+        const res = await chromeOp(thesisId, { op: "applyModel", index: cur.index, model: cur.model!, region });
         if (res.document) useThesisDocStore.getState().setDoc(thesisId, res.document);
       } catch {
         /* dropped regardless; error surfaced by the doc store's own retry paths */
@@ -497,7 +478,7 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
   againChrome: async (thesisId) => {
     const cur = get().chrome;
     if (!cur) return;
-    await get().requestChrome(thesisId, cur.index, cur.kind, cur.original, cur.instruction, cur.pageNumbers);
+    await get().requestChrome(thesisId, cur.index, cur.kind, cur.original, cur.instruction);
   },
 
   clearApplied: () => set({ justApplied: null }),

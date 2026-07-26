@@ -663,6 +663,7 @@
       "aiEdit": "Ask AI to change",
       "aiPlaceholder": "Ask AI to change this…",
       "templates": "Templates",
+      "orChooseTemplate": "Or choose a template",
       "templatesEmpty": "No templates yet",
       "templatesError": "Couldn't load templates — tap to retry",
       "applyTemplate": "Apply {{name}}",
