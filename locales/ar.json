@@ -48,7 +48,8 @@
     "prevBlock": "الكتلة السابقة",
     "nextBlock": "الكتلة التالية",
     "search": "بحث",
-    "sectionMarkers": "علامات الأقسام"
+    "sectionMarkers": "علامات الأقسام",
+    "reorder": "إعادة الترتيب"
   },
   "common": {
     "continue": "متابعة",

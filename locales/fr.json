@@ -48,7 +48,8 @@
     "prevBlock": "Bloc précédent",
     "nextBlock": "Bloc suivant",
     "search": "Recherche",
-    "sectionMarkers": "Repères de section"
+    "sectionMarkers": "Repères de section",
+    "reorder": "Réorganiser"
   },
   "common": {
     "continue": "Continuer",

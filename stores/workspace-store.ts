@@ -16,6 +16,11 @@ export type ChromeSelection = {
   // Top band only: the header's tab/cell-positioned segments, so the Edit-text input
   // shows the parts separated (like the docx) rather than concatenated.
   segments?: string[];
+  // Section band only: whether the section already renders a header / footer band
+  // (own or inherited). Drives the "Add header/footer" affordance — shown only for
+  // the parts that are missing. Read from the same resolved sections buildChrome uses.
+  hasHeader?: boolean;
+  hasFooter?: boolean;
 };
 // The native outline ("the Writer") is the single editing surface. A read-only
 // preview overlay may sit on top of it: "docx" = Word-fidelity pages (OnlyOffice /
@@ -73,6 +78,11 @@ interface WorkspaceState {
   // the editor so the bands appear/disappear in place (keeps scroll).
   showChrome: boolean;
   toggleShowChrome: () => void;
+  // View-mode toggle (default off) for one-finger drag-to-reorder in the editor.
+  // Flipped from the global ✦ dock's "Reorder" chip; does not itself change the
+  // data model — a later task wires the editor's drag behavior to this flag.
+  reorderMode: boolean;
+  toggleReorderMode: () => void;
   // True while the block-scoped "✦ Ask AI" input is open (the block-anchored AI
   // composer at the screen bottom). Lifted out of BlockComposer so the inline
   // block toolbar pill (rendered on the selected block) can open it, and so the
@@ -161,6 +171,7 @@ const INITIAL = {
   composerInputFocused: false,
   focusMode: false,
   showChrome: true,
+  reorderMode: false,
   askAiOpen: false,
   scrollTarget: null as { index: number; nonce: number } | null,
   navigating: false,
@@ -252,6 +263,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
 
   toggleShowChrome: () => set((s) => ({ showChrome: !s.showChrome })),
+
+  toggleReorderMode: () => set((s) => ({ reorderMode: !s.reorderMode })),
 
   setAskAiOpen: (v) => set({ askAiOpen: v }),
 

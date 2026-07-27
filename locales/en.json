@@ -48,7 +48,8 @@
     "prevBlock": "Previous block",
     "nextBlock": "Next block",
     "search": "Search",
-    "sectionMarkers": "Section markers"
+    "sectionMarkers": "Section markers",
+    "reorder": "Reorder"
   },
   "common": {
     "continue": "Continue",

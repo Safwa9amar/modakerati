@@ -8,7 +8,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { Calculator, ChevronsDownUp, Eye, EyeOff, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Rows3, Search, Send, Table2, type LucideIcon } from "lucide-react-native";
+import { ArrowUpDown, Calculator, ChevronsDownUp, Eye, EyeOff, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Rows3, Search, Send, Table2, type LucideIcon } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
@@ -295,6 +295,8 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scop
   // Global view toggle: show/hide the document-structure indicators (header/footer
   // bands + section markers) in the writer.
   const showChrome = useWorkspaceStore((s) => s.showChrome);
+  // View-mode toggle for one-finger drag-to-reorder in the editor (wired by a later task).
+  const reorderMode = useWorkspaceStore((s) => s.reorderMode);
   const openSearch = () => {
     const ws = useWorkspaceStore.getState();
     if (ws.previewMode != null) ws.closePreview();
@@ -360,6 +362,24 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scop
             )}
             <Text numberOfLines={1} style={[styles.actionChipText, { color: showChrome ? colors.bgPrimary : colors.textPrimary }]}>
               {t("dockBar.sectionMarkers", { defaultValue: "Section markers" })}
+            </Text>
+          </AnimatedChip>
+        ) : null}
+        {/* Reorder mode on/off — a VIEW toggle (not an AI prompt), global bubble only.
+            Enables one-finger drag-to-reorder in the editor (wired by a later task). */}
+        {scopeIndices.length === 0 ? (
+          <AnimatedChip
+            onPress={() => useWorkspaceStore.getState().toggleReorderMode()}
+            accessibilityLabel={t("dockBar.reorder", { defaultValue: "Reorder" })}
+            enterIndex={3}
+            style={[
+              styles.actionChip,
+              { flexDirection, borderColor: reorderMode ? colors.brandPrimary : colors.borderDefault, backgroundColor: reorderMode ? colors.brandPrimary : colors.bgCard },
+            ]}
+          >
+            <ArrowUpDown size={15} color={reorderMode ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
+            <Text numberOfLines={1} style={[styles.actionChipText, { color: reorderMode ? colors.bgPrimary : colors.textPrimary }]}>
+              {t("dockBar.reorder", { defaultValue: "Reorder" })}
             </Text>
           </AnimatedChip>
         ) : null}
