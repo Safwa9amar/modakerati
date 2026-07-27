@@ -23,6 +23,8 @@ import {
   FileText,
   Columns3,
   Plus,
+  PanelTopClose,
+  PanelTopOpen,
   type LucideIcon,
 } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -114,6 +116,7 @@ export function GlobalDockBar({ thesisId, blocks, keyboardVisible = true }: Prop
 
   const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
   const editingBlockIndex = useWorkspaceStore((s) => s.editingBlockIndex);
+  const headerVisible = useWorkspaceStore((s) => s.headerVisible);
   const canUndo = useThesisDocStore((s) => s.history[thesisId]?.canUndo ?? false);
   const canRedo = useThesisDocStore((s) => s.history[thesisId]?.canRedo ?? false);
   const pendingOps = useThesisDocStore((s) => s.pending[thesisId] ?? 0);
@@ -460,6 +463,18 @@ export function GlobalDockBar({ thesisId, blocks, keyboardVisible = true }: Prop
               accessibilityLabel: t("workspace.outline", { defaultValue: "Outline" }),
               enterIndex: 3,
               onPress: openOutline,
+            })}
+            {chip({
+              // #6: toggle the screen top-bar (back / title / undo-redo / ⋯) to reclaim
+              // writing space. Lives here (not in the header ⋯ menu) so it stays
+              // reachable once the bar is hidden. Icon reflects the current state.
+              keyProp: "headerToggle",
+              Icon: headerVisible ? PanelTopClose : PanelTopOpen,
+              accessibilityLabel: headerVisible
+                ? t("dockBar.hideTopBar", { defaultValue: "Hide the top bar" })
+                : t("dockBar.showTopBar", { defaultValue: "Show the top bar" }),
+              enterIndex: 3,
+              onPress: () => useWorkspaceStore.getState().toggleHeaderVisible(),
             })}
             {chip({
               keyProp: "prev",

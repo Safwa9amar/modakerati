@@ -15,6 +15,7 @@ import {
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useFocusEffect } from "expo-router";
@@ -157,6 +158,27 @@ export default function ThesisWorkspaceScreen() {
     const task = InteractionManager.runAfterInteractions(() => setHeavyReady(true));
     return () => task.cancel();
   }, []);
+
+  // Screen top-bar collapse (#6): a manual toggle from the ✦ dock hides the top bar
+  // (back / title / undo-redo / ⋯) to give the writer more vertical space. Animate
+  // the bar row's height→0 + fade; the safe-area notch spacer stays. Height is
+  // measured once while shown so the collapse has a concrete target. (This is the
+  // manual "toggle the header" control from issue #6; scroll-driven auto-hide is a
+  // separate device-tuned follow-up — the WebView scroll signal is unreliable.)
+  const headerVisible = useWorkspaceStore((s) => s.headerVisible);
+  const headerH = useSharedValue(0);
+  const headerProgress = useSharedValue(1);
+  useEffect(() => {
+    headerProgress.value = withTiming(headerVisible ? 1 : 0, { duration: 220 });
+  }, [headerVisible, headerProgress]);
+  const headerCollapseStyle = useAnimatedStyle(() => ({
+    height: headerH.value > 0 ? headerH.value * headerProgress.value : undefined,
+    opacity: headerProgress.value,
+    overflow: "hidden",
+  }));
+  const measureHeaderBar = (h: number) => {
+    if (headerVisible && h > 0 && headerH.value === 0) headerH.value = h;
+  };
 
   // The three live-.docx views stay mounted at once (see the layered doc area), so
   // switching keeps each view's scroll. The PDF is the exception: its render is a
@@ -539,9 +561,11 @@ export default function ThesisWorkspaceScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View style={styles.container}>
-      {/* Top bar — always visible. The static spacer keeps the safe area (dark
-          background behind the notch). */}
+      {/* Top bar — collapsible (#6). The static spacer keeps the safe area (dark
+          background behind the notch); the bar row below collapses on the ✦ dock's
+          top-bar toggle so the writer gets more vertical space. */}
       <View style={{ paddingTop: insets.top }}>
+        <Animated.View style={headerCollapseStyle} onLayout={(e) => measureHeaderBar(e.nativeEvent.layout.height)}>
         <View style={styles.topBar}>
           <BackButton />
           <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
@@ -602,6 +626,7 @@ export default function ThesisWorkspaceScreen() {
             <View style={styles.expandBtn} />
           )}
         </View>
+        </Animated.View>
       </View>
 
       {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}

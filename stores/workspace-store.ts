@@ -83,6 +83,11 @@ interface WorkspaceState {
   // data model — a later task wires the editor's drag behavior to this flag.
   reorderMode: boolean;
   toggleReorderMode: () => void;
+  // Screen top-bar (back / title / undo / redo / ⋯) visibility — a toggle (default
+  // shown) flipped from the global ✦ dock's top-bar chip so students can reclaim
+  // vertical space while writing (issue #6). NOT the docx running header/footer.
+  headerVisible: boolean;
+  toggleHeaderVisible: () => void;
   // True while the block-scoped "✦ Ask AI" input is open (the block-anchored AI
   // composer at the screen bottom). Lifted out of BlockComposer so the inline
   // block toolbar pill (rendered on the selected block) can open it, and so the
@@ -172,6 +177,7 @@ const INITIAL = {
   focusMode: false,
   showChrome: true,
   reorderMode: false,
+  headerVisible: true,
   askAiOpen: false,
   scrollTarget: null as { index: number; nonce: number } | null,
   navigating: false,
@@ -265,6 +271,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   toggleShowChrome: () => set((s) => ({ showChrome: !s.showChrome })),
 
   toggleReorderMode: () => set((s) => ({ reorderMode: !s.reorderMode })),
+
+  toggleHeaderVisible: () => set((s) => ({ headerVisible: !s.headerVisible })),
 
   setAskAiOpen: (v) => set({ askAiOpen: v }),
 
