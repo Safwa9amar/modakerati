@@ -419,7 +419,7 @@ export function GlobalDockBar({ thesisId, blocks, keyboardVisible = true }: Prop
   );
 
   return (
-    <View style={[styles.fullWrap, { backgroundColor: colors.bgPrimary, borderTopColor: colors.borderSubtle, paddingBottom: keyboardVisible ? 6 : insets.bottom + 6 }]}>
+    <View style={[styles.fullWrap, { backgroundColor: colors.bgPrimary, borderTopColor: colors.borderSubtle, paddingBottom: keyboardVisible ? 6 : Math.min(insets.bottom, 6) }]}>
       {/* Must stay the FIRST child (mirrors BlockContextBar) — same tree position
           keeps the expansion row mounted across renders (no spurious re-entering). */}
       {renderPageSetupExpansion()}
