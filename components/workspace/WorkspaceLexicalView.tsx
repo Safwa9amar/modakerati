@@ -556,7 +556,12 @@ export function WorkspaceLexicalView({
       const startsOnNewPage = kind === "section" ? sec?.startsOnNewPage : undefined;
       // Top band: the header's positioned segments so Edit-text shows the parts apart.
       const segments = kind === "top" ? sec?.header?.segments : undefined;
-      ws.setChromeSelection({ kind, index: s.index, text, pageNumbers, linkedToPrevious, startsOnNewPage, segments });
+      // Section band only: does this section already show a header / footer band?
+      // Mirrors buildChrome's `if (s.header)` / `if (s.footer)` so "Add" appears only
+      // when a part is genuinely missing (an inherited header counts as present).
+      const hasHeader = kind === "section" ? !!sec?.header : undefined;
+      const hasFooter = kind === "section" ? !!sec?.footer : undefined;
+      ws.setChromeSelection({ kind, index: s.index, text, pageNumbers, linkedToPrevious, startsOnNewPage, segments, hasHeader, hasFooter });
       ws.clearSelection();
       useLexicalEditorStore.getState().setFormat({
         bold: false, italic: false, underline: false,
