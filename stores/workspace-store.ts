@@ -88,6 +88,12 @@ interface WorkspaceState {
   // vertical space while writing (issue #6). NOT the docx running header/footer.
   headerVisible: boolean;
   toggleHeaderVisible: () => void;
+  // Scroll-driven visibility of BOTH the top-bar AND the bottom dock (hide on scroll
+  // down, show on scroll up / near top). Distinct from the manual headerVisible
+  // toggle (top-bar only) so the dock chip that toggles the header never hides the
+  // dock itself.
+  chromeVisible: boolean;
+  setChromeVisible: (v: boolean) => void;
   // True while the block-scoped "✦ Ask AI" input is open (the block-anchored AI
   // composer at the screen bottom). Lifted out of BlockComposer so the inline
   // block toolbar pill (rendered on the selected block) can open it, and so the
@@ -178,6 +184,7 @@ const INITIAL = {
   showChrome: true,
   reorderMode: false,
   headerVisible: true,
+  chromeVisible: true,
   askAiOpen: false,
   scrollTarget: null as { index: number; nonce: number } | null,
   navigating: false,
@@ -273,6 +280,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   toggleReorderMode: () => set((s) => ({ reorderMode: !s.reorderMode })),
 
   toggleHeaderVisible: () => set((s) => ({ headerVisible: !s.headerVisible })),
+
+  // No-op guard so a per-scroll-event call with the unchanged value doesn't re-render.
+  setChromeVisible: (v) => set((s) => (s.chromeVisible === v ? s : { chromeVisible: v })),
 
   setAskAiOpen: (v) => set({ askAiOpen: v }),
 

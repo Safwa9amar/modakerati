@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, StyleSheet, Keyboard, Platform } from "react-native";
-import type { SharedValue } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -50,6 +50,22 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   const pendingConfirm = useChatStore((s) => s.pendingConfirm);
 
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  // Scroll-driven chrome visibility (shared with the top-bar): slide the dock down +
+  // fade while the user scrolls DOWN through the doc, restore on scroll up / near top
+  // (issue #6). Held shown while editing (keyboard up) and while an AI ask/confirm
+  // gate is up (it must be seen). The reserved inset stays stable to avoid per-scroll
+  // layout thrash.
+  const chromeVisible = useWorkspaceStore((s) => s.chromeVisible);
+  const dockHidden = !chromeVisible && !keyboardVisible && !pendingConfirm && !pendingAsk;
+  const dockHide = useSharedValue(0);
+  useEffect(() => {
+    dockHide.value = withTiming(dockHidden ? 1 : 0, { duration: 220 });
+  }, [dockHidden, dockHide]);
+  const dockHideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: dockHide.value * (insetValue.value + 24) }],
+    opacity: 1 - dockHide.value,
+  }));
 
   // ——— Selection derivations ———
   const ordered = useMemo(() => [...selectedBlocks].sort((a, b) => a.index - b.index), [selectedBlocks]);
@@ -199,13 +215,13 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   }
 
   return (
-    <View
-      style={styles.host}
-      pointerEvents="box-none"
+    <Animated.View
+      style={[styles.host, dockHideStyle]}
+      pointerEvents={dockHidden ? "none" : "box-none"}
       onLayout={(e) => onLayout(e.nativeEvent.layout.height)}
     >
       {surface}
-    </View>
+    </Animated.View>
   );
 }
 

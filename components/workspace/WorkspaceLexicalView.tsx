@@ -129,8 +129,20 @@ export function WorkspaceLexicalView({
   // (or returning from a Preview) lands there instead of at the top. The editor is
   // re-keyed on `seedNonce`, so capture the anchor to restore at each (re)seed; the
   // store (module-level, not reset on workspace-leave) holds it across screen exits.
+  const lastScrollY = useRef(0);
   const onScroll = useCallback((a: ScrollAnchor) => {
     useEditorScrollStore.getState().save(thesisId, a);
+    // Auto-hide the screen top-bar on scroll (issue #6): hide when scrolling DOWN
+    // past a small threshold, show when scrolling UP or when near the top. Reads/
+    // writes the flag via getState (not reactive), and setHeaderVisible no-ops when
+    // unchanged — so this doesn't re-render on every scroll event, only on a flip.
+    const y = a.y;
+    const prev = lastScrollY.current;
+    const ws = useWorkspaceStore.getState();
+    if (y <= 24) ws.setChromeVisible(true);
+    else if (y - prev > 8) ws.setChromeVisible(false);
+    else if (prev - y > 8) ws.setChromeVisible(true);
+    lastScrollY.current = y;
   }, [thesisId]);
   // Restore is nonce-driven, not mount-driven: inside a native-stack the WebView can
   // reset to the top on re-focus WITHOUT remounting the React tree, so a mount-only

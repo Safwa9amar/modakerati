@@ -166,11 +166,16 @@ export default function ThesisWorkspaceScreen() {
   // manual "toggle the header" control from issue #6; scroll-driven auto-hide is a
   // separate device-tuned follow-up — the WebView scroll signal is unreliable.)
   const headerVisible = useWorkspaceStore((s) => s.headerVisible);
+  // chromeVisible is the scroll-driven flag (hide on scroll down, show on scroll up /
+  // near top) shared with the bottom dock; headerVisible is the manual ✦-dock toggle.
+  // The top bar is shown only when BOTH agree.
+  const chromeVisible = useWorkspaceStore((s) => s.chromeVisible);
+  const headerShown = headerVisible && chromeVisible;
   const headerH = useSharedValue(0);
   const headerProgress = useSharedValue(1);
   useEffect(() => {
-    headerProgress.value = withTiming(headerVisible ? 1 : 0, { duration: 220 });
-  }, [headerVisible, headerProgress]);
+    headerProgress.value = withTiming(headerShown ? 1 : 0, { duration: 220 });
+  }, [headerShown, headerProgress]);
   const headerCollapseStyle = useAnimatedStyle(() => ({
     height: headerH.value > 0 ? headerH.value * headerProgress.value : undefined,
     opacity: headerProgress.value,
