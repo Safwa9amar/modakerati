@@ -2,7 +2,7 @@ import React from "react";
 import { StyleSheet } from "react-native";
 import Animated, { interpolate, useAnimatedStyle } from "react-native-reanimated";
 import type { SharedValue } from "react-native-reanimated";
-import { X } from "lucide-react-native";
+import { X, type LucideIcon } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
 /** Diameter of the circular dismiss target and the hit radius the pill tests against. */
@@ -17,18 +17,32 @@ interface Props {
   /** Center Y of the target in screen coords (the pill compares against this). */
   centerY: number;
   bottomInset: number;
+  /** Glyph shown in the circle (default X = dismiss the bubble). */
+  Icon?: LucideIcon;
+  /** Horizontal shift from screen center, px (a second target sits left of the X). */
+  offsetX?: number;
+  /** Active tint: "danger" (red, destructive close) or "neutral" (brand, keyboard). */
+  variant?: "danger" | "neutral";
 }
 
-export function DismissTarget({ visible, active, centerY, bottomInset }: Props) {
+export function DismissTarget({
+  visible,
+  active,
+  bottomInset,
+  Icon = X,
+  offsetX = 0,
+  variant = "danger",
+}: Props) {
   const colors = useThemeColors();
+  const activeBg = variant === "danger" ? colors.semanticError : colors.brandPrimary;
   const wrapStyle = useAnimatedStyle(() => ({
     opacity: visible.value,
     transform: [{ translateY: interpolate(visible.value, [0, 1], [24, 0]) }],
   }));
   const circleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(active.value, [0, 1], [1, 1.25]) }],
-    backgroundColor: active.value > 0.5 ? colors.semanticError : colors.bgCard,
-    borderColor: active.value > 0.5 ? colors.semanticError : colors.borderDefault,
+    transform: [{ translateX: offsetX }, { scale: interpolate(active.value, [0, 1], [1, 1.25]) }],
+    backgroundColor: active.value > 0.5 ? activeBg : colors.bgCard,
+    borderColor: active.value > 0.5 ? activeBg : colors.borderDefault,
   }));
   return (
     <Animated.View
@@ -36,7 +50,7 @@ export function DismissTarget({ visible, active, centerY, bottomInset }: Props) 
       style={[styles.wrap, { bottom: bottomInset + 24 }, wrapStyle]}
     >
       <Animated.View style={[styles.circle, circleStyle]}>
-        <X size={26} color={colors.textPrimary} strokeWidth={2.4} />
+        <Icon size={26} color={colors.textPrimary} strokeWidth={2.4} />
       </Animated.View>
     </Animated.View>
   );

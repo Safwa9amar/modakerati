@@ -29,11 +29,11 @@ import { hSelection } from "@/lib/haptics";
 import { layoutSpring, SPRING } from "@/lib/motion";
 import { estimateTokenCount } from "@/lib/thinking";
 import type { DocBlockDTO } from "@/lib/api";
-import { Plus, type LucideIcon } from "lucide-react-native";
+import { Plus, KeyboardOff, type LucideIcon } from "lucide-react-native";
 import { resolveBubbleKind, chromeBubbleKind, BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
 import { AIDock } from "./AIDock";
 import { BlockContextBar } from "./BlockContextBar";
-import { DismissTarget, DISMISS_HIT_RADIUS } from "./DismissTarget";
+import { DismissTarget, DISMISS_HIT_RADIUS, DISMISS_SIZE } from "./DismissTarget";
 import { PeekCard, type PeekPhase } from "./PeekCard";
 import { ChatOverlayPanel } from "@/components/ChatOverlayPanel";
 
@@ -313,7 +313,8 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   }, [pos, width, height, insets.bottom, maxPillW]);
 
   const dragActive = useSharedValue(0); // DismissTarget fade
-  const overTarget = useSharedValue(0); // DismissTarget grow
+  const overTarget = useSharedValue(0); // close (X) target grow
+  const overKeyboard = useSharedValue(0); // keyboard-dismiss target grow (keyboard up only)
   const startTX = useSharedValue(0);
   const startTY = useSharedValue(0);
 
@@ -389,6 +390,10 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // getState() on the UI thread and crash on release.
   const persistPos = (p: { x: number; y: number }) =>
     useFloatingPillStore.getState().setPos(p);
+  // Drop on the keyboard target → hide the software keyboard (the bubble snaps back
+  // to a valid spot). Offered only while the keyboard is up (issue #6 close+keyboard
+  // drag tray). Layout is bottom-anchored; device-QA may relocate to the C2 column.
+  const dismissKeyboard = () => Keyboard.dismiss();
 
   // Memoized so a re-render never swaps the gesture mid-drag (which would drop the
   // drag and strand the X target on screen). Rebuilds only when the bounds inputs
@@ -429,25 +434,39 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           "worklet";
           tx.value = startTX.value + e.translationX;
           ty.value = startTY.value + e.translationY;
-          // Hit test: pill center vs target center.
+          // Hit test: pill center vs target center(s). The close (X) target keeps its
+          // exact position; when the keyboard is up a second target (⌨ dismiss) sits
+          // to its left. Nearest-within-radius wins so the overlapping hit zones never
+          // light both at once.
           const cx = tx.value + curW / 2;
           const cy = ty.value + PILL_H / 2;
-          const dist = Math.hypot(cx - targetCX, cy - targetCY);
-          const over = dist < DISMISS_HIT_RADIUS ? 1 : 0;
-          if (over !== overTarget.value) {
-            overTarget.value = withTiming(over, { duration: 120 });
-            if (over) runOnJS(hSelection)();
+          const distClose = Math.hypot(cx - targetCX, cy - targetCY);
+          const kbCX = targetCX - (DISMISS_SIZE + 24);
+          const distKb = keyboardHeight > 0 ? Math.hypot(cx - kbCX, cy - targetCY) : Infinity;
+          const overC = distClose < DISMISS_HIT_RADIUS && distClose <= distKb ? 1 : 0;
+          const overK = distKb < DISMISS_HIT_RADIUS && distKb < distClose ? 1 : 0;
+          if (overC !== overTarget.value) {
+            overTarget.value = withTiming(overC, { duration: 120 });
+            if (overC) runOnJS(hSelection)();
+          }
+          if (overK !== overKeyboard.value) {
+            overKeyboard.value = withTiming(overK, { duration: 120 });
+            if (overK) runOnJS(hSelection)();
           }
         })
         .onEnd(() => {
           "worklet";
           if (overTarget.value > 0.5) {
             overTarget.value = 0;
+            overKeyboard.value = 0;
             runOnJS(dismiss)();
             return;
           }
+          const droppedOnKeyboard = overKeyboard.value > 0.5;
           overTarget.value = 0;
-          // Clamp into bounds and persist.
+          overKeyboard.value = 0;
+          if (droppedOnKeyboard) runOnJS(dismissKeyboard)();
+          // Clamp into bounds and persist (snap back — also after a keyboard drop).
           const clampedX = Math.min(Math.max(tx.value, minX), maxX);
           const clampedY = Math.min(Math.max(ty.value, minY), maxY);
           tx.value = withSpring(clampedX, SPRING);
@@ -457,9 +476,10 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
         .onFinalize(() => {
           "worklet";
           // Always settle the target chrome, even on a cancelled/interrupted drag
-          // that never reaches onEnd — otherwise the X target stays visible.
+          // that never reaches onEnd — otherwise a target stays visible.
           dragActive.value = withTiming(0, { duration: 140 });
           overTarget.value = 0;
+          overKeyboard.value = 0;
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width, height, insets.top, insets.bottom, curW, keyboardHeight]);
@@ -522,6 +542,17 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
       {pillVisible && (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <DismissTarget visible={dragActive} active={overTarget} centerY={targetCY} bottomInset={dismissBottom} />
+          {keyboardHeight > 0 && (
+            <DismissTarget
+              visible={dragActive}
+              active={overKeyboard}
+              centerY={targetCY}
+              bottomInset={dismissBottom}
+              Icon={KeyboardOff}
+              offsetX={-(DISMISS_SIZE + 24)}
+              variant="neutral"
+            />
+          )}
           <GestureDetector gesture={pan}>
             <Animated.View layout={layoutSpring} style={[styles.host, hostAnchor, { width: curW }, pillStyle]}>
               {expanded ? (
