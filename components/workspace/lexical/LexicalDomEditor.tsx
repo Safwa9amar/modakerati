@@ -384,6 +384,27 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   background: rgba(75,87,196,.16); border-radius: 7px;
   -webkit-user-select: none; user-select: none; pointer-events: none;
 }
+/* Collapsed source while its block is lifted: content hidden, slim placeholder held
+   (keeps its footprint → no reflow, so the drag's cached rects stay valid). */
+.lx-content.lx-reorder-on .lx-reorder-lifted { color: transparent !important; }
+.lx-content.lx-reorder-on .lx-reorder-lifted * { visibility: hidden !important; }
+.lx-content.lx-reorder-on .lx-reorder-lifted::before { opacity: .18; }
+.lx-content.lx-reorder-on .lx-reorder-lifted::after {
+  content: ""; position: absolute; inset-inline: 40px 12px; top: 50%; margin-top: -9px;
+  height: 18px; border: 1.5px dashed #b3b9e0; border-radius: 7px; background: rgba(75,87,196,.06); visibility: visible;
+}
+/* Magnetic slot: the block after the target gap slides down to open a slot. */
+.lx-content.lx-reorder-on > .lx-reorder-part { transition: transform .16s cubic-bezier(.3,0,.2,1); }
+/* The moving sign — a preview pill that follows the finger, then expands on drop. */
+.lx-drag-pill { position: fixed; z-index: 9999; pointer-events: none; box-sizing: border-box;
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 13px;
+  font-size: 12px; font-weight: 700; background: #fff; border: 1.5px solid #4b57c4; color: #333;
+  border-radius: 999px; white-space: nowrap; max-width: 64vw; overflow: hidden;
+  box-shadow: 0 12px 26px -6px rgba(75,87,196,.6); animation: lxPillIn .18s cubic-bezier(.34,1.56,.64,1); }
+.lx-drag-pill-grip { color: #4b57c4; flex: 0 0 auto; }
+.lx-drag-pill-txt { overflow: hidden; text-overflow: ellipsis; }
+.lx-drag-pill-land { transition: left .2s ease, top .2s ease, width .2s ease, height .2s cubic-bezier(.34,1.4,.64,1), border-radius .2s ease; }
+@keyframes lxPillIn { from { transform: scale(.7); opacity: .3; } to { transform: scale(1); opacity: 1; } }
 `;
 
 // Seed a little bilingual content so RTL auto-detection is visible immediately.
@@ -1393,6 +1414,7 @@ const LIFT_HOLD_MS = 150; // tiny hold on the handle before the block lifts…
 const LIFT_MOVE_PX = 6;   // …or this much finger movement, whichever comes first
 const EDGE_PX = 44;       // auto-scroll band at top/bottom
 const EDGE_SPEED = 12;    // px per frame at the very edge
+const PART_PX = 34;       // how far the neighbour slides to open the magnetic slot
 
 function ReorderPlugin({
   onReorder,
@@ -1442,11 +1464,12 @@ function ReorderPlugin({
       lifted: boolean;
       from: number;
       grabDY: number;
-      entries: { from: number; count: number; top: number; bottom: number; left: number; right: number; rtl: boolean }[];
+      entries: { from: number; count: number; top: number; bottom: number; left: number; right: number; rtl: boolean; key: string }[];
       gaps: number[];
-      ghost: HTMLElement | null;
+      pill: HTMLElement | null;
       line: HTMLElement | null;
       srcEl: HTMLElement | null;
+      parted: HTMLElement | null;
       raf: number | null;
       lastY: number;
     };
@@ -1456,9 +1479,10 @@ function ReorderPlugin({
       if (!L) return;
       if (L.timer) clearTimeout(L.timer);
       if (L.raf) cancelAnimationFrame(L.raf);
-      L.ghost?.remove();
+      L.pill?.remove();
       L.line?.remove();
-      if (L.srcEl) L.srcEl.style.opacity = "";
+      if (L.parted) { L.parted.style.transform = ""; L.parted.classList.remove("lx-reorder-part"); }
+      if (L.srcEl) { L.srcEl.classList.remove("lx-reorder-lifted"); L.srcEl.style.opacity = ""; }
       L = null;
     };
 
@@ -1471,7 +1495,7 @@ function ReorderPlugin({
           const r = el?.getBoundingClientRect();
           if (!el || !r) return null;
           const rtl = getComputedStyle(el).direction === "rtl";
-          return { from: e.from, count: e.count, top: r.top, bottom: r.bottom, left: r.left, right: r.right, rtl };
+          return { from: e.from, count: e.count, top: r.top, bottom: r.bottom, left: r.left, right: r.right, rtl, key: e.key };
         })
         .filter(Boolean) as Live["entries"];
       const gaps = rects.map((r) => r.top);
@@ -1506,7 +1530,7 @@ function ReorderPlugin({
       if (!inGrip) return; // touch in the text body → leave typing/selection/scroll alone
       e.preventDefault(); // own the gesture from the gutter (suppress scroll + selection)
       L = { start: { x: t.clientX, y: t.clientY }, timer: null, armed: true, lifted: false,
-            from: overRect.from, grabDY: 0, entries: rects, gaps: [], ghost: null, line: null, srcEl: null, raf: null, lastY: t.clientY };
+            from: overRect.from, grabDY: 0, entries: rects, gaps: [], pill: null, line: null, srcEl: null, parted: null, raf: null, lastY: t.clientY };
       L.timer = setTimeout(() => lift(), LIFT_HOLD_MS);
     };
 
@@ -1514,27 +1538,51 @@ function ReorderPlugin({
       if (!L || !L.armed) return;
       L.armed = false; L.lifted = true;
       onLiftRef.current?.(); // real native haptic pop
-      const { rects, gaps } = buildEntries();
-      L.entries = rects; L.gaps = gaps;
       let srcKey = "";
       editor.getEditorState().read(() => { const es = $blockEntries().find((x) => x.from === L!.from); srcKey = es ? es.key : ""; });
       const srcEl = srcKey ? (editor.getElementByKey(srcKey) as HTMLElement | null) : null;
       if (!srcEl) { cleanup(); return; }
       L.srcEl = srcEl;
-      const r = srcEl.getBoundingClientRect();
-      L.grabDY = L.lastY - r.top; // keep the slab under the finger
-      const ghost = srcEl.cloneNode(true) as HTMLElement;
-      ghost.className = "lx-drag-ghost " + ghost.className;
-      ghost.style.width = r.width + "px";
-      ghost.style.left = r.left + "px";
-      ghost.style.top = r.top + "px";
-      document.body.appendChild(ghost);
-      srcEl.style.opacity = "0.35";
+      // Preview-pill sign: grip + a truncated peek of the block's text (or "block").
+      const raw = (srcEl.textContent || "").replace(/\s+/g, " ").trim();
+      const label = raw ? `“${raw.slice(0, 26)}${raw.length > 26 ? "…" : ""}”` : "block";
+      // Collapse the source IN PLACE — hide its content, hold a slim placeholder. It
+      // keeps its footprint (no reflow), so the rects captured at arm time stay valid.
+      srcEl.classList.add("lx-reorder-lifted");
+      const { rects, gaps } = buildEntries();
+      L.entries = rects; L.gaps = gaps;
+      const pill = document.createElement("div");
+      pill.className = "lx-drag-pill";
+      const g = document.createElement("span"); g.className = "lx-drag-pill-grip"; g.textContent = "⠿";
+      const s = document.createElement("span"); s.className = "lx-drag-pill-txt"; s.textContent = label;
+      pill.appendChild(g); pill.appendChild(s);
+      document.body.appendChild(pill);
       const line = document.createElement("div");
       line.className = "lx-drop-line";
       document.body.appendChild(line);
-      L.ghost = ghost; L.line = line;
+      L.pill = pill; L.line = line;
+      movePill(L.lastY, L.start.x);
       positionLine(L.lastY);
+      partAt(L.lastY);
+    };
+
+    // The moving sign floats just above the finger (the finger would cover it otherwise).
+    const movePill = (y: number, x: number) => {
+      if (!L?.pill) return;
+      const r = L.pill.getBoundingClientRect();
+      L.pill.style.left = Math.max(6, Math.min(window.innerWidth - r.width - 6, x - r.width / 2)) + "px";
+      L.pill.style.top = (y - r.height - 16) + "px";
+    };
+
+    // Magnetic slot: slide the block just after the target gap down to open a slot.
+    const partAt = (y: number) => {
+      if (!L) return;
+      const gapIdx = gapFor(y, L.gaps);
+      const target = gapIdx < L.entries.length ? (editor.getElementByKey(L.entries[gapIdx].key) as HTMLElement | null) : null;
+      if (target === L.parted) return;
+      if (L.parted) { L.parted.style.transform = ""; L.parted.classList.remove("lx-reorder-part"); }
+      L.parted = target;
+      if (target) { target.classList.add("lx-reorder-part"); target.style.transform = `translateY(${PART_PX}px)`; }
     };
 
     const positionLine = (y: number) => {
@@ -1554,8 +1602,10 @@ function ReorderPlugin({
       else if (L.lastY > vh - EDGE_PX) dv = EDGE_SPEED * (1 - (vh - L.lastY) / EDGE_PX);
       if (dv !== 0) {
         scroller.scrollTop += dv;
+        if (L.parted) { L.parted.style.transform = ""; L.parted.classList.remove("lx-reorder-part"); L.parted = null; }
         const { rects, gaps } = buildEntries(); L.entries = rects; L.gaps = gaps;
         positionLine(L.lastY);
+        partAt(L.lastY);
       }
       L.raf = requestAnimationFrame(autoScroll);
     };
@@ -1571,8 +1621,9 @@ function ReorderPlugin({
         if (!L.lifted) return;
       }
       if (!L.lifted) return;
-      if (L.ghost) L.ghost.style.top = (t.clientY - L.grabDY) + "px"; // vertical slab (left stays put)
+      movePill(t.clientY, t.clientX);
       positionLine(t.clientY);
+      partAt(t.clientY);
       if (L.raf == null) L.raf = requestAnimationFrame(autoScroll);
     };
 
@@ -1581,8 +1632,28 @@ function ReorderPlugin({
       const gapIdx = gapFor(L.lastY, L.gaps);
       const gapBlock = gapToBlock(gapIdx, L.entries);
       const from = L.from;
-      cleanup();
       const to = singleMoveTo(from, gapBlock);
+      // Teardown — but EXPAND the sign into a full block at the slot before removing it
+      // (the reseed rebuilds the real block underneath; the morph reads as "grow back").
+      if (L.timer) clearTimeout(L.timer);
+      if (L.raf) cancelAnimationFrame(L.raf);
+      if (L.parted) { L.parted.style.transform = ""; L.parted.classList.remove("lx-reorder-part"); }
+      if (L.srcEl) { L.srcEl.classList.remove("lx-reorder-lifted"); L.srcEl.style.opacity = ""; }
+      L.line?.remove();
+      const pill = L.pill;
+      const ref = L.entries[Math.min(gapIdx, L.entries.length - 1)];
+      const slotY = L.gaps[Math.min(gapIdx, L.gaps.length - 1)];
+      L = null;
+      if (pill && ref) {
+        pill.classList.add("lx-drag-pill-land");
+        pill.style.left = ref.left + "px";
+        pill.style.top = slotY + "px";
+        pill.style.width = (ref.right - ref.left) + "px";
+        pill.style.height = "38px";
+        pill.style.borderRadius = "9px";
+        pill.style.justifyContent = "flex-start";
+        setTimeout(() => pill.remove(), 220);
+      } else { pill?.remove(); }
       if (to !== from) onReorderRef.current?.(from, to);
     };
 
