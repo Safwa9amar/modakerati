@@ -816,7 +816,12 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
         },
         { tag: SKIP_DOM_SELECTION_TAG },
       );
-    return React.createElement("div", { className: "lx-blockpick", onClick: pick }, content);
+    // preventDefault on mousedown so SELECTING an image/table block doesn't move DOM
+    // focus into the caret-less contentEditable root — which is exactly what scrolls
+    // the WebView to the document top on tap (issue #2, Android + iOS WKWebView). Same
+    // guard the table cells and chrome bands already use; onClick → pick still fires.
+    const noFocus = (e: { preventDefault: () => void }) => e.preventDefault();
+    return React.createElement("div", { className: "lx-blockpick", onMouseDown: noFocus, onClick: pick }, content);
   }
   exportJSON(): SerializedBlockDataNode {
     return { ...super.exportJSON(), type: "block-data", version: 1, block: this.__block };
