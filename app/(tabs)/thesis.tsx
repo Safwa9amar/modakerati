@@ -53,7 +53,8 @@ export default function AllThesesScreen() {
           const data = await listTheses();
           if (active) setTheses(data);
         } catch {
-          if (active) setTheses([]);
+          // Keep the last-known list instead of blanking to empty on a transient
+          // fetch error — a later focus reconciles (stale-while-revalidate, #5).
         }
         if (active) setLoading(false);
       })();

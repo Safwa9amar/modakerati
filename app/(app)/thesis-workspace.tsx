@@ -10,6 +10,7 @@ import {
   Linking,
   Platform,
   ScrollView,
+  InteractionManager,
 } from "react-native";
 import Animated, {
   useSharedValue,
@@ -144,6 +145,18 @@ export default function ThesisWorkspaceScreen() {
   const [pdfDoc, setPdfDoc] = useState<ThesisPdfDTO | undefined>(undefined);
 
   const previewMode = useWorkspaceStore((s) => s.previewMode);
+
+  // Nav-perf (#5): the workspace pushes with a slide animation, and the hidden
+  // Word-fidelity layer (OnlyOffice / docx-preview WebView) otherwise boots at the
+  // same moment as the Lexical Writer during that slide — two heavy WebViews at
+  // once, which reads as a multi-second stall. Defer the hidden layer until
+  // interactions finish (or immediately if the user switches to the docx view).
+  // The active Lexical layer still mounts right away.
+  const [heavyReady, setHeavyReady] = useState(false);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setHeavyReady(true));
+    return () => task.cancel();
+  }, []);
 
   // The three live-.docx views stay mounted at once (see the layered doc area), so
   // switching keeps each view's scroll. The PDF is the exception: its render is a
@@ -634,7 +647,9 @@ export default function ThesisWorkspaceScreen() {
               style={[styles.docLayer, previewMode === "docx" ? styles.layerActive : styles.layerHidden]}
               pointerEvents={previewMode === "docx" ? "auto" : "none"}
             >
-              {editorCfg === undefined ? (
+              {!(heavyReady || previewMode === "docx")
+                ? null /* #5: defer the hidden Word-layer WebView past the nav slide */
+                : editorCfg === undefined ? (
                 <View style={styles.centered}>
                   <ActivityIndicator size="large" color={colors.brandPrimary} />
                 </View>
