@@ -109,7 +109,10 @@ import {
   $createGhostCompletionNode,
   $isGhostCompletionNode,
   ACCEPT_COMPLETION_COMMAND,
+  $blockEntries,
+  type BlockEntry,
 } from "./blockLexical";
+import { singleMoveTo } from "@/lib/reorder-range";
 import type { DocBlockDTO } from "@/lib/api";
 import type { BlockKind } from "@/stores/insert-menu-store";
 
@@ -363,6 +366,12 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   .lx-sug-proposed.lx-sug-loading::after, .lx-sug-think svg, .lx-sug-add { animation: none; }
   .lx-sug.lx-leaving-approve, .lx-sug.lx-leaving-reject { animation: none; }
 }
+/* Two-finger drag-to-reorder: the lifted block's floating ghost, the drop-target
+   line (amber -cross variant + the reorder-mode toggle are wired in later tasks). */
+.lx-drag-ghost { position: fixed; z-index: 9999; pointer-events: none; background: #fff; border: 2px solid #4b57c4; border-radius: 10px; box-shadow: 0 16px 30px -8px rgba(75,87,196,.65); transform: rotate(-1.2deg) scale(1.03); padding: 6px 10px; opacity: .96; }
+.lx-drop-line { position: fixed; z-index: 9998; height: 0; border-top: 3px solid #4b57c4; box-shadow: 0 0 8px #4b57c4; border-radius: 2px; pointer-events: none; }
+.lx-drop-line-cross { border-top-color: #d68a2e; box-shadow: 0 0 8px #d68a2e; }
+.lx-drag-toggle { position: fixed; z-index: 10000; background: #fff; border: 1px solid #d8d8de; border-radius: 999px; box-shadow: 0 8px 22px -6px rgba(20,22,40,.3); font-size: 12px; display: flex; gap: 2px; padding: 3px; }
 `;
 
 // Seed a little bilingual content so RTL auto-detection is visible immediately.
@@ -1358,6 +1367,202 @@ function CompletionPlugin({
   return null;
 }
 
+// Two-finger drag-to-reorder. A two-finger hold (HOLD_MS) over a top-level block
+// arms a lift: the block clones into a floating ghost and a drop line tracks the
+// nearest block gap; on release the block moves there via `onReorder(from, to)`.
+// The plugin only READS geometry via $blockEntries + getElementByKey and paints its
+// own overlay elements on document.body — it never mutates the Lexical document. It
+// is inert while `suppressed` (an AI proposal is open) or when its callbacks are
+// undefined (props stay undefined until a later task wires them natively).
+const HOLD_MS = 250;
+const CANCEL_PX = 10;
+const EDGE_PX = 44;
+const EDGE_SPEED = 12; // px per frame at the very edge
+
+function ReorderPlugin({
+  onReorder,
+  onLift,
+  suppressed,
+}: {
+  onReorder?: (from: number, to: number) => void;
+  onLift?: () => void;
+  suppressed?: boolean;
+}) {
+  const [editor] = useLexicalComposerContext();
+  const suppressedRef = useRef(suppressed);
+  suppressedRef.current = suppressed;
+
+  useEffect(() => {
+    const root = editor.getRootElement();
+    if (!root) return;
+    // The Writer scrolls the DOCUMENT, not an inner box: ScrollSyncPlugin reports
+    // window.scrollY, restores via window.scrollTo, and the search overlay comment
+    // calls it "document scroll". There is no .lx-scroll element, so resolve the
+    // auto-scroll target to document.scrollingElement (the <html>/<body> that owns
+    // the document scroll) to match. NOTE: this WebView is known to make
+    // window.scrollTo unreliable (see ScrollSyncPlugin) — edge auto-scroll during a
+    // drag needs device verification; the drop math itself re-reads live rects.
+    const scroller = (document.scrollingElement as HTMLElement | null) ?? root;
+
+    type Live = {
+      startMid: { x: number; y: number };
+      timer: ReturnType<typeof setTimeout> | null;
+      armed: boolean;      // timer still pending
+      lifted: boolean;
+      from: number; count: number;
+      entries: { from: number; count: number; top: number; bottom: number }[];
+      gaps: number[];      // y of each gap boundary, length entries+1
+      ghost: HTMLElement | null;
+      line: HTMLElement | null;
+      srcEl: HTMLElement | null;
+      raf: number | null;
+      lastY: number;
+    };
+    let L: Live | null = null;
+
+    const mid = (t: TouchList) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+
+    const cleanup = () => {
+      if (!L) return;
+      if (L.timer) clearTimeout(L.timer);
+      if (L.raf) cancelAnimationFrame(L.raf);
+      L.ghost?.remove();
+      L.line?.remove();
+      if (L.srcEl) L.srcEl.style.opacity = "";
+      L = null;
+    };
+
+    const buildEntries = () => {
+      let entries: BlockEntry[] = [];
+      editor.getEditorState().read(() => { entries = $blockEntries(); });
+      const rects = entries
+        .map((e) => {
+          const el = editor.getElementByKey(e.key);
+          const r = el?.getBoundingClientRect();
+          return r ? { from: e.from, count: e.count, top: r.top, bottom: r.bottom } : null;
+        })
+        .filter(Boolean) as Live["entries"];
+      const gaps = rects.map((r) => r.top);
+      if (rects.length) gaps.push(rects[rects.length - 1].bottom);
+      return { rects, gaps };
+    };
+
+    const unitAt = (y: number, rects: Live["entries"]) =>
+      rects.find((r) => y >= r.top && y <= r.bottom) ?? null;
+
+    const gapFor = (y: number, gaps: number[]) => {
+      let best = 0, bestD = Infinity;
+      for (let i = 0; i < gaps.length; i++) { const d = Math.abs(gaps[i] - y); if (d < bestD) { bestD = d; best = i; } }
+      return best; // 0..entries.length  → block gap index
+    };
+
+    const gapToBlock = (gapIdx: number, rects: Live["entries"]) =>
+      gapIdx >= rects.length ? (rects.length ? rects[rects.length - 1].from + rects[rects.length - 1].count : 0) : rects[gapIdx].from;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (suppressedRef.current || e.touches.length !== 2) { cleanup(); return; }
+      const m = mid(e.touches);
+      const target = document.elementFromPoint(m.x, m.y);
+      const { rects } = buildEntries();
+      const overRect = unitAt(m.y, rects);
+      if (!overRect || !target) return;
+      L = { startMid: m, timer: null, armed: true, lifted: false, from: overRect.from, count: overRect.count,
+            entries: rects, gaps: [], ghost: null, line: null, srcEl: null, raf: null, lastY: m.y };
+      L.timer = setTimeout(() => lift(), HOLD_MS);
+    };
+
+    const lift = () => {
+      if (!L || !L.armed) return;
+      L.armed = false; L.lifted = true;
+      onLift?.(); // real native haptic pop (wired in a later task)
+      const { rects, gaps } = buildEntries(); // re-read fresh rects at lift
+      L.entries = rects; L.gaps = gaps;
+      let srcKey = "";
+      editor.getEditorState().read(() => { const es = $blockEntries().find((x) => x.from === L!.from); srcKey = es ? es.key : ""; });
+      const srcEl = srcKey ? editor.getElementByKey(srcKey) as HTMLElement | null : null;
+      if (!srcEl) { cleanup(); return; }
+      L.srcEl = srcEl;
+      const r = srcEl.getBoundingClientRect();
+      const ghost = srcEl.cloneNode(true) as HTMLElement;
+      ghost.className = "lx-drag-ghost " + ghost.className;
+      ghost.style.width = r.width + "px";
+      ghost.style.left = r.left + "px";
+      ghost.style.top = r.top + "px";
+      document.body.appendChild(ghost);
+      srcEl.style.opacity = "0.35";
+      const line = document.createElement("div");
+      line.className = "lx-drop-line";
+      document.body.appendChild(line);
+      L.ghost = ghost; L.line = line;
+      positionLine(L.lastY);
+    };
+
+    const positionLine = (y: number) => {
+      if (!L?.line) return;
+      const gapIdx = gapFor(y, L.gaps);
+      L.line.style.top = (L.gaps[Math.min(gapIdx, L.gaps.length - 1)]) + "px";
+      const rootR = editor.getRootElement()!.getBoundingClientRect();
+      L.line.style.left = rootR.left + "px";
+      L.line.style.width = rootR.width + "px";
+    };
+
+    const autoScroll = () => {
+      if (!L?.lifted) return;
+      const vh = window.innerHeight;
+      let dv = 0;
+      if (L.lastY < EDGE_PX) dv = -EDGE_SPEED * (1 - L.lastY / EDGE_PX);
+      else if (L.lastY > vh - EDGE_PX) dv = EDGE_SPEED * (1 - (vh - L.lastY) / EDGE_PX);
+      if (dv !== 0) {
+        scroller.scrollTop += dv;
+        const { rects, gaps } = buildEntries(); L.entries = rects; L.gaps = gaps;
+        positionLine(L.lastY);
+      }
+      L.raf = requestAnimationFrame(autoScroll);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!L) return;
+      if (e.touches.length !== 2) { cleanup(); return; }
+      const m = mid(e.touches);
+      L.lastY = m.y;
+      if (L.armed) {
+        if (Math.hypot(m.x - L.startMid.x, m.y - L.startMid.y) > CANCEL_PX) cleanup();
+        return;
+      }
+      if (!L.lifted) return;
+      e.preventDefault(); // own the gesture now
+      if (L.ghost) { const r = L.ghost.getBoundingClientRect(); L.ghost.style.left = (m.x - r.width / 2) + "px"; L.ghost.style.top = (m.y - r.height / 2) + "px"; }
+      positionLine(m.y);
+      if (L.raf == null) L.raf = requestAnimationFrame(autoScroll);
+    };
+
+    const onTouchEnd = () => {
+      if (!L || !L.lifted) { cleanup(); return; }
+      const gapIdx = gapFor(L.lastY, L.gaps);
+      const gapBlock = gapToBlock(gapIdx, L.entries);
+      const from = L.from;
+      cleanup();
+      if (from == null) return;
+      const to = singleMoveTo(from, gapBlock);
+      if (to !== from) onReorder?.(from, to);
+    };
+
+    root.addEventListener("touchstart", onTouchStart, { passive: true });
+    root.addEventListener("touchmove", onTouchMove, { passive: false });
+    root.addEventListener("touchend", onTouchEnd, { passive: true });
+    root.addEventListener("touchcancel", cleanup, { passive: true });
+    return () => {
+      cleanup();
+      root.removeEventListener("touchstart", onTouchStart);
+      root.removeEventListener("touchmove", onTouchMove);
+      root.removeEventListener("touchend", onTouchEnd);
+      root.removeEventListener("touchcancel", cleanup);
+    };
+  }, [editor]);
+
+  return null;
+}
+
 // Detects a "/command" typed at the caret and reports it to native (onInsertTrigger),
 // mirroring CompletionPlugin's detect-and-report bridge. Owns INSERT_BLOCK_COMMAND:
 // when native picks a block, this handler deletes the /query then transforms the
@@ -1702,6 +1907,8 @@ export default function LexicalDomEditor({
   scrollRestore,
   onScroll,
   onScrollRestored,
+  onReorder,
+  onLift,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -1766,6 +1973,11 @@ export default function LexicalDomEditor({
   scrollRestore?: { anchor: ScrollAnchor; nonce: number } | null;
   onScroll?: (anchor: ScrollAnchor) => void;
   onScrollRestored?: () => void;
+  // Two-finger drag-to-reorder: `onReorder(from, to)` commits a block move once the
+  // gesture drops; `onLift` fires when the hold arms the drag (native haptic pop).
+  // Both stay undefined until a later task wires them natively — the plugin is inert.
+  onReorder?: (from: number, to: number) => void;
+  onLift?: () => void;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -1812,6 +2024,11 @@ export default function LexicalDomEditor({
           onCancel={onCancelCompletion}
         />
         <SlashPlugin onInsertTrigger={onInsertTrigger} suppressed={!!suggestion || !!rangeSuggestion || !!tableProposal} />
+        <ReorderPlugin
+          onReorder={onReorder}
+          onLift={onLift}
+          suppressed={!!suggestion || !!rangeSuggestion || !!tableProposal}
+        />
         <RangeSuggestionPlugin rangeSuggestion={rangeSuggestion} onRangeAction={onRangeAction} />
         <SelectionHighlightPlugin indices={selectedIndices} />
         <SearchHighlightPlugin search={search} />
