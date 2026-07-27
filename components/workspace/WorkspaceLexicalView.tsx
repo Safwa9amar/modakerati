@@ -22,6 +22,7 @@ import { applyOpToDoc } from "@/lib/thesis-ops";
 import { planOps, tally } from "@/lib/lexical-writeback";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { useEditorScrollStore, type ScrollAnchor } from "@/stores/editor-scroll-store";
+import { hLight, hMedium } from "@/lib/haptics";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -185,6 +186,9 @@ export function WorkspaceLexicalView({
   // Global view toggle (from the ✦ dock): show/hide the document-structure indicators
   // (header/footer bands + section markers). Off → no bands, a clean writing view.
   const showChrome = useWorkspaceStore((s) => s.showChrome);
+  // Global view toggle (from the ✦ dock "Reorder" pill): arms the gutter-handle
+  // one-finger drag-to-reorder gesture in the DOM editor.
+  const reorderMode = useWorkspaceStore((s) => s.reorderMode);
   // Display-only section chrome bands, interleaved into the initial seed (below) by
   // block index. Reseeds rebuild their own chrome from the reseeded blocks/sections.
   const chrome = useMemo(
@@ -792,6 +796,17 @@ export function WorkspaceLexicalView({
     [thesisId],
   );
 
+  // Reorder (one-finger gutter drag) → the existing durable `move` op. The store
+  // applies the optimistic patchMove, persists + flushes, and the sync layer reseeds
+  // Lexical to the new order. hMedium on the drop, hLight on the lift (the DOM
+  // bundle can't call expo-haptics, so the native side fires the real haptics).
+  const onReorder = useCallback((from: number, to: number) => {
+    if (from === to) return;
+    hMedium();
+    void useThesisDocStore.getState().mutate(thesisId, { type: "move", from, to });
+  }, [thesisId]);
+  const onLift = useCallback(() => { hLight(); }, []);
+
   return (
     <View
       style={styles.container}
@@ -825,6 +840,9 @@ export function WorkspaceLexicalView({
           media={media}
           search={search}
           onEditCell={onEditCell}
+          reorderActive={reorderMode}
+          onReorder={onReorder}
+          onLift={onLift}
           tableProposal={tableProposal}
           tableLoadingIndex={tblLoadingIndex}
           tableThinking={tblThinking}
