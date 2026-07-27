@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { View, Text, StyleSheet, AppState, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, AppState, ActivityIndicator, Keyboard } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
@@ -132,17 +132,22 @@ export function WorkspaceLexicalView({
   const lastScrollY = useRef(0);
   const onScroll = useCallback((a: ScrollAnchor) => {
     useEditorScrollStore.getState().save(thesisId, a);
-    // Auto-hide the screen top-bar on scroll (issue #6): hide when scrolling DOWN
-    // past a small threshold, show when scrolling UP or when near the top. Reads/
-    // writes the flag via getState (not reactive), and setHeaderVisible no-ops when
-    // unchanged — so this doesn't re-render on every scroll event, only on a flip.
+    // Auto-hide the top-bar + dock on scroll (issue #6): hide on scroll DOWN past a
+    // small threshold, show on scroll UP or near the top. setChromeVisible no-ops when
+    // unchanged, so this only re-renders on a flip.
     const y = a.y;
     const prev = lastScrollY.current;
+    lastScrollY.current = y;
+    // IGNORE scrolls while the keyboard is up: opening/closing it reflows the WebView
+    // and fires large spurious deltas, and the resulting chromeVisible re-renders
+    // INSIDE the KeyboardAvoidingView break its height restore — the whole page stayed
+    // shifted up (with a bottom gap) after a keyboard cycle. Only genuine reading
+    // scrolls (keyboard down) drive the auto-hide.
+    if (Keyboard.isVisible()) return;
     const ws = useWorkspaceStore.getState();
     if (y <= 24) ws.setChromeVisible(true);
     else if (y - prev > 8) ws.setChromeVisible(false);
     else if (prev - y > 8) ws.setChromeVisible(true);
-    lastScrollY.current = y;
   }, [thesisId]);
   // Restore is nonce-driven, not mount-driven: inside a native-stack the WebView can
   // reset to the top on re-focus WITHOUT remounting the React tree, so a mount-only

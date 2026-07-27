@@ -88,6 +88,9 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
       () => {
         setKeyboardVisible(false);
+        // After a keyboard cycle, make sure the chrome (top-bar + dock) is shown — a
+        // spurious keyboard-reflow scroll must never leave it hidden.
+        useWorkspaceStore.getState().setChromeVisible(true);
         // Dismissing the keyboard CLOSES the block tool entirely (clears the
         // selection) → back to the idle state, so no floating pill lingers over the
         // vacated keyboard space. On iOS keyboardWillHide fires before the keyboard
