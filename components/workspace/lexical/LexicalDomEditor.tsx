@@ -372,12 +372,16 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 .lx-drop-line { position: fixed; z-index: 9998; height: 0; border-top: 3px solid #4b57c4; box-shadow: 0 0 8px #4b57c4; border-radius: 2px; pointer-events: none; }
 .lx-drop-line-cross { border-top-color: #d68a2e; box-shadow: 0 0 8px #d68a2e; }
 .lx-drag-toggle { position: fixed; z-index: 10000; background: #fff; border: 1px solid #d8d8de; border-radius: 999px; box-shadow: 0 8px 22px -6px rgba(20,22,40,.3); font-size: 12px; display: flex; gap: 2px; padding: 3px; }
-/* Reorder mode: reserve a leading gutter + show a grip (⠿) beside each draggable block. */
-.lx-content.lx-reorder-on { padding-inline-start: 34px; }
+/* Reorder mode: reserve a leading gutter + show a clearly-visible grip handle
+   beside each draggable block (brand-tinted chip, works LTR + RTL via logical props). */
+.lx-content.lx-reorder-on { padding-inline-start: 38px; }
 .lx-content.lx-reorder-on > *:not(.lx-chrome) { position: relative; }
 .lx-content.lx-reorder-on > *:not(.lx-chrome)::before {
-  content: "\\2807"; position: absolute; inset-inline-start: -26px; top: 0.15em;
-  color: #b8bcc8; font-size: 15px; line-height: 1.2;
+  content: "⠿"; position: absolute; inset-inline-start: -32px; top: 0.05em;
+  width: 24px; height: 24px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  color: #4b57c4; font-size: 17px; line-height: 1; font-weight: 700;
+  background: rgba(75,87,196,.14); border-radius: 7px;
   -webkit-user-select: none; user-select: none; pointer-events: none;
 }
 `;
