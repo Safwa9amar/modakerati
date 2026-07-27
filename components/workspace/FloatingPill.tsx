@@ -29,6 +29,7 @@ import { hSelection } from "@/lib/haptics";
 import { layoutSpring, SPRING } from "@/lib/motion";
 import { estimateTokenCount } from "@/lib/thinking";
 import type { DocBlockDTO } from "@/lib/api";
+import { Plus, type LucideIcon } from "lucide-react-native";
 import { resolveBubbleKind, chromeBubbleKind, BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
 import { AIDock } from "./AIDock";
 import { BlockContextBar } from "./BlockContextBar";
@@ -201,6 +202,17 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // A range rewrite (multi-block dynamic proposal) owns the bottom while it's under
   // review — hide the bubble/dock so it doesn't overlap the inline card's pill.
   const rangeActive = useSuggestionStore((s) => s.range != null);
+
+  // #3: on a BLANK paragraph the collapsed bubble becomes a "+" that opens the
+  // Insert menu (there's nothing to format yet, so the formatting tools aren't the
+  // right affordance). It reverts to the normal tool bubble the instant the
+  // paragraph gets text. Replaces the discoverability role of the "/" slash trigger.
+  const isEmptyPara =
+    count === 1 && selectedBlock != null && selectedBlock.kind === "paragraph" && !selectedBlock.text.trim();
+  const openInsertMenu = () => {
+    if (!selectedBlock) return;
+    useInsertMenuStore.getState().openAt({ index: selectedBlock.index, y: anchorY ?? startY });
+  };
 
   const maxPillW = Math.min(420, width - 24);
 
@@ -592,16 +604,25 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
               <Bubble
                 colors={colors}
                 kind={bubbleKind}
+                iconOverride={!awaitingReply && isEmptyPara ? Plus : undefined}
                 busy={busy}
                 unread={awaitingReply && peekCardExpired}
                 label={
                   awaitingReply && peekCardExpired
                     ? t("aiDock.peek.unreadLabel", { defaultValue: "Reply ready — tap to view" })
-                    : count === 0
-                      ? t("blockBar.askAi", { defaultValue: "Ask AI" })
-                      : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
+                    : !awaitingReply && isEmptyPara
+                      ? t("insert.addBlock", { defaultValue: "Add a block" })
+                      : count === 0
+                        ? t("blockBar.askAi", { defaultValue: "Ask AI" })
+                        : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
                 }
-                onPress={awaitingReply ? revealReply : () => useFloatingPillStore.getState().setExpanded(true)}
+                onPress={
+                  awaitingReply
+                    ? revealReply
+                    : isEmptyPara
+                      ? openInsertMenu
+                      : () => useFloatingPillStore.getState().setExpanded(true)
+                }
               />
             </>
           )}
@@ -621,6 +642,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
 function Bubble({
   colors,
   kind,
+  iconOverride,
   label,
   busy,
   unread,
@@ -628,12 +650,15 @@ function Bubble({
 }: {
   colors: ReturnType<typeof useThemeColors>;
   kind: BubbleKind;
+  // #3: on a blank paragraph the bubble renders a "+" (open Insert menu) instead of
+  // the mode's usual icon. Falls back to the registry icon when not provided.
+  iconOverride?: LucideIcon;
   label: string;
   busy: boolean;
   unread: boolean;
   onPress: () => void;
 }) {
-  const Icon = BUBBLE_ICONS[kind];
+  const Icon = iconOverride ?? BUBBLE_ICONS[kind];
 
   // Busy indicator: the whole bubble breathes (scales up/down) in a loop
   // instead of spinning the icon in place.
