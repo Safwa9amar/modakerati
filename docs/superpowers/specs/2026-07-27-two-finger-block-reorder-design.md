@@ -18,6 +18,38 @@ op (`lib/thesis-ops.ts`), an optimistic local `patchMove`, and the server
 feature adds **only** the gesture + in‑editor UX; it emits the existing `move` op and
 requires **no server change and no new op type**.
 
+## REVISION v2 (2026-07-27) — one‑finger drag handle, gated by a dock toggle
+
+The gesture was changed during implementation. This section **supersedes** the
+two‑finger framing above and Decision 2 below; everything else (granularity,
+cross‑chapter confirm, the move‑op pipeline, the ghost / drop‑line / auto‑scroll
+machinery, `$blockEntries`, the move‑math helpers) is unchanged.
+
+- **One finger, not two.** Reorder is a **one‑finger** drag.
+- **Reorder is a MODE, off by default.** A **"Reorder" toggle** is added to the AI
+  dock (`AIDock`), mirroring the existing "Section markers" toggle (a stateful pill
+  backed by a `reorderMode` flag + `toggleReorderMode` action in `workspace-store`,
+  exactly like `showChrome` / `toggleShowChrome`). Normal editing is untouched until
+  the user turns it on.
+- **Drag handle in the gutter.** While reorder mode is ON, each draggable block shows
+  a grip (⠿) in the leading gutter. A one‑finger press‑drag on the grip lifts and
+  moves the block; the text body still scrolls, so long documents stay navigable.
+  This is the conflict‑free one‑finger pattern (used by the retired native
+  `OutlineReorderable`). When reorder mode is OFF, no grips, no reorder gesture.
+- **Arming:** touch that starts in the gutter band over a single‑block unit →
+  `preventDefault` (own the gesture, no text‑selection/scroll) → lift after a tiny
+  hold (~150 ms) or ~6 px of movement, whichever first → haptic pop → drag → drop.
+- **Phase‑1 safety:** only single‑block units (`count === 1`) are draggable; lists
+  and whole‑section (heading‑carry) moves remain Phase 2. Callbacks are held in refs
+  and the plugin is fully inert unless reorder mode is on and callbacks are wired.
+- **Drag visual (approved via companion mockups):** while dragging, the source block
+  **collapses to a slim placeholder** (content hidden, footprint kept → no reflow) and
+  a compact **preview‑pill sign** (grip + a truncated text peek) follows the finger;
+  the block after the target gap **slides down to open a "magnetic slot"**; on drop the
+  pill **expands** into a block at the slot as the reseed lands the real content. Grips
+  render per‑block on the leading edge (RTL‑correct) and never on chrome
+  (`ChromeNode` wrapper tagged `lx-chrome-wrap`).
+
 ## Decisions (locked in brainstorm)
 
 1. **Granularity — heading offers a choice; paragraphs move alone.**
