@@ -372,16 +372,16 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 .lx-drop-line { position: fixed; z-index: 9998; height: 0; border-top: 3px solid #4b57c4; box-shadow: 0 0 8px #4b57c4; border-radius: 2px; pointer-events: none; }
 .lx-drop-line-cross { border-top-color: #d68a2e; box-shadow: 0 0 8px #d68a2e; }
 .lx-drag-toggle { position: fixed; z-index: 10000; background: #fff; border: 1px solid #d8d8de; border-radius: 999px; box-shadow: 0 8px 22px -6px rgba(20,22,40,.3); font-size: 12px; display: flex; gap: 2px; padding: 3px; }
-/* Reorder mode: reserve a leading gutter + show a clearly-visible grip handle
-   beside each draggable block (brand-tinted chip, works LTR + RTL via logical props). */
-.lx-content.lx-reorder-on { padding-inline-start: 38px; }
-.lx-content.lx-reorder-on > *:not(.lx-chrome) { position: relative; }
+/* Reorder mode: reserve a leading gutter ON EACH BLOCK (per-block, via logical
+   padding, so it lands on the correct side in both LTR and RTL — direction is set
+   per paragraph, not on the root) + a clearly-visible grip handle chip inside it. */
+.lx-content.lx-reorder-on > *:not(.lx-chrome) { position: relative; padding-inline-start: 40px; }
 .lx-content.lx-reorder-on > *:not(.lx-chrome)::before {
-  content: "⠿"; position: absolute; inset-inline-start: -32px; top: 0.05em;
-  width: 24px; height: 24px; box-sizing: border-box;
+  content: "⠿"; position: absolute; inset-inline-start: 6px; top: 0.05em;
+  width: 26px; height: 26px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
   color: #4b57c4; font-size: 17px; line-height: 1; font-weight: 700;
-  background: rgba(75,87,196,.14); border-radius: 7px;
+  background: rgba(75,87,196,.16); border-radius: 7px;
   -webkit-user-select: none; user-select: none; pointer-events: none;
 }
 `;
@@ -1388,7 +1388,7 @@ function CompletionPlugin({
 // elements on document.body — it never mutates the Lexical document. It is fully
 // inert while the mode is off (`!active`), while `suppressed` (an AI proposal is
 // open), or when its callbacks are undefined.
-const GUTTER_PX = 32;     // width of the drag-handle gutter (hit zone)
+const GUTTER_PX = 40;     // width of the drag-handle gutter (hit zone) — matches the CSS padding-inline-start
 const LIFT_HOLD_MS = 150; // tiny hold on the handle before the block lifts…
 const LIFT_MOVE_PX = 6;   // …or this much finger movement, whichever comes first
 const EDGE_PX = 44;       // auto-scroll band at top/bottom
@@ -1442,7 +1442,7 @@ function ReorderPlugin({
       lifted: boolean;
       from: number;
       grabDY: number;
-      entries: { from: number; count: number; top: number; bottom: number }[];
+      entries: { from: number; count: number; top: number; bottom: number; left: number; right: number; rtl: boolean }[];
       gaps: number[];
       ghost: HTMLElement | null;
       line: HTMLElement | null;
@@ -1469,7 +1469,9 @@ function ReorderPlugin({
         .map((e) => {
           const el = editor.getElementByKey(e.key);
           const r = el?.getBoundingClientRect();
-          return r ? { from: e.from, count: e.count, top: r.top, bottom: r.bottom } : null;
+          if (!el || !r) return null;
+          const rtl = getComputedStyle(el).direction === "rtl";
+          return { from: e.from, count: e.count, top: r.top, bottom: r.bottom, left: r.left, right: r.right, rtl };
         })
         .filter(Boolean) as Live["entries"];
       const gaps = rects.map((r) => r.top);
@@ -1492,13 +1494,16 @@ function ReorderPlugin({
     const onTouchStart = (e: TouchEvent) => {
       if (!activeRef.current || suppressedRef.current || e.touches.length !== 1) { cleanup(); return; }
       const t = e.touches[0];
-      const rootR = root.getBoundingClientRect();
-      const rtl = getComputedStyle(root).direction === "rtl";
-      const inGutter = rtl ? t.clientX > rootR.right - GUTTER_PX : t.clientX < rootR.left + GUTTER_PX;
-      if (!inGutter) return; // touch in the text body → leave typing/selection/scroll alone
       const { rects } = buildEntries();
       const overRect = unitAt(t.clientY, rects);
       if (!overRect || overRect.count !== 1) return; // Phase 1: only single-block units draggable (lists/sections are Phase 2)
+      // Grip zone = the GUTTER_PX-wide leading band of THIS block (right edge for an
+      // RTL block, left edge for LTR) — matches the per-block grip the CSS renders.
+      // Direction is per-paragraph, so we read it off the block, not the root.
+      const inGrip = overRect.rtl
+        ? t.clientX > overRect.right - GUTTER_PX && t.clientX <= overRect.right
+        : t.clientX >= overRect.left && t.clientX < overRect.left + GUTTER_PX;
+      if (!inGrip) return; // touch in the text body → leave typing/selection/scroll alone
       e.preventDefault(); // own the gesture from the gutter (suppress scroll + selection)
       L = { start: { x: t.clientX, y: t.clientY }, timer: null, armed: true, lifted: false,
             from: overRect.from, grabDY: 0, entries: rects, gaps: [], ghost: null, line: null, srcEl: null, raf: null, lastY: t.clientY };
