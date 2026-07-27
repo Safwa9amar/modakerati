@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -16,7 +17,8 @@ import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import { SegmentedTabs } from "@/components/ui/SegmentedTabs";
 import { useNavBarClearance } from "@/components/FloatingNavBar";
-import { listTheses } from "@/lib/api";
+import { listTheses, deleteThesis as apiDeleteThesis } from "@/lib/api";
+import { useThesisStore } from "@/stores/thesis-store";
 import type { ThesisStatus } from "@/types/thesis";
 
 type FilterKey = "all" | ThesisStatus;
@@ -60,6 +62,33 @@ export default function AllThesesScreen() {
       };
     }, [])
   );
+
+  // Long-press a card to delete it. Confirms first (destructive, irreversible),
+  // then optimistically drops the row and calls the server; on failure we
+  // re-fetch to put it back. Mirrors the ⋯-menu delete on the detail screen.
+  const confirmDelete = (thesis: ApiThesis) => {
+    Alert.alert(t("thesis.deleteConfirmTitle"), t("thesis.deleteConfirmMessage"), [
+      { text: t("thesis.renameCancel"), style: "cancel" },
+      {
+        text: t("thesis.delete"),
+        style: "destructive",
+        onPress: async () => {
+          setTheses((prev) => prev.filter((th) => th.id !== thesis.id));
+          try {
+            await apiDeleteThesis(thesis.id);
+            useThesisStore.getState().deleteThesis(thesis.id);
+          } catch {
+            Alert.alert(t("thesis.genericError"));
+            try {
+              setTheses(await listTheses());
+            } catch {
+              /* leave the optimistic removal — a focus refetch will reconcile */
+            }
+          }
+        },
+      },
+    ]);
+  };
 
   const countFor = (key: FilterKey) =>
     key === "all" ? theses.length : theses.filter((th) => th.status === key).length;
@@ -136,6 +165,8 @@ export default function AllThesesScreen() {
                     params: { thesisId: thesis.id },
                   } as any)
                 }
+                onLongPress={() => confirmDelete(thesis)}
+                delayLongPress={350}
               >
                 <Card style={styles.thesisCard}>
                   <Text

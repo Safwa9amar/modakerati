@@ -1,9 +1,10 @@
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Image, useWindowDimensions, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Image, useWindowDimensions, Alert, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { PenLine, FolderUp, LayoutGrid, Zap, FileText, Layers, List, ChevronRight, Newspaper, Combine } from "lucide-react-native";
+import { useRTL } from "@/hooks/useRTL";
+import { PenLine, FolderUp, LayoutGrid, Zap, FileText, Layers, List, ChevronRight, Newspaper, Combine, Check } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useNavBarClearance } from "@/components/FloatingNavBar";
@@ -11,7 +12,7 @@ import { useProfileStore } from "@/stores/profile-store";
 import { useImportStore } from "@/stores/import-store";
 import { useCombineStore } from "@/stores/combine-store";
 import { useThesisStore } from "@/stores/thesis-store";
-import { listTheses, listNews } from "@/lib/api";
+import { listTheses, listNews, deleteThesis as apiDeleteThesis } from "@/lib/api";
 import type { NewsArticle } from "@/types/news";
 import { useEffect, useState, useCallback } from "react";
 
@@ -29,6 +30,7 @@ interface ApiThesis {
 export default function HomeScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const rtl = useRTL();
   const router = useRouter();
   const bottomPad = useNavBarClearance();
   const avatarUrl = useProfileStore((s) => s.profile?.avatarUrl);
@@ -39,6 +41,29 @@ export default function HomeScreen() {
   const [apiTheses, setApiTheses] = useState<ApiThesis[]>([]);
   const [loading, setLoading] = useState(true);
   const [news, setNews] = useState<NewsArticle[]>([]);
+
+  // Importing and combining both upload the .docx file(s) and wait on a network
+  // round-trip (analyze / classify) before navigating away. That happens right
+  // here on the home screen, so surface a blocking overlay while it runs —
+  // otherwise the UI just sits frozen after the file picker closes.
+  //
+  // Each flow has exactly two real async stages before it leaves this screen,
+  // so the overlay is a live checklist driven straight off the store status —
+  // no faked percentage. Combine: upload files → read & sort chapters.
+  // Import: upload document → analyze structure. The stage index is the number
+  // of stages already finished (0 = first stage in progress, 1 = second).
+  const combineStatus = useCombineStore((s) => s.status);
+  const importStatus = useImportStore((s) => s.status);
+  const combineBusy = combineStatus === "uploading" || combineStatus === "classifying";
+  const importBusy = importStatus === "uploading" || importStatus === "analyzing";
+  const busy = combineBusy || importBusy;
+  const busyTitle = combineBusy ? t("combine.preparingTitle") : t("import.preparingTitle");
+  const busySteps = combineBusy
+    ? [t("combine.stepUpload"), t("combine.stepRead")]
+    : [t("import.stepUpload"), t("import.stepAnalyze")];
+  const busyStage = combineBusy
+    ? combineStatus === "uploading" ? 0 : 1
+    : importStatus === "uploading" ? 0 : 1;
 
   useEffect(() => {
     fetchTheses();
@@ -69,6 +94,30 @@ export default function HomeScreen() {
       params: { thesisId: thesis.id },
     } as any);
   }, [router]);
+
+  // Long-press a recent-thesis card to delete it. Confirms first (destructive,
+  // irreversible), then optimistically drops the card and calls the server; on
+  // failure we re-fetch to restore. Mirrors the ⋯-menu delete on the detail
+  // screen and the My Theses list.
+  const confirmDelete = useCallback((thesis: ApiThesis) => {
+    Alert.alert(t("thesis.deleteConfirmTitle"), t("thesis.deleteConfirmMessage"), [
+      { text: t("thesis.renameCancel"), style: "cancel" },
+      {
+        text: t("thesis.delete"),
+        style: "destructive",
+        onPress: async () => {
+          setApiTheses((prev) => prev.filter((th) => th.id !== thesis.id));
+          try {
+            await apiDeleteThesis(thesis.id);
+            useThesisStore.getState().deleteThesis(thesis.id);
+          } catch {
+            Alert.alert(t("thesis.genericError"));
+            fetchTheses();
+          }
+        },
+      },
+    ]);
+  }, [t]);
 
   const handleImport = useCallback(async () => {
     const store = useImportStore.getState();
@@ -105,6 +154,48 @@ export default function HomeScreen() {
     { icon: LayoutGrid, label: t("home.templates"), color: colors.semanticWarning, onPress: () => router.push("/(app)/template-picker" as any) },
   ];
 
+  const busyOverlay = (
+    <Modal visible={busy} transparent animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
+      <View style={styles.overlayBackdrop}>
+        {busy && (
+        <View style={[styles.overlayCard, { backgroundColor: colors.bgCard }]}>
+          <Text style={[styles.overlayTitle, { color: colors.textPrimary }]}>{busyTitle}</Text>
+          <View style={styles.checklist}>
+            {busySteps.map((label, i) => {
+              const done = i < busyStage;
+              const active = i === busyStage;
+              return (
+                <View key={i} style={[styles.checkRow, { flexDirection: rtl.flexDirection }]}>
+                  {done ? (
+                    <View style={[styles.checkMark, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}>
+                      <Check size={12} color="#fff" strokeWidth={3} />
+                    </View>
+                  ) : active ? (
+                    <ActivityIndicator size="small" color={colors.brandPrimary} style={styles.checkSpinner} />
+                  ) : (
+                    <View style={[styles.checkMark, { borderColor: colors.borderDefault }]} />
+                  )}
+                  <Text
+                    style={[
+                      styles.checkText,
+                      {
+                        color: done || active ? colors.textPrimary : colors.textSecondary,
+                        fontFamily: active ? "Inter_600SemiBold" : "Inter_400Regular",
+                        textAlign: rtl.textAlign,
+                      },
+                    ]}>
+                    {label}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+        )}
+      </View>
+    </Modal>
+  );
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
@@ -129,6 +220,7 @@ export default function HomeScreen() {
             <Button title={t("home.importExisting")} onPress={handleImport} variant="secondary" />
           </View>
         </View>
+        {busyOverlay}
       </SafeAreaView>
     );
   }
@@ -175,7 +267,13 @@ export default function HomeScreen() {
             const pageCount = thesis.pageCount ?? 0;
             const wordCount = thesis.wordCount ?? 0;
             return (
-              <Pressable key={thesis.id} onPress={() => selectThesis(thesis)} style={{ width: cardWidth }}>
+              <Pressable
+                key={thesis.id}
+                onPress={() => selectThesis(thesis)}
+                onLongPress={() => confirmDelete(thesis)}
+                delayLongPress={350}
+                style={{ width: cardWidth }}
+              >
                 <Card style={styles.thesisCard}>
                   <View style={styles.cardTop}>
                     <View style={[styles.cardIcon, { backgroundColor: progressColor + "22" }]}>
@@ -248,6 +346,7 @@ export default function HomeScreen() {
           </View>
         )}
       </ScrollView>
+      {busyOverlay}
     </SafeAreaView>
   );
 }
@@ -293,4 +392,12 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 24, fontFamily: "Inter_700Bold" },
   emptyDesc: { fontSize: 15, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 24 },
   emptyButtons: { width: "100%", gap: 12, marginTop: 16 },
+  overlayBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: 32 },
+  overlayCard: { paddingVertical: 24, paddingHorizontal: 26, borderRadius: 20, gap: 18, minWidth: 260, maxWidth: 320 },
+  overlayTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  checklist: { gap: 14 },
+  checkRow: { alignItems: "center", gap: 12 },
+  checkMark: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  checkSpinner: { width: 22, height: 22 },
+  checkText: { fontSize: 14, flex: 1 },
 });
