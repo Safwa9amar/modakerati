@@ -366,12 +366,20 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   .lx-sug-proposed.lx-sug-loading::after, .lx-sug-think svg, .lx-sug-add { animation: none; }
   .lx-sug.lx-leaving-approve, .lx-sug.lx-leaving-reject { animation: none; }
 }
-/* Two-finger drag-to-reorder: the lifted block's floating ghost, the drop-target
-   line (amber -cross variant + the reorder-mode toggle are wired in later tasks). */
+/* One-finger gutter-handle drag-to-reorder: the lifted block's floating ghost, the
+   drop-target line (amber -cross variant + the reorder-mode toggle are Phase 2/3). */
 .lx-drag-ghost { position: fixed; z-index: 9999; pointer-events: none; background: #fff; border: 2px solid #4b57c4; border-radius: 10px; box-shadow: 0 16px 30px -8px rgba(75,87,196,.65); transform: rotate(-1.2deg) scale(1.03); padding: 6px 10px; opacity: .96; }
 .lx-drop-line { position: fixed; z-index: 9998; height: 0; border-top: 3px solid #4b57c4; box-shadow: 0 0 8px #4b57c4; border-radius: 2px; pointer-events: none; }
 .lx-drop-line-cross { border-top-color: #d68a2e; box-shadow: 0 0 8px #d68a2e; }
 .lx-drag-toggle { position: fixed; z-index: 10000; background: #fff; border: 1px solid #d8d8de; border-radius: 999px; box-shadow: 0 8px 22px -6px rgba(20,22,40,.3); font-size: 12px; display: flex; gap: 2px; padding: 3px; }
+/* Reorder mode: reserve a leading gutter + show a grip (⠿) beside each draggable block. */
+.lx-content.lx-reorder-on { padding-inline-start: 34px; }
+.lx-content.lx-reorder-on > *:not(.lx-chrome) { position: relative; }
+.lx-content.lx-reorder-on > *:not(.lx-chrome)::before {
+  content: "\\2807"; position: absolute; inset-inline-start: -26px; top: 0.15em;
+  color: #b8bcc8; font-size: 15px; line-height: 1.2;
+  -webkit-user-select: none; user-select: none; pointer-events: none;
+}
 `;
 
 // Seed a little bilingual content so RTL auto-detection is visible immediately.
@@ -1367,30 +1375,49 @@ function CompletionPlugin({
   return null;
 }
 
-// Two-finger drag-to-reorder. A two-finger hold (HOLD_MS) over a top-level block
-// arms a lift: the block clones into a floating ghost and a drop line tracks the
-// nearest block gap; on release the block moves there via `onReorder(from, to)`.
-// The plugin only READS geometry via $blockEntries + getElementByKey and paints its
-// own overlay elements on document.body — it never mutates the Lexical document. It
-// is inert while `suppressed` (an AI proposal is open) or when its callbacks are
-// undefined (props stay undefined until a later task wires them natively).
-const HOLD_MS = 250;
-const CANCEL_PX = 10;
-const EDGE_PX = 44;
-const EDGE_SPEED = 12; // px per frame at the very edge
+// One-finger gutter-handle drag-to-reorder, gated by reorder MODE (`active`). When
+// the mode is on a leading gutter with a grip (⠿) appears beside each draggable
+// block; a one-finger press in that gutter arms a lift (tiny hold OR small move):
+// the block clones into a floating ghost and a drop line tracks the nearest block
+// gap; on release the block moves there via `onReorder(from, to)`. The plugin only
+// READS geometry via $blockEntries + getElementByKey and paints its own overlay
+// elements on document.body — it never mutates the Lexical document. It is fully
+// inert while the mode is off (`!active`), while `suppressed` (an AI proposal is
+// open), or when its callbacks are undefined.
+const GUTTER_PX = 32;     // width of the drag-handle gutter (hit zone)
+const LIFT_HOLD_MS = 150; // tiny hold on the handle before the block lifts…
+const LIFT_MOVE_PX = 6;   // …or this much finger movement, whichever comes first
+const EDGE_PX = 44;       // auto-scroll band at top/bottom
+const EDGE_SPEED = 12;    // px per frame at the very edge
 
 function ReorderPlugin({
   onReorder,
   onLift,
+  active,
   suppressed,
 }: {
   onReorder?: (from: number, to: number) => void;
   onLift?: () => void;
-  suppressed?: boolean;
+  active?: boolean;      // reorder MODE on (from the AIDock toggle)
+  suppressed?: boolean;  // an AI proposal is showing → don't arm
 }) {
   const [editor] = useLexicalComposerContext();
   const suppressedRef = useRef(suppressed);
   suppressedRef.current = suppressed;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const onReorderRef = useRef(onReorder);
+  onReorderRef.current = onReorder;
+  const onLiftRef = useRef(onLift);
+  onLiftRef.current = onLift;
+
+  // Toggle the reorder-mode class on the editor root → CSS reveals the gutter grips.
+  useEffect(() => {
+    const root = editor.getRootElement();
+    if (!root) return;
+    root.classList.toggle("lx-reorder-on", !!active);
+    return () => { root.classList.remove("lx-reorder-on"); };
+  }, [editor, active]);
 
   useEffect(() => {
     const root = editor.getRootElement();
@@ -1405,13 +1432,14 @@ function ReorderPlugin({
     const scroller = (document.scrollingElement as HTMLElement | null) ?? root;
 
     type Live = {
-      startMid: { x: number; y: number };
+      start: { x: number; y: number };
       timer: ReturnType<typeof setTimeout> | null;
-      armed: boolean;      // timer still pending
+      armed: boolean;
       lifted: boolean;
-      from: number; count: number;
+      from: number;
+      grabDY: number;
       entries: { from: number; count: number; top: number; bottom: number }[];
-      gaps: number[];      // y of each gap boundary, length entries+1
+      gaps: number[];
       ghost: HTMLElement | null;
       line: HTMLElement | null;
       srcEl: HTMLElement | null;
@@ -1419,8 +1447,6 @@ function ReorderPlugin({
       lastY: number;
     };
     let L: Live | null = null;
-
-    const mid = (t: TouchList) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
 
     const cleanup = () => {
       if (!L) return;
@@ -1460,29 +1486,34 @@ function ReorderPlugin({
       gapIdx >= rects.length ? (rects.length ? rects[rects.length - 1].from + rects[rects.length - 1].count : 0) : rects[gapIdx].from;
 
     const onTouchStart = (e: TouchEvent) => {
-      if (suppressedRef.current || e.touches.length !== 2) { cleanup(); return; }
-      const m = mid(e.touches);
-      const target = document.elementFromPoint(m.x, m.y);
+      if (!activeRef.current || suppressedRef.current || e.touches.length !== 1) { cleanup(); return; }
+      const t = e.touches[0];
+      const rootR = root.getBoundingClientRect();
+      const rtl = getComputedStyle(root).direction === "rtl";
+      const inGutter = rtl ? t.clientX > rootR.right - GUTTER_PX : t.clientX < rootR.left + GUTTER_PX;
+      if (!inGutter) return; // touch in the text body → leave typing/selection/scroll alone
       const { rects } = buildEntries();
-      const overRect = unitAt(m.y, rects);
-      if (!overRect || !target) return;
-      L = { startMid: m, timer: null, armed: true, lifted: false, from: overRect.from, count: overRect.count,
-            entries: rects, gaps: [], ghost: null, line: null, srcEl: null, raf: null, lastY: m.y };
-      L.timer = setTimeout(() => lift(), HOLD_MS);
+      const overRect = unitAt(t.clientY, rects);
+      if (!overRect || overRect.count !== 1) return; // Phase 1: only single-block units draggable (lists/sections are Phase 2)
+      e.preventDefault(); // own the gesture from the gutter (suppress scroll + selection)
+      L = { start: { x: t.clientX, y: t.clientY }, timer: null, armed: true, lifted: false,
+            from: overRect.from, grabDY: 0, entries: rects, gaps: [], ghost: null, line: null, srcEl: null, raf: null, lastY: t.clientY };
+      L.timer = setTimeout(() => lift(), LIFT_HOLD_MS);
     };
 
     const lift = () => {
       if (!L || !L.armed) return;
       L.armed = false; L.lifted = true;
-      onLift?.(); // real native haptic pop (wired in a later task)
-      const { rects, gaps } = buildEntries(); // re-read fresh rects at lift
+      onLiftRef.current?.(); // real native haptic pop
+      const { rects, gaps } = buildEntries();
       L.entries = rects; L.gaps = gaps;
       let srcKey = "";
       editor.getEditorState().read(() => { const es = $blockEntries().find((x) => x.from === L!.from); srcKey = es ? es.key : ""; });
-      const srcEl = srcKey ? editor.getElementByKey(srcKey) as HTMLElement | null : null;
+      const srcEl = srcKey ? (editor.getElementByKey(srcKey) as HTMLElement | null) : null;
       if (!srcEl) { cleanup(); return; }
       L.srcEl = srcEl;
       const r = srcEl.getBoundingClientRect();
+      L.grabDY = L.lastY - r.top; // keep the slab under the finger
       const ghost = srcEl.cloneNode(true) as HTMLElement;
       ghost.className = "lx-drag-ghost " + ghost.className;
       ghost.style.width = r.width + "px";
@@ -1522,17 +1553,17 @@ function ReorderPlugin({
 
     const onTouchMove = (e: TouchEvent) => {
       if (!L) return;
-      if (e.touches.length !== 2) { cleanup(); return; }
-      const m = mid(e.touches);
-      L.lastY = m.y;
-      if (L.armed) {
-        if (Math.hypot(m.x - L.startMid.x, m.y - L.startMid.y) > CANCEL_PX) cleanup();
-        return;
+      if (e.touches.length !== 1) { cleanup(); return; }
+      const t = e.touches[0];
+      L.lastY = t.clientY;
+      e.preventDefault(); // armed from the gutter → we own this gesture
+      if (L.armed && !L.lifted) {
+        if (Math.hypot(t.clientX - L.start.x, t.clientY - L.start.y) > LIFT_MOVE_PX) lift();
+        if (!L.lifted) return;
       }
       if (!L.lifted) return;
-      e.preventDefault(); // own the gesture now
-      if (L.ghost) { const r = L.ghost.getBoundingClientRect(); L.ghost.style.left = (m.x - r.width / 2) + "px"; L.ghost.style.top = (m.y - r.height / 2) + "px"; }
-      positionLine(m.y);
+      if (L.ghost) L.ghost.style.top = (t.clientY - L.grabDY) + "px"; // vertical slab (left stays put)
+      positionLine(t.clientY);
       if (L.raf == null) L.raf = requestAnimationFrame(autoScroll);
     };
 
@@ -1542,12 +1573,11 @@ function ReorderPlugin({
       const gapBlock = gapToBlock(gapIdx, L.entries);
       const from = L.from;
       cleanup();
-      if (from == null) return;
       const to = singleMoveTo(from, gapBlock);
-      if (to !== from) onReorder?.(from, to);
+      if (to !== from) onReorderRef.current?.(from, to);
     };
 
-    root.addEventListener("touchstart", onTouchStart, { passive: true });
+    root.addEventListener("touchstart", onTouchStart, { passive: false });
     root.addEventListener("touchmove", onTouchMove, { passive: false });
     root.addEventListener("touchend", onTouchEnd, { passive: true });
     root.addEventListener("touchcancel", cleanup, { passive: true });
@@ -1909,6 +1939,7 @@ export default function LexicalDomEditor({
   onScrollRestored,
   onReorder,
   onLift,
+  reorderActive,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -1973,11 +2004,13 @@ export default function LexicalDomEditor({
   scrollRestore?: { anchor: ScrollAnchor; nonce: number } | null;
   onScroll?: (anchor: ScrollAnchor) => void;
   onScrollRestored?: () => void;
-  // Two-finger drag-to-reorder: `onReorder(from, to)` commits a block move once the
-  // gesture drops; `onLift` fires when the hold arms the drag (native haptic pop).
-  // Both stay undefined until a later task wires them natively — the plugin is inert.
+  // One-finger gutter-handle drag-to-reorder: `onReorder(from, to)` commits a block
+  // move once the gesture drops; `onLift` fires when the hold arms the drag (native
+  // haptic pop). `reorderActive` reflects the AIDock "Reorder" toggle — the plugin is
+  // fully inert (no gutter grips, no gesture) until a later task passes it true.
   onReorder?: (from: number, to: number) => void;
   onLift?: () => void;
+  reorderActive?: boolean;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -2027,6 +2060,7 @@ export default function LexicalDomEditor({
         <ReorderPlugin
           onReorder={onReorder}
           onLift={onLift}
+          active={reorderActive}
           suppressed={!!suggestion || !!rangeSuggestion || !!tableProposal}
         />
         <RangeSuggestionPlugin rangeSuggestion={rangeSuggestion} onRangeAction={onRangeAction} />
