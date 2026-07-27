@@ -4,6 +4,7 @@ import { View, Pressable, Text, StyleSheet, Alert, Keyboard, ActivityIndicator }
 // nested inside the reorderable list (RN's ScrollView loses the horizontal pan to
 // the list's gesture handler) — mirrors BlockContextBar.
 import { ScrollView } from "react-native-gesture-handler";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import {
   KeyboardOff,
@@ -92,6 +93,9 @@ interface Props {
   /** Live-.docx block model — used to resolve the text of the prev/next navigation
    *  target (selectBlock's snippet) and the doc's block count. */
   blocks: DocBlockDTO[];
+  /** True when the software keyboard is up. Drives the bar's bottom padding: flush
+   *  on the keyboard when up, safe-area inset when down (the bar is now persistent). */
+  keyboardVisible?: boolean;
 }
 
 /**
@@ -99,12 +103,13 @@ interface Props {
  * redo, outline, prev/next block navigation, page break, page setup, thesis-ready)
  * plus the pinned ✦ Ask AI. All block FORMATTING tools (bold/align/style/…) live
  * exclusively in the floating bubble now — this bar never shows them, by product
- * decision. Renders docked above the keyboard whenever a block is being edited or
- * the block-scoped Ask-AI input has focus (see BlockComposer's blockKeyboardOpen).
+ * decision. PERSISTENT (issue #1): always docked while the workspace is open —
+ * riding above the keyboard when up, resting on the safe-area when down.
  */
-export function GlobalDockBar({ thesisId, blocks }: Props) {
+export function GlobalDockBar({ thesisId, blocks, keyboardVisible = true }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const { flexDirection } = useRTL();
 
   const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
@@ -392,7 +397,7 @@ export function GlobalDockBar({ thesisId, blocks }: Props) {
   );
 
   return (
-    <View style={[styles.fullWrap, { backgroundColor: colors.bgPrimary, borderTopColor: colors.borderSubtle, paddingBottom: 6 }]}>
+    <View style={[styles.fullWrap, { backgroundColor: colors.bgPrimary, borderTopColor: colors.borderSubtle, paddingBottom: keyboardVisible ? 6 : insets.bottom + 6 }]}>
       {/* Must stay the FIRST child (mirrors BlockContextBar) — same tree position
           keeps the expansion row mounted across renders (no spurious re-entering). */}
       {renderPageSetupExpansion()}

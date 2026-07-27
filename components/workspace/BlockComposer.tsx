@@ -29,12 +29,11 @@ interface Props {
  * The context-aware action zone that replaces the old always-present composer
  * sheet. Its shape follows selection + keyboard state:
  *   • pending confirm / ask → the AI's gate surface (docked).
- *   • a block selected, keyboard UP → the GLOBAL keyboard-docked toolbar
- *     (GlobalDockBar): undo/redo, outline, prev/next block, page break/setup,
- *     thesis-ready + the pinned ✦ Ask AI.
- *   • otherwise → nothing docks here. The floating ✦ bubble (FloatingPill/AIDock)
- *     is the ONLY idle AI surface — there is no bottom fallback bar anymore; if
- *     the bubble was drag-to-X dismissed, the dock's ✦ re-arms it (GlobalDockBar).
+ *   • otherwise → the GLOBAL document dock (GlobalDockBar): undo/redo, outline,
+ *     prev/next block, page break/setup, thesis-ready + the pinned ✦ Ask AI. It is
+ *     PERSISTENT (issue #1) — always docked while the workspace is open, keyboard
+ *     up or down, so the document tools never vanish. Block FORMATTING tools live
+ *     exclusively in the floating ✦ bubble.
  * Positioned absolutely at the container bottom; the parent's KeyboardAvoidingView
  * lifts it above the keyboard, so its own detent/docking math isn't needed.
  */
@@ -44,9 +43,7 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
 
   // Selection + edit state (primitives / stored refs only — never object literals).
   const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
-  const inlineEditing = useWorkspaceStore((s) => s.inlineEditing);
   const composerOpen = useWorkspaceStore((s) => s.composerOpen);
-  const composerInputFocused = useWorkspaceStore((s) => s.composerInputFocused);
 
   const isGenerating = useChatStore((s) => s.isGenerating);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
@@ -114,12 +111,11 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     if (isGenerating || pendingAsk || pendingConfirm) useWorkspaceStore.getState().setComposerOpen(true);
   }, [isGenerating, pendingAsk, pendingConfirm]);
 
-  // Whether ANY bottom surface renders (mirrors the surface chain in the render
-  // below: confirm > ask > keyboard-docked block bar). A block selected with the
-  // keyboard down renders nothing here — its pill floats inline on the block in
-  // the outline.
-  const blockKeyboardOpen = keyboardVisible && (inlineEditing || composerInputFocused);
-  const hasSurface = !!pendingConfirm || !!pendingAsk || blockKeyboardOpen;
+  // The bottom dock is now ALWAYS present while the workspace is open (issue #1):
+  // the global document tools must not vanish when the keyboard is down. So a
+  // surface always renders (confirm > ask > the persistent dock) and the reserved
+  // inset never collapses while composerOpen.
+  const hasSurface = true;
 
   // Collapse the reserved inset imperatively whenever nothing renders at the
   // bottom (hidden via the header ⋯ toggle, or the floating-pill state above).
@@ -176,10 +172,9 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     insetValue.value = h;
   };
 
-  // Which surface: confirm > ask > keyboard-open block bar. Default null: a block
-  // selected with the keyboard DOWN docks nothing here — its formatting pill
-  // floats inline on the block in the outline instead. Keep this chain in sync
-  // with `hasSurface` above.
+  // Which surface: confirm > ask > the persistent document dock. The dock always
+  // renders while the workspace is open (issue #1), so `surface` is never null
+  // here — keep this chain in sync with `hasSurface` above.
   let surface: React.ReactNode = null;
   if (pendingConfirm) {
     surface = (
@@ -193,15 +188,14 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         <ComposerAsk ask={pendingAsk} onAnswer={handleAnswer} onDismiss={handleDismissAsk} rtl={rtl} onInputFocus={markInputFocused} onInputBlur={markInputBlurred} />
       </Dock>
     );
-  } else if (blockKeyboardOpen) {
-    // Keyboard UP → the GLOBAL keyboard-docked toolbar (undo/redo, outline,
-    // prev/next block, page break/setup, thesis-ready) + the pinned ✦ Ask AI.
-    // Block FORMATTING tools (bold/align/style/…) are product-decision EXCLUDED
-    // here — the floating bubble owns those exclusively, keyboard up or down.
-    // Keyboard DOWN → nothing docks here: the floating bubble (FloatingPill,
-    // screen-level overlay) carries the block tools, so `surface` stays null
-    // and the reserved bottom inset collapses (the doc reclaims height).
-    surface = <GlobalDockBar thesisId={thesisId} blocks={blocks} />;
+  } else {
+    // The PERSISTENT global document dock (issue #1): undo/redo, outline, prev/
+    // next block, page break/setup, thesis-ready + the pinned ✦ Ask AI. Always
+    // docked while the workspace is open so the tools stay reachable with the
+    // keyboard DOWN; it rides above the keyboard (parent KeyboardAvoidingView)
+    // when up. Block FORMATTING tools stay exclusively in the floating bubble.
+    // keyboardVisible drives the bar's own bottom padding (flush vs. safe-area).
+    surface = <GlobalDockBar thesisId={thesisId} blocks={blocks} keyboardVisible={keyboardVisible} />;
   }
 
   return (
