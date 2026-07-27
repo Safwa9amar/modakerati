@@ -2120,7 +2120,10 @@ export default function LexicalDomEditor({
       >
       <div className="lx-root">
         <RichTextPlugin
-          contentEditable={<ContentEditable className="lx-content" dir="auto" />}
+          // spellCheck off: the WebView's native spellchecker has no Arabic
+          // dictionary, so it red-underlines every Arabic word. We have no native
+          // replacement, so it simply goes off across all languages (issue #8).
+          contentEditable={<ContentEditable className="lx-content" dir="auto" spellCheck={false} />}
           placeholder={<div className="lx-ph">اكتب هنا… · format from the bar below</div>}
           ErrorBoundary={LexicalErrorBoundary}
         />
