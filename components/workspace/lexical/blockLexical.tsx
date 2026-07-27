@@ -907,6 +907,10 @@ export class ChromeNode extends DecoratorNode<React.ReactNode> {
     const el = document.createElement("div");
     el.style.cssText = "";
     el.contentEditable = "false";
+    // Mark the decorator WRAPPER (the direct child of the editor root) so the
+    // reorder-mode grip CSS can exclude it — the `lx-chrome` classes live on the
+    // inner React band, not here, so a plain wrapper would otherwise get a grip.
+    el.className = "lx-chrome-wrap";
     return el;
   }
   updateDOM(): false {

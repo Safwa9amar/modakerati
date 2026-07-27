@@ -375,8 +375,8 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 /* Reorder mode: reserve a leading gutter ON EACH BLOCK (per-block, via logical
    padding, so it lands on the correct side in both LTR and RTL — direction is set
    per paragraph, not on the root) + a clearly-visible grip handle chip inside it. */
-.lx-content.lx-reorder-on > *:not(.lx-chrome) { position: relative; padding-inline-start: 40px; }
-.lx-content.lx-reorder-on > *:not(.lx-chrome)::before {
+.lx-content.lx-reorder-on > *:not(.lx-chrome):not(.lx-chrome-wrap) { position: relative; padding-inline-start: 40px; }
+.lx-content.lx-reorder-on > *:not(.lx-chrome):not(.lx-chrome-wrap)::before {
   content: "⠿"; position: absolute; inset-inline-start: 6px; top: 0.05em;
   width: 26px; height: 26px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
