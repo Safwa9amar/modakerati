@@ -213,9 +213,28 @@ export function GlobalDockBar({ thesisId, blocks, keyboardVisible = true }: Prop
 
   // ── Page break (durable op — targets the current selection, else the sole editing block) ──
   const pageBreakIndices = selectedBlocks.length > 0 ? selectedBlocks.map((b) => b.index) : editingBlockIndex != null ? [editingBlockIndex] : [];
-  const insertPageBreak = () => {
-    if (!pageBreakIndices.length) return;
-    void useThesisDocStore.getState().mutate(thesisId, { type: "startOnNewPage", indices: pageBreakIndices });
+  const insertPageBreak = async () => {
+    // Parity with the insert-menu path (BottomInsertDrawer): flush pending Lexical
+    // edits FIRST so the break's block→paragraph index is computed against the
+    // up-to-date server snapshot — the "typed text jumps to the next section" window
+    // is widest when just-typed paragraphs aren't on the snapshot yet. THEN re-read
+    // the selection fresh: a first tap can land before the onState selection sync,
+    // which is a big part of the "needs two tries" report.
+    await useLexicalEditorStore.getState().flushEdits?.();
+    const ws = useWorkspaceStore.getState();
+    const indices =
+      ws.selectedBlocks.length > 0
+        ? ws.selectedBlocks.map((b) => b.index)
+        : ws.editingBlockIndex != null
+          ? [ws.editingBlockIndex]
+          : [];
+    if (!indices.length) return;
+    // Immediate feedback so the first tap never reads as a no-op. The break itself
+    // only becomes visible once the durable op drains — its optimistic patch is a
+    // DELIBERATE no-op (the new section's chrome is unknown locally; the server echo
+    // brings it), so we don't fake a boundary, we just confirm the tap registered.
+    hSuccess();
+    void useThesisDocStore.getState().mutate(thesisId, { type: "startOnNewPage", indices });
   };
 
   // ── Insert menu (dock + chip — anchors at the current selection/editing block) ──
