@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { View, Text, StyleSheet, AppState, ActivityIndicator, Keyboard } from "react-native";
+import { View, Text, StyleSheet, AppState, ActivityIndicator, Keyboard, I18nManager } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
@@ -11,6 +11,7 @@ import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocSectionDTO, ty
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
+import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -206,6 +207,9 @@ export function WorkspaceLexicalView({
   // Global view toggle (from the ✦ dock "Reorder" pill): arms the gutter-handle
   // one-finger drag-to-reorder gesture in the DOM editor.
   const reorderMode = useWorkspaceStore((s) => s.reorderMode);
+  // Block-editing keyboard mode (issue #6): drives the editor's inputmode so a tap
+  // selects a block WITHOUT opening the OS keyboard while inactive.
+  const keyboardActive = useWorkspaceStore((s) => s.keyboardActive);
   // Display-only section chrome bands, interleaved into the initial seed (below) by
   // block index. Reseeds rebuild their own chrome from the reseeded blocks/sections.
   const chrome = useMemo(
@@ -841,6 +845,9 @@ export function WorkspaceLexicalView({
           initialBlocks={seed}
           chrome={chrome}
           command={command}
+          keyboardActive={keyboardActive}
+          onSwipeOpenDrawer={() => useNavDrawerStore.getState().openDrawer()}
+          appRtl={I18nManager.isRTL}
           onState={onState}
           onInsertTrigger={onInsertTrigger}
           onBlocks={onBlocks}

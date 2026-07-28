@@ -24,7 +24,12 @@ import {
   AlignJustify,
   PilcrowLeft,
   PilcrowRight,
+  Pilcrow,
   List,
+  ListOrdered,
+  ListChecks,
+  ListIndentIncrease,
+  ListIndentDecrease,
   Palette,
   ChevronUp,
   ChevronDown,
@@ -325,17 +330,31 @@ export function BlockContextBar({
     return [0, ...headingLevels];
   }, [headingLevels]);
 
+  // Is the Lexical Writer the active surface? Then formatting goes STRAIGHT to the
+  // editor (instant, on the selected block) and persists via its batched auto-sync
+  // on exit — NOT one durable /paragraphs/bulk op per tap (that flooded the API).
+  // (Read here — above bubbleKind — because the list bubble is driven off lexFmt.)
+  const lexActive = useLexicalEditorStore((s) => s.active);
+  const lexFmt = useLexicalEditorStore((s) => s.format);
+
   // Smart-pill mode: which toolset the sole selection gets, driven by the SAME
   // registry that picks the collapsed bubble's icon (FloatingPill) — so the
   // glyph and the toolset can never disagree. `isImage` is true ONLY for a real
   // picture (media bytes present) — a chart is an "image" kind block too but
   // WITHOUT bytes, so it must not get the picture ops (rotate/crop/removeBg).
-  const bubbleKind: BubbleKind = chrome ? chromeBubbleKind(chrome.kind) : resolveBubbleKind(selectedBlock);
+  // Pass the LIVE Lexical block format so a caret inside a list resolves to the
+  // dedicated "list" bubble (the DTO can't be trusted for list-ness — see
+  // resolveBubbleKind). Gated on lexActive so a stale format never mislabels the
+  // legacy composer path.
+  const bubbleKind: BubbleKind = chrome
+    ? chromeBubbleKind(chrome.kind)
+    : resolveBubbleKind(selectedBlock, lexActive ? lexFmt.blockType : null);
   // A Word chrome band (top-of-page / bottom-of-page / section break) — no block
   // formatting applies; the shell + ✦ Ask carry it, morphing in like any other kind.
   const isChrome = bubbleKind === "hfTop" || bubbleKind === "hfBottom" || bubbleKind === "hfSection";
   const isImage = bubbleKind === "image";
   const isTable = bubbleKind === "table";
+  const isList = bubbleKind === "list";
   // Chart placeholders and raw "other" OOXML blocks share a minimal toolset
   // (move up/down/delete) — no text/format/picture tools apply to either.
   const isMinimal = bubbleKind === "chart" || bubbleKind === "other";
@@ -360,6 +379,12 @@ export function BlockContextBar({
         setActiveCategory(null);
       }
     } else if (bubbleKind === "heading" && !keyboardOpen && !pillExpanded) {
+      setActiveCategory(null);
+    }
+    // LIST tools are flat chips (no category sub-pill). When a block BECOMES a list
+    // — e.g. via the paragraph bubble's "List" category — close any open category so
+    // the redundant list sub-pill doesn't linger under the new flat list toolset.
+    if (bubbleKind === "list" && prevBubbleKindRef.current !== "list") {
       setActiveCategory(null);
     }
     prevBubbleKindRef.current = bubbleKind;
@@ -400,12 +425,6 @@ export function BlockContextBar({
       : selectedBlock?.kind === "image"
         ? (selectedBlock.caption ?? "")
         : "";
-
-  // Is the Lexical Writer the active surface? Then formatting goes STRAIGHT to the
-  // editor (instant, on the selected block) and persists via its batched auto-sync
-  // on exit — NOT one durable /paragraphs/bulk op per tap (that flooded the API).
-  const lexActive = useLexicalEditorStore((s) => s.active);
-  const lexFmt = useLexicalEditorStore((s) => s.format);
 
   // ── Wiring ──
   // Lexical active → dispatch a whole-block `blockFormat` command into the editor
@@ -712,6 +731,61 @@ export function BlockContextBar({
         );
       })}
       {chip({ keyProp: "h-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), enterIndex: headingLevels.length, onPress: () => setPillExpanded(true) })}
+    </>
+  );
+
+  // ── LIST block (live Lexical list — bullet / number / check): list ops are
+  // PRIMARY. Tapping the ACTIVE kind removes the list (→ the bubble morphs back to
+  // text/heading); tapping another kind switches. Indent/outdent nest the item one
+  // level. All of it is live-editor-only (dispatch "list" → the Writer), persisted by
+  // the batched auto-sync; only bullet/number round-trip to Word today (check
+  // degrades to bullets). Reuses the SAME apply/move/del as the text bubble — a list
+  // item is a paragraph block in the model, so behaviour matches exactly. ──
+  const listType = lexFmt.blockType; // "bullet" | "number" | "check"
+  const isBulletList = listType === "bullet";
+  const isNumberList = listType === "number";
+  const isCheckList = listType === "check";
+  const dispatchList = (v: "ul" | "ol" | "check" | "none" | "indent" | "outdent") =>
+    useLexicalEditorStore.getState().dispatch("list", v);
+  const listKindChips = (base: number) => [
+    chip({ keyProp: "ls-ul", Icon: List, accessibilityLabel: t("blockBar.listBulleted", { defaultValue: "Bulleted list" }), active: isBulletList, enterIndex: base, onPress: () => dispatchList(isBulletList ? "none" : "ul") }),
+    chip({ keyProp: "ls-ol", Icon: ListOrdered, accessibilityLabel: t("blockBar.listNumbered", { defaultValue: "Numbered list" }), active: isNumberList, enterIndex: base + 1, onPress: () => dispatchList(isNumberList ? "none" : "ol") }),
+    chip({ keyProp: "ls-check", Icon: ListChecks, accessibilityLabel: t("blockBar.listCheck", { defaultValue: "Checklist" }), active: isCheckList, enterIndex: base + 2, onPress: () => dispatchList(isCheckList ? "none" : "check") }),
+  ];
+  // Outdent/indent ordered leading→trailing (outdent = promote, indent = demote).
+  const listNestChips = (base: number) => [
+    chip({ keyProp: "ls-out", Icon: ListIndentDecrease, accessibilityLabel: t("blockBar.listOutdent", { defaultValue: "Decrease indent" }), enterIndex: base, onPress: () => dispatchList("outdent") }),
+    chip({ keyProp: "ls-in", Icon: ListIndentIncrease, accessibilityLabel: t("blockBar.listIndent", { defaultValue: "Increase indent" }), enterIndex: base + 1, onPress: () => dispatchList("indent") }),
+  ];
+  // Compact pill: the three kind toggles + nesting + Align (left/center/right/justify
+  // — the same category sub-pill the paragraph bubble uses) + (+more).
+  const listPillTools = (
+    <>
+      {listKindChips(0)}
+      {sep("ls1")}
+      {listNestChips(3)}
+      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 5)}
+      {chip({ keyProp: "ls-more", Icon: Plus, accessibilityLabel: t("blockBar.more", { defaultValue: "More tools" }), enterIndex: 6, onPress: () => setPillExpanded(true) })}
+    </>
+  );
+  // Expanded / keyboard-docked: kinds + nesting + convert-to-paragraph + Align +
+  // inline B/I + move/delete. "Convert to paragraph" always exits the list (even a
+  // nested item). Align opens the shared left/center/right/justify sub-pill.
+  const listFullTools = (
+    <>
+      {listKindChips(0)}
+      {sep("ls1")}
+      {listNestChips(3)}
+      {chip({ keyProp: "ls-para", Icon: Pilcrow, accessibilityLabel: t("blockBar.listToParagraph", { defaultValue: "Convert to paragraph" }), enterIndex: 5, onPress: () => dispatchList("none") })}
+      {sep("ls2")}
+      {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 6)}
+      {sep("ls2b")}
+      {chip({ keyProp: "ls-bold", Icon: Bold, accessibilityLabel: t("blockBar.bold", { defaultValue: "Bold" }), active: allBold, disabled: !canFormat, enterIndex: 7, onPress: () => apply({ bold: !allBold }) })}
+      {chip({ keyProp: "ls-italic", Icon: Italic, accessibilityLabel: t("blockBar.italic", { defaultValue: "Italic" }), active: allItalic, disabled: !canFormat, enterIndex: 8, onPress: () => apply({ italic: !allItalic }) })}
+      {sep("ls3")}
+      {chip({ keyProp: "ls-up", Icon: ChevronUp, accessibilityLabel: t("blockBar.moveUp", { defaultValue: "Move up" }), disabled: !canUp, enterIndex: 9, onPress: () => move("up") })}
+      {chip({ keyProp: "ls-down", Icon: ChevronDown, accessibilityLabel: t("blockBar.moveDown", { defaultValue: "Move down" }), disabled: !canDown, enterIndex: 10, onPress: () => move("down") })}
+      {chip({ keyProp: "ls-del", Icon: Trash2, accessibilityLabel: t("common.delete", { defaultValue: "Delete" }), enterIndex: 11, onPress: del })}
     </>
   );
 
@@ -1025,9 +1099,11 @@ export function BlockContextBar({
         ? tableTools
         : isMinimal
           ? minimalTools
-          : bubbleKind === "heading"
-            ? headingPillTools
-            : pillTools;
+          : isList
+            ? listPillTools
+            : bubbleKind === "heading"
+              ? headingPillTools
+              : pillTools;
   const expandedTools = isChrome
     ? chromeTools
     : isImage
@@ -1036,7 +1112,9 @@ export function BlockContextBar({
         ? tableTools
         : isMinimal
           ? minimalTools
-          : fullTools;
+          : isList
+            ? listFullTools
+            : fullTools;
 
   // A header/footer band already has its OWN dedicated ✦ (opens the smart, section-
   // grounded generate panel) — the generic pinned Ask-AI would be a second, redundant
@@ -1676,18 +1754,20 @@ export function BlockContextBar({
         </>
       );
     } else if (lexActive) {
-      // list — LIVE in the Lexical Writer: Bulleted / Numbered toggle the current
-      // block into/out of a list. (Bullets render + edit; full persistence across
-      // reload still needs server list-style support.) Checklist stays coming-soon.
-      const isBullet = lexFmt.blockType === "bullet";
-      const isNumber = lexFmt.blockType === "number";
-      const applyList = (v: "ul" | "ol" | "none") => useLexicalEditorStore.getState().dispatch("list", v);
+      // list — LIVE in the Lexical Writer: Bulleted / Numbered / Checklist toggle the
+      // current block into/out of a list. This category is the ENTRY point (make a
+      // paragraph a list); once it's a list the bubble morphs to the dedicated list
+      // toolset. (Bullets + numbers render, edit, and round-trip to Word; checklist is
+      // live-only and degrades to bullets on reload/export.)
+      const isBullet = isBulletList;
+      const isNumber = isNumberList;
+      const isCheck = isCheckList;
       body = (
         <>
           <AnimatedChip
             key="ul"
             enterIndex={0}
-            onPress={() => applyList(isBullet ? "none" : "ul")}
+            onPress={() => dispatchList(isBullet ? "none" : "ul")}
             active={isBullet}
             accessibilityLabel={t("blockBar.listBulleted", { defaultValue: "Bulleted list" })}
             style={optPill(isBullet)}
@@ -1697,15 +1777,22 @@ export function BlockContextBar({
           <AnimatedChip
             key="ol"
             enterIndex={1}
-            onPress={() => applyList(isNumber ? "none" : "ol")}
+            onPress={() => dispatchList(isNumber ? "none" : "ol")}
             active={isNumber}
             accessibilityLabel={t("blockBar.listNumbered", { defaultValue: "Numbered list" })}
             style={optPill(isNumber)}
           >
             <Text style={[styles.optText, { color: isNumber ? colors.bgPrimary : colors.textPrimary }]}>1.</Text>
           </AnimatedChip>
-          <AnimatedChip key="check" enterIndex={2} onPress={soon} accessibilityLabel={t("blockBar.listCheck", { defaultValue: "Checklist" })} style={optPill(false, true)}>
-            <Text style={[styles.optText, { color: colors.textPlaceholder }]}>☑</Text>
+          <AnimatedChip
+            key="check"
+            enterIndex={2}
+            onPress={() => dispatchList(isCheck ? "none" : "check")}
+            active={isCheck}
+            accessibilityLabel={t("blockBar.listCheck", { defaultValue: "Checklist" })}
+            style={optPill(isCheck)}
+          >
+            <Text style={[styles.optText, { color: isCheck ? colors.bgPrimary : colors.textPrimary }]}>☑</Text>
           </AnimatedChip>
         </>
       );

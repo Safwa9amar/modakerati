@@ -5,70 +5,79 @@ import type { SharedValue } from "react-native-reanimated";
 import { X, type LucideIcon } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 
-/** Diameter of the circular dismiss target and the hit radius the pill tests against. */
-export const DISMISS_SIZE = 64;
-export const DISMISS_HIT_RADIUS = 70;
+/** Diameter of the circular target and the hit radius the pill tests against. */
+export const DISMISS_SIZE = 50;
+export const DISMISS_HIT_RADIUS = 100;
 
+/**
+ * One target in the bubble's drag tray (C2 layout): a bare outlined circle anchored
+ * to the screen's right edge at a given bottom offset, with a label that flies out to
+ * its LEFT while the pill hovers it. Two of these stack into the right-edge column
+ * (close above, keyboard below) revealed while dragging the ✦ bubble.
+ */
 interface Props {
-  /** 0→1 as a drag starts/ends (fade + rise in). */
+  /** 0→1 as a drag starts/ends (fade + slide in from the right). */
   visible: SharedValue<number>;
-  /** 0→1 when the pill is over the target (grow + tint). */
+  /** 0→1 when the pill is over this target (grow + tint + reveal label). */
   active: SharedValue<number>;
-  /** Center Y of the target in screen coords (the pill compares against this). */
-  centerY: number;
-  bottomInset: number;
-  /** Glyph shown in the circle (default X = dismiss the bubble). */
+  /** Glyph in the circle (default X = dismiss the bubble). */
   Icon?: LucideIcon;
-  /** Horizontal shift from screen center, px (a second target sits left of the X). */
-  offsetX?: number;
-  /** Active tint: "danger" (red, destructive close) or "neutral" (brand, keyboard). */
+  /** Label shown to the LEFT of the circle while hovered. */
+  label?: string;
+  /** Active tint: "danger" (destructive close) or "neutral" (keyboard). */
   variant?: "danger" | "neutral";
+  /** px from the screen's right edge to the circle's right side. */
+  right: number;
+  /** px from the screen's bottom to the circle's bottom. */
+  bottom: number;
 }
 
-export function DismissTarget({
-  visible,
-  active,
-  bottomInset,
-  Icon = X,
-  offsetX = 0,
-  variant = "danger",
-}: Props) {
+export function DismissTarget({ visible, active, Icon = X, label, variant = "danger", right, bottom }: Props) {
   const colors = useThemeColors();
-  const activeBg = variant === "danger" ? colors.semanticError : colors.brandPrimary;
+  const activeTint = variant === "danger" ? colors.semanticError : colors.brandPrimary;
   const wrapStyle = useAnimatedStyle(() => ({
     opacity: visible.value,
-    transform: [{ translateY: interpolate(visible.value, [0, 1], [24, 0]) }],
+    transform: [{ translateX: interpolate(visible.value, [0, 1], [16, 0]) }],
   }));
   const circleStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: offsetX }, { scale: interpolate(active.value, [0, 1], [1, 1.25]) }],
-    backgroundColor: active.value > 0.5 ? activeBg : colors.bgCard,
-    borderColor: active.value > 0.5 ? activeBg : colors.borderDefault,
+    transform: [{ scale: interpolate(active.value, [0, 1], [1, 1.18]) }],
+    borderColor: active.value > 0.5 ? activeTint : colors.brandAccent,
+    backgroundColor: active.value > 0.5 ? `${activeTint}22` : "transparent",
   }));
+  const labelStyle = useAnimatedStyle(() => ({ opacity: active.value }));
   return (
-    <Animated.View
-      pointerEvents="none"
-      style={[styles.wrap, { bottom: bottomInset + 24 }, wrapStyle]}
-    >
+    <Animated.View pointerEvents="none" style={[styles.wrap, { right, bottom }, wrapStyle]}>
+      {label ? (
+        <Animated.Text
+          numberOfLines={1}
+          style={[styles.label, { color: activeTint, backgroundColor: `${activeTint}18` }, labelStyle]}
+        >
+          {label}
+        </Animated.Text>
+      ) : null}
       <Animated.View style={[styles.circle, circleStyle]}>
-        <Icon size={26} color={colors.textPrimary} strokeWidth={2.4} />
+        <Icon size={22} color={colors.brandAccent} strokeWidth={2.2} />
       </Animated.View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { position: "absolute", left: 0, right: 0, alignItems: "center" },
+  wrap: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 8 },
+  label: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
   circle: {
     width: DISMISS_SIZE,
     height: DISMISS_SIZE,
     borderRadius: DISMISS_SIZE / 2,
-    borderWidth: 1,
+    borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 10,
   },
 });

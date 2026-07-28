@@ -557,13 +557,19 @@ export default function ThesisWorkspaceScreen() {
       style={[styles.container, { backgroundColor: colors.bgSurface }]}
       edges={[]}
     >
-      {/* Keyboard clearance for the composer: shrink this whole region above the
-          keyboard (RN's maintained measurement — works on Android edge-to-edge,
-          where the window itself never resizes). The composer sheet's container
-          shrinks with it, so its detents always land above the keyboard. */}
+      {/* Keyboard clearance for the composer.
+          • iOS: the keyboard OVERLAYS content, so KAV must lift the region with
+            `padding` — the container shrinks and the absolute dock lands above it.
+          • Android: edge-to-edge already resizes the window/root for the IME
+            (softwareKeyboardLayoutMode "resize" → adjustResize), which shrinks this
+            container on its own → the absolute dock rides up for free. Using
+            behavior="height" HERE stacked a SECOND keyboard-height inset on top of
+            that OS resize, reserving the keyboard's height twice and stranding a gap
+            under the document. So KAV is a NO-OP on Android (behavior undefined),
+            matching the other Lexical editor screens (lexical-roundtrip/writeback). */}
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.container}>
       {/* Top bar — collapsible (#6). The static spacer keeps the safe area (dark

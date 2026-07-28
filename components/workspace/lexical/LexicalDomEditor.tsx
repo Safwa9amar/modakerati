@@ -18,6 +18,7 @@ import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
+import { CheckListPlugin } from "@lexical/react/LexicalCheckListPlugin";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
@@ -59,6 +60,8 @@ import {
   FORMAT_ELEMENT_COMMAND,
   UNDO_COMMAND,
   REDO_COMMAND,
+  INDENT_CONTENT_COMMAND,
+  OUTDENT_CONTENT_COMMAND,
   CAN_UNDO_COMMAND,
   CAN_REDO_COMMAND,
   CLEAR_HISTORY_COMMAND,
@@ -192,7 +195,7 @@ const theme = {
   paragraph: "lx-p",
   heading: { h1: "lx-h1", h2: "lx-h2", h3: "lx-h3" },
   quote: "lx-quote",
-  list: { ul: "lx-ul", ol: "lx-ol", listitem: "lx-li" },
+  list: { ul: "lx-ul", ol: "lx-ol", listitem: "lx-li", listitemChecked: "lx-li-checked", listitemUnchecked: "lx-li-unchecked" },
   text: { bold: "lx-bold", italic: "lx-italic", underline: "lx-underline" },
 };
 
@@ -218,6 +221,28 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 .lx-ul { margin: 0 0 10px; padding-inline-start: 26px; list-style: disc; }
 .lx-ol { margin: 0 0 10px; padding-inline-start: 26px; list-style: decimal; }
 .lx-li { margin: 2px 0; }
+/* Checklist items (CheckListPlugin) — no bullet/number; a tappable box drawn with
+   ::before. The inline-start logical props keep the box on the leading edge in both
+   LTR and RTL. Tapping the box toggles __checked (handled natively by the plugin's
+   click listener). */
+.lx-li-checked, .lx-li-unchecked {
+  position: relative; margin: 2px 0; list-style-type: none;
+  padding-inline-start: 24px; outline: none;
+}
+.lx-li-checked:before, .lx-li-unchecked:before {
+  content: ''; position: absolute; inset-inline-start: 0; top: 3px;
+  width: 16px; height: 16px; border: 1px solid #9aa0aa; border-radius: 3px;
+  background-size: cover; cursor: pointer;
+}
+.lx-li-checked { text-decoration: line-through; color: #8a8a8a; }
+.lx-li-checked:before {
+  border-color: #4b57c4; background-color: #4b57c4;
+}
+.lx-li-checked:after {
+  content: ''; position: absolute; inset-inline-start: 5px; top: 5px;
+  width: 4px; height: 8px; border: solid #ffffff; border-width: 0 2px 2px 0;
+  transform: rotate(45deg); cursor: pointer;
+}
 .lx-bold { font-weight: 700; }
 .lx-italic { font-style: italic; }
 .lx-underline { text-decoration: underline; }
@@ -509,13 +534,19 @@ function EditorBridge({
         });
         break;
       case "list":
+        // Indent/outdent nest a list item one level (promote/demote). They're
+        // editor COMMANDS (not selection mutations) — dispatch straight through so
+        // Lexical's list logic handles the nesting + renumbering, then stop.
+        if (command.value === "indent") { editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined); break; }
+        if (command.value === "outdent") { editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined); break; }
         // Apply on the preserved selection inside a tagged update (no focus/scroll,
-        // like blockFormat). ul→bullet, ol→number, else remove.
+        // like blockFormat). ul→bullet, ol→number, check→checklist, else remove.
         editor.update(
           () => {
             const sel = $getSelection();
             if (!$isRangeSelection(sel)) return;
             if (command.value === "none") $removeList();
+            else if (command.value === "check") $insertList("check");
             else $insertList(command.value === "ol" ? "number" : "bullet");
           },
           { tag: SKIP_DOM_SELECTION_TAG },
@@ -613,12 +644,23 @@ function EditorBridge({
         let blockType = "paragraph";
         if (top) {
           if ($isHeadingNode(top)) blockType = top.getTag();
-          else if ($isListNode(top)) blockType = top.getListType() === "bullet" ? "bullet" : "number";
+          else if ($isListNode(top)) { const lt = top.getListType(); blockType = lt === "bullet" ? "bullet" : lt === "check" ? "check" : "number"; }
           else blockType = top.getType(); // "paragraph" | "quote"
         }
         key = top ? top.getKey() : null;
+        // Alignment + direction live on the LIST ITEM (applyBlockFormat targets it),
+        // NOT the top-level ListNode — so read the element format from the nearest
+        // list-item ancestor when the caret is inside a list, else from `top` itself.
+        // Otherwise the align sub-pill's active highlight / RTL state would read the
+        // list's (always-unset) format and never reflect the item's real alignment.
+        let fmtNode: ElementNode | null = top;
+        if (top && $isListNode(top)) {
+          let li: LexicalNode | null = anchor;
+          while (li && !$isListItemNode(li)) li = li.getParent();
+          if ($isListItemNode(li)) fmtNode = li;
+        }
         // ElementNode.getFormatType() → "" | "left" | "center" | "right" | "justify" | "start" | "end"
-        const fmt = top ? top.getFormatType() : "";
+        const fmt = fmtNode ? fmtNode.getFormatType() : "";
         // Every top-level block the selection spans, in document order. A caret or an
         // in-paragraph selection yields ONE entry; a cross-paragraph drag lists them
         // all. We walk the selected nodes (not just the anchor, which stays put while
@@ -643,7 +685,7 @@ function EditorBridge({
           italic: sel.hasFormat("italic"),
           underline: sel.hasFormat("underline"),
           blockType,
-          isRTL: !!top && top.getDirection() === "rtl",
+          isRTL: !!fmtNode && fmtNode.getDirection() === "rtl",
           alignment: fmt === "left" || fmt === "center" || fmt === "right" || fmt === "justify" ? fmt : null,
           index: $blockIndexOfNode(anchor),
           text: (spanned.find((s) => s.index === $blockIndexOfNode(anchor))?.text) ?? (top ? top.getTextContent() : ""),
@@ -1986,6 +2028,69 @@ function SearchHighlightPlugin({ search }: { search?: SearchInput }) {
   return null;
 }
 
+// Block-editing keyboard mode: when inactive, set inputmode="none" on the editor root
+// so a tap still focuses + selects a block (the bubble tools show) but the OS keyboard
+// stays CLOSED — no focus/blur fight. Active → inputmode="text" so a tap or an explicit
+// focus command brings the keyboard up. The RN TextInputs in the bubble/pills are
+// separate elements, so this never affects the AI Ask input. (Issue #6.)
+function KeyboardModePlugin({ active }: { active: boolean }) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(() => {
+    const apply = () => {
+      const root = editor.getRootElement();
+      if (root) root.setAttribute("inputmode", active ? "text" : "none");
+    };
+    apply();
+    return editor.registerRootListener(apply);
+  }, [editor, active]);
+  return null;
+}
+
+// Fast right→left fling anywhere over PLAIN text → open the Thesis-Structure drawer
+// (issue #4, option C). Detected IN the WebView because only it knows whether the touch
+// started on a table/image/chrome band — those own horizontal scroll and are excluded.
+// A slow horizontal drag stays as text-select; the fling must be fast + clearly
+// horizontal + leftward. Bridges out via onOpen (thresholds are device-tunable).
+function DrawerSwipePlugin({ onOpen, rtl }: { onOpen?: () => void; rtl?: boolean }) {
+  useEffect(() => {
+    if (!onOpen || typeof document === "undefined") return;
+    let sx = 0, sy = 0, st = 0, armed = false;
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) { armed = false; return; }
+      const t = e.touches[0];
+      sx = t.clientX; sy = t.clientY; st = Date.now();
+      const el = e.target as HTMLElement | null;
+      // Exclude tables / images / chrome bands — they own horizontal scroll (option C).
+      armed = !el?.closest?.(".lx-blockpick, table, .lx-chrome, img");
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (!armed) return;
+      armed = false;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - sx;
+      const dy = t.clientY - sy;
+      const dt = Date.now() - st || 1;
+      const v = Math.abs(dx) / dt; // px per ms
+      // Open direction follows the APP language: Arabic (RTL) opens with a right→left
+      // flick, fr/en (LTR) with a left→right flick — matching the edge-swipe side. Must
+      // also be fast + clearly more horizontal than vertical.
+      const towardOpen = rtl ? dx < -70 : dx > 70;
+      if (towardOpen && Math.abs(dx) > Math.abs(dy) * 1.6 && v > 0.5 && dt < 400) {
+        window.getSelection?.()?.removeAllRanges?.(); // a fling isn't a selection
+        onOpen();
+      }
+    };
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchend", onEnd);
+    };
+  }, [onOpen, rtl]);
+  return null;
+}
+
 export default function LexicalDomEditor({
   command,
   onState,
@@ -2020,6 +2125,9 @@ export default function LexicalDomEditor({
   onReorder,
   onLift,
   reorderActive,
+  keyboardActive,
+  onSwipeOpenDrawer,
+  appRtl,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
@@ -2091,6 +2199,14 @@ export default function LexicalDomEditor({
   onReorder?: (from: number, to: number) => void;
   onLift?: () => void;
   reorderActive?: boolean;
+  // Block-editing keyboard mode: false → inputmode="none" (select a block WITHOUT
+  // opening the keyboard); true → inputmode="text" (a tap/focus opens it). Issue #6.
+  keyboardActive?: boolean;
+  // Fast right→left fling over plain text (not tables/images) → open the structure
+  // drawer (issue #4, option C). Bridged out to native, which flips the drawer store.
+  onSwipeOpenDrawer?: () => void;
+  // App-UI direction: flips the fling-to-open direction (RTL = right→left, LTR = left→right).
+  appRtl?: boolean;
   // Consumed by the Expo DOM runtime (WebView config); declared so native call
   // sites can pass it. Not read inside the component.
   dom?: import("expo/dom").DOMProps;
@@ -2128,7 +2244,12 @@ export default function LexicalDomEditor({
           ErrorBoundary={LexicalErrorBoundary}
         />
         <HistoryPlugin />
+        <KeyboardModePlugin active={!!keyboardActive} />
+        <DrawerSwipePlugin onOpen={onSwipeOpenDrawer} rtl={!!appRtl} />
         <ListPlugin />
+        {/* Checklist support: adds the click-to-toggle checkbox handling for
+            list items created with $insertList("check"). */}
+        <CheckListPlugin />
         <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} scrollToIndex={scrollToIndex} />
         <SuggestionPlugin suggestion={suggestion} onSuggestAction={onSuggestAction} />
         <CompletionPlugin

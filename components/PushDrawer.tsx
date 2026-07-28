@@ -193,7 +193,7 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
         </GestureDetector>
 
         {/* The drawer panel, parked just off the leading edge until the track slides. */}
-        <View style={[styles.drawer, { left: drawerLeft, width: DRAWER_W }]}>
+        <View style={[styles.drawer, { left: IS_LEFT ? drawerLeft : -DRAWER_W, width: DRAWER_W }]}>
           <ThesisOutlinePanel />
         </View>
       </Animated.View>

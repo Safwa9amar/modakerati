@@ -22,6 +22,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
+import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -29,7 +30,7 @@ import { hSelection } from "@/lib/haptics";
 import { layoutSpring, SPRING } from "@/lib/motion";
 import { estimateTokenCount } from "@/lib/thinking";
 import type { DocBlockDTO } from "@/lib/api";
-import { Plus, KeyboardOff, type LucideIcon } from "lucide-react-native";
+import { Plus, KeyboardOff, Keyboard as KeyboardIcon, type LucideIcon } from "lucide-react-native";
 import { resolveBubbleKind, chromeBubbleKind, BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
 import { AIDock } from "./AIDock";
 import { BlockContextBar } from "./BlockContextBar";
@@ -104,6 +105,8 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // spawn over a docx/pdf preview. Primitive selectors (no Object.is loop).
   const composerOpen = useWorkspaceStore((s) => s.composerOpen);
   const previewMode = useWorkspaceStore((s) => s.previewMode);
+  // #6 keyboard mode: the ⌨ tray target toggles this; its icon + label reflect it.
+  const keyboardActive = useWorkspaceStore((s) => s.keyboardActive);
   const aiGateActive = useChatStore((s) => s.pendingAsk != null || s.pendingConfirm != null);
 
   const visible = useFloatingPillStore((s) => s.visible);
@@ -167,14 +170,19 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     if (count !== 1) return null;
     return blocks.find((b) => b.index === ordered[0]?.index) ?? null;
   }, [count, ordered, blocks]);
+  // Live Lexical block format — lets a caret inside a list resolve to the "list"
+  // glyph/toolset (the DTO can't be trusted for list-ness; see resolveBubbleKind).
+  const lexActive = useLexicalEditorStore((s) => s.active);
+  const lexBlockType = useLexicalEditorStore((s) => s.format.blockType);
   // Which bubble/toolset family drives the collapsed bubble icon AND (via
   // BlockContextBar's own resolveBubbleKind call) the expanded toolset — one
-  // registry, so they can never disagree.
+  // registry, so they can never disagree. Both pass the same live list format so the
+  // collapsed glyph and the expanded list toolset stay in lockstep.
   const bubbleKind: BubbleKind = chromeSelection
     ? chromeBubbleKind(chromeSelection.kind)
     : count === 0
       ? "ai"
-      : resolveBubbleKind(selectedBlock);
+      : resolveBubbleKind(selectedBlock, lexActive ? lexBlockType : null);
   const scopeLabel =
     count === 0
       ? t("workspace.wholeMemoir", { defaultValue: "Whole memoir" })
@@ -207,8 +215,10 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // Insert menu (there's nothing to format yet, so the formatting tools aren't the
   // right affordance). It reverts to the normal tool bubble the instant the
   // paragraph gets text. Replaces the discoverability role of the "/" slash trigger.
+  // …but NOT inside a list: an empty new bullet/number/check item is a normal step
+  // in building a list, so keep the list bubble (its tools) rather than the + Insert.
   const isEmptyPara =
-    count === 1 && selectedBlock != null && selectedBlock.kind === "paragraph" && !selectedBlock.text.trim();
+    count === 1 && selectedBlock != null && selectedBlock.kind === "paragraph" && !selectedBlock.text.trim() && bubbleKind !== "list";
   const openInsertMenu = () => {
     if (!selectedBlock) return;
     useInsertMenuStore.getState().openAt({ index: selectedBlock.index, y: anchorY ?? startY });
@@ -322,8 +332,19 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // keyboard and the docked formatting bar (~56px) that sits above it.
   const dismissBottom = keyboardHeight > 0 ? keyboardHeight + 56 : insets.bottom;
 
-  const targetCX = width / 2;
-  const targetCY = height - dismissBottom - 24 - 32; // matches DismissTarget bottom+radius
+  // C2 drag tray: a right-edge vertical column revealed while dragging the bubble.
+  // The ⌨ target sits LOWER (nearest the thumb), close ABOVE it (farthest, so it can't
+  // be fat-fingered). Both share the same center X near the right edge.
+  const trayRight = 20;                                    // px from the screen right edge
+  const trayCX = width - trayRight - DISMISS_SIZE / 2;     // shared center X
+  // Pin the tray to the safe-area bottom (clearing the dock), NOT to dismissBottom —
+  // dismissBottom folds in keyboardHeight, which can be stale/non-zero and floated the
+  // whole tray up to mid-screen. The block keyboard is usually off in this mode, so the
+  // tray belongs at the bottom-right regardless.
+  const kbBottom = insets.bottom + 72;                     // keyboard circle bottom offset (lower target)
+  const closeBottom = kbBottom + DISMISS_SIZE + 20;        // close sits one slot above
+  const kbCY = height - kbBottom - DISMISS_SIZE / 2;       // keyboard center Y
+  const closeCY = height - closeBottom - DISMISS_SIZE / 2; // close center Y
 
   const minX = 8;
   // Guard the max bounds so a device narrower/shorter than the pill can't yield a
@@ -390,10 +411,19 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // getState() on the UI thread and crash on release.
   const persistPos = (p: { x: number; y: number }) =>
     useFloatingPillStore.getState().setPos(p);
-  // Drop on the keyboard target → hide the software keyboard (the bubble snaps back
-  // to a valid spot). Offered only while the keyboard is up (issue #6 close+keyboard
-  // drag tray). Layout is bottom-anchored; device-QA may relocate to the C2 column.
-  const dismissKeyboard = () => Keyboard.dismiss();
+  // Drop on the ⌨ target → TOGGLE the block-editing keyboard mode (issue #6). Turning
+  // it ON focuses the editor so the keyboard rises on the current selection; turning it
+  // OFF dismisses it. The editor's inputmode (KeyboardModePlugin) then keeps the keyboard
+  // closed on block taps until it's turned back on. Bubble/pill inputs are unaffected.
+  const toggleKeyboard = () => {
+    useWorkspaceStore.getState().toggleKeyboardActive();
+    if (useWorkspaceStore.getState().keyboardActive) {
+      // Now active → raise the keyboard on the current caret (any non-skip command focuses).
+      useLexicalEditorStore.getState().dispatch("focus");
+    } else {
+      Keyboard.dismiss();
+    }
+  };
 
   // Memoized so a re-render never swaps the gesture mid-drag (which would drop the
   // drag and strand the X target on screen). Rebuilds only when the bounds inputs
@@ -434,15 +464,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           "worklet";
           tx.value = startTX.value + e.translationX;
           ty.value = startTY.value + e.translationY;
-          // Hit test: pill center vs target center(s). The close (X) target keeps its
-          // exact position; when the keyboard is up a second target (⌨ dismiss) sits
-          // to its left. Nearest-within-radius wins so the overlapping hit zones never
-          // light both at once.
+          // Hit test: pill center vs the C2 tray targets (right-edge column). Close is
+          // the UPPER target, ⌨ the LOWER (nearest the thumb). Nearest-within-radius wins
+          // so the two hit zones never light both at once.
           const cx = tx.value + curW / 2;
           const cy = ty.value + PILL_H / 2;
-          const distClose = Math.hypot(cx - targetCX, cy - targetCY);
-          const kbCX = targetCX - (DISMISS_SIZE + 24);
-          const distKb = keyboardHeight > 0 ? Math.hypot(cx - kbCX, cy - targetCY) : Infinity;
+          const distClose = Math.hypot(cx - trayCX, cy - closeCY);
+          const distKb = Math.hypot(cx - trayCX, cy - kbCY);
           const overC = distClose < DISMISS_HIT_RADIUS && distClose <= distKb ? 1 : 0;
           const overK = distKb < DISMISS_HIT_RADIUS && distKb < distClose ? 1 : 0;
           if (overC !== overTarget.value) {
@@ -465,7 +493,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           const droppedOnKeyboard = overKeyboard.value > 0.5;
           overTarget.value = 0;
           overKeyboard.value = 0;
-          if (droppedOnKeyboard) runOnJS(dismissKeyboard)();
+          if (droppedOnKeyboard) runOnJS(toggleKeyboard)();
           // Clamp into bounds and persist (snap back — also after a keyboard drop).
           const clampedX = Math.min(Math.max(tx.value, minX), maxX);
           const clampedY = Math.min(Math.max(ty.value, minY), maxY);
@@ -541,18 +569,29 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     <>
       {pillVisible && (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <DismissTarget visible={dragActive} active={overTarget} centerY={targetCY} bottomInset={dismissBottom} />
-          {keyboardHeight > 0 && (
-            <DismissTarget
-              visible={dragActive}
-              active={overKeyboard}
-              centerY={targetCY}
-              bottomInset={dismissBottom}
-              Icon={KeyboardOff}
-              offsetX={-(DISMISS_SIZE + 24)}
-              variant="neutral"
-            />
-          )}
+          {/* C2 drag tray — right-edge column: ✕ close (upper) + ⌨ keyboard toggle
+              (lower), each with a label that flies out on hover. Both revealed while
+              dragging the bubble. */}
+          <DismissTarget
+            visible={dragActive}
+            active={overTarget}
+            right={trayRight}
+            bottom={closeBottom}
+            label={t("bubble.close", { defaultValue: "Close" })}
+          />
+          <DismissTarget
+            visible={dragActive}
+            active={overKeyboard}
+            right={trayRight}
+            bottom={kbBottom}
+            Icon={keyboardActive ? KeyboardOff : KeyboardIcon}
+            variant="neutral"
+            label={
+              keyboardActive
+                ? t("bubble.keyboardOff", { defaultValue: "Keyboard off" })
+                : t("bubble.keyboardOn", { defaultValue: "Keyboard on" })
+            }
+          />
           <GestureDetector gesture={pan}>
             <Animated.View layout={layoutSpring} style={[styles.host, hostAnchor, { width: curW }, pillStyle]}>
               {expanded ? (

@@ -807,7 +807,17 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
     // without it, Lexical's reconciler may re-focus the contentEditable root
     // (updateDOMSelection focus-restore), and iOS WKWebView natively scrolls to a
     // focused CE with no caret = jumps to the document top.
-    const pick = () =>
+    const pick = () => {
+      // UNSELECT the previous paragraph caret FIRST (the user's model): clear its DOM
+      // RANGE and blur — not just focus. Blur alone left the caret's range behind, and
+      // Lexical's next selection reconcile read it back and reverted this block selection
+      // to that caret (the bubble flipping table→text after ~1s). Clearing the range
+      // removes anything to revert to, and blur leaves no focus for the WebView to scroll
+      // to. THEN set the block's NodeSelection as the only, final selection.
+      if (typeof window !== "undefined") {
+        window.getSelection?.()?.removeAllRanges?.();
+        (document.activeElement as HTMLElement | null)?.blur?.();
+      }
       editor.update(
         () => {
           const ns = $createNodeSelection();
@@ -816,10 +826,10 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
         },
         { tag: SKIP_DOM_SELECTION_TAG },
       );
-    // preventDefault on mousedown so SELECTING an image/table block doesn't move DOM
-    // focus into the caret-less contentEditable root — which is exactly what scrolls
-    // the WebView to the document top on tap (issue #2, Android + iOS WKWebView). Same
-    // guard the table cells and chrome bands already use; onClick → pick still fires.
+    };
+    // preventDefault on mousedown so selecting the block doesn't move DOM focus into the
+    // caret-less contentEditable root — which scrolls the WebView to the document top on
+    // iOS WKWebView. The previous caret is cleared inside pick() above.
     const noFocus = (e: { preventDefault: () => void }) => e.preventDefault();
     return React.createElement("div", { className: "lx-blockpick", onMouseDown: noFocus, onClick: pick }, content);
   }
@@ -848,8 +858,18 @@ function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }):
   // Tapping a display-only band must NOT move DOM focus into the contentEditable
   // root — a focused caret-less CE makes iOS WKWebView scroll to the document top
   // (the same rule the pill buttons / table cells guard against). preventDefault on
-  // mouse-down keeps focus put; the onClick → onPick (NodeSelection) still fires.
-  const noFocus = (e: { preventDefault: () => void }) => e.preventDefault();
+  // mouse-down keeps the root unfocused; AND blur the current paragraph caret so on
+  // Android the view doesn't scroll back to it and the band can take selection (the
+  // sticky-caret bug); onClick → onPick still fires.
+  const noFocus = (e: { preventDefault: () => void }) => {
+    e.preventDefault();
+    // Unselect the previous paragraph caret (DOM range + focus), not just focus — so it
+    // can't be read back and revert this band's selection, or scroll the view to it.
+    if (typeof window !== "undefined") {
+      window.getSelection?.()?.removeAllRanges?.();
+      (document.activeElement as HTMLElement | null)?.blur?.();
+    }
+  };
   if (isSection) {
     return React.createElement(
       "div",

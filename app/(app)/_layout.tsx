@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
 export default function AppLayout() {
-  return <Stack screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
+  return <Stack screenOptions={{ headerShown: false, animation: "default" }}>
     <Stack.Screen name="settings" />
     <Stack.Screen name="delete-account" />
     <Stack.Screen name="terms-of-service" />

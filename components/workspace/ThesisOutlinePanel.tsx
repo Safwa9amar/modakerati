@@ -114,10 +114,13 @@ function OutlineRow({
   onToggle: (index: number) => void;
 }) {
   const isTop = depth === 0;
+  // Align EACH heading by its OWN script, not the panel-wide flag: an Arabic heading
+  // always renders right-to-left (and a Latin one left-to-right), even in a mixed thesis.
+  const rowRtl = isRtlText(node.title);
   const indent = depth * INDENT_STEP;
   const bulletColor = active || isTop ? colors.brandPrimary : colors.textSecondary;
   const textColor = active ? colors.brandPrimary : isTop ? colors.textPrimary : colors.textSecondary;
-  const Collapsed = rtl ? ChevronLeft : ChevronRight;
+  const Collapsed = rowRtl ? ChevronLeft : ChevronRight;
   return (
     <Pressable
       onPress={() => onPress(node.index, node.title)}
@@ -125,9 +128,9 @@ function OutlineRow({
         styles.row,
         active && { backgroundColor: colors.brandPrimary + "14", borderRadius: 8 },
         {
-          flexDirection: rtl ? "row-reverse" : "row",
-          paddingLeft: rtl ? 0 : indent,
-          paddingRight: rtl ? indent : 0,
+          flexDirection: rowRtl ? "row-reverse" : "row",
+          paddingLeft: rowRtl ? 0 : indent,
+          paddingRight: rowRtl ? indent : 0,
         },
       ]}
     >
@@ -158,7 +161,7 @@ function OutlineRow({
         style={[
           isTop ? styles.rowTitleTop : styles.rowTitle,
           active && styles.rowTitleActive,
-          { color: textColor, textAlign: rtl ? "right" : "left" },
+          { color: textColor, textAlign: rowRtl ? "right" : "left" },
         ]}
         numberOfLines={2}
       >

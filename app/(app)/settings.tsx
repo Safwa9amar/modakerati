@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Alert, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
@@ -8,7 +8,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useNotificationStore } from "@/stores/notification-store";
 import { registerForPushNotificationsAsync } from "@/lib/push-notifications";
-import { setLanguageWithRTL } from "@/lib/i18n";
+import { restartApp, setLanguageWithRTL } from "@/lib/i18n";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import {
@@ -57,6 +57,8 @@ export default function SettingsScreen() {
   const preferences = useNotificationStore((s) => s.preferences);
   const updatePreferences = useNotificationStore((s) => s.updatePreferences);
   const [langExpanded, setLangExpanded] = useState(false);
+  // Shown while the app reboots itself after an RTL⇄LTR language switch.
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     useNotificationStore.getState().loadPreferences();
@@ -64,13 +66,14 @@ export default function SettingsScreen() {
 
   const handleSelectLanguage = async (code: Language) => {
     setLangExpanded(false);
-    if (code === language) return;
+    if (code === language || restarting) return;
     setLanguage(code);
     const needsRestart = await setLanguageWithRTL(code);
+    // Switching in/out of Arabic flips I18nManager, which RN only honours at
+    // startup — so restart the app ourselves instead of asking the student to.
     if (needsRestart) {
-      Alert.alert(t("settings.rtlRestartTitle"), t("settings.rtlRestartMessage"), [
-        { text: t("common.ok") },
-      ]);
+      setRestarting(true);
+      await restartApp();
     }
   };
 
@@ -276,6 +279,18 @@ export default function SettingsScreen() {
           </View>
         ))}
       </ScrollView>
+
+      {restarting && (
+        <View style={[styles.restartOverlay, { backgroundColor: colors.bgPrimary + "F2" }]}>
+          <ActivityIndicator size="large" color={colors.brandPrimary} />
+          <Text style={[styles.restartTitle, { color: colors.textPrimary }]}>
+            {t("settings.rtlRestartTitle")}
+          </Text>
+          <Text style={[styles.restartMessage, { color: colors.textSecondary }]}>
+            {t("settings.rtlRestartMessage")}
+          </Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -297,4 +312,17 @@ const styles = StyleSheet.create({
   optionsWrap: { borderTopWidth: 1, marginLeft: 60, paddingRight: 16 },
   optionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, paddingRight: 4 },
   optionLabel: { fontSize: 15, fontFamily: "Inter_500Medium" },
+  restartOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 40,
+    gap: 12,
+  },
+  restartTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  restartMessage: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
 });

@@ -88,6 +88,14 @@ interface WorkspaceState {
   // vertical space while writing (issue #6). NOT the docx running header/footer.
   headerVisible: boolean;
   toggleHeaderVisible: () => void;
+  // Block-editing keyboard MODE (issue #6): when FALSE the Lexical editor is set to
+  // inputmode="none" — tapping a block still selects it (the bubble tools appear) but
+  // the OS keyboard stays CLOSED, so the tools don't have to fight/dismiss a keyboard.
+  // Toggled via the bubble's ⌨ drag target. Does NOT affect the bubble/pill text
+  // inputs (AI Ask) — those open the keyboard normally.
+  keyboardActive: boolean;
+  setKeyboardActive: (v: boolean) => void;
+  toggleKeyboardActive: () => void;
   // Scroll-driven visibility of BOTH the top-bar AND the bottom dock (hide on scroll
   // down, show on scroll up / near top). Distinct from the manual headerVisible
   // toggle (top-bar only) so the dock chip that toggles the header never hides the
@@ -185,6 +193,7 @@ const INITIAL = {
   reorderMode: false,
   headerVisible: true,
   chromeVisible: true,
+  keyboardActive: false,
   askAiOpen: false,
   scrollTarget: null as { index: number; nonce: number } | null,
   navigating: false,
@@ -280,6 +289,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   toggleReorderMode: () => set((s) => ({ reorderMode: !s.reorderMode })),
 
   toggleHeaderVisible: () => set((s) => ({ headerVisible: !s.headerVisible })),
+
+  setKeyboardActive: (v) => set({ keyboardActive: v }),
+  toggleKeyboardActive: () => set((s) => ({ keyboardActive: !s.keyboardActive })),
 
   // No-op guard so a per-scroll-event call with the unchanged value doesn't re-render.
   setChromeVisible: (v) => set((s) => (s.chromeVisible === v ? s : { chromeVisible: v })),

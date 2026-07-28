@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { GraduationCap } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSettingsStore } from "@/stores/settings-store";
-import { setLanguageWithRTL } from "@/lib/i18n";
+import { restartApp, setLanguageWithRTL } from "@/lib/i18n";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 
@@ -25,11 +25,22 @@ export default function LanguageScreen() {
   const completeOnboarding = useSettingsStore((s) => s.completeOnboarding);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const [selected, setSelected] = useState<Language>("en");
+  const [busy, setBusy] = useState(false);
 
   const handleContinue = async () => {
+    if (busy) return;
+    setBusy(true);
     setLanguage(selected);
-    await setLanguageWithRTL(selected);
+    const needsRestart = await setLanguageWithRTL(selected);
     completeOnboarding();
+    // Arabic flips I18nManager, which RN only applies at startup — reboot now so
+    // the very next screen (login) is already mirrored. `hasCompletedOnboarding`
+    // is persisted, so the restart lands on login, not back here.
+    if (needsRestart) {
+      await restartApp();
+      return;
+    }
+    setBusy(false);
     router.replace("/(auth)/login" as any);
   };
 
@@ -114,7 +125,7 @@ export default function LanguageScreen() {
       </View>
 
       <View style={styles.footer}>
-        <Button title={t("common.continue")} onPress={handleContinue} />
+        <Button title={t("common.continue")} onPress={handleContinue} loading={busy} />
       </View>
     </SafeAreaView>
   );
