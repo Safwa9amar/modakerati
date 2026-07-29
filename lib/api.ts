@@ -13,7 +13,7 @@ import type {
   DocumentRecord,
   ParagraphMutationResult,
 } from "@/types/document";
-import type { Thesis, Template, NormProfile } from "@/types/thesis";
+import type { Thesis, Template, NormProfile, University, StartingPoint } from "@/types/thesis";
 import type { ThesisSource } from "@/types/source";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL
@@ -25,6 +25,47 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
+}
+
+/**
+ * An authed audio source for the neural text-to-speech endpoint, ready to hand
+ * to `createAudioPlayer`. Returned as a URL rather than bytes so the audio
+ * streams straight into the player with no intermediate file write — the app
+ * never holds the WAV itself. Send ONE sentence per call; the voice loop splits
+ * replies as they stream so the first words play while the rest is still coming.
+ */
+export async function ttsAudioSource(
+  text: string,
+  lang: string,
+  rate?: number,
+  provider?: string
+): Promise<{ uri: string; headers: Record<string, string> }> {
+  const headers = await getAuthHeaders();
+  const params = new URLSearchParams({ text, lang });
+  if (rate && rate > 0) params.set("rate", String(rate));
+  if (provider) params.set("provider", provider);
+  return { uri: `${API_URL}/api/tts?${params.toString()}`, headers };
+}
+
+export interface TtsCapabilities {
+  enabled: boolean;
+  /** e.g. ["piper", "gemini"] — empty means the OS voice is the only option. */
+  providers: string[];
+  default: string | null;
+}
+
+/** Which neural voices the server can offer this session. */
+export async function ttsCapabilities(): Promise<TtsCapabilities> {
+  try {
+    const res = await apiGet<TtsCapabilities>("/api/tts/health");
+    return {
+      enabled: !!res?.enabled,
+      providers: Array.isArray(res?.providers) ? res.providers : [],
+      default: res?.default ?? null,
+    };
+  } catch {
+    return { enabled: false, providers: [], default: null };
+  }
 }
 
 async function apiGet<T>(path: string): Promise<T> {
@@ -461,6 +502,38 @@ export async function deleteThesis(id: string) {
 
 export async function listTemplates() {
   return apiGet<Template[]>("/api/templates");
+}
+
+/**
+ * The 130 Algerian institutions. PUBLIC on the server (mounted outside /api/*)
+ * because the signup screen needs it before a session exists.
+ */
+export async function listUniversities(q?: string): Promise<University[]> {
+  const path = q ? `/universities?q=${encodeURIComponent(q)}` : "/universities";
+  const res = await apiGet<{ count: number; universities: University[] }>(path);
+  return res.universities ?? [];
+}
+
+/**
+ * The single ranking endpoint: what this student should start from, best first.
+ * Each entry carries the rung that produced it plus everything needed to render
+ * a card, so showing a result costs ONE request rather than N+1.
+ */
+export async function getStartingPoints(input: {
+  universityId?: string | null;
+  level?: string | null;
+  language?: string;
+  discipline?: string;
+}): Promise<StartingPoint[]> {
+  const params = new URLSearchParams();
+  if (input.universityId) params.set("universityId", input.universityId);
+  if (input.level) params.set("level", input.level);
+  params.set("language", input.language ?? i18n.language);
+  if (input.discipline) params.set("discipline", input.discipline);
+  const res = await apiGet<{ count: number; startingPoints: StartingPoint[] }>(
+    `/api/starting-points?${params.toString()}`
+  );
+  return res.startingPoints ?? [];
 }
 
 export async function listNormProfiles() {

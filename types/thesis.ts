@@ -84,6 +84,62 @@ export interface Template {
   chapterStructure: string[]; // legacy seed (used as section titles for generic preset)
 }
 
+/** One of the 130 Algerian institutions, from the server's `universities` table. */
+export interface University {
+  id: string;              // uuid — what we store as profiles.universityId
+  sourceId: number;        // natural key from the seed catalogue
+  nameFr: string;
+  nameAr: string;
+  nameEn: string;
+  city: string;
+  cityAr: string;
+  wilaya: string;
+  wilayaCode: number | null;
+  type: "university" | "ecole" | "ens" | "centre_universitaire";
+  website: string;
+  logoUrl: string | null;  // mirrored into our own bucket; null for ~40% of rows
+}
+
+/**
+ * How well a starting point matches the student, 1 (best) to 5.
+ * The server ranks these; the app only renders them.
+ */
+export type StartingPointRung = 1 | 2 | 3 | 4 | 5;
+
+/**
+ * Stable key for why this result was offered. The app maps these to trilingual
+ * copy. THE HONESTY RULE: `peer-rules` and `national` come with no university
+ * name or crest (the server nulls them), because those rules are not the
+ * student's institution's — never present them as if they were.
+ */
+export type StartingPointReason =
+  | "exact"
+  | "same-university-adapted"
+  | "own-rules"
+  | "peer-rules"
+  | "national";
+
+export interface StartingPointDisplay {
+  title: string | null;           // template name; null when rules-only
+  thumbUrl: string | null;
+  hasDocument: boolean;
+  universityName: string | null;  // null at rungs 4 and 5, by design
+  logoUrl: string | null;         // same
+  language: string;
+  discipline: string;
+  citationStyle: string;
+  bindingSide: string;
+}
+
+export interface StartingPoint {
+  kind: "template" | "profile";
+  templateId: string | null;
+  normProfileId: string;
+  rung: StartingPointRung;
+  reason: StartingPointReason;
+  display: StartingPointDisplay;
+}
+
 export interface NormProfile {
   id: string;
   name: string;
