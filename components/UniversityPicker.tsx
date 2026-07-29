@@ -25,6 +25,37 @@ import type { University } from "@/types/thesis";
  * Search matches French, Arabic AND English names plus city, because a student
  * may know their institution by any of them.
  */
+/**
+ * "Ain Oussara · Ain Oussara" reads like a bug. For many institutions the city
+ * IS the wilaya, so collapse the two rather than repeating the word.
+ */
+function subtitleFor(u: University, isAr: boolean): string {
+  const city = isAr ? u.cityAr : u.city;
+  const wilaya = u.wilaya;
+  if (!city) return wilaya;
+  if (!wilaya || city.trim().toLowerCase() === wilaya.trim().toLowerCase()) return city;
+  return `${city} · ${wilaya}`;
+}
+
+/**
+ * Bigger institutions first. Sorting purely by name pushed every
+ * "Annexe Universitaire d'…" to the top, so a student at a major university had
+ * to scroll past nine annexes to reach it. Within a tier, alphabetical.
+ */
+const TYPE_RANK: Record<string, number> = {
+  university: 0,
+  ecole: 1,
+  ens: 2,
+  centre_universitaire: 3,
+};
+
+function byRelevance(a: University, b: University): number {
+  const ra = TYPE_RANK[a.type] ?? 9;
+  const rb = TYPE_RANK[b.type] ?? 9;
+  if (ra !== rb) return ra - rb;
+  return a.nameFr.localeCompare(b.nameFr);
+}
+
 export function UniversityPicker({
   value,
   onChange,
@@ -57,16 +88,18 @@ export function UniversityPicker({
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return universities;
-    return universities.filter(
-      (u) =>
-        u.nameFr.toLowerCase().includes(q) ||
-        u.nameEn.toLowerCase().includes(q) ||
-        u.nameAr.includes(query.trim()) ||
-        u.city.toLowerCase().includes(q) ||
-        u.cityAr.includes(query.trim()) ||
-        u.wilaya.toLowerCase().includes(q)
-    );
+    const matched = !q
+      ? universities
+      : universities.filter(
+          (u) =>
+            u.nameFr.toLowerCase().includes(q) ||
+            u.nameEn.toLowerCase().includes(q) ||
+            u.nameAr.includes(query.trim()) ||
+            u.city.toLowerCase().includes(q) ||
+            u.cityAr.includes(query.trim()) ||
+            u.wilaya.toLowerCase().includes(q)
+        );
+    return [...matched].sort(byRelevance);
   }, [universities, query]);
 
   const renderItem = ({ item }: { item: University }) => {
@@ -98,7 +131,7 @@ export function UniversityPicker({
             style={[styles.meta, { color: colors.textSecondary, textAlign: isAr ? "right" : "left" }]}
             numberOfLines={1}
           >
-            {isAr ? `${item.cityAr} — ${item.nameFr}` : `${item.city} · ${item.wilaya}`}
+            {subtitleFor(item, isAr)}
           </Text>
         </View>
 
