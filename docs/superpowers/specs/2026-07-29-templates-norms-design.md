@@ -108,9 +108,25 @@ matches on the *profile's* values, never on a column of `templates`.
 |---|---|---|
 | 1 | Exact template `.docx` — `templates.universityId` matches **and** `type` matches the mapped level **and** the profile's `language` matches | "Your university" |
 | 2 | Same `universityId`, but `type` or profile `language` differs. Prefer a language match over a type match: a Master template in the wrong language misleads less than a Doctorat template in the right one. | "Your university — adapted from the *Doctorat* template" |
-| 3 | The university's own norm profile (rules, no document) | "Built to your university's formatting rules" |
-| 4 | Peer profile — same `type`+`wilaya`, then same `type`, then same `language` | "Standard Arabic Master layout" |
-| 5 | Generic profile for `(level, language)` | "Standard Algerian Master layout" |
+| 3 | The university's own norm profile (rules, no document). **Excludes any profile that already backs one of this university's templates** — that profile was just offered *with* a document at rung 1/2, so re-listing it here is both a duplicate and a false claim. | "Built to your university's formatting rules" |
+| 4 | Peer profile — same `language` **and** at least one of same `type` / same `wilaya`; `type` ranks higher | "Standard Arabic Master layout" |
+| 5 | Generic profile for `(language, discipline)` | "Standard Algerian Master layout" |
+
+Two rules that only emerged once the ranking was built and reviewed against real data:
+
+- **Rung 4 needs a real proximity signal, not just a shared language.** Language-only matching
+  surfaced Biskra's law-faculty rules to a sports-science student at El Bayadh — different
+  wilaya, different institution type — ahead of the national generic that exists precisely to
+  be a neutral default. A stranger who speaks the same language is not a peer.
+- **Institution `type` outranks `wilaya`.** The kind of institution (centre universitaire /
+  université / école) tracks the degree structure and ministry formatting guidance that
+  actually govern a thesis's layout. Geography does not: two centres in different wilayas
+  resemble each other more than a centre and a université in the same town.
+
+**Rung 5 can legitimately return nothing** if no generic exists for the student's language.
+That is deliberate — French rules on an Arabic thesis are worse than no result. The
+"always something" guarantee lives in the seed data, pinned by the norm-profile seed test
+asserting a generic exists for every language × discipline cell.
 
 ### Composing below rung 1
 

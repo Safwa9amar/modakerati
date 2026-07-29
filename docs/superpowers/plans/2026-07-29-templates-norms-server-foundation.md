@@ -1128,7 +1128,8 @@ describe("rankStartingPoints", () => {
       { ...QUERY, universityId: null }
     );
     expect(out[0].rung).toBe(5);
-    expect(out.every((r) => r.rung >= 4)).toBe(true);
+    // === 5, not >= 4: Rung maxes at 5, so >= 4 can never fail.
+    expect(out.every((r) => r.rung === 5)).toBe(true);
   });
 
   it("returns results in strictly non-decreasing rung order", () => {
@@ -1260,21 +1261,35 @@ export function rankStartingPoints(c: Candidates, q: ResolveQuery): StartingPoin
     });
   }
 
-  // Rung 3 — the university's own rules, no document.
+  // Rung 3 — the university's own rules, NO DOCUMENT. A profile that already
+  // backs one of this university's templates must not reappear here: it was
+  // just offered at rung 1/2 WITH a document, so re-listing it as
+  // "rules, no document" is false and shows the student the same rules twice.
+  const backedByOwnTemplate = new Set(ownTemplates.map((t) => t.profile.id));
   if (q.universityId) {
     const own = c.profiles
-      .filter((p) => p.universityId === q.universityId)
+      .filter((p) => p.universityId === q.universityId && !backedByOwnTemplate.has(p.id))
       .sort((a, b) => Number(b.language === q.language) - Number(a.language === q.language));
     for (const p of own) {
       push({ kind: "profile", templateId: null, normProfileId: p.id, rung: 3, reason: "own-rules" });
     }
   }
 
-  // Rung 4 — a peer institution's rules. Nearest first: same wilaya AND type,
-  // then same type, then same language only. Skipped entirely when we do not
-  // know the student's university: with nothing to be "near", an arbitrary
-  // institution's rules are not better than the national generic, and showing
-  // one would imply a proximity we cannot justify.
+  // Rung 4 — a PEER institution's rules. Two hard requirements: same language,
+  // and at least one real proximity signal (same institution type or same
+  // wilaya). Matching on language alone is not peerhood — it would offer one
+  // school's specific rules ahead of the national generic, which is designed to
+  // be a neutral default and is strictly better for a stranger.
+  //
+  // Institution type outranks wilaya: the KIND of institution (centre
+  // universitaire / universite / ecole) tracks the degree structure and the
+  // ministry formatting guidance that actually govern a thesis's layout.
+  // Geography does not. Two centres in different wilayas resemble each other
+  // more than a centre and a universite in the same town.
+  //
+  // Skipped entirely when we do not know the student's university: with nothing
+  // to be "near", showing any institution's rules implies a proximity we cannot
+  // justify.
   const uniById = new Map(c.universities.map((u) => [u.id, u]));
   const peers = (q.universityId ? c.profiles : [])
     .filter((p) => p.universityId !== null && p.universityId !== q.universityId)
@@ -1284,7 +1299,8 @@ export function rankStartingPoints(c: Candidates, q: ResolveQuery): StartingPoin
       const sameType = !!u && !!q.uniType && u.type === q.uniType;
       const sameLang = p.language === q.language;
       if (!sameLang) return null;                       // never cross languages at rung 4
-      return { p, score: (sameWilaya ? 4 : 0) + (sameType ? 2 : 0) + 1 };
+      const score = (sameType ? 4 : 0) + (sameWilaya ? 2 : 0);
+      return score > 0 ? { p, score } : null;           // no proximity signal => not a peer
     })
     .filter((x): x is { p: CandidateProfile; score: number } => x !== null)
     .sort((a, b) => b.score - a.score);
@@ -1293,7 +1309,13 @@ export function rankStartingPoints(c: Candidates, q: ResolveQuery): StartingPoin
   }
 
   // Rung 5 — the national generic for (language, discipline). Exact discipline
-  // first, then any generic in the right language so this never returns empty.
+  // first, then any generic in the right language.
+  //
+  // NOTE: this can return nothing if no generic exists for the student's
+  // language. That is deliberate — showing French rules for an Arabic thesis is
+  // worse than showing none. The "always something" guarantee lives in the SEED
+  // DATA, pinned by the norm-profile seed test asserting a generic exists for
+  // every language x discipline cell. If that invariant breaks, this returns [].
   const generics = c.profiles.filter((p) => p.universityId === null && p.language === q.language);
   const exactDiscipline = generics.filter((p) => p.discipline === wantDiscipline);
   for (const p of [...exactDiscipline, ...generics]) {
