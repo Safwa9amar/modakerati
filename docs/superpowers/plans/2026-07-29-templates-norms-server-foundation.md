@@ -335,7 +335,18 @@ Nothing currently enforces that `logo_path` stays out of the upsert's `set` clau
 
 This needs no database. Drizzle exposes `.toSQL()` on an unexecuted query. Add `src/__tests__/seed-universities-sql.test.ts` asserting the generated SQL **does** contain `DO UPDATE SET` updating `name_fr`, and **does not** mention `logo_path` in that clause.
 
-Import only `src/db/universities.ts` and `drizzle-orm` — importing `src/db/index.ts` would construct a `pg.Pool` at module load, which a unit test should not do.
+**Do not write `expect(sql).not.toMatch(/logo_path/i)` on the whole string — it will fail on a correct seeder.** Drizzle emits *every* table column in the INSERT list, using `default` for the ones you omit, so the real output is:
+
+```
+insert into "universities" (..., "logo_path", "created_at") values (..., default, default)
+  on conflict ("source_id") do update set "name_fr" = excluded.name_fr, ...
+```
+
+`logo_path` legitimately appears in the column list. Slice from `do update set` onward and assert against that tail only — that substring is the actual invariant.
+
+Import only `src/db/universities.ts` and `drizzle-orm` — importing `src/db/index.ts` would construct a `pg.Pool` at module load. Use `drizzle.mock()` from `drizzle-orm/node-postgres` for a driver-less builder (verified present in 0.45.2; it passes `{}` as the client and never constructs a Pool). Verify the test opens no connection by running it with `DATABASE_URL=""`.
+
+Since the query is reconstructed in the test rather than shared with the seeder, add a `KEEP IN SYNC` comment. (A cleaner long-term option, if the `set` clause ever changes shape again: put a pure query-builder in `src/db/universities.ts` — which imports nothing connection-related — and call it from both the seeder and the test.)
 
 - [ ] **Step 6: Commit**
 
