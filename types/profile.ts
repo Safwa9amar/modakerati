@@ -8,6 +8,12 @@ export interface Profile {
   fullName: string;
   email: string;
   university: string | null;
+  /**
+   * FK into the server's `universities` table. This — not the free-text
+   * `university` above — is what lets the resolver find a starting point that
+   * actually belongs to the student's institution.
+   */
+  universityId: string | null;
   department: string | null;
   level: Level | null;
   academicYear: string | null;
@@ -22,5 +28,8 @@ export interface Profile {
 // in auth.users (the profiles.email copy is denormalized) so it is not editable
 // here.
 export type ProfileUpdate = Partial<
-  Pick<Profile, "fullName" | "university" | "department" | "level" | "academicYear" | "avatarUrl">
+  Pick<
+    Profile,
+    "fullName" | "university" | "universityId" | "department" | "level" | "academicYear" | "avatarUrl"
+  >
 >;

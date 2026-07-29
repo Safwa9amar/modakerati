@@ -1,4 +1,33 @@
 {
+  "university": {
+    "label": "University",
+    "searchPlaceholder": "Search by name, city or wilaya…",
+    "noResults": "No institution matches that search",
+    "notListed": "My institution isn't listed",
+    "loadFailed": "Couldn't load the institution list",
+    "select": "Select your institution"
+  },
+  "startingPoint": {
+    "title": "Start your thesis",
+    "forYou": "Recommended for you",
+    "startWriting": "Start writing",
+    "browseAll": "Browse all templates",
+    "blank": "Blank thesis",
+    "blankSubtitle": "Start from scratch",
+    "otherOption": "Another option",
+    "askUniversity": "Which institution are you at?",
+    "askUniversityHint": "We use this to match your thesis to the right format.",
+    "empty": "Nothing available yet — start from a blank thesis.",
+    "searchPlaceholder": "Search templates…",
+    "reason": {
+      "exact": "Your university",
+      "same-university-adapted": "Your university — adapted",
+      "own-rules": "Built to your university's rules",
+      "peer-rules": "Standard layout",
+      "national": "Standard Algerian layout"
+    },
+    "noDocument": "Formatting rules only"
+  },
   "tableAI": {
     "proposal": "AI suggestion",
     "original": "Original — before changes",

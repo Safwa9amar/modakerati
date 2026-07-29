@@ -1,4 +1,33 @@
 {
+  "university": {
+    "label": "Université",
+    "searchPlaceholder": "Rechercher par nom, ville ou wilaya…",
+    "noResults": "Aucun établissement ne correspond",
+    "notListed": "Mon établissement n'est pas listé",
+    "loadFailed": "Impossible de charger la liste des établissements",
+    "select": "Sélectionnez votre établissement"
+  },
+  "startingPoint": {
+    "title": "Commencer votre mémoire",
+    "forYou": "Recommandé pour vous",
+    "startWriting": "Commencer à rédiger",
+    "browseAll": "Voir tous les modèles",
+    "blank": "Mémoire vierge",
+    "blankSubtitle": "Partir de zéro",
+    "otherOption": "Autre option",
+    "askUniversity": "Dans quel établissement êtes-vous ?",
+    "askUniversityHint": "Cela nous permet d'adapter votre mémoire au bon format.",
+    "empty": "Rien de disponible pour l'instant — partez d'un mémoire vierge.",
+    "searchPlaceholder": "Rechercher un modèle…",
+    "reason": {
+      "exact": "Votre université",
+      "same-university-adapted": "Votre université — adapté",
+      "own-rules": "Selon les règles de votre université",
+      "peer-rules": "Mise en page standard",
+      "national": "Mise en page algérienne standard"
+    },
+    "noDocument": "Règles de mise en forme uniquement"
+  },
   "tableAI": {
     "proposal": "Suggestion de l'IA",
     "original": "L'original — avant modification",

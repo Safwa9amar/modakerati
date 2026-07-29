@@ -1,4 +1,33 @@
 {
+  "university": {
+    "label": "الجامعة",
+    "searchPlaceholder": "ابحث بالاسم أو المدينة أو الولاية…",
+    "noResults": "لا توجد مؤسسة مطابقة",
+    "notListed": "مؤسستي غير مدرجة",
+    "loadFailed": "تعذّر تحميل قائمة المؤسسات",
+    "select": "اختر مؤسستك"
+  },
+  "startingPoint": {
+    "title": "ابدأ مذكرتك",
+    "forYou": "مقترح لك",
+    "startWriting": "ابدأ الكتابة",
+    "browseAll": "تصفّح كل القوالب",
+    "blank": "مذكرة فارغة",
+    "blankSubtitle": "ابدأ من الصفر",
+    "otherOption": "خيار آخر",
+    "askUniversity": "في أي مؤسسة تدرس؟",
+    "askUniversityHint": "نستخدم هذا لمطابقة مذكرتك مع التنسيق الصحيح.",
+    "empty": "لا يوجد شيء متاح بعد — ابدأ بمذكرة فارغة.",
+    "searchPlaceholder": "ابحث عن قالب…",
+    "reason": {
+      "exact": "جامعتك",
+      "same-university-adapted": "جامعتك — معدّل",
+      "own-rules": "وفق قواعد جامعتك",
+      "peer-rules": "تنسيق قياسي",
+      "national": "تنسيق جزائري قياسي"
+    },
+    "noDocument": "قواعد التنسيق فقط"
+  },
   "tableAI": {
     "proposal": "اقتراح الذكاء الاصطناعي",
     "original": "الأصل — قبل التعديل",
