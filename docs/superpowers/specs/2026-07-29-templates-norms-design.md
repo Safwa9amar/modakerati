@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-29
 **Repos touched:** `~/modakerati` (app), `~/modakerati-server`, `~/modakerati-dashboard`
-**Status:** design approved, not implemented
+**Status:** Plan 1 (server foundation) IMPLEMENTED on `feat/university-layer` in `~/modakerati-server` — 18 commits, `tsc` clean, 254 tests green. Plans 2 (app), 3 (dashboard) and 4 (column drop) not started.
 
 ---
 

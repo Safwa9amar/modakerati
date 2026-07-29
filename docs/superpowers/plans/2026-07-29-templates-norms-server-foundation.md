@@ -1760,6 +1760,10 @@ What the skeletons add is fidelity, not function: a hand-authored cover with the
 
 ## Handoff to Plan 3 (dashboard)
 
+**BLOCKING — template import is broken until Plan 3 fixes it.** Task 11 made `templates.norm_profile_id` `NOT NULL`. The dashboard's `importTemplate` server action (`modakerati-dashboard/src/app/d/templates/action.ts`) inserts into `templates` **directly via the Supabase admin client**, bypassing this repo's Hono route entirely, and does not set `normProfileId` (nor `universityId`, `discipline`, `citationStyle` or `bodyPreset`). That insert will now fail outright. Plan 3 must resolve or create a norm profile at import time — the same find-or-create logic as `scripts/backfill-template-norm-profiles.ts`, and `src/routes/template.ts`'s `resolveNormProfileId()` helper is the reference implementation. The dashboard should also set `universityId` from a picker rather than leaving it null.
+
+
+
 **A `RESTRICT` violation will look like an opaque 500.** `templates.norm_profile_id` uses `ON DELETE RESTRICT`, so deleting a norm profile a template still references fails with Postgres error `23503`. That's unreachable today — `src/routes/norm-profiles.ts` has only `GET /` and `GET /:id`, and there is no `app.onError` handler. The moment the dashboard gains a delete endpoint, that error needs an explicit catch turning it into something usable ("N templates depend on this profile"), or staff see a bare 500. The FK behaviour is correct; only the error surfacing is missing.
 
 ## Notes for whoever executes this
