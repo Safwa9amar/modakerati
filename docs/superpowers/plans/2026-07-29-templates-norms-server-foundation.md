@@ -759,8 +759,18 @@ Append to `ensureSchema()`:
     ALTER TABLE templates ADD COLUMN IF NOT EXISTS norm_profile_id uuid REFERENCES norm_profiles(id) ON DELETE RESTRICT;
     ALTER TABLE header_footer_templates ADD COLUMN IF NOT EXISTS university_id uuid REFERENCES universities(id) ON DELETE SET NULL;
 
+    -- RESTRICT on norm_profile_id, SET NULL on university_id: a template with no
+    -- reachable formatting rules is meaningless, so block deleting a profile a
+    -- template depends on. A university going away should merely orphan the link.
+
+    -- Every FK column gets an index. Postgres does NOT auto-index the referencing
+    -- side, so without templates_norm_profile_idx every norm-profile delete
+    -- sequentially scans templates to enforce the RESTRICT.
     CREATE INDEX IF NOT EXISTS templates_university_idx ON templates (university_id);
     CREATE INDEX IF NOT EXISTS norm_profiles_university_idx ON norm_profiles (university_id);
+    CREATE INDEX IF NOT EXISTS templates_norm_profile_idx ON templates (norm_profile_id);
+    CREATE INDEX IF NOT EXISTS profiles_university_idx ON profiles (university_id);
+    CREATE INDEX IF NOT EXISTS header_footer_templates_university_idx ON header_footer_templates (university_id);
 ```
 
 - [ ] **Step 3: Verify**
@@ -1725,6 +1735,10 @@ git commit -m "feat(templates): require normProfileId so every template has reac
 What the skeletons add is fidelity, not function: a hand-authored cover with the `{institute_name}` / `{logo_url}` tokens in the right places, rather than a generated one. That work belongs with Plan 2, where the app starts rendering those results and the quality gap becomes visible and judgeable. **If you would rather have the skeletons before the app work, say so — it is a standalone task, not a dependency reordering.**
 
 ---
+
+## Handoff to Plan 3 (dashboard)
+
+**A `RESTRICT` violation will look like an opaque 500.** `templates.norm_profile_id` uses `ON DELETE RESTRICT`, so deleting a norm profile a template still references fails with Postgres error `23503`. That's unreachable today — `src/routes/norm-profiles.ts` has only `GET /` and `GET /:id`, and there is no `app.onError` handler. The moment the dashboard gains a delete endpoint, that error needs an explicit catch turning it into something usable ("N templates depend on this profile"), or staff see a bare 500. The FK behaviour is correct; only the error surfacing is missing.
 
 ## Notes for whoever executes this
 
