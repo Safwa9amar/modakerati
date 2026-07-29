@@ -9,6 +9,8 @@ import { TextInput } from "@/components/ui/TextInput";
 import { useProfileStore } from "@/stores/profile-store";
 import { LEVELS, type Level } from "@/types/profile";
 import { AvatarPicker } from "@/components/AvatarPicker";
+import { UniversityPicker } from "@/components/UniversityPicker";
+import { ChevronDown } from "lucide-react-native";
 
 export default function EditProfileScreen() {
   const { t } = useTranslation();
@@ -24,6 +26,8 @@ export default function EditProfileScreen() {
 
   const [fullName, setFullName] = useState("");
   const [university, setUniversity] = useState("");
+  const [universityId, setUniversityId] = useState<string | null>(null);
+  const [pickingUniversity, setPickingUniversity] = useState(false);
   const [department, setDepartment] = useState("");
   const [level, setLevel] = useState<Level | null>(null);
   const [academicYear, setAcademicYear] = useState("");
@@ -39,6 +43,7 @@ export default function EditProfileScreen() {
     if (!profile) return;
     setFullName(profile.fullName ?? "");
     setUniversity(profile.university ?? "");
+    setUniversityId(profile.universityId ?? null);
     setDepartment(profile.department ?? "");
     setLevel(profile.level ?? null);
     setAcademicYear(profile.academicYear ?? "");
@@ -49,6 +54,7 @@ export default function EditProfileScreen() {
     const { error } = await saveProfile({
       fullName: fullName.trim(),
       university: university.trim() || null,
+      universityId,
       department: department.trim() || null,
       level,
       academicYear: academicYear.trim() || null,
@@ -106,7 +112,41 @@ export default function EditProfileScreen() {
               style={{ opacity: 0.6 }}
             />
 
-            <TextInput label={t("auth.university")} value={university} onChangeText={setUniversity} />
+            {/*
+              Picked from the catalogue, not typed. The id is what lets the
+              server find a starting point that belongs to this institution;
+              a typed string can never be joined to anything.
+            */}
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>{t("auth.university")}</Text>
+              {pickingUniversity ? (
+                <View style={styles.pickerBox}>
+                  <UniversityPicker
+                    value={universityId}
+                    onChange={(id, uni) => {
+                      setUniversityId(id);
+                      setUniversity(uni.nameFr);
+                      setPickingUniversity(false);
+                    }}
+                    onSkip={() => setPickingUniversity(false)}
+                  />
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => setPickingUniversity(true)}
+                  style={[styles.pickerTrigger, { backgroundColor: colors.bgInput, borderColor: colors.borderSubtle }]}
+                >
+                  <Text
+                    style={{ color: university ? colors.textPrimary : colors.textPlaceholder, fontSize: 15, flex: 1 }}
+                    numberOfLines={1}
+                  >
+                    {university || t("university.select")}
+                  </Text>
+                  <ChevronDown size={16} color={colors.textSecondary} strokeWidth={2} />
+                </Pressable>
+              )}
+            </View>
+
             <TextInput label={t("profile.department")} value={department} onChangeText={setDepartment} />
 
             {/* Level — constrained by the DB CHECK to these three values. */}
@@ -162,6 +202,18 @@ const styles = StyleSheet.create({
   avatarSection: { alignItems: "center", marginBottom: 32 },
   form: { gap: 18 },
   fieldGroup: { gap: 6 },
+  pickerTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  // Bounded so the picker's list scrolls inside the form rather than
+  // stretching the page to 130 rows.
+  pickerBox: { height: 320 },
   fieldLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },
   segments: { gap: 10 },
   segment: { flex: 1, borderRadius: 12, borderWidth: 1, paddingVertical: 12, alignItems: "center", justifyContent: "center" },

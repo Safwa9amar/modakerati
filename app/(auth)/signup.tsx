@@ -10,6 +10,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { ChevronDown } from "lucide-react-native";
+import { UniversityPicker } from "@/components/UniversityPicker";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthStore } from "@/stores/auth-store";
@@ -26,6 +28,8 @@ export default function SignupScreen() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [university, setUniversity] = useState("");
+  const [universityId, setUniversityId] = useState<string | null>(null);
+  const [pickingUniversity, setPickingUniversity] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,7 +42,12 @@ export default function SignupScreen() {
     }
     setError(null);
     setLoading(true);
-    const { error: err } = await signUpWithEmail(email, password, fullName);
+    const { error: err } = await signUpWithEmail(
+      email,
+      password,
+      fullName,
+      universityId ? { id: universityId, name: university } : null
+    );
     setLoading(false);
     if (err) {
       setError(err);
@@ -91,12 +100,36 @@ export default function SignupScreen() {
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <TextInput
-              label={t("auth.university")}
-              placeholder={t("auth.university")}
-              value={university}
-              onChangeText={setUniversity}
-            />
+            {/*
+              Picked from the catalogue, not typed — and actually SENT. This
+              field used to live in state and never leave the device.
+            */}
+            {pickingUniversity ? (
+              <View style={styles.pickerBox}>
+                <UniversityPicker
+                  value={universityId}
+                  onChange={(id, uni) => {
+                    setUniversityId(id);
+                    setUniversity(uni.nameFr);
+                    setPickingUniversity(false);
+                  }}
+                  onSkip={() => setPickingUniversity(false)}
+                />
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => setPickingUniversity(true)}
+                style={[styles.pickerTrigger, { backgroundColor: colors.bgInput, borderColor: colors.borderSubtle }]}
+              >
+                <Text
+                  style={{ color: university ? colors.textPrimary : colors.textPlaceholder, fontSize: 15, flex: 1 }}
+                  numberOfLines={1}
+                >
+                  {university || t("university.select")}
+                </Text>
+                <ChevronDown size={16} color={colors.textSecondary} strokeWidth={2} />
+              </Pressable>
+            )}
             <TextInput
               label={t("auth.password")}
               placeholder={t("auth.password")}
@@ -147,6 +180,17 @@ export default function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
+  pickerTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  // Bounded so the 130-row list scrolls inside the form.
+  pickerBox: { height: 300 },
   container: { flex: 1 },
   flex: { flex: 1 },
   scroll: {
