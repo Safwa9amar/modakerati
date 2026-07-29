@@ -627,7 +627,7 @@ In `ensureSchema()`, append to the DDL:
     ALTER TABLE norm_profiles ADD COLUMN IF NOT EXISTS slug text;
     ALTER TABLE norm_profiles ADD COLUMN IF NOT EXISTS university_id uuid REFERENCES universities(id) ON DELETE SET NULL;
     -- Plain (not partial) unique index: Postgres allows many NULLs in a unique
-    -- index, so pre-slug rows coexist, AND `ON CONFLICT (slug)` can infer it.
+    -- index, so pre-slug rows coexist, AND ON CONFLICT (slug) can infer it.
     -- A partial index would need a matching WHERE clause on every upsert.
     CREATE UNIQUE INDEX IF NOT EXISTS norm_profiles_slug_idx ON norm_profiles (slug);
 ```
@@ -1696,6 +1696,8 @@ What the skeletons add is fidelity, not function: a hand-authored cover with the
 ---
 
 ## Notes for whoever executes this
+
+- **Never put a backtick inside the `ensureSchema` SQL.** All that DDL lives inside a JS template literal, so a backtick in a `--` comment terminates the literal early and breaks the whole file — `tsc` and vitest then fail for everything that imports `src/db`. This bit us once during execution. Write `ON CONFLICT (slug)` in SQL comments, never `` `ON CONFLICT (slug)` ``.
 
 - **Local DB first.** Per the project's local-Supabase setup, run `drizzle push` then let `ensureSchema()` apply the rest. Do not point this at cloud Supabase until the whole plan is green locally.
 - **Run the two one-shot scripts in order:** `backfill-university-ids.ts` (Task 6) before `backfill-template-norm-profiles.ts` (Task 11). The second depends on `university_id` being set.
