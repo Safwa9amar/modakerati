@@ -10,7 +10,8 @@ export default function AppLayout() {
     <Stack.Screen name="payment-checkout" />
     <Stack.Screen name="payment-success" />
     <Stack.Screen name="payment-failed" />
-    <Stack.Screen name="template-picker" />
+    <Stack.Screen name="start-thesis" />
+    <Stack.Screen name="browse-templates" />
     <Stack.Screen name="thesis-title" />
     <Stack.Screen name="template-preview" />
     <Stack.Screen name="thesis-plan" />
@@ -20,6 +21,7 @@ export default function AppLayout() {
     <Stack.Screen name="lexical-lab" />
     <Stack.Screen name="lexical-roundtrip" />
     <Stack.Screen name="lexical-writeback" />
+    <Stack.Screen name="voice-lab" />
     <Stack.Screen name="news" />
     <Stack.Screen name="news-detail" />
     <Stack.Screen name="export" />

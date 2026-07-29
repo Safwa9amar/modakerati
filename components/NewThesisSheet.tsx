@@ -62,7 +62,7 @@ export function NewThesisSheet() {
     setTitle("");
     setSuggestions([]);
     useBottomSheet.getState().closeSheet("new-thesis");
-    router.push("/(app)/template-picker");
+    router.push("/(app)/start-thesis");
   };
 
   const disabled = !title.trim();

@@ -118,7 +118,7 @@ export default function AllThesesScreen() {
           {t("thesis.myTheses")}
         </Text>
         <Pressable
-          onPress={() => router.push("/(app)/template-picker" as any)}
+          onPress={() => router.push("/(app)/start-thesis" as any)}
           style={[styles.newButton, { backgroundColor: colors.brandPrimary }]}
         >
           <Plus size={16} color="#FFFFFF" strokeWidth={2.5} />

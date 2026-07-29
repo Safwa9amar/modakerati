@@ -148,10 +148,10 @@ export default function HomeScreen() {
   }, [router, t]);
 
   const quickActions = [
-    { icon: PenLine, label: t("home.newThesis"), color: colors.brandPrimary, onPress: () => router.push("/(app)/template-picker" as any) },
+    { icon: PenLine, label: t("home.newThesis"), color: colors.brandPrimary, onPress: () => router.push("/(app)/start-thesis" as any) },
     { icon: FolderUp, label: t("home.importDocx"), color: "#9959FF", onPress: handleImport },
     { icon: Combine, label: t("combine.short"), color: "#1FB6A8", onPress: handleCombine },
-    { icon: LayoutGrid, label: t("home.templates"), color: colors.semanticWarning, onPress: () => router.push("/(app)/template-picker" as any) },
+    { icon: LayoutGrid, label: t("home.templates"), color: colors.semanticWarning, onPress: () => router.push("/(app)/start-thesis" as any) },
   ];
 
   const busyOverlay = (
@@ -216,7 +216,7 @@ export default function HomeScreen() {
           <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>{t("home.noThesesYet")}</Text>
           <Text style={[styles.emptyDesc, { color: colors.textSecondary }]}>{t("home.noThesesDesc")}</Text>
           <View style={styles.emptyButtons}>
-            <Button title={t("home.createFirst")} onPress={() => router.push("/(app)/template-picker" as any)} />
+            <Button title={t("home.createFirst")} onPress={() => router.push("/(app)/start-thesis" as any)} />
             <Button title={t("home.importExisting")} onPress={handleImport} variant="secondary" />
           </View>
         </View>
