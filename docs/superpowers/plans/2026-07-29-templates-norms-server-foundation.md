@@ -810,7 +810,14 @@ main();
 - [ ] **Step 2: Run it**
 
 Run: `npx tsx scripts/backfill-university-ids.ts`
-Expected: the one existing template either matches المركز الجامعي نور البشير or is reported. **Read the unmatched list and resolve every entry by hand before continuing** — Task 11 makes `normProfileId` required and will fail on rows you skipped.
+
+Expected, verified against the live local DB before this plan was written:
+
+- **1 template**, whose `university` text is `المركز الجامعي نور البشير البيض`. The matcher was dry-run against the real data and this normalizes to an **exact, unambiguous** hit on `source_id = 103` (Centre Universitaire Nour Bachir d'El Bayadh) — the hyphen in the JSON's `nameAr` is removed by the punctuation rule in `norm()`. Expect `✓ template … → Centre Universitaire Nour Bachir d'El Bayadh`.
+- **9 norm profiles**: 4 generics (already `universityId: null`) and 5 university-scoped ones that Task 4 already resolved via `universitySourceId`, so they arrive with `universityId` set and are skipped here.
+- **3 header/footer templates and 2 profiles** are untouched by this script — they get their `universityId` from the dashboard (Plan 3) and the app (Plan 2) respectively.
+
+**If anything lands in the unmatched list, resolve it by hand before continuing** — Task 11 makes `normProfileId` required and will fail on rows you skipped.
 
 - [ ] **Step 3: Commit**
 
@@ -1358,7 +1365,7 @@ Expected: a JSON body whose first entry has `"rung": 5` and `"reason": "national
 Then repeat with the El Bayadh university's uuid:
 
 ```bash
-psql "$DATABASE_URL" -c "select id, name_fr from universities where name_ar like '%البيض%';"
+psql "$DATABASE_URL" -c "select id, name_fr from universities where source_id = 103;"
 curl -s "http://localhost:3000/api/starting-points?language=ar&level=master&universityId=<that-uuid>" | head -c 400
 ```
 
@@ -1617,7 +1624,7 @@ In `ensureSchema()`, append:
 Run: `npm run dev`, then:
 
 ```bash
-psql "$DATABASE_URL" -c "select id from universities where name_ar like '%البيض%';"
+psql "$DATABASE_URL" -c "select id from universities where source_id = 103;"
 curl -s "http://localhost:3000/api/starting-points?language=ar&level=master&universityId=<that-uuid>" | head -c 300
 ```
 
