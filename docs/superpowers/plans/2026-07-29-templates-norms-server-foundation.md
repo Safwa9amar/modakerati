@@ -89,6 +89,25 @@ describe("university seeds", () => {
     expect(ids[ids.length - 1]).toBe(UNIVERSITY_SEEDS.length);
   });
 
+  // The contiguity test above is NOT enough on its own: deleting institution 50
+  // and decrementing 51..130 down to 50..129 keeps ids unique AND contiguous
+  // while silently re-pointing every foreign key. Only anchoring ids to real
+  // identities catches that. These seven are pinned because Task 4 hardcodes
+  // five of them as a seeded norm profile's universitySourceId; 1 and 130 anchor
+  // the ends of the range. Anchors (not a whole-file hash) so that APPENDING a
+  // new institution — which is legitimate — does not break the suite.
+  it("anchor ids still point at the institutions later tasks assume", () => {
+    const nameOf = (sourceId: number) =>
+      UNIVERSITY_SEEDS.find((u) => u.sourceId === sourceId)?.nameFr;
+    expect(nameOf(1)).toBe("Université Benyoucef Benkhedda d'Alger 1");
+    expect(nameOf(27)).toBe("Université Salah Boubnider de Constantine 3");
+    expect(nameOf(34)).toBe("Université Mohamed Khider de Biskra");
+    expect(nameOf(47)).toBe("Université Kasdi Merbah de Ouargla");
+    expect(nameOf(48)).toBe("Université Echahid Hamma Lakhdar d'El Oued");
+    expect(nameOf(77)).toBe("École Nationale Supérieure de Technologie et d'Ingénierie");
+    expect(nameOf(130)).toBe("Annexe Universitaire de Messaad");
+  });
+
   it("every row has the identity fields the cover page needs", () => {
     for (const u of UNIVERSITY_SEEDS) {
       expect(u.nameFr).toBeTruthy();
@@ -131,7 +150,11 @@ export interface UniversitySeed {
   remoteLogo: string | null;
 }
 
-export const UNIVERSITY_SEEDS: UniversitySeed[] = (raw as any[]).map((u) => ({
+// No `as any[]` cast: tsconfig has resolveJsonModule, so `raw` already carries a
+// precise inferred type from the JSON. Keeping that means renaming a field in
+// the JSON becomes a tsc error instead of a silent `undefined` in every row.
+// Only `type` is narrowed, widening string into the literal union.
+export const UNIVERSITY_SEEDS: UniversitySeed[] = raw.map((u) => ({
   sourceId: u.id,
   nameFr: u.nameFr,
   nameAr: u.nameAr,
@@ -149,7 +172,9 @@ export const UNIVERSITY_SEEDS: UniversitySeed[] = (raw as any[]).map((u) => ({
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run src/__tests__/universities-seed.test.ts`
-Expected: PASS — 4 tests
+Expected: PASS — 5 tests
+
+**If any anchor pair fails**, stop. It means either the JSON was renumbered (the exact disaster this test exists to catch) or Task 4's hardcoded `universitySourceId` values are wrong. Do not "fix" either side without deciding which one moved.
 
 - [ ] **Step 5: Commit**
 
