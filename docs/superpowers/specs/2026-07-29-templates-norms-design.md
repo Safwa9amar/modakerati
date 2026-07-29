@@ -17,9 +17,13 @@ The cause is not missing content. It is that nothing connects a student to the c
 - **Universities are a static JSON file** (`modakerati-server/src/data/algerian-universities.json`,
   130 rows), not a table. Every other store keeps `university` as hand-typed free text.
   Nothing can answer "what does USTHB have?"
-- **`profiles.university` is already collected at signup** — as a free-text `TextInput`, so
-  it can never match `templates.university` (also free text). The one fact that would make
-  the picker personal is captured and then discarded.
+- **`profiles.university` is collected at signup and then thrown away.** Worse than first
+  assessed: `signup.tsx` keeps a `university` free-text field in component state, but
+  `handleSignUp` calls `signUpWithEmail(email, password, fullName)` — a three-argument
+  function that forwards only `full_name` to Supabase. The value never leaves the device.
+  It reaches the database only if the student later edits their profile, and even then it
+  is free text that can never match `templates.university` (also free text). Verified
+  2026-07-29: both existing profiles have a `university` string and `university_id` NULL.
 - **`templates` and `norm_profiles` duplicate six taxonomy columns** (`university`,
   `language`, `discipline`, `bodyPreset`, `citationStyle`, `bindingSide`) with no
   relationship between them and nothing keeping them in sync.

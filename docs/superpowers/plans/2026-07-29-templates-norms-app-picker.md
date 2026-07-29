@@ -251,7 +251,15 @@ export async function getStartingPoints(input: {
 
 Props: `value: string | null` (universityId), `onChange: (id: string | null, uni: University | null) => void`, and an `allowSkip` affordance — a student whose institution is genuinely absent must be able to continue.
 
-- [ ] **Step 2:** In `signup.tsx`, replace the free-text university `TextInput` with the picker, submitting `universityId`. **Keep sending the display name too** so `profiles.university` stays populated for anyone the picker can't cover.
+- [ ] **Step 2:** In `signup.tsx`, replace the free-text university `TextInput` with the picker.
+
+⚠️ **The signup field is currently decorative — it is never sent.** `handleSignUp` calls `signUpWithEmail(email, password, fullName)`, and `stores/auth-store.ts` forwards only `full_name` to Supabase. The typed university never leaves the device; `profiles.university` is populated only if the student later edits their profile.
+
+So this step is not a swap, it is a **wiring job**: widen `signUpWithEmail` to accept the university (id + display name), pass it through `options.data`, and make sure it lands on the profile row. Verify with:
+```
+psql "$DATABASE_URL" -c "select full_name, university, university_id from profiles;"
+```
+after creating a fresh account — `university_id` must be non-null.
 
 - [ ] **Step 3:** Same in `edit-profile.tsx`.
 
