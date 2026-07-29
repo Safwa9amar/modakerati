@@ -622,6 +622,14 @@ In `src/db/norm-profiles.ts`, add to `normProfiles`:
 
 with `import { universities } from "./universities";` at the top.
 
+Also give the table a second `pgTable` argument declaring the slug index, matching how `src/db/universities.ts` declares `sourceId`'s:
+
+```ts
+  (t) => ({ slugIdx: uniqueIndex("norm_profiles_slug_idx").on(t.slug) })
+```
+
+Use that exact index name so it reconciles with the raw DDL below rather than creating a second index. Without this, `drizzle-kit push` from the schema files alone would never create the index — only the runtime `ensureSchema()` would, which is an inconsistency with how `universities.sourceId` is expressed.
+
 In `ensureSchema()`, append to the DDL:
 
 ```sql
@@ -638,6 +646,11 @@ In `ensureSchema()`, append to the DDL:
 `seedNormProfiles` currently returns early when any row exists, so new seeds never land. Replace its body in `src/db/index.ts`:
 
 ```ts
+// MUST run after seedUniversities(). This resolves seeds' universitySourceId
+// against the universities table; if that table is empty or incomplete, the
+// lookup misses and every affected profile silently degrades to a generic
+// (rung 5) instead of being university-scoped (rung 3). The guards below make
+// that loud rather than invisible.
 export async function seedNormProfiles() {
   // Resolve source ids → uuids once, so seeds reference universities by their
   // stable natural key rather than a uuid nobody can write down.
@@ -645,6 +658,21 @@ export async function seedNormProfiles() {
     .select({ id: universities.id, sourceId: universities.sourceId })
     .from(universities);
   const bySource = new Map(unis.map((u) => [u.sourceId, u.id]));
+
+  if (unis.length === 0) {
+    console.warn(
+      "[seed] no universities in the DB — every university-scoped norm profile will fall back to generic. Did seedUniversities() run first?"
+    );
+  }
+  const missing = NORM_PROFILE_SEEDS.filter(
+    (p) => p.universitySourceId !== null && !bySource.has(p.universitySourceId)
+  );
+  if (missing.length) {
+    console.warn(
+      `[seed] ${missing.length} norm profile(s) reference a university missing from the DB and will fall back to generic:`,
+      missing.map((p) => `${p.slug}→sourceId ${p.universitySourceId}`).join(", ")
+    );
+  }
 
   await db
     .insert(normProfiles)
