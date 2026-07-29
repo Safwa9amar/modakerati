@@ -305,7 +305,21 @@ export { universities } from "./universities";
 
 - [ ] **Step 4: Call it at startup**
 
-In `src/index.ts`, find where `seedNormProfiles()` is called and add `seedUniversities()` immediately before it (universities must exist before anything references them).
+In `src/index.ts`, find where `seedNormProfiles()` is called and add `seedUniversities()` immediately before it (universities must exist before anything references them), and add it to the `./db` import on line 26.
+
+While there, fix the chain's catch on line 115. It reads `console.error("ensureSchema/seedNews/seedTemplates failed:", ...)` — a stale list that already omits `seedNormProfiles` and `seedKnowledge`. A failure anywhere short-circuits the rest **and the server still starts** via `.finally()`, so a half-seeded `universities` table — which Tasks 4 and 5 hang foreign keys off — would be invisible. Replace with a message that can't go stale:
+
+```ts
+.catch((e) => console.error("startup schema/seed step failed:", e?.message))
+```
+
+- [ ] **Step 4b: Add `universities.ts` to `drizzle.config.ts`**
+
+The `schema` array lists only `./src/db/schema.ts` and `./src/db/norm-profiles.ts`. Its own comment states the rule: *"schema.ts has a cross-file FK (theses.norm_profile_id → norm_profiles), so norm-profiles.ts must be pushed alongside it."*
+
+Task 4 adds `norm_profiles.university_id → universities.id`; Task 5 adds the same FK from `templates`, `profiles` and `header_footer_templates` in `schema.ts`. Both are cross-file FKs into `universities.ts`, so `drizzle-kit push` needs it in the array or it will fail or push a broken shape. Add `"./src/db/universities.ts"` and extend the comment to say why.
+
+**Leave the `knowledge.ts` exclusion and its explanation untouched** — that file is deliberately absent because `knowledge_chunks` has a pgvector column Drizzle can't express.
 
 - [ ] **Step 5: Verify against the local DB**
 
@@ -315,10 +329,18 @@ Expected: log line `Seeded/updated 130 universities`. Run it twice — the secon
 Verify: `psql "$DATABASE_URL" -c "select count(*), count(distinct source_id) from universities;"`
 Expected: `130 | 130`
 
+- [ ] **Step 5b: Pin the `logoPath` exclusion with a test**
+
+Nothing currently enforces that `logo_path` stays out of the upsert's `set` clause. If someone later adds a field to both column lists without thinking, re-seeding silently wipes every mirrored logo — and the only record of the intent is a comment.
+
+This needs no database. Drizzle exposes `.toSQL()` on an unexecuted query. Add `src/__tests__/seed-universities-sql.test.ts` asserting the generated SQL **does** contain `DO UPDATE SET` updating `name_fr`, and **does not** mention `logo_path` in that clause.
+
+Import only `src/db/universities.ts` and `drizzle-orm` — importing `src/db/index.ts` would construct a `pg.Pool` at module load, which a unit test should not do.
+
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/db/universities.ts src/db/index.ts src/index.ts
+git add src/db/universities.ts src/db/index.ts src/index.ts drizzle.config.ts src/__tests__/seed-universities-sql.test.ts
 git commit -m "feat(universities): table, idempotent seeder, startup wiring"
 ```
 
