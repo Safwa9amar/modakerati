@@ -466,10 +466,11 @@ async function main() {
     console.log("\nFailures (fix the URL in the JSON, or upload by hand in the dashboard):");
     for (const f of failed) console.log(`  ${f.name} — ${f.reason}`);
   }
-  await pool.end();
 }
 
-main();
+main()
+  .catch((e) => { console.error("logo mirroring failed:", e?.message ?? e); process.exitCode = 1; })
+  .finally(() => pool.end());
 ```
 
 - [ ] **Step 3: Run it**
@@ -834,10 +835,11 @@ async function main() {
   } else {
     console.log("\nEverything matched.");
   }
-  await pool.end();
 }
 
-main();
+main()
+  .catch((e) => { console.error("university-id backfill failed:", e?.message ?? e); process.exitCode = 1; })
+  .finally(() => pool.end());
 ```
 
 - [ ] **Step 2: Run it**
@@ -1605,7 +1607,6 @@ async function main() {
     await db.update(templates).set({ normProfileId: profileId }).where(eq(templates.id, t.id));
     console.log(`  ✓ "${t.name}" → profile ${profileId}`);
   }
-  await pool.end();
 }
 
 // Borrow the generic seed's formatting for this (language, discipline) cell so a
@@ -1620,7 +1621,9 @@ async function defaultFormatting(language: string, discipline: string) {
   return generic.formatting;
 }
 
-main();
+main()
+  .catch((e) => { console.error("norm-profile backfill failed:", e?.message ?? e); process.exitCode = 1; })
+  .finally(() => pool.end());
 ```
 
 - [ ] **Step 2: Run it**
