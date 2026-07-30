@@ -547,6 +547,11 @@ export async function getStartingPoints(input: {
   return res.startingPoints ?? [];
 }
 
+/** One template by id, taxonomy already resolved from its norm profile. */
+export async function getTemplate(id: string) {
+  return apiGet<Template>(`/api/templates/${id}`);
+}
+
 export async function listNormProfiles() {
   return apiGet<NormProfile[]>("/api/norm-profiles");
 }

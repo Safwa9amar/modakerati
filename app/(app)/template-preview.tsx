@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { useEffect, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -9,15 +10,62 @@ import { BackButton } from "@/components/BackButton";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PdfView } from "@/components/workspace/PdfView";
+import { getTemplate } from "@/lib/api";
+import type { Template } from "@/types/thesis";
 
 export default function TemplatePreviewScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
-  const { templates } = useThesisStore();
+  const templates = useThesisStore((s) => s.templates);
 
-  const template = templates.find((tpl) => tpl.id === templateId);
+  // The store is a convenience cache, not a guarantee: screens that navigate
+  // here (the institution browse list, the ranked browse list) fetch their own
+  // data and never populate it, so relying on it alone showed "Template not
+  // found" for a template the user was literally just looking at. Fetch by id
+  // when the cache misses, so this screen stands on its own.
+  const cached = templates.find((tpl) => tpl.id === templateId) ?? null;
+  const [fetched, setFetched] = useState<Template | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (cached || !templateId) return;
+    let cancelled = false;
+    setLoading(true);
+    getTemplate(templateId)
+      .then((tpl) => {
+        if (!cancelled) setFetched(tpl);
+      })
+      .catch(() => {
+        if (!cancelled) setFetched(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId, cached]);
+
+  const template = cached ?? fetched;
+
+  if (loading && !template) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
+        <View style={styles.topBar}>
+          <BackButton />
+          <Text style={[styles.title, { color: colors.textPrimary }]}>
+            {t("template.templatePreview")}
+          </Text>
+          <View style={{ width: 30 }} />
+        </View>
+        <View style={styles.centered}>
+          <ActivityIndicator color={colors.brandPrimary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!template) {
     return (
