@@ -143,7 +143,7 @@ export interface SpeechQueueOptions {
    * the rest of the turn if the endpoint fails — a robotic voice beats silence.
    */
   neural?: boolean;
-  /** Which server voice to use ("piper" | "gemini"). Omit for the server's default. */
+  /** Which server voice to use ("piper" | "gemini" | "openrouter"). Omit for the server's default. */
   provider?: string;
   /** Fires when the queue drains after `flush()` — the AI has finished talking. */
   onIdle?: () => void;

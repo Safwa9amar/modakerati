@@ -68,6 +68,7 @@ const LANGS = [
 const VOICE_LABELS: Record<string, string> = {
   piper: "Piper (local)",
   gemini: "Gemini",
+  openrouter: "OpenRouter",
   device: "Device",
 };
 
