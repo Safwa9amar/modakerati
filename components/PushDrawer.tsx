@@ -9,7 +9,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { usePathname } from "expo-router";
-import { useNavDrawerStore } from "@/stores/nav-drawer-store";
+import { drawerOpenSV, useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { ThesisOutlinePanel } from "@/components/workspace/ThesisOutlinePanel";
 
@@ -56,10 +56,13 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
 
   // 0 = closed, 1 = open. `dragging` is true only while a gesture owns `progress`;
   // `openSV` mirrors the store's boolean on the UI thread so the reconcile reaction
-  // and a cancelled gesture can settle WITHOUT a JS round-trip.
+  // and a cancelled gesture can settle WITHOUT a JS round-trip. It lives in the
+  // store module (not `useSharedValue`) so `openDrawer()` writes it synchronously —
+  // the spring then starts on the UI thread immediately, without waiting for this
+  // component to re-render.
   const progress = useSharedValue(0);
   const dragging = useSharedValue(false);
-  const openSV = useSharedValue(open);
+  const openSV = drawerOpenSV;
 
   const setOpen = (v: boolean) => {
     const s = useNavDrawerStore.getState();
@@ -67,7 +70,8 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
     else s.closeDrawer();
   };
 
-  // Mirror the store into the shared value + dismiss the keyboard on open.
+  // Defensive resync (fast-refresh / remount) + dismiss the keyboard on open. The
+  // store actions already wrote `openSV`, so this is a no-op on the hot path.
   useEffect(() => {
     openSV.value = open;
     if (open) Keyboard.dismiss();

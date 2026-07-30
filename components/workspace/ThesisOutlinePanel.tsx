@@ -287,6 +287,32 @@ function TableRow({
   );
 }
 
+// Placeholder rows for the short window where the drawer is reachable but its cache
+// read (or, from chat, its first fetch) hasn't landed yet — honest about "not here
+// yet" instead of claiming the document has no headings.
+function ListSkeleton({
+  colors,
+  rtl,
+  rows = 8,
+}: {
+  colors: ReturnType<typeof useThemeColors>;
+  rtl: boolean;
+  rows?: number;
+}) {
+  return (
+    <View>
+      {Array.from({ length: rows }, (_, i) => (
+        <View key={i} style={[styles.skelRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+          <View style={[styles.skelDot, { backgroundColor: colors.borderDefault }]} />
+          <View
+            style={[styles.skelBar, { backgroundColor: colors.borderDefault, width: `${86 - (i % 3) * 18}%` }]}
+          />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /**
  * The Thesis Structure navigator's CONTENTS — a three-tab drawer:
  *   • Contents — the heading tree (table of contents), virtualized + collapsible.
@@ -311,9 +337,15 @@ export function ThesisOutlinePanel() {
   const doc = useThesisDocStore((s) => (thesis ? s.byId[thesis.id] : undefined));
   const docTick = useThesisDocStore((s) => (thesis ? s.tick[thesis.id] ?? 0 : 0));
   // "You are here" anchor: the caret's block while inline-editing, else the block
-  // at the top of the doc view (from the outline view's scroll). Primitive selectors.
-  const activeBlockIndex = useWorkspaceStore((s) => s.activeBlockIndex);
-  const editingBlockIndex = useWorkspaceStore((s) => s.editingBlockIndex);
+  // at the top of the doc view (from the outline view's scroll). Primitive selectors,
+  // GATED ON `open`: this panel is always mounted (it lives in the root PushDrawer),
+  // and `activeBlockIndex` is rewritten on every viewability change while the reader
+  // scrolls — subscribing unconditionally re-rendered the whole invisible drawer
+  // (flatten + every visible row) on each of those. While closed the selectors
+  // return a constant, so zustand never wakes us; the live values are picked up in
+  // the same render that opens the drawer.
+  const activeBlockIndex = useWorkspaceStore((s) => (open ? s.activeBlockIndex : null));
+  const editingBlockIndex = useWorkspaceStore((s) => (open ? s.editingBlockIndex : null));
   const listRef = useRef<FlatList<FlatRow>>(null);
 
   const [tab, setTab] = useState<Tab>("toc");
@@ -333,28 +365,38 @@ export function ThesisOutlinePanel() {
     }
   }, [open]);
 
-  // On open, paint from cache ONLY (no fetch). If nothing is cached yet (e.g. the
-  // user opened the drawer from chat before ever entering the workspace), fall
-  // back to a one-time sync so the panel is never permanently empty — but only
-  // while there are no unsynced local edits: with edits queued on-device the
-  // server outline is stale by definition, so we stick to the local copy until
-  // the document itself syncs (the workspace drain effect re-syncs it then).
+  // Warm the panel's data the moment the drawer becomes REACHABLE — a thesis is
+  // current and we're on a surface that hosts it — never on open. Doing this on
+  // open meant the first swipe kicked off a SQLite read and, from chat, an outline
+  // + document FETCH: the drawer slid in empty and filled a beat (or a round-trip)
+  // later. Cache-first; one network sync only when nothing is cached at all, and
+  // skipped while local edits are unsynced — with edits queued on-device the server
+  // outline is stale by definition, so we stick to the local copy until the
+  // document itself syncs (the workspace drain effect re-syncs it then).
+  const reachable = !!thesis && !!pathname && (pathname.includes("thesis-workspace") || pathname.includes("chat"));
   useEffect(() => {
-    if (!open || !thesis) return;
+    if (!reachable || !thesis) return;
     const store = useOutlineStore.getState();
     void store.hydrate(thesis.id).then(() => {
       const unsynced = (useThesisDocStore.getState().pending[thesis.id] ?? 0) > 0;
       if (!unsynced && useOutlineStore.getState().byId[thesis.id] === undefined) void store.sync(thesis.id);
     });
     // The Tables/Figures tabs read the live document blocks — hydrate them from the
-    // SQLite cache (and revalidate) if this drawer opened before the workspace did.
+    // SQLite cache (and revalidate) if the workspace hasn't already loaded them.
     if (useThesisDocStore.getState().byId[thesis.id] === undefined) void useThesisDocStore.getState().load(thesis.id);
-  }, [open, thesis?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reachable, thesis?.id]);
 
   const liveOutline = outline?.available ? outline : null;
-  const nodes: OutlineNodeDTO[] = liveOutline ? liveOutline.nodes : [];
+  // Stable empty ref when there's no outline yet, so the memos below don't churn.
+  const nodes: OutlineNodeDTO[] = liveOutline ? liveOutline.nodes : EMPTY_NODES;
   const sectionCount = liveOutline ? liveOutline.sectionCount : 0;
   const chapterCount = liveOutline ? liveOutline.chapterCount : 0;
+  // Nothing cached AND nothing fetched yet — distinct from "this document has no
+  // headings", which is what the empty state used to claim while the first read
+  // was still in flight.
+  const outlineLoading = outline === undefined;
+  const docLoading = doc === undefined;
 
   const blocks: DocBlockDTO[] = doc?.available ? doc.blocks : EMPTY_BLOCKS;
 
@@ -387,10 +429,15 @@ export function ThesisOutlinePanel() {
   }, [blocks]);
 
   // Direction from the document's own text (headings first — the most reliable —
-  // then captions), so the whole drawer flips as one for an Arabic thesis.
-  const rtl =
-    isRtlText(nodes.map((n) => n.title).join(" ")) ||
-    isRtlText(figures.map((f) => f.caption).join(" ") + " " + tables.map((tb) => tb.caption).join(" "));
+  // then captions), so the whole drawer flips as one for an Arabic thesis. Memoized:
+  // it walks every heading and caption, and used to rebuild those strings on each
+  // render of a panel that re-rendered on every scroll.
+  const rtl = useMemo(
+    () =>
+      isRtlText(nodes.map((n) => n.title).join(" ")) ||
+      isRtlText(figures.map((f) => f.caption).join(" ") + " " + tables.map((tb) => tb.caption).join(" ")),
+    [nodes, figures, tables],
+  );
 
   const numberLabel = (kind: "table" | "figure", n: number) =>
     kind === "table"
@@ -400,13 +447,16 @@ export function ThesisOutlinePanel() {
     t("thesis.tableSize", { rows, cols, defaultValue: `${rows} × ${cols}` });
 
   // Fully-expanded flatten drives search + the active-heading calc (both ignore
-  // the collapse state). Browsing uses the collapsed flatten.
-  const allRows = flattenOutline(nodes, EMPTY_SET);
+  // the collapse state). Browsing uses the collapsed flatten. Both memoized — a
+  // full DFS of the heading tree per render is wasted work on a long thesis.
+  const allRows = useMemo(() => flattenOutline(nodes, EMPTY_SET), [nodes]);
+  const collapsedRows = useMemo(() => flattenOutline(nodes, collapsed), [nodes, collapsed]);
   const q = normalize(query);
   const searching = q.length > 0;
-  const visibleRows = searching
-    ? allRows.filter((r) => normalize(r.node.title).includes(q))
-    : flattenOutline(nodes, collapsed);
+  const visibleRows = useMemo(
+    () => (searching ? allRows.filter((r) => normalize(r.node.title).includes(q)) : collapsedRows),
+    [searching, q, allRows, collapsedRows],
+  );
 
   // Tables/Figures search by caption OR native number label (so "figure 3" matches).
   const visibleFigures = searching
@@ -612,11 +662,15 @@ export function ThesisOutlinePanel() {
             listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false });
           }}
           ListEmptyComponent={
-            <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
-              {searching
-                ? t("thesis.noMatches", { defaultValue: "No headings match your search." })
-                : t("thesis.noChapters", { defaultValue: "No headings found in this document yet." })}
-            </Text>
+            outlineLoading && !searching ? (
+              <ListSkeleton colors={colors} rtl={rtl} />
+            ) : (
+              <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+                {searching
+                  ? t("thesis.noMatches", { defaultValue: "No headings match your search." })
+                  : t("thesis.noChapters", { defaultValue: "No headings found in this document yet." })}
+              </Text>
+            )
           }
         />
       )}
@@ -643,11 +697,15 @@ export function ThesisOutlinePanel() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           ListEmptyComponent={
-            <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
-              {searching
-                ? t("thesis.noMatches", { defaultValue: "No matches for your search." })
-                : t("thesis.noTables", { defaultValue: "No tables in this document yet." })}
-            </Text>
+            docLoading && !searching ? (
+              <ListSkeleton colors={colors} rtl={rtl} rows={5} />
+            ) : (
+              <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+                {searching
+                  ? t("thesis.noMatches", { defaultValue: "No matches for your search." })
+                  : t("thesis.noTables", { defaultValue: "No tables in this document yet." })}
+              </Text>
+            )
           }
         />
       )}
@@ -675,11 +733,15 @@ export function ThesisOutlinePanel() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           ListEmptyComponent={
-            <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
-              {searching
-                ? t("thesis.noMatches", { defaultValue: "No matches for your search." })
-                : t("thesis.noFigures", { defaultValue: "No figures in this document yet." })}
-            </Text>
+            docLoading && !searching ? (
+              <ListSkeleton colors={colors} rtl={rtl} rows={5} />
+            ) : (
+              <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+                {searching
+                  ? t("thesis.noMatches", { defaultValue: "No matches for your search." })
+                  : t("thesis.noFigures", { defaultValue: "No figures in this document yet." })}
+              </Text>
+            )
           }
         />
       )}
@@ -689,6 +751,8 @@ export function ThesisOutlinePanel() {
 
 // Shared empty set for the fully-expanded flatten (never mutated).
 const EMPTY_SET: Set<number> = new Set();
+// Shared empty outline, so a not-yet-loaded thesis doesn't churn the memos.
+const EMPTY_NODES: OutlineNodeDTO[] = [];
 // Shared empty blocks list, so a not-yet-loaded document doesn't churn the memos.
 const EMPTY_BLOCKS: DocBlockDTO[] = [];
 
@@ -723,6 +787,10 @@ const styles = StyleSheet.create({
   rowTitle: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 19 },
   rowTitleActive: { fontFamily: "Inter_600SemiBold" },
   emptyText: { fontSize: 13, fontFamily: "Inter_400Regular", paddingVertical: 24 },
+  // Loading placeholders — same rhythm as a real heading row.
+  skelRow: { alignItems: "center", gap: 10, paddingVertical: 9 },
+  skelDot: { width: 7, height: 7, borderRadius: 3.5, opacity: 0.6 },
+  skelBar: { height: 11, borderRadius: 6, opacity: 0.5 },
   // Tables / figures rows.
   mediaRow: { alignItems: "center", gap: 12, paddingVertical: 8 },
   thumb: { width: 44, height: 44, borderRadius: 8, flexShrink: 0 },
