@@ -14,7 +14,7 @@ import { Card } from "@/components/ui/Card";
 import {
   Globe, Moon, Sun, Bell, Sparkles, Clock,
   Trash2, AlertTriangle, RefreshCw,
-  Info, FileText, Shield, ChevronRight, ChevronDown, Check, FlaskConical,
+  Info, FileText, Shield, ChevronRight, ChevronDown, Check, FlaskConical, Mic,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 
@@ -181,6 +181,13 @@ export default function SettingsScreen() {
                 label: "Lexical Write-back",
                 type: "chevron" as const,
                 onPress: () => router.push("/(app)/lexical-writeback" as any),
+              },
+              {
+                icon: Mic,
+                iconColor: colors.brandPrimary,
+                label: "Voice Lab",
+                type: "chevron" as const,
+                onPress: () => router.push("/(app)/voice-lab" as any),
               },
             ],
           },
