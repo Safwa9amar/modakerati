@@ -50,6 +50,8 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   const pendingConfirm = useChatStore((s) => s.pendingConfirm);
 
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  // The keyboard's HEIGHT (not just its presence) — the Android lift below needs it.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   // Scroll-driven chrome visibility (shared with the top-bar): slide the dock down +
   // fade while the user scrolls DOWN through the doc, restore on scroll up / near top
@@ -62,8 +64,24 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   useEffect(() => {
     dockHide.value = withTiming(dockHidden ? 1 : 0, { duration: 220 });
   }, [dockHidden, dockHide]);
+
+  // ——— Keyboard clearance ———
+  // The screen's KeyboardAvoidingView only lifts this dock on iOS (behavior="padding",
+  // which shrinks the container so a bottom:0 surface rides up). Android runs
+  // edge-to-edge, where the window is NEVER resized for the IME — windowSoftInputMode
+  // is inert once the app draws behind the system bars — so the dock stayed BEHIND the
+  // keyboard: tapping the answer field of an AI question hid the question itself. Lift
+  // it by the IME height here. On iOS the container has already shrunk, so the lift
+  // stays 0 and the two mechanisms can't double-count (the reverted behavior="height"
+  // bug). Same math as FloatingPill, which is likewise outside the KAV's reach.
+  const kbLift = useSharedValue(0);
+  const lift = Platform.OS === "android" && keyboardVisible ? keyboardHeight : 0;
+  useEffect(() => {
+    kbLift.value = withTiming(lift, { duration: 180 });
+  }, [lift, kbLift]);
+
   const dockHideStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: dockHide.value * (insetValue.value + 24) }],
+    transform: [{ translateY: dockHide.value * (insetValue.value + 24) - kbLift.value }],
     opacity: 1 - dockHide.value,
   }));
 
@@ -82,12 +100,18 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
   useEffect(() => {
     const show = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      () => setKeyboardVisible(true),
+      (e) => {
+        setKeyboardVisible(true);
+        // Re-read on EVERY show event: the height changes when the IME swaps layout
+        // (language switch, emoji panel, suggestion strip) and the dock must re-lift.
+        setKeyboardHeight(e?.endCoordinates?.height ?? 0);
+      },
     );
     const hide = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
       () => {
         setKeyboardVisible(false);
+        setKeyboardHeight(0);
         // After a keyboard cycle, make sure the chrome (top-bar + dock) is shown — a
         // spurious keyboard-reflow scroll must never leave it hidden.
         useWorkspaceStore.getState().setChromeVisible(true);

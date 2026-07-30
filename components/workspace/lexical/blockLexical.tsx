@@ -40,7 +40,7 @@ import {
   type HeadingTagType,
 } from "@lexical/rich-text";
 import { $isListNode, $isListItemNode, $createListNode, $createListItemNode, type ListNode } from "@lexical/list";
-import type { DocBlockDTO } from "@/lib/api";
+import type { CellImageDTO, DocBlockDTO, DocListKind, TextBoxLine } from "@/lib/api";
 // type-only — table-diff must never enter the web bundle by value.
 import type { TableDiff } from "@/lib/table-diff";
 
@@ -206,6 +206,139 @@ function Figure({ block }: { block: Extract<DocBlockDTO, { kind: "image" }> }) {
     return React.createElement("img", { src: url, style: figureStyle(block), alt: block.caption ?? "", referrerPolicy: "no-referrer" });
   }
   return React.createElement("div", { style: PLACEHOLDER }, `🖼 figure${block.caption ? ` · ${block.caption}` : ""}`);
+}
+
+// A Word SHAPE with text in it — the rounded banner a cover page puts its title
+// in. Drawn from the shape's own geometry (rounded corners, outline colour and
+// weight, fill) so it reads as the same object the student sees in Word. The host
+// paragraph's own runs render UNDER the box, which is where they sit on the page
+// (the shape floats over the line it is anchored to).
+function ShapeTextBox({ block }: { block: Extract<DocBlockDTO, { kind: "textbox" }> }) {
+  const s = block.shape;
+  const lineStyle = (l: TextBoxLine): React.CSSProperties => ({
+    textAlign: l.alignment === "both" ? "justify" : l.alignment ?? undefined,
+    direction: l.direction ?? undefined,
+    fontWeight: l.bold ? 700 : undefined,
+    // Word points map ~1:1 to CSS px at this reading size; clamped so a 48pt
+    // display title can't blow out the phone column.
+    fontSize: l.sizePt ? `${Math.min(24, Math.max(14, l.sizePt))}px` : undefined,
+    margin: "2px 0",
+    lineHeight: 1.5,
+  });
+  const box = React.createElement(
+    "div",
+    {
+      style: {
+        border: s.border ? `${Math.max(1, s.border.pt)}px solid ${s.border.color}` : "1px solid #d8dbe6",
+        borderRadius: s.rounded ? "14px" : "2px",
+        background: s.fill ?? "transparent",
+        padding: "14px 18px",
+        margin: "10px auto",
+        width: s.width ? `${s.width}px` : undefined,
+        maxWidth: "100%",
+        boxSizing: "border-box",
+      } as React.CSSProperties,
+    },
+    block.lines.map((l, i) =>
+      React.createElement("div", { key: i, style: lineStyle(l) }, l.text || " "),
+    ),
+  );
+  const own = block.text.trim();
+  if (!own) return box;
+  return React.createElement(
+    "div",
+    null,
+    box,
+    React.createElement(
+      "div",
+      {
+        style: {
+          textAlign: block.alignment === "both" ? "justify" : block.alignment ?? undefined,
+          direction: block.direction ?? undefined,
+          margin: "6px 0",
+        } as React.CSSProperties,
+      },
+      own,
+    ),
+  );
+}
+
+// Rendered height of a picture inside a table cell. Cover-page logos are ~125px
+// square in the .docx, which is enough to push a 3-column header table wider than
+// a phone viewport — so cap them to something that reads as a logo and lets the
+// table fit.
+const CELL_IMAGE_MAX_PX = "64px";
+
+// One table cell's rendered body: its picture (cover-page logos live in cells)
+// above its text, with each LINE carrying the bullet/number marker of the Word
+// list its paragraph belongs to.
+function CellBody({
+  text,
+  lists,
+  image,
+  blockIndex,
+  row,
+  col,
+}: {
+  text: string;
+  lists?: (DocListKind | null)[] | null;
+  image?: CellImageDTO | null;
+  blockIndex: number;
+  row: number;
+  col: number;
+}) {
+  const media = React.useContext(MediaContext);
+  let src: string | undefined;
+  if (image?.dataUri) src = image.dataUri;
+  else if (image?.hasMedia && media.base && media.token) {
+    src =
+      `${media.base}/api/thesis/${media.thesisId}/document/media/${blockIndex}` +
+      `?r=${row}&c=${col}&token=${encodeURIComponent(media.token)}&v=${encodeURIComponent(String(media.version))}`;
+  }
+  const imgEl = src
+    ? React.createElement("img", {
+        src,
+        style: {
+          display: "block",
+          margin: "0 auto 4px",
+          // Bound by HEIGHT, with the width derived from the aspect ratio: a cell
+          // picture must never widen the table past the viewport (a cover page's
+          // logo columns did exactly that, pushing themselves off both edges).
+          height: CELL_IMAGE_MAX_PX,
+          width: "auto",
+          maxWidth: "100%",
+          // Reserve the box before the bytes land so a lazily loaded logo doesn't
+          // reflow the row under the reader's finger.
+          aspectRatio: image?.width && image?.height ? `${image.width} / ${image.height}` : undefined,
+          objectFit: "contain",
+        } as React.CSSProperties,
+        referrerPolicy: "no-referrer",
+        alt: "",
+      })
+    : null;
+
+  const lines = text.split("\n");
+  // Nothing but plain text → emit the string itself, exactly as before.
+  if (!imgEl && !lists?.some(Boolean) && lines.length <= 1) return React.createElement(React.Fragment, null, text);
+
+  let ordinal = 0;
+  return React.createElement(
+    React.Fragment,
+    null,
+    imgEl,
+    lines.map((line, i) => {
+      const kind = lists?.[i] ?? null;
+      if (kind === "number") ordinal += 1;
+      else if (kind !== "bullet") ordinal = 0;
+      const marker = kind === "bullet" ? "•" : kind === "number" ? `${ordinal}.` : null;
+      return React.createElement(
+        "div",
+        { key: i, style: { display: "flex", gap: "6px", minHeight: line ? undefined : "0.7em" } as React.CSSProperties },
+        marker ? React.createElement("span", { style: { flex: "none" } }, marker) : null,
+        React.createElement("span", { style: { flex: "1 1 auto" } }, line),
+      );
+    }),
+  );
 }
 
 // The cell editor input. Focused via rAF AFTER React's commit phase — React's
@@ -693,7 +826,14 @@ function EditableTable({
                     direction: dir,
                   },
                 })
-              : cellText(ri, ci);
+              : React.createElement(CellBody, {
+                  text: cellText(ri, ci),
+                  lists: t.cellLists?.[ri]?.[ci],
+                  image: t.cellImages?.[ri]?.[ci],
+                  blockIndex: block.index,
+                  row: ri,
+                  col: ci,
+                });
             return React.createElement(
               isHeader ? "th" : "td",
               {
@@ -800,6 +940,8 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
       content = React.createElement(EditableTable, { block: b });
     } else if (b.kind === "image") {
       content = React.createElement(Figure, { block: b });
+    } else if (b.kind === "textbox") {
+      content = React.createElement(ShapeTextBox, { block: b });
     } else {
       content = React.createElement("div", { style: PLACEHOLDER }, `⋯ ${b.kind === "other" ? b.tag : b.kind}`);
     }
@@ -996,6 +1138,15 @@ export type SugData = {
   proposedRows?: string[][];
   tableHeader?: boolean; // row 0 is a header (shade it in the preview)
   tableRtl?: boolean; // right-to-left table
+  // action "insertSourceImage": a figure copied out of one of the student's uploaded
+  // sources. `hasImage` is the proposal itself; `imageDataUri` is the preview (absent
+  // when the bytes were too large to cross the bridge → placeholder instead).
+  hasImage?: boolean;
+  imageDataUri?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  // A specific reason the ask couldn't be met, shown instead of the generic error line.
+  errorText?: string;
 };
 type SerializedSuggestionNode = SerializedLexicalNode & { sug: SugData; origType: string };
 
@@ -1078,6 +1229,22 @@ function renderTablePreview(rows: string[][], header: boolean, rtl: boolean): Re
     ),
   );
   return React.createElement(ScrollWrap, null, tableEl);
+}
+
+// Read-only preview of a FIGURE the AI proposes to copy out of one of the student's
+// uploaded sources (action "insertSourceImage"), rendered where proposed text would
+// otherwise be. Approve embeds these same bytes as a real Word picture. Sized like a
+// document figure; when the bytes were too large to cross the bridge we show a
+// labelled placeholder rather than nothing — the proposal is still valid.
+function renderImagePreview(sug: SugData): React.ReactNode {
+  if (!sug.imageDataUri) {
+    return React.createElement("div", { style: PLACEHOLDER }, "🖼 image from your attached file");
+  }
+  const style: React.CSSProperties =
+    sug.imageWidth && sug.imageHeight
+      ? { ...FIGURE_STYLE, width: `${sug.imageWidth}px`, aspectRatio: `${sug.imageWidth} / ${sug.imageHeight}`, objectFit: "contain" }
+      : FIGURE_STYLE;
+  return React.createElement("div", { className: "lx-sug-proposed" }, React.createElement("img", { src: sug.imageDataUri, style, alt: "" }));
 }
 
 function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }) {
@@ -1166,9 +1333,29 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
       chip,
       trace,
       React.createElement("div", { className: "lx-sug-proposed", dir: "auto" }, sug.original),
-      React.createElement("div", { className: "lx-sug-err" }, "Couldn’t generate a suggestion."),
+      // The model's own reason when it has one (e.g. "no figure in your attached files
+      // matches that") — far more actionable than the generic line.
+      React.createElement("div", { className: "lx-sug-err", dir: "auto" }, sug.errorText || "Couldn’t generate a suggestion."),
       pill([
         pillBtn("again", { primary: true, icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
+        pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
+      ]),
+    );
+  }
+
+  // ---- ready: FIGURE proposal (a real image copied from an attached source) ----
+  // No Edit (there's no text to edit) and no peek teaser (the line was empty).
+  // Approve → insertImage op with the bytes already fetched for this preview.
+  if (sug.action === "insertSourceImage" && sug.hasImage) {
+    return React.createElement(
+      "div",
+      { className: rootCls },
+      chip,
+      trace,
+      renderImagePreview(sug),
+      pill([
+        pillBtn("approve", { primary: true, icon: ICON_CHECK, label: "Approve", onClick: doApprove }),
+        pillBtn("again", { icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
         pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
       ]),
     );

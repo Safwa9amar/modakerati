@@ -36,6 +36,9 @@ export function tsig(b: DocBlockDTO): string {
   if (b.kind === "paragraph") return "p|" + b.text;
   if (b.kind === "table") return "t|" + JSON.stringify(b.rows);
   if (b.kind === "image") return "i|" + (b.dataUri ?? "") + "|" + (b.caption ?? "") + "|" + (b.hasMedia ? 1 : 0);
+  // A shape's text box is identified by its own text plus the host paragraph's —
+  // editing either is a structural change, not a format-only one.
+  if (b.kind === "textbox") return "x|" + b.text + "|" + b.lines.map((l) => l.text).join("");
   return "o|" + b.tag;
 }
 // The whole-paragraph inline-mark state (bold/italic/underline all-runs, uniform

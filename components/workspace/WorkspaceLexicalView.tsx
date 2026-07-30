@@ -43,6 +43,8 @@ import { hLight, hMedium } from "@/lib/haptics";
 // dataUri. Deterministic (same input → same output) so the save baseline and the
 // editor seed use identical blocks → images never produce spurious ops.
 const INLINE_MEDIA_BUDGET = 4 * 1024 * 1024; // ~4MB of base64 across the bridge
+// Same idea for a pending source-figure PREVIEW: one image, so a tighter budget.
+const SUG_IMAGE_PREVIEW_BUDGET = 2 * 1024 * 1024;
 function stripMedia(blocks: DocBlockDTO[]): DocBlockDTO[] {
   let budget = INLINE_MEDIA_BUDGET;
   return blocks.map((b) => {
@@ -288,6 +290,18 @@ export function WorkspaceLexicalView({
       proposedRows: p.proposedRows,
       tableHeader: p.tableHeader,
       tableRtl: p.tableRtl,
+      // action "insertSourceImage" → preview the figure copied from the student's
+      // uploaded source (only the display URI crosses into the WebView; the bytes the
+      // op inserts stay native). Oversized bytes don't cross the bridge at all — the
+      // card falls back to a "figure ready" placeholder, and approve is unaffected.
+      hasImage: !!p.image,
+      imageDataUri:
+        p.image && p.image.dataUri.length <= SUG_IMAGE_PREVIEW_BUDGET ? p.image.dataUri : undefined,
+      imageWidth: p.image?.width,
+      imageHeight: p.image?.height,
+      // A specific reason the ask couldn't be met (kind "none" / a failed image read),
+      // shown on the error card in place of the generic line.
+      errorText: p.errorText,
     };
   }, [byIndex]);
   // The range proposal (multi-block dynamic rewrite) passed to the editor as an

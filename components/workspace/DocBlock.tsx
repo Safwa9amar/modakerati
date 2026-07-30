@@ -276,6 +276,52 @@ function DocBlockInner({
     );
   }
 
+  // A Word shape with text in it (a cover page's rounded title banner). Drawn
+  // from the shape's own geometry; the host paragraph's own runs sit under it,
+  // where they are on the page. Structural — tapping selects, like a table.
+  if (block.kind === "textbox") {
+    const boxText = block.lines.map((l) => l.text).join("\n");
+    const pickText = [boxText, block.text].filter((s) => s.trim()).join("\n");
+    const own = block.text.trim();
+    return (
+      <Pressable
+        onPress={(e) => pickBlock(block.index, pickText, e.nativeEvent.pageY)}
+        onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, pickText))}
+      >
+        <View
+          style={[
+            styles.shapeBox,
+            {
+              borderColor: block.shape.border?.color ?? BORDER,
+              borderWidth: Math.max(1, block.shape.border?.pt ?? 1),
+              borderRadius: block.shape.rounded ? 14 : 2,
+            },
+            block.shape.fill ? { backgroundColor: block.shape.fill } : null,
+            isSelected && { backgroundColor: hi + "18" },
+          ]}
+        >
+          {block.lines.map((l, i) => (
+            <Text
+              key={i}
+              style={[
+                styles.shapeLine,
+                dirStyle(l.text, rtl),
+                l.alignment === "center" ? { textAlign: "center" } : null,
+                l.bold ? { fontWeight: "700" } : null,
+                l.sizePt ? { fontSize: Math.min(24, Math.max(14, l.sizePt)) } : null,
+              ]}
+            >
+              {l.text}
+            </Text>
+          ))}
+        </View>
+        {own ? (
+          <Text style={[styles.body, dirStyle(own, rtl)]}>{own}</Text>
+        ) : null}
+      </Pressable>
+    );
+  }
+
   // paragraph
   const isHeading = block.level >= 1;
   const empty = !block.text.trim();
@@ -868,6 +914,15 @@ const styles = StyleSheet.create({
   },
   // width:100% fits the paper content area; aspectRatio (set inline) keeps shape.
   image: { width: "100%", borderRadius: 4 },
+
+  // A Word shape's text box, drawn from its own outline/fill/corner geometry.
+  shapeBox: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginVertical: 10,
+    alignSelf: "stretch",
+  },
+  shapeLine: { fontSize: 16, lineHeight: 26, fontFamily: "Inter_400Regular" },
 
   tableWrap: {
     borderWidth: 1,

@@ -7,7 +7,7 @@ import {
   parseFillReply,
   type SuggestAction,
 } from "@/lib/thesis-suggest";
-import { chromeOp, generateChromeModel, type HfPreview } from "@/lib/api";
+import { chromeOp, generateChromeModel, fetchThesisSourceImage, type HfPreview } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { type ThesisOp } from "@/lib/thesis-ops";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
@@ -22,6 +22,7 @@ type SuggestKind = "paragraph" | "image";
 function actionLabel(action: SuggestAction): string {
   if (action === "setCaption") return i18n.t("suggestion.actionCaption", { defaultValue: "Add caption" });
   if (action === "insertTable") return i18n.t("suggestion.actionInsertTable", { defaultValue: "Insert table" });
+  if (action === "insertSourceImage") return i18n.t("suggestion.actionInsertImage", { defaultValue: "Insert image" });
   return i18n.t("suggestion.actionRewrite", { defaultValue: "Rewrite" });
 }
 
@@ -54,6 +55,27 @@ export interface PendingSuggestion {
   // action "insertTable": row 0 is a header / right-to-left table — carried to the op.
   tableHeader?: boolean;
   tableRtl?: boolean;
+  // action "insertSourceImage": a real figure copied out of one of the student's
+  // uploaded sources. The bytes are already fetched when the card goes ready — the
+  // SAME bytes are previewed and then inserted, so approving cannot land a different
+  // picture than the one shown. Applied via the insertImage op.
+  image?: {
+    sourceId: string;
+    /** The figure's block index inside the SOURCE document (not the thesis). */
+    sourceImageIndex: number;
+    /** base64, no data: prefix — what the insertImage op carries. */
+    data: string;
+    format: string;
+    /** Display size in the source (px); the server clamps the on-page width. */
+    width?: number;
+    height?: number;
+    /** Self-contained preview URI for the card (same bytes as `data`). */
+    dataUri: string;
+  };
+  // A ready-but-unfulfillable ask (the model's kind "none", e.g. "no image in your
+  // attached files matches that"): shown on the error card INSTEAD of the generic
+  // "couldn't generate" line, because the reason is the useful part.
+  errorText?: string;
   // The model's reasoning ("thinking"), streamed live while `loading` and shown
   // in the collapsible ThinkingTrace on the inline card. Empty when the model
   // emits none (a short rewrite often does) — the card then just shows the spinner.
@@ -295,11 +317,53 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
       });
       if (reasoningStart && reasoningMs == null) reasoningMs = Date.now() - reasoningStart;
       const fill = parseFillReply(jsonBuf);
+      // A figure proposal names a source image; fetch those bytes BEFORE going ready
+      // so the card previews the actual picture (and holds the exact bytes approve
+      // will insert). A failed fetch is an error card, not a silent text fallback.
+      let image: PendingSuggestion["image"] | undefined;
+      if (fill?.kind === "image") {
+        try {
+          const got = await fetchThesisSourceImage(thesisId, fill.sourceId, fill.imageIndex);
+          image = {
+            sourceId: fill.sourceId,
+            sourceImageIndex: fill.imageIndex,
+            data: got.data,
+            format: got.format,
+            ...(got.width > 0 ? { width: got.width } : {}),
+            ...(got.height > 0 ? { height: got.height } : {}),
+            dataUri: `data:${got.mime || `image/${got.format}`};base64,${got.data}`,
+          };
+        } catch {
+          image = undefined;
+        }
+      }
       set((s) => {
         const cur = s.byIndex[index];
         if (!isMine(cur)) return {};
         // Unparseable / empty → error card (mirrors an empty rewrite).
         if (!fill) return { byIndex: { ...s.byIndex, [index]: { ...cur!, reasoning, reasoningMs, status: "error" } } };
+        // The model says it can't be done (no matching figure in the attachments):
+        // surface its reason instead of writing prose the student didn't ask for.
+        if (fill.kind === "none")
+          return { byIndex: { ...s.byIndex, [index]: { ...cur!, reasoning, reasoningMs, errorText: fill.message, status: "error" } } };
+        if (fill.kind === "image") {
+          if (!image)
+            return {
+              byIndex: {
+                ...s.byIndex,
+                [index]: {
+                  ...cur!, reasoning, reasoningMs, status: "error",
+                  errorText: i18n.t("suggestion.imageFetchFailed", { defaultValue: "Couldn’t read that image from your attached file." }),
+                },
+              },
+            };
+          return {
+            byIndex: {
+              ...s.byIndex,
+              [index]: { ...cur!, action: "insertSourceImage", label: actionLabel("insertSourceImage"), image, reasoning, reasoningMs, status: "ready" },
+            },
+          };
+        }
         const next: PendingSuggestion =
           fill.kind === "table"
             ? { ...cur!, action: "insertTable", label: actionLabel("insertTable"), proposedRows: fill.rows, tableHeader: fill.header, tableRtl: fill.rtl, reasoning, reasoningMs, status: "ready" }
@@ -320,12 +384,23 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
     if (!cur || cur.status !== "ready") return;
     // Dispatch by action: a paragraph rewrite → editText; a figure caption →
     // setCaption; a filled empty paragraph → insertTable (inserts a real Word table
-    // so it occupies this block). All flow through the durable op queue so they
-    // flush / reconcile like any other manual edit.
+    // so it occupies this block) or insertImage (embeds the figure copied from the
+    // student's source, `afterIndex` = the block before so it lands ON this line and
+    // the empty paragraph stays as the trailing spacer). All flow through the durable
+    // op queue so they flush / reconcile like any other manual edit.
     let op: ThesisOp;
     if (cur.action === "setCaption") op = { type: "setCaption", index, caption: cur.proposed } as const;
     else if (cur.action === "insertTable" && cur.proposedRows?.length)
       op = { type: "insertTable", index, rows: cur.proposedRows, header: cur.tableHeader, rtl: cur.tableRtl } as const;
+    else if (cur.action === "insertSourceImage" && cur.image)
+      op = {
+        type: "insertImage",
+        afterIndex: index - 1,
+        data: cur.image.data,
+        format: cur.image.format,
+        ...(cur.image.width ? { width: cur.image.width } : {}),
+        ...(cur.image.height ? { height: cur.image.height } : {}),
+      } as const;
     else op = { type: "editText", index, text: cur.proposed } as const;
     void useThesisDocStore.getState().mutate(thesisId, op);
     set((s) => ({ byIndex: without(s.byIndex, index), justApplied: index }));
@@ -336,9 +411,10 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
   again: async (thesisId, index) => {
     const cur = get().byIndex[index];
     if (!cur) return;
-    // A filled empty paragraph (table proposal, or a text fill of a still-empty line)
-    // re-runs through the fill flow; a figure caption re-asks as an image; else rewrite.
-    if (cur.action === "insertTable" || !cur.original.trim()) {
+    // A filled empty paragraph (table / source-figure proposal, or a text fill of a
+    // still-empty line) re-runs through the fill flow; a figure caption re-asks as an
+    // image; else rewrite.
+    if (cur.action === "insertTable" || cur.action === "insertSourceImage" || !cur.original.trim()) {
       await get().requestFill(thesisId, index, cur.instruction);
       return;
     }

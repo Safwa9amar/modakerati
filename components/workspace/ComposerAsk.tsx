@@ -53,7 +53,7 @@ export function ComposerAsk({ ask, onAnswer, rtl, onDismiss, onInputFocus, onInp
         )}
       </View>
 
-      <View style={styles.options}>
+      <View style={[styles.options, rtl && styles.optionsRtl]}>
         {ask.options.map((opt) => (
           <Pressable
             key={opt}
@@ -66,17 +66,22 @@ export function ComposerAsk({ ask, onAnswer, rtl, onDismiss, onInputFocus, onInp
       </View>
 
       {ask.allowFreeText && (
-        <View style={styles.inputRow}>
+        <View style={[styles.inputRow, rtl && styles.inputRowRtl]}>
           <TextInput
             value={text}
             onChangeText={setText}
             placeholder={t("chat.typeYourOwn", { defaultValue: "Type your own…" })}
             placeholderTextColor={colors.textPlaceholder}
-            style={[styles.input, { color: colors.textPrimary, backgroundColor: colors.bgCard }]}
-            onSubmitEditing={() => submit(text)}
+            // Wraps instead of scrolling the start of the answer out of view (a typed
+            // Arabic sentence outgrew one line and only its tail stayed readable), and
+            // follows the question's direction so the caret starts on the right in RTL.
+            style={[
+              styles.input,
+              { color: colors.textPrimary, backgroundColor: colors.bgCard, textAlign: rtl ? "right" : "left" },
+            ]}
+            multiline
             onFocus={onInputFocus}
             onBlur={onInputBlur}
-            returnKeyType="send"
           />
           <Pressable onPress={() => submit(text)} style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}>
             <Text style={styles.sendText}>{t("chat.send", { defaultValue: "Send" })}</Text>
@@ -93,10 +98,22 @@ const styles = StyleSheet.create({
   headerRtl: { flexDirection: "row-reverse" },
   question: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold" },
   options: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  optionsRtl: { flexDirection: "row-reverse" },
   option: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1 },
   optionText: { fontSize: 13, fontFamily: "Inter_500Medium" },
-  inputRow: { flexDirection: "row", gap: 8, alignItems: "center" },
-  input: { flex: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, fontFamily: "Inter_400Regular" },
+  inputRow: { flexDirection: "row", gap: 8, alignItems: "flex-end" },
+  inputRowRtl: { flexDirection: "row-reverse" },
+  input: {
+    flex: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    minHeight: 42,
+    // ~4 lines, then it scrolls internally — the card must not eat the document.
+    maxHeight: 104,
+  },
   sendBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12 },
   sendText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

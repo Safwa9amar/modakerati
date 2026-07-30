@@ -145,6 +145,17 @@ export type SuggestionInput = {
   proposedRows?: string[][];
   tableHeader?: boolean;
   tableRtl?: boolean;
+  // action "insertSourceImage": a figure copied out of one of the student's uploaded
+  // sources — previewed here as a self-contained data: URI; approve inserts the same
+  // bytes via the insertImage op (they never enter the WebView). `hasImage` stays true
+  // when the bytes were too big to send across the bridge for preview.
+  hasImage?: boolean;
+  imageDataUri?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  // Why the ask couldn't be fulfilled (e.g. no matching figure in the attachments) —
+  // replaces the generic error line when present.
+  errorText?: string;
 };
 
 // The pending RANGE proposal (multi-block dynamic rewrite) handed to the editor.
@@ -1251,6 +1262,23 @@ function SuggestionPlugin({
               } as unknown as DocBlockDTO),
             );
             existing.replace(rebuildOriginal(sug.original, existing.__origType));
+          } else if (applied && sug.action === "insertSourceImage" && sug.hasImage) {
+            // Same in-place settle for a figure copied from a source: the figure node
+            // goes in BEFORE the card and the (empty) paragraph stays after it, which
+            // is exactly what the insertImage op does server-side (afterIndex = the
+            // block before). Without a preview dataUri the node still renders — the
+            // server echo brings the bytes back on reconcile.
+            existing.insertBefore(
+              $createBlockDataNode({
+                index: 0,
+                kind: "image",
+                hasMedia: true,
+                ...(sug.imageDataUri ? { dataUri: sug.imageDataUri } : {}),
+                ...(sug.imageWidth ? { width: sug.imageWidth } : {}),
+                ...(sug.imageHeight ? { height: sug.imageHeight } : {}),
+              } as unknown as DocBlockDTO),
+            );
+            existing.replace(rebuildOriginal(sug.original, existing.__origType));
           } else {
             existing.replace(rebuildOriginal(applied ? sug.proposed : sug.original, existing.__origType));
           }
@@ -1271,6 +1299,11 @@ function SuggestionPlugin({
         proposedRows: suggestion.proposedRows,
         tableHeader: suggestion.tableHeader,
         tableRtl: suggestion.tableRtl,
+        hasImage: suggestion.hasImage,
+        imageDataUri: suggestion.imageDataUri,
+        imageWidth: suggestion.imageWidth,
+        imageHeight: suggestion.imageHeight,
+        errorText: suggestion.errorText,
       };
       if (existing) { existing.getWritable().__sug = data; return; } // stream in place
       const target = $nodeAtBlockIndex(suggestion.index);
@@ -1295,7 +1328,7 @@ function SuggestionPlugin({
     if (structural) withScrollPinned(editor, mutate, isClear);
     else editor.update(mutate, { tag: SKIP_DOM_SELECTION_TAG }); // stream in place — never touch focus/scroll
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestion?.index, suggestion?.proposed, suggestion?.status, suggestion?.reasoning, suggestion?.label, suggestion?.proposedRows]);
+  }, [suggestion?.index, suggestion?.proposed, suggestion?.status, suggestion?.reasoning, suggestion?.label, suggestion?.proposedRows, suggestion?.imageDataUri]);
   return null;
 }
 
@@ -2046,16 +2079,19 @@ function KeyboardModePlugin({ active }: { active: boolean }) {
   return null;
 }
 
-// Fast right→left fling anywhere over PLAIN text → open the Thesis-Structure drawer
+// Fast sideways fling anywhere over PLAIN text → open the Thesis-Structure drawer
 // (issue #4, option C). Detected IN the WebView because only it knows whether the touch
 // started on a table/image/chrome band — those own horizontal scroll and are excluded.
-// A slow horizontal drag stays as text-select; the fling must be fast + clearly
-// horizontal + leftward. Bridges out via onOpen (thresholds are device-tunable).
+// A slow horizontal drag stays as text-select; the fling must be brisk + clearly
+// horizontal + toward the drawer's side. Recognised on touchMOVE, so the drawer starts
+// sliding under the finger rather than after it lifts — the bridge hop to the native
+// side costs enough on its own. Bridges out via onOpen (thresholds are device-tunable).
 function DrawerSwipePlugin({ onOpen, rtl }: { onOpen?: () => void; rtl?: boolean }) {
   useEffect(() => {
     if (!onOpen || typeof document === "undefined") return;
-    let sx = 0, sy = 0, st = 0, armed = false;
+    let sx = 0, sy = 0, st = 0, armed = false, fired = false;
     const onStart = (e: TouchEvent) => {
+      fired = false;
       if (e.touches.length !== 1) { armed = false; return; }
       const t = e.touches[0];
       sx = t.clientX; sy = t.clientY; st = Date.now();
@@ -2063,8 +2099,34 @@ function DrawerSwipePlugin({ onOpen, rtl }: { onOpen?: () => void; rtl?: boolean
       // Exclude tables / images / chrome bands — they own horizontal scroll (option C).
       armed = !el?.closest?.(".lx-blockpick, table, .lx-chrome, img");
     };
+    // Open direction follows the APP language: Arabic (RTL) opens with a right→left
+    // flick, fr/en (LTR) with a left→right flick — matching the edge-swipe side.
+    const towardOpen = (dx: number) => (rtl ? -dx : dx);
+    const fire = () => {
+      fired = true;
+      armed = false;
+      window.getSelection?.()?.removeAllRanges?.(); // a fling isn't a selection
+      onOpen();
+    };
+    // Recognise the fling MID-GESTURE. Waiting for touchend meant the drawer only
+    // started moving once the finger lifted — the swipe felt like it took ~200-300ms
+    // to do anything. As soon as the travel is unambiguous (past threshold, clearly
+    // horizontal, still brisk) we open, so the slide begins under the finger.
+    const onMove = (e: TouchEvent) => {
+      if (!armed || fired) return;
+      const t = e.touches[0];
+      if (!t) return;
+      const dx = t.clientX - sx;
+      const dy = t.clientY - sy;
+      // The reader is scrolling the document — this gesture is not ours.
+      if (Math.abs(dy) > 20 && Math.abs(dy) >= Math.abs(dx)) { armed = false; return; }
+      const dt = Date.now() - st || 1;
+      if (towardOpen(dx) > 64 && Math.abs(dx) > Math.abs(dy) * 1.6 && dt < 400) fire();
+    };
+    // Fallback for a flick so fast it barely emits touchmove events (unchanged
+    // thresholds — this is the original recogniser).
     const onEnd = (e: TouchEvent) => {
-      if (!armed) return;
+      if (!armed || fired) return;
       armed = false;
       const t = e.changedTouches[0];
       if (!t) return;
@@ -2072,19 +2134,14 @@ function DrawerSwipePlugin({ onOpen, rtl }: { onOpen?: () => void; rtl?: boolean
       const dy = t.clientY - sy;
       const dt = Date.now() - st || 1;
       const v = Math.abs(dx) / dt; // px per ms
-      // Open direction follows the APP language: Arabic (RTL) opens with a right→left
-      // flick, fr/en (LTR) with a left→right flick — matching the edge-swipe side. Must
-      // also be fast + clearly more horizontal than vertical.
-      const towardOpen = rtl ? dx < -70 : dx > 70;
-      if (towardOpen && Math.abs(dx) > Math.abs(dy) * 1.6 && v > 0.5 && dt < 400) {
-        window.getSelection?.()?.removeAllRanges?.(); // a fling isn't a selection
-        onOpen();
-      }
+      if (towardOpen(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6 && v > 0.5 && dt < 400) fire();
     };
     document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchmove", onMove, { passive: true });
     document.addEventListener("touchend", onEnd, { passive: true });
     return () => {
       document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchmove", onMove);
       document.removeEventListener("touchend", onEnd);
     };
   }, [onOpen, rtl]);

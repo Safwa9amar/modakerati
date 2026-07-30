@@ -712,9 +712,58 @@ export async function combineThesis(input: {
 // Mirrors the server DTO from GET /api/thesis/:id/document.
 // ============================================================
 
+// One paragraph inside a Word shape's text box (see the `textbox` block below).
+export type TextBoxLine = {
+  text: string;
+  alignment: "left" | "center" | "right" | "both" | null;
+  direction: "rtl" | "ltr" | null;
+  bold?: boolean;
+  sizePt?: number;
+};
+
+// The drawn box itself — enough to redraw it recognisably outside Word.
+export type TextBoxShape = {
+  rounded: boolean;
+  border: { color: string; pt: number } | null;
+  fill: string | null;
+  width?: number;
+  height?: number;
+};
+
+// A picture that lives INSIDE a table cell (a cover page's institution logos).
+// Same inline/on-demand split as an image block: small ones arrive as `dataUri`,
+// bigger ones set `hasMedia` and the bytes come from thesisCellImageUrl().
+export type CellImageDTO = { dataUri?: string; hasMedia?: boolean; width?: number; height?: number };
+
+// Word list kind of a paragraph (mirrors the server's ListKind).
+export type DocListKind = "bullet" | "number";
+
 export type DocBlockDTO =
   | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; alignment: "left" | "center" | "right" | "both" | null; direction: "rtl" | "ltr" | null }
-  | { index: number; kind: "table"; rows: string[][] }
+  | {
+      index: number;
+      kind: "table";
+      rows: string[][];
+      // Pictures per cell, and the list kind of each LINE of a cell's text
+      // (cellLists[row][col][lineIndex], lines being rows[row][col].split("\n")).
+      // Both are absent when the table has no images / no lists.
+      cellImages?: (CellImageDTO | null)[][];
+      cellLists?: (DocListKind | null)[][][];
+    }
+  // A Word SHAPE with text in it — the rounded banner a cover page puts its title
+  // in. Structural like a table: it draws as a card and round-trips verbatim.
+  // `text` is the HOST paragraph's own runs, which sit beside the floating shape
+  // (before this existed, both the box and those runs were silently dropped and
+  // the block rendered as an empty "figure" placeholder).
+  | {
+      index: number;
+      kind: "textbox";
+      text: string;
+      lines: TextBoxLine[];
+      shape: TextBoxShape;
+      alignment: "left" | "center" | "right" | "both" | null;
+      direction: "rtl" | "ltr" | null;
+    }
   // L4c: image blocks (charts/figures). The server inlines small images (charts
   // ≤ ~200KB) as a base64 `dataUri` so the workspace can render the real image;
   // larger figures omit `dataUri` and the app shows a placeholder. `width`/`height`
@@ -783,6 +832,19 @@ export async function getThesisDocument(id: string): Promise<DocumentDTO> {
 export function thesisBlockImageUrl(id: string, index: number, version?: number | string): string {
   const v = version != null ? `?v=${encodeURIComponent(String(version))}` : "";
   return `${API_URL}/api/thesis/${id}/document/media/${index}${v}`;
+}
+
+// Same, for a picture inside a TABLE cell (DTO `cellImages[row][col]`) — a cell
+// picture has no block index of its own, so it is addressed by its coordinates.
+export function thesisCellImageUrl(
+  id: string,
+  index: number,
+  row: number,
+  col: number,
+  version?: number | string,
+): string {
+  const v = version != null ? `&v=${encodeURIComponent(String(version))}` : "";
+  return `${API_URL}/api/thesis/${id}/document/media/${index}?r=${row}&c=${col}${v}`;
 }
 
 // Just the Bearer Authorization header (no Content-Type), for attaching to a
@@ -1278,6 +1340,22 @@ export async function insertThesisImage(
   img: { data: string; format: string; width?: number; height?: number; afterIndex: number }
 ): Promise<{ ok: true; newIndex: number; document?: DocumentDTO; history?: HistoryStateDTO }> {
   return apiPost<{ ok: true; newIndex: number; document?: DocumentDTO; history?: HistoryStateDTO }>(`/api/thesis/${thesisId}/blocks/image`, img);
+}
+
+// One FIGURE out of an attached source .docx, as base64 + its size in the source.
+// The writer's inline "insert the figure from the attached file" proposal uses this
+// twice: to PREVIEW the picture in the suggestion card, and — on approve — as the
+// bytes for the normal insertImage op, so what lands in the thesis is exactly what
+// the student saw. `index` is the figure's block index inside the SOURCE document
+// (the model picks it from the server's figure catalogue).
+export async function fetchThesisSourceImage(
+  thesisId: string,
+  sourceId: string,
+  index: number
+): Promise<{ format: string; mime: string; width: number; height: number; data: string }> {
+  return apiGet<{ format: string; mime: string; width: number; height: number; data: string }>(
+    `/api/thesis/${thesisId}/sources/${sourceId}/images/${index}`,
+  );
 }
 
 // Replace the image bytes of an existing figure block (engine block `index`) with

@@ -3,11 +3,13 @@ import { getAuthHeader } from "@/lib/api";
 import type { DocumentDTO, HistoryStateDTO } from "@/lib/api";
 
 // Which unified action a suggestion applies on approval: rewrite a paragraph, set a
-// figure's caption, or insert a new table (fill of an empty paragraph). "rewrite"/
-// "setCaption" mirror the server's actionFrame ([[MODK_ACTION:x]] header); "insertTable"
-// is APP-ONLY — it comes from the /fill JSON ({"kind":"table"}), never an action header
-// — and dispatches the insertTable op on approve.
-export type SuggestAction = "rewrite" | "setCaption" | "insertTable";
+// figure's caption, insert a new table, or place a figure copied out of one of the
+// student's uploaded sources (both of the last two are fills of an empty paragraph).
+// "rewrite"/"setCaption" mirror the server's actionFrame ([[MODK_ACTION:x]] header);
+// "insertTable" / "insertSourceImage" are APP-ONLY — they come from the /fill JSON
+// ({"kind":"table"} / {"kind":"image"}), never an action header — and dispatch the
+// insertTable / insertImage op on approve.
+export type SuggestAction = "rewrite" | "setCaption" | "insertTable" | "insertSourceImage";
 
 // Ask the server to REWRITE a single paragraph per an instruction and return the
 // proposed text WITHOUT applying it. The caller (suggestion-store) surfaces the
@@ -307,7 +309,10 @@ export async function proposeBlockEditStream(
 // with parseFillReply at the end, then renders the matching inline proposal.
 // ---------------------------------------------------------------------------
 
-// A parsed fill proposal: prose to write into the empty paragraph, or a new table.
+// A parsed fill proposal: prose to write into the empty paragraph, a new table, one
+// of the FIGURES embedded in the student's uploaded sources, or an honest "can't do
+// that" (kind "none" — e.g. they asked for an image no attachment actually contains,
+// where writing a caption instead would be a lie the document then carries).
 export type FillProposal =
   | { kind: "text"; text: string }
   | {
@@ -317,7 +322,15 @@ export type FillProposal =
       header: boolean;
       /** right-to-left table — from layout.direction === "rtl". */
       rtl: boolean;
-    };
+    }
+  | {
+      kind: "image";
+      /** Which uploaded source holds the figure. */
+      sourceId: string;
+      /** The figure's block index INSIDE that source document. */
+      imageIndex: number;
+    }
+  | { kind: "none"; message: string };
 
 // Parse the streamed fill JSON. Mirrors the server's FILL shapes + the table caps of
 // parseProposedGrid. Returns null on unparseable / empty output (→ the store shows
@@ -331,9 +344,24 @@ export function parseFillReply(raw: string): FillProposal | null {
     return null;
   }
   if (!parsed || typeof parsed !== "object") return null;
-  const obj = parsed as { kind?: unknown; text?: unknown; rows?: unknown; layout?: unknown };
+  const obj = parsed as {
+    kind?: unknown; text?: unknown; rows?: unknown; layout?: unknown;
+    sourceId?: unknown; imageIndex?: unknown; message?: unknown;
+  };
   if (obj.kind === "text") {
     return typeof obj.text === "string" && obj.text.trim() ? { kind: "text", text: obj.text } : null;
+  }
+  if (obj.kind === "image") {
+    // Both ids are required and must be usable as-is — a fabricated/blank id would
+    // 404 on the fetch below, so treat it as no proposal rather than a broken card.
+    const sourceId = typeof obj.sourceId === "string" ? obj.sourceId.trim() : "";
+    const imageIndex = Number(obj.imageIndex);
+    if (!sourceId || !Number.isInteger(imageIndex) || imageIndex < 0) return null;
+    return { kind: "image", sourceId, imageIndex };
+  }
+  if (obj.kind === "none") {
+    const message = typeof obj.message === "string" ? obj.message.trim() : "";
+    return message ? { kind: "none", message } : null;
   }
   if (obj.kind === "table" && Array.isArray(obj.rows)) {
     const MAX_ROWS = 60, MAX_COLS = 12;

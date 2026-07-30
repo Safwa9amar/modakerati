@@ -57,6 +57,7 @@ function signature(b: DocBlockDTO): unknown {
   }
   if (b.kind === "table") return { k: "table", rows: b.rows };
   if (b.kind === "image") return { k: "image", dataUri: b.dataUri ?? null, hasMedia: !!b.hasMedia, width: b.width ?? null, height: b.height ?? null, caption: b.caption ?? null };
+  if (b.kind === "textbox") return { k: "textbox", text: b.text, lines: b.lines.map((l) => l.text), shape: b.shape };
   return { k: "other", tag: b.tag };
 }
 const j = (v: unknown) => JSON.stringify(v, null, 1);
