@@ -44,7 +44,10 @@ export async function ttsAudioSource(
   const params = new URLSearchParams({ text, lang });
   if (rate && rate > 0) params.set("rate", String(rate));
   if (provider) params.set("provider", provider);
-  return { uri: `${API_URL}/api/tts?${params.toString()}`, headers };
+  // The ".wav" path matters: Android's ExoPlayer partly infers the audio
+  // container from the URL, and an extensionless one can fail to play silently
+  // even when the bytes and content-type are right.
+  return { uri: `${API_URL}/api/tts/speech.wav?${params.toString()}`, headers };
 }
 
 export interface TtsCapabilities {
@@ -500,8 +503,16 @@ export async function deleteThesis(id: string) {
   return apiDelete(`/api/thesis/${id}`);
 }
 
-export async function listTemplates() {
-  return apiGet<Template[]>("/api/templates");
+/**
+ * Active templates. Pass a `universityId` to get just that institution's —
+ * an institution can have several (Licence / Master / Doctorat, Arabic /
+ * French), which is what the per-university browse screen lists.
+ */
+export async function listTemplates(universityId?: string) {
+  const path = universityId
+    ? `/api/templates?universityId=${encodeURIComponent(universityId)}`
+    : "/api/templates";
+  return apiGet<Template[]>(path);
 }
 
 /**

@@ -12,6 +12,7 @@ export default function AppLayout() {
     <Stack.Screen name="payment-failed" />
     <Stack.Screen name="start-thesis" />
     <Stack.Screen name="browse-templates" />
+    <Stack.Screen name="university-templates" />
     <Stack.Screen name="thesis-title" />
     <Stack.Screen name="template-preview" />
     <Stack.Screen name="thesis-plan" />

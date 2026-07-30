@@ -30,7 +30,6 @@ export default function StartThesisScreen() {
   const { t, i18n } = useTranslation();
 
   const profile = useProfileStore((s) => s.profile);
-  const saveProfile = useProfileStore((s) => s.saveProfile);
 
   const [points, setPoints] = useState<StartingPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,12 +65,12 @@ export default function StartThesisScreen() {
     fetchPoints();
   }, [universityId, fetchPoints]);
 
-  const handlePickUniversity = async (id: string, uni: University) => {
-    setNeedsUniversity(false);
-    setLoading(true);
-    // Persist both: the id is what the resolver joins on, the name keeps the
-    // profile readable for anyone looking at it directly.
-    await saveProfile({ universityId: id, university: uni.nameFr });
+  // Browsing, NOT profile-setting. Tapping an institution shows what it offers —
+  // an institution routinely has several templates (Licence / Master / Doctorat,
+  // Arabic / French), so the answer is a list, not a single pick. Changing which
+  // university you belong to is a profile edit and lives in edit-profile.
+  const handleBrowseUniversity = (id: string, _uni: University) => {
+    router.push(`/(app)/university-templates?universityId=${id}` as any);
   };
 
   const handleStart = (sp: StartingPoint) => {
@@ -105,11 +104,13 @@ export default function StartThesisScreen() {
 
       {needsUniversity ? (
         <View style={styles.pickerWrap}>
-          <Text style={[styles.askTitle, { color: colors.textPrimary }]}>{t("startingPoint.askUniversity")}</Text>
-          <Text style={[styles.askHint, { color: colors.textSecondary }]}>{t("startingPoint.askUniversityHint")}</Text>
+          <Text style={[styles.askTitle, { color: colors.textPrimary }]}>{t("startingPoint.browseUniversities")}</Text>
+          <Text style={[styles.askHint, { color: colors.textSecondary }]}>
+            {t("startingPoint.browseUniversitiesHint")}
+          </Text>
           <UniversityPicker
             value={null}
-            onChange={handlePickUniversity}
+            onChange={handleBrowseUniversity}
             onSkip={() => {
               setNeedsUniversity(false);
               fetchPoints();
