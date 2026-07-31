@@ -96,7 +96,7 @@ export function ActionRow({
       ) : (
         suggestions.map((sg, i) => (
           <AnimatedChip
-            key={`sugg-${i}`}
+            key={`sugg-${sg.label}-${i}`}
             onPress={() => onPrompt(sg.prompt)}
             disabled={disabled}
             accessibilityLabel={sg.label}

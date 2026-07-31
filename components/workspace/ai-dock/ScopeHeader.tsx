@@ -36,9 +36,15 @@ export function ScopeHeader({ scope, count, onClear, onCollapse }: Props) {
   return (
     <View style={[s.header, { flexDirection }]}>
       <Sparkles size={13} color={tint} strokeWidth={2.4} />
-      <Text numberOfLines={1} style={[s.headerText, { color: tint }]}>
-        {`${target} · ${outcome}`}
+      <Text numberOfLines={1} style={[s.headerTarget, { color: tint }]}>
+        {target}
       </Text>
+      {/* Deliberately a separate, non-shrinking Text rather than one
+          concatenated string: see headerOutcome in styles.ts for why. */}
+      <Text numberOfLines={1} style={[s.headerOutcome, { color: tint }]}>
+        {`· ${outcome}`}
+      </Text>
+      <View style={s.headerSpacer} />
       {count > 0 ? (
         <Pressable
           onPress={onClear}

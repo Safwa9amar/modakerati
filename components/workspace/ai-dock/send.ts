@@ -42,9 +42,15 @@ export function sendFromDock({
     pill.setInputOpen(false);
   };
 
+  // Every guard below FAILS SAFE — `return`, never `break`. Breaking would drop
+  // a review-outcome scope into the direct-send tail at the bottom, so a stale
+  // selectedBlock (the optimistic edit path can reindex blocks underneath us)
+  // would turn "you'll review the change" into an unreviewed document edit. That
+  // is precisely the regression fixed in a8b14a8. Doing nothing is the correct
+  // failure mode here; escalating to the more destructive action is not.
   switch (scope.kind) {
     case "emptyParagraph":
-      if (!selectedBlock) break;
+      if (!selectedBlock || selectedBlock.kind !== "paragraph") return;
       // The fill flow lets the model choose prose vs a real table; both come
       // back as an inline proposal.
       void useSuggestionStore.getState().requestFill(thesisId, selectedBlock.index, prompt);
@@ -53,7 +59,7 @@ export function sendFromDock({
 
     case "paragraph":
     case "heading":
-      if (!selectedBlock || selectedBlock.kind !== "paragraph") break;
+      if (!selectedBlock || selectedBlock.kind !== "paragraph") return;
       void useSuggestionStore
         .getState()
         .request(thesisId, selectedBlock.index, selectedBlock.text, prompt);
@@ -61,7 +67,7 @@ export function sendFromDock({
       return;
 
     case "image":
-      if (!selectedBlock || selectedBlock.kind !== "image") break;
+      if (!selectedBlock || selectedBlock.kind !== "image") return;
       void useSuggestionStore
         .getState()
         .request(thesisId, selectedBlock.index, selectedBlock.caption ?? "", prompt, "image");
@@ -69,12 +75,17 @@ export function sendFromDock({
       return;
 
     case "table":
-      if (!selectedBlock) break;
+      if (!selectedBlock || selectedBlock.kind !== "table") return;
       void useTableSuggestionStore.getState().request(thesisId, selectedBlock.index, prompt);
       collapse();
       return;
 
     case "range":
+      // requestRange reads the first and last entry of this array for its span
+      // bounds; an empty or single-entry one would hand undefined bounds to
+      // applyThesisRangeReplace. tsconfig has no noUncheckedIndexedAccess, so
+      // nothing upstream catches that for us.
+      if (scopeBlocks.length < 2) return;
       void useSuggestionStore.getState().requestRange(thesisId, scopeBlocks, prompt);
       collapse();
       return;
@@ -85,7 +96,7 @@ export function sendFromDock({
       break;
   }
 
-  // Every `direct` outcome, plus any defensive fall-through above.
+  // Reached ONLY by the three intentionally-`direct` scopes above.
   void sendMessageToAI(thesisId, prompt, {
     docBlockIndex: indices.length ? indices[0] : null,
     docBlockIndices: indices.length > 1 ? indices : undefined,

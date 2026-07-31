@@ -7,7 +7,15 @@ export const dockStyles = StyleSheet.create({
 
   // ── ScopeHeader ──
   header: { alignItems: "center", gap: 7 },
-  headerText: { flex: 1, fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  /** Target phrase. The ONLY part allowed to ellipsize. */
+  headerTarget: { flexShrink: 1, fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  /** Outcome phrase — never shrinks. On a 375pt phone the header has ~249px of
+   *  text room, and "This paragraph · you'll review the change" is already past
+   *  it; a single truncating Text eats from the tail, so the outcome — the one
+   *  thing this header exists to say — would be the first casualty, and worse in
+   *  fr/ar. Keeping it rigid spends the truncation on the target instead. */
+  headerOutcome: { flexShrink: 0, fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  headerSpacer: { flex: 1 },
   headerBtn: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
 
   // ── AskBar ──
