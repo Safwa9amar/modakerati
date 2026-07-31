@@ -151,8 +151,14 @@ export interface ResolveInput {
   indices: number[];
   /** The sole selected block, when exactly one is selected. */
   selectedBlock: DocBlockDTO | null;
-  /** The selected PARAGRAPH blocks only, in document order. */
+  /** The selected PARAGRAPH blocks only, in document order.
+   *  INVARIANT: every entry's index must also appear in `indices`. The resolver
+   *  uses `scopeBlocks.length === indices.length` as its "all paragraphs" test,
+   *  which is only sound while that holds. */
   scopeBlocks: { index: number; text: string; level: number }[];
+  /** ALL doc blocks, not just the selected ones — needed to decide whether the
+   *  span between the lowest and highest selection is fillable. */
+  allBlocks: { index: number; kind: string }[];
   /** True when the Lexical editor is the active surface — a range rewrite needs
    *  it to render the proposal into. */
   lexicalActive: boolean;
@@ -392,7 +398,7 @@ const SCATTERED_ACTIONS: DockAction[] = [SUMMARIZE_SEL, IMPROVE_SEL, FORMAT_SEL,
  * must still resolve as a heading.
  */
 export function resolveDockScope(input: ResolveInput): DockScope {
-  const { indices, selectedBlock, scopeBlocks, lexicalActive, chrome } = input;
+  const { indices, selectedBlock, scopeBlocks, allBlocks, lexicalActive, chrome } = input;
   const count = indices.length;
 
   if (chrome) {
@@ -498,12 +504,17 @@ export function resolveDockScope(input: ResolveInput): DockScope {
     }
     // A single textbox / chart / unmapped OOXML block: no dedicated suggest
     // endpoint exists for it, so it takes the plain send like a mixed set.
-    return scattered("mixed", false);
+    return buildScatteredScope("mixed", false);
   }
+
+  // A stale one-item selection whose block was deleted or reindexed by the
+  // optimistic edit path leaves count === 1 with no selectedBlock. Caught here
+  // so it can't fall into the 2+ logic below and be described as a range.
+  if (count === 1) return buildScatteredScope("mixed", false);
 
   // 2+ blocks. A range rewrite needs every selected block to BE a paragraph…
   const allParagraphs = scopeBlocks.length === count;
-  if (!allParagraphs) return scattered("mixed", false);
+  if (!allParagraphs) return buildScatteredScope("mixed", false);
 
   // …CONTIGUOUS, because approveRange replaces the whole span [min..max]: a
   // gapped set (tap block 5, tap block 30) would wipe out the 24 blocks in
@@ -512,8 +523,19 @@ export function resolveDockScope(input: ResolveInput): DockScope {
   const contiguous = span.every((v, i) => i === 0 || v === span[i - 1] + 1);
 
   // …and the Lexical editor active, because it renders the range node.
-  if (!lexicalActive) return scattered("notLexical", false);
-  if (!contiguous) return scattered("gapped", true);
+  if (!lexicalActive) return buildScatteredScope("notLexical", false);
+  if (!contiguous) {
+    // Offer the gap-fill ONLY if filling actually helps. A table sitting between
+    // two selected paragraphs cannot be merged into a range rewrite, so filling
+    // would return the same selection and the chip would be a dead end that
+    // re-offers itself forever.
+    const lo = span[0];
+    const hi = span[span.length - 1];
+    const spanFillable = allBlocks
+      .filter((b) => b.index >= lo && b.index <= hi)
+      .every((b) => b.kind === "paragraph");
+    return buildScatteredScope("gapped", spanFillable);
+  }
 
   return {
     kind: "range",
@@ -529,7 +551,7 @@ export function resolveDockScope(input: ResolveInput): DockScope {
   };
 }
 
-function scattered(cause: ScatteredCause, canSelectGaps: boolean): DockScope {
+function buildScatteredScope(cause: ScatteredCause, canSelectGaps: boolean): DockScope {
   const header =
     cause === "gapped"
       ? { key: "aiDock.header.gapped", fallback: "{{count}} sections, not adjacent" }
@@ -1256,6 +1278,7 @@ export function AIDock({
     indices: scopeIndices,
     selectedBlock: selectedBlock ?? null,
     scopeBlocks: paragraphs,
+    allBlocks: blocks,
     lexicalActive,
     chrome,
   });
@@ -1435,6 +1458,7 @@ Replace with:
       "range": "{{count}} adjacent sections",
       "gapped": "{{count}} sections, not adjacent",
       "notLexical": "{{count}} sections",
+      "mixed_one": "1 block",
       "mixed": "{{count}} blocks"
     },
     "outcome": {
@@ -1451,6 +1475,7 @@ Replace with:
       "heading": "Ask about this heading…",
       "emptyParagraph": "What should go here?",
       "paragraph": "Ask about this paragraph…",
+      "range_one": "Ask about this block…",
       "range": "Ask about these {{count}} sections…"
     },
     "summarize": "Summarize",
@@ -1495,6 +1520,7 @@ inverts the meaning of the single most important new element on this surface.
       "range": "{{count}} sections adjacentes",
       "gapped": "{{count}} sections, non adjacentes",
       "notLexical": "{{count}} sections",
+      "mixed_one": "1 bloc",
       "mixed": "{{count}} blocs"
     },
     "outcome": {
@@ -1511,6 +1537,7 @@ inverts the meaning of the single most important new element on this surface.
       "heading": "Poser une question sur ce titre…",
       "emptyParagraph": "Que faut-il mettre ici ?",
       "paragraph": "Poser une question sur ce paragraphe…",
+      "range_one": "Poser une question sur ce bloc…",
       "range": "Poser une question sur ces {{count}} sections…"
     },
     "summarize": "Résumer",
@@ -1549,6 +1576,7 @@ its `"table"` sub-block.
       "range": "{{count}} أقسام متجاورة",
       "gapped": "{{count}} أقسام غير متجاورة",
       "notLexical": "{{count}} أقسام",
+      "mixed_one": "كتلة واحدة",
       "mixed": "{{count}} كتل"
     },
     "outcome": {
@@ -1565,6 +1593,7 @@ its `"table"` sub-block.
       "heading": "اسأل عن هذا العنوان…",
       "emptyParagraph": "ما الذي يجب أن يوضع هنا؟",
       "paragraph": "اسأل عن هذه الفقرة…",
+      "range_one": "اسأل عن هذه الكتلة…",
       "range": "اسأل عن هذه الأقسام ({{count}})…"
     },
     "summarize": "لخّص",
