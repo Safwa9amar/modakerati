@@ -8,7 +8,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { ArrowUpDown, Calculator, ChevronsDownUp, Eye, EyeOff, FileText, LayoutPanelTop, Languages, MessageCircle, PenLine, Rows3, Search, Send, Table2, type LucideIcon } from "lucide-react-native";
+import { ArrowUpDown, Calculator, ChevronsDownUp, Eye, EyeOff, FileText, LayoutPanelTop, Languages, ListChecks, MessageCircle, PenLine, Rows3, Search, Send, Table2, X, type LucideIcon } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
@@ -255,8 +255,17 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scop
     }
     // Multi-block range rewrite — only when the Lexical editor is the active surface
     // (it renders the range node) and every selected block is a paragraph.
+    //
+    // …and only for a CONTIGUOUS selection: approveRange replaces the whole span
+    // [min..max] with the proposal, so a gapped set (trivial to build with the
+    // checkboxes — tap block 5, tap block 30) would wipe out every block in between
+    // that the student never selected. Gapped sets fall through to the plain send,
+    // which targets the exact indices instead of a span.
+    const span = [...scopeIndices].sort((a, b) => a - b);
+    const contiguous = span.every((v, i) => i === 0 || v === span[i - 1] + 1);
     if (
       scopeIndices.length > 1 &&
+      contiguous &&
       useLexicalEditorStore.getState().active &&
       scopeBlocks &&
       scopeBlocks.length === scopeIndices.length &&
@@ -297,6 +306,21 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scop
   const showChrome = useWorkspaceStore((s) => s.showChrome);
   // View-mode toggle for one-finger drag-to-reorder in the editor (wired by a later task).
   const reorderMode = useWorkspaceStore((s) => s.reorderMode);
+  // Checkbox block-selection mode: a leading checkbox on every block, tap to check
+  // one or many. Unlike the other view toggles this chip stays available once blocks
+  // ARE selected (scope non-empty) — it's the only way back out of the mode.
+  const selectMode = useWorkspaceStore((s) => s.selectMode);
+  const toggleSelect = () => {
+    const wasOn = useWorkspaceStore.getState().selectMode;
+    useWorkspaceStore.getState().toggleSelectMode();
+    // Turning it ON collapses the dock: the next thing to do is tap blocks in the
+    // document, and the panel covers them.
+    if (!wasOn) {
+      useFloatingPillStore.getState().setInputOpen(false);
+      useFloatingPillStore.getState().setExpanded(false);
+      Keyboard.dismiss();
+    }
+  };
   const openSearch = () => {
     const ws = useWorkspaceStore.getState();
     if (ws.previewMode != null) ws.closePreview();
@@ -380,6 +404,44 @@ export function AIDock({ thesisId, scopeLabel, scopeIndices, selectedBlock, scop
             <ArrowUpDown size={15} color={reorderMode ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
             <Text numberOfLines={1} style={[styles.actionChipText, { color: reorderMode ? colors.bgPrimary : colors.textPrimary }]}>
               {t("dockBar.reorder", { defaultValue: "Reorder" })}
+            </Text>
+          </AnimatedChip>
+        ) : null}
+        {/* Checkbox block selection on/off — a VIEW toggle (not an AI prompt). Shown
+            in BOTH scopes: once blocks are checked the scope is no longer empty, and
+            hiding it there would trap the student in the mode. */}
+        {scopeIndices.length === 0 || selectMode ? (
+          <AnimatedChip
+            onPress={toggleSelect}
+            accessibilityLabel={t("dockBar.select", { defaultValue: "Select blocks" })}
+            enterIndex={4}
+            style={[
+              styles.actionChip,
+              { flexDirection, borderColor: selectMode ? colors.brandPrimary : colors.borderDefault, backgroundColor: selectMode ? colors.brandPrimary : colors.bgCard },
+            ]}
+          >
+            <ListChecks size={15} color={selectMode ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
+            <Text numberOfLines={1} style={[styles.actionChipText, { color: selectMode ? colors.bgPrimary : colors.textPrimary }]}>
+              {selectMode
+                ? t("dockBar.selectDone", { defaultValue: "Done selecting" })
+                : t("dockBar.select", { defaultValue: "Select blocks" })}
+            </Text>
+          </AnimatedChip>
+        ) : null}
+        {/* Drop the checked blocks without leaving the mode (keep picking). */}
+        {selectMode && scopeIndices.length > 0 ? (
+          <AnimatedChip
+            onPress={() => useWorkspaceStore.getState().clearSelection()}
+            accessibilityLabel={t("dockBar.clearSelection", { defaultValue: "Clear selection" })}
+            enterIndex={5}
+            style={[
+              styles.actionChip,
+              { flexDirection, borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
+            ]}
+          >
+            <X size={15} color={colors.textPrimary} strokeWidth={2} />
+            <Text numberOfLines={1} style={[styles.actionChipText, { color: colors.textPrimary }]}>
+              {t("dockBar.clearSelection", { defaultValue: "Clear selection" })}
             </Text>
           </AnimatedChip>
         ) : null}
