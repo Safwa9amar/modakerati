@@ -12,8 +12,6 @@ import Animated, {
   withRepeat,
   withSpring,
   withTiming,
-  ZoomIn,
-  ZoomOut,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
@@ -25,15 +23,17 @@ import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatHead } from "@/stores/chat-head-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { hSelection } from "@/lib/haptics";
-import { layoutSpring, SPRING } from "@/lib/motion";
+import { bubbleIn, bubbleOut, layoutSpring, SPRING } from "@/lib/motion";
 import { estimateTokenCount } from "@/lib/thinking";
 import type { DocBlockDTO } from "@/lib/api";
-import { Plus, KeyboardOff, Keyboard as KeyboardIcon, type LucideIcon } from "lucide-react-native";
-import { resolveBubbleKind, chromeBubbleKind, BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
-import { AIDock } from "./AIDock";
-import { BlockContextBar } from "./BlockContextBar";
+import { Plus, KeyboardOff, Keyboard as KeyboardIcon, SquareCheck, type LucideIcon } from "lucide-react-native";
+import { BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
+import { resolveToolbarKind } from "@/stores/toolbar-store";
+import { AIDock } from "./ai-dock";
+import { BlockContextBar, VERTICAL_PILL_W, VERTICAL_PILL_MAX_H } from "./BlockContextBar";
 import { DismissTarget, DISMISS_HIT_RADIUS, DISMISS_SIZE } from "./DismissTarget";
 import { PeekCard, type PeekPhase } from "./PeekCard";
 import { ChatOverlayPanel } from "@/components/ChatOverlayPanel";
@@ -99,6 +99,10 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // bubble (its own ChromeContextBar) and the normal block selection is empty.
   const chromeSelection = useWorkspaceStore((s) => s.chromeSelection);
   const askAiOpen = useWorkspaceStore((s) => s.askAiOpen);
+  // Checkbox select mode: the selection is being BUILT by tapping blocks, so the
+  // expanded bubble stays the AI dock (act on the set / leave the mode) instead of
+  // flipping to the single-block formatting toolbar on the first check.
+  const selectMode = useWorkspaceStore((s) => s.selectMode);
   // Composer visibility + preview mode — the floating pill must yield the bottom
   // surface to the whole-memoir composer (count===0), hide when the composer is
   // toggled off (else its Ask-AI opens a null BlockComposer → dead end), and never
@@ -174,15 +178,16 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // glyph/toolset (the DTO can't be trusted for list-ness; see resolveBubbleKind).
   const lexActive = useLexicalEditorStore((s) => s.active);
   const lexBlockType = useLexicalEditorStore((s) => s.format.blockType);
-  // Which bubble/toolset family drives the collapsed bubble icon AND (via
-  // BlockContextBar's own resolveBubbleKind call) the expanded toolset — one
-  // registry, so they can never disagree. Both pass the same live list format so the
-  // collapsed glyph and the expanded list toolset stay in lockstep.
-  const bubbleKind: BubbleKind = chromeSelection
-    ? chromeBubbleKind(chromeSelection.kind)
-    : count === 0
-      ? "ai"
-      : resolveBubbleKind(selectedBlock, lexActive ? lexBlockType : null);
+  // Which family the selection belongs to — the collapsed bubble's GLYPH here, and the
+  // toolbar module BlockContextBar renders. Both call the same resolver (the toolbar
+  // store's), so the icon and the toolset can never disagree; both pass the same live
+  // list format, so a caret in a list gets the list glyph and the list tools together.
+  const bubbleKind: BubbleKind = resolveToolbarKind({
+    block: selectedBlock,
+    listType: lexActive ? lexBlockType : null,
+    chrome: chromeSelection,
+    count,
+  });
   const scopeLabel =
     count === 0
       ? t("workspace.wholeMemoir", { defaultValue: "Whole memoir" })
@@ -226,8 +231,27 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
 
   const maxPillW = Math.min(420, width - 24);
 
+  // ── Column form (Settings → Toolbar layout = Vertical) ──
+  // Every BlockContextBar toolset goes vertical — block kinds and chrome bands alike.
+  // The AI dock does not (nothing selected, or the inline Ask input): it's a panel of
+  // prose and chips, not a tool strip. So the condition here must mirror exactly which
+  // branch of the render below actually mounts a BlockContextBar.
+  const toolbarOrientation = useSettingsStore((s) => s.toolbarOrientation);
+  const columnForm =
+    toolbarOrientation === "vertical" && expanded && !inputOpen && !selectMode && (chromeSelection != null || count > 0);
+
   // Container width depends on form; drives centering, clamp, and the drag hit-test.
-  const curW = expanded ? maxPillW : BUBBLE_SIZE;
+  // The column's width is REPORTED by BlockContextBar (onColumnWidth) because it grows
+  // when a category flies its options out beside the strip — the host can't measure
+  // content it is itself constraining.
+  const [columnW, setColumnW] = useState<number>(VERTICAL_PILL_W);
+  const curW = expanded ? (columnForm ? columnW : maxPillW) : BUBBLE_SIZE;
+  // Height matters only for the column form (the row forms are one chip tall). Start
+  // from the worst case so the very first clamp can't drop a tall strip off-screen,
+  // then refine to the real height on layout — a 3-chip column shouldn't be pinned to
+  // the top half of the screen just because a 12-chip one could be.
+  const [columnH, setColumnH] = useState(VERTICAL_PILL_MAX_H);
+  const curH = columnForm ? columnH : PILL_H;
 
   // Always-on: the bubble lives from workspace entry until drag-to-X. `visible`
   // is the persist flag (only hide() clears it); a dismissed bubble stays hidden
@@ -248,11 +272,14 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // stale `inputOpen` from an unsent ask would otherwise make the next block's
   // expanded bubble render the AI dock instead of that block's own tool pill
   // (user feedback: block selection must always get its text/image/table tools).
+  // …except while checkbox-selecting, where checking another block is part of
+  // composing the SAME ask — closing the input there would discard what was typed.
   useEffect(() => {
+    if (selectMode) return;
     if (useFloatingPillStore.getState().inputOpen) {
       useFloatingPillStore.getState().setInputOpen(false);
     }
-  }, [selectedBlocks]);
+  }, [selectedBlocks, selectMode]);
 
   // ── Drag position ──
   const defaultX = (width - maxPillW) / 2;
@@ -352,7 +379,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const maxX = Math.max(minX, width - curW - 8);
   // Keep the pill clear of the header chrome at the top.
   const minY = insets.top + 100;
-  const maxY = Math.max(minY, height - dismissBottom - PILL_H - 8);
+  const maxY = Math.max(minY, height - dismissBottom - curH - 8);
 
   // Keep the bubble/pill visible above a rising keyboard — it anchors at the tap Y,
   // which is often exactly where the keyboard lands. Clearance depends on the form:
@@ -364,23 +391,43 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // keyboard is about to cover and vanishes behind it the instant it rises.
   useEffect(() => {
     if (keyboardHeight <= 0) return;
-    const clearance = inputOpen ? DOCK_CLEARANCE : expanded ? DOCK_CLEARANCE : PILL_H + 24;
+    // The column form isn't a dock — it needs its own (measured) height cleared, not
+    // the dock panel's fixed allowance.
+    const clearance = inputOpen ? DOCK_CLEARANCE : columnForm ? curH + 24 : expanded ? DOCK_CLEARANCE : PILL_H + 24;
     const limit = height - keyboardHeight - clearance;
     if (ty.value > limit) ty.value = withSpring(Math.max(minY, limit), SPRING);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyboardHeight, inputOpen, expanded]);
+  }, [keyboardHeight, inputOpen, expanded, columnForm, curH]);
 
   // Guards re-anchoring against unrelated re-renders. Declared here (above dismiss)
   // so dismiss can clear it — see the anchor effect below.
   const lastAnchoredIndex = React.useRef<number | null>(null);
 
-  // Re-clamp X when the form grows/shrinks (bubble⇄pill) so the wider pill can't
-  // hang off-screen from a near-edge anchor.
+  // Re-clamp when the form grows/shrinks (bubble⇄pill) so the wider pill can't hang
+  // off-screen from a near-edge anchor. Y matters for the column form only: expanding
+  // a bubble anchored near the bottom into a tall strip would otherwise run its lower
+  // chips (✦ Ask AI included) off the screen. curH is constant for the row forms, so
+  // their behaviour is unchanged.
+  const prevColumnW = React.useRef<number | null>(null);
   useEffect(() => {
-    const clamped = Math.min(Math.max(tx.value, minX), maxX);
-    if (clamped !== tx.value) tx.value = withSpring(clamped, SPRING);
+    // Column form: opening/closing a fly-out panel changes the host's WIDTH, and the
+    // host is positioned by its LEFT edge — so in LTR, where the strip is the trailing
+    // child, the strip itself would slide clear across the screen. Absorb the delta
+    // into x to pin it. RTL puts the strip on the leading edge, which the left anchor
+    // already holds still.
+    if (columnForm) {
+      const prev = prevColumnW.current;
+      if (prev != null && prev !== curW && !rtl) tx.value = tx.value + (prev - curW);
+      prevColumnW.current = curW;
+    } else {
+      prevColumnW.current = null;
+    }
+    const clampedX = Math.min(Math.max(tx.value, minX), maxX);
+    if (clampedX !== tx.value) tx.value = withSpring(clampedX, SPRING);
+    const clampedY = Math.min(Math.max(ty.value, minY), maxY);
+    if (clampedY !== ty.value) ty.value = withSpring(clampedY, SPRING);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curW]);
+  }, [curW, curH, columnForm]);
 
   const dismiss = () => {
     const ws = useWorkspaceStore.getState();
@@ -388,6 +435,20 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     // Reset so re-selecting the SAME block re-anchors beside it (not over the X).
     lastAnchoredIndex.current = null;
     ws.setChromeSelection(null);
+    // While checkbox-selecting, the X means "leave this mode" — hiding the bubble
+    // instead would strand the student in a read-only document with no way out.
+    if (ws.selectMode) {
+      ws.toggleSelectMode();
+      ws.clearSelection(); // the ✕ discards the pick; "Done selecting" keeps it
+      pill.setExpanded(false);
+      pill.setInputOpen(false);
+      const homeX = defaultX;
+      const homeY = Math.min(defaultY, maxY);
+      pill.setPos({ x: homeX, y: homeY });
+      tx.value = withSpring(homeX, SPRING);
+      ty.value = withSpring(homeY, SPRING);
+      return;
+    }
     if (ws.selectedBlocks.length === 0) {
       // The global ✦ bubble dragged onto the X → the overlay hides until the
       // workspace is re-entered (or a block is selected again).
@@ -446,8 +507,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     // to its inner chip ScrollView (vertical-only activation), but the collapsed
     // BUBBLE has no inner scroll — it drags freely in EVERY direction; minDistance
     // keeps plain taps reaching its Pressable (expand).
+    // The COLUMN form inverts that: its chip scroller runs top→bottom, so vertical
+    // drags belong to the tool list and only a sideways drag grabs the strip (from
+    // there the pan owns both axes, so the bottom-right tray is still reachable).
     const configured = expanded
-      ? base.activeOffsetY([-12, 12]).failOffsetX([-16, 16])
+      ? columnForm
+        ? base.activeOffsetX([-12, 12]).failOffsetY([-16, 16])
+        : base.activeOffsetY([-12, 12]).failOffsetX([-16, 16])
       : base.minDistance(10);
     // Explicit "worklet" directives: splitting the builder chain across variables
     // (base/configured) defeats the Babel plugin's auto-workletization, which only
@@ -468,7 +534,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           // the UPPER target, ⌨ the LOWER (nearest the thumb). Nearest-within-radius wins
           // so the two hit zones never light both at once.
           const cx = tx.value + curW / 2;
-          const cy = ty.value + PILL_H / 2;
+          const cy = ty.value + curH / 2;
           const distClose = Math.hypot(cx - trayCX, cy - closeCY);
           const distKb = Math.hypot(cx - trayCX, cy - kbCY);
           const overC = distClose < DISMISS_HIT_RADIUS && distClose <= distKb ? 1 : 0;
@@ -510,7 +576,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           overKeyboard.value = 0;
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [width, height, insets.top, insets.bottom, curW, keyboardHeight]);
+  }, [width, height, insets.top, insets.bottom, curW, curH, columnForm, keyboardHeight]);
 
   const pillStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }],
@@ -526,21 +592,25 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // band and the paragraph that shares its startBlockIndex still counts as a change
   // and re-anchors the pill (a top band and its section's first paragraph collide at
   // the same block index otherwise). -1 stays reserved for "none".
-  const soleIndex = chromeSelection
-    ? -(chromeSelection.index + 2)
-    : selectedBlock
-      ? selectedBlock.index
-      : count === 1
-        ? indices[0] ?? null
-        : null;
+  // null while checkbox-selecting: the checkboxes never report a tap Y (no caret,
+  // no onState), so anchorY is whatever the last caret left behind — re-anchoring
+  // on it would fling the bubble to an unrelated spot on each check.
+  const soleIndex = selectMode
+    ? null
+    : chromeSelection
+      ? -(chromeSelection.index + 2)
+      : selectedBlock
+        ? selectedBlock.index
+        : count === 1
+          ? indices[0] ?? null
+          : null;
   useEffect(() => {
     if (soleIndex == null) return;
     if (soleIndex === lastAnchoredIndex.current) return;
     const isFirst = lastAnchoredIndex.current == null;
     lastAnchoredIndex.current = soleIndex;
     if (anchorY == null) return;
-    const w = expanded ? maxPillW : BUBBLE_SIZE;
-    const sideX = rtl ? minX : Math.max(minX, width - w - 12);
+    const sideX = rtl ? minX : Math.max(minX, width - curW - 12);
     // Sit the bubble ABOVE the caret line, not centered on it. anchorY is the
     // block's TOP, so centering (anchorY - BUBBLE_SIZE/2) parks the bubble's lower
     // half over the first line — it covers the caret and the text being typed
@@ -593,7 +663,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
             }
           />
           <GestureDetector gesture={pan}>
-            <Animated.View layout={layoutSpring} style={[styles.host, hostAnchor, { width: curW }, pillStyle]}>
+            <Animated.View
+              layout={layoutSpring}
+              // Column form only: feed the real strip height back into the clamp math
+              // (see columnH) so a short toolset can be dragged as low as a tall one.
+              onLayout={columnForm ? (e) => setColumnH(e.nativeEvent.layout.height) : undefined}
+              style={[styles.host, hostAnchor, { width: curW }, pillStyle]}
+            >
               {expanded ? (
             chromeSelection ? (
               inputOpen ? (
@@ -601,11 +677,12 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                   {/* ✦ Ask on a chrome band → section-scoped AI (reuses AIDock scope props). */}
                   <AIDock
                     thesisId={thesisId}
-                    scopeLabel={chromeScopeLabel}
                     scopeIndices={[chromeSelection.index]}
                     selectedBlock={null}
                     scopeText={chromeSelection.text}
                     scopeBlocks={[]}
+                    chrome
+                    blocks={blocks}
                   />
                 </View>
               ) : (
@@ -624,21 +701,22 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                   scopeLabel={chromeScopeLabel}
                   onAskAI={() => useFloatingPillStore.getState().setInputOpen(true)}
                   onCollapse={() => useFloatingPillStore.getState().setExpanded(false)}
+                  onColumnWidth={setColumnW}
                   bottomInset={0}
                   blocks={blocks}
                   chrome={chromeSelection}
                 />
               )
-            ) : count === 0 || inputOpen ? (
+            ) : count === 0 || inputOpen || selectMode ? (
               <View style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}>
                 {/* AIDock lays out by APP language (useRTL inside), not thesis rtl. */}
                 <AIDock
                   thesisId={thesisId}
-                  scopeLabel={scopeLabel}
                   scopeIndices={indices}
                   selectedBlock={selectedBlock}
                   scopeText={scopeText}
                   scopeBlocks={paragraphSelection.map((b) => ({ index: b.index, text: b.text, level: b.level }))}
+                  blocks={blocks}
                 />
               </View>
             ) : (
@@ -656,6 +734,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                 // Ask-AI input is retired while the bubble is alive (Task 4).
                 onAskAI={() => useFloatingPillStore.getState().setInputOpen(true)}
                 onCollapse={() => useFloatingPillStore.getState().setExpanded(false)}
+                onColumnWidth={setColumnW}
                 bottomInset={0}
                 blocks={blocks}
               />
@@ -674,22 +753,26 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
               <Bubble
                 colors={colors}
                 kind={bubbleKind}
-                iconOverride={!awaitingReply && isEmptyPara ? Plus : undefined}
+                iconOverride={
+                  !awaitingReply && selectMode ? SquareCheck : !awaitingReply && isEmptyPara ? Plus : undefined
+                }
                 busy={busy}
                 unread={awaitingReply && peekCardExpired}
                 label={
                   awaitingReply && peekCardExpired
                     ? t("aiDock.peek.unreadLabel", { defaultValue: "Reply ready — tap to view" })
-                    : !awaitingReply && isEmptyPara
-                      ? t("insert.addBlock", { defaultValue: "Add a block" })
-                      : count === 0
-                        ? t("blockBar.askAi", { defaultValue: "Ask AI" })
-                        : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
+                    : selectMode
+                      ? scopeLabel
+                      : !awaitingReply && isEmptyPara
+                        ? t("insert.addBlock", { defaultValue: "Add a block" })
+                        : count === 0
+                          ? t("blockBar.askAi", { defaultValue: "Ask AI" })
+                          : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
                 }
                 onPress={
                   awaitingReply
                     ? revealReply
-                    : isEmptyPara
+                    : isEmptyPara && !selectMode
                       ? openInsertMenu
                       : () => useFloatingPillStore.getState().setExpanded(true)
                 }
@@ -745,8 +828,11 @@ function Bubble({
 
   return (
     <Animated.View
-      entering={ZoomIn.springify().damping(30).stiffness(700)}
-      exiting={ZoomOut.springify().damping(30).stiffness(700)}
+      // Open and close are separate animations, not two directions of one — and on a
+      // swap only the ARRIVING side plays (see lib/pill-swap.ts), so the bubble
+      // vanishes instantly under the expanding pill instead of shrinking beneath it.
+      entering={bubbleIn}
+      exiting={bubbleOut}
       style={pulseStyle}
     >
       <Pressable
