@@ -230,8 +230,21 @@ active state.
 
 The ✕ **clears the selection without leaving select mode** — matching today's
 split, where `Clear selection` and `Done selecting` are separate controls.
-Exiting the mode is the dock-bar toggle. No trap is possible: `GlobalDockBar` is
-persistent for the whole workspace session.
+Exiting the mode is the dock-bar toggle.
+
+⚠️ **Correction (found in final review):** the original claim here — "no trap is
+possible, `GlobalDockBar` is persistent" — is false. `BlockComposer` returns null
+when `composerOpen` is false, so the header ⋮ menu's **Hide composer** unmounts
+`GlobalDockBar`; the same flag also suppresses `FloatingPill`, removing the
+bubble's drag-to-X. Hiding the composer while in select mode therefore removes
+both exits at once.
+
+This gap **predates this redesign** — the old dock's own select-mode chip lived
+inside the same suppressed `FloatingPill` — so it is not a regression. But this
+work removed the only other home for that toggle and leaned on the false claim to
+justify not duplicating it. Fixing it properly means auto-exiting select mode
+when the composer is hidden, which touches `toggleComposer` semantics used by
+other surfaces and is therefore **out of scope here, tracked as follow-up.**
 
 ### File layout
 

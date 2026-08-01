@@ -103,7 +103,13 @@ export function sendFromDock({
     // Ground the ask on the selected text; whole-memoir asks carry no selection.
     selection: indices.length ? scopeText || undefined : undefined,
   });
-  pill.setExpanded(false);
+  // collapse(), not a bare setExpanded: the ask bar is ALWAYS rendered now, so a
+  // direct-outcome send has to clear `inputOpen` too — the old dock's handleAskSend
+  // did this unconditionally. Leaving it set strands the target: re-tapping a
+  // header/footer band or a mixed multi-selection would reopen the AI dock instead
+  // of that target's own formatting toolbar, with no way back until an unrelated
+  // block is selected.
+  collapse();
   // Only this branch gets the peek card — every `review` branch above returned
   // early and shows its own in-place approve/reject UI instead.
   pill.setAwaitingReply(true);

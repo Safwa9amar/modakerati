@@ -86,7 +86,14 @@ export function AIDock({
 
   const onSelectGaps = () => {
     const filled = fillGaps(scopeIndices, blocks);
-    if (filled.length) useWorkspaceStore.getState().setSelection(filled, true);
+    if (!filled.length) return;
+    useWorkspaceStore.getState().setSelection(filled, true);
+    // FloatingPill closes the ask input on ANY selection change outside checkbox
+    // select-mode. Filling the gaps IS a selection change, so without re-asserting
+    // this the dock unmounts at the exact moment the scope upgrades to a reviewable
+    // range — the precise opposite of what the chip promises. Reachable whenever the
+    // gapped selection was built by long-press rather than the checkboxes.
+    useFloatingPillStore.getState().setInputOpen(true);
   };
 
   const collapse = () => {

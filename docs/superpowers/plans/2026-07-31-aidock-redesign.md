@@ -1203,7 +1203,13 @@ export function sendFromDock({
     // Ground the ask on the selected text; whole-memoir asks carry no selection.
     selection: indices.length ? scopeText || undefined : undefined,
   });
-  pill.setExpanded(false);
+  // collapse(), not a bare setExpanded: the ask bar is ALWAYS rendered now, so a
+  // direct-outcome send has to clear `inputOpen` too — the old dock's handleAskSend
+  // did this unconditionally. Leaving it set strands the target: re-tapping a
+  // header/footer band or a mixed multi-selection would reopen the AI dock instead
+  // of that target's own formatting toolbar, with no way back until an unrelated
+  // block is selected.
+  collapse();
   // Only this branch gets the peek card — every `review` branch above returned
   // early and shows its own in-place approve/reject UI instead.
   pill.setAwaitingReply(true);
@@ -1325,7 +1331,14 @@ export function AIDock({
 
   const onSelectGaps = () => {
     const filled = fillGaps(scopeIndices, blocks);
-    if (filled.length) useWorkspaceStore.getState().setSelection(filled, true);
+    if (!filled.length) return;
+    useWorkspaceStore.getState().setSelection(filled, true);
+    // FloatingPill closes the ask input on ANY selection change outside checkbox
+    // select-mode. Filling the gaps IS a selection change, so without re-asserting
+    // this the dock unmounts at the exact moment the scope upgrades to a reviewable
+    // range — the precise opposite of what the chip promises. Reachable whenever the
+    // gapped selection was built by long-press rather than the checkboxes.
+    useFloatingPillStore.getState().setInputOpen(true);
   };
 
   const collapse = () => {
