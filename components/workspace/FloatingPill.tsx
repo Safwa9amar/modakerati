@@ -54,9 +54,10 @@ const BUBBLE_ABOVE_GAP = 10;
 // Extra tap/drag margin around the collapsed bubble — touches this far outside
 // the visible circle still grab it (small circles are hard targets).
 const BUBBLE_SLOP = 18;
-// Dock panel height + margin — how far above the keyboard the inline Ask input
-// needs to clear so it isn't occluded once it opens.
-const DOCK_CLEARANCE = 240;
+// Fallback clearance for the dock, used only for the very first keyboard rise
+// before onLayout has reported a real height. The measured height replaces it
+// as soon as the panel has been laid out once.
+const DOCK_CLEARANCE_FALLBACK = 150;
 // How long the finished-reply peek card stays up before auto-hiding to a dot.
 const PEEK_CARD_TIMEOUT_MS = 6000;
 
@@ -252,6 +253,9 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // the top half of the screen just because a 12-chip one could be.
   const [columnH, setColumnH] = useState(VERTICAL_PILL_MAX_H);
   const curH = columnForm ? columnH : PILL_H;
+  // Real laid-out height of the dock panel, so keyboard clearance tracks the
+  // panel instead of a constant that goes stale whenever its rows change.
+  const [dockH, setDockH] = useState(0);
 
   // Always-on: the bubble lives from workspace entry until drag-to-X. `visible`
   // is the persist flag (only hide() clears it); a dismissed bubble stays hidden
@@ -393,11 +397,18 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     if (keyboardHeight <= 0) return;
     // The column form isn't a dock — it needs its own (measured) height cleared, not
     // the dock panel's fixed allowance.
-    const clearance = inputOpen ? DOCK_CLEARANCE : columnForm ? curH + 24 : expanded ? DOCK_CLEARANCE : PILL_H + 24;
+    const dockClearance = (dockH || DOCK_CLEARANCE_FALLBACK) + 24;
+    const clearance = inputOpen
+      ? dockClearance
+      : columnForm
+        ? curH + 24
+        : expanded
+          ? dockClearance
+          : PILL_H + 24;
     const limit = height - keyboardHeight - clearance;
     if (ty.value > limit) ty.value = withSpring(Math.max(minY, limit), SPRING);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyboardHeight, inputOpen, expanded, columnForm, curH]);
+  }, [keyboardHeight, inputOpen, expanded, columnForm, curH, dockH]);
 
   // Guards re-anchoring against unrelated re-renders. Declared here (above dismiss)
   // so dismiss can clear it — see the anchor effect below.
@@ -673,7 +684,10 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
               {expanded ? (
             chromeSelection ? (
               inputOpen ? (
-                <View style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}>
+                <View
+                  onLayout={(e) => setDockH(e.nativeEvent.layout.height)}
+                  style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}
+                >
                   {/* ✦ Ask on a chrome band → section-scoped AI (reuses AIDock scope props). */}
                   <AIDock
                     thesisId={thesisId}
@@ -708,7 +722,10 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                 />
               )
             ) : count === 0 || inputOpen || selectMode ? (
-              <View style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}>
+              <View
+                onLayout={(e) => setDockH(e.nativeEvent.layout.height)}
+                style={[styles.dockPanel, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]}
+              >
                 {/* AIDock lays out by APP language (useRTL inside), not thesis rtl. */}
                 <AIDock
                   thesisId={thesisId}
