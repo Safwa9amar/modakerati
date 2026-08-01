@@ -13,6 +13,8 @@ import {
   ListTree,
   ArrowUp,
   ArrowDown,
+  ArrowUpDown,
+  ListChecks,
   SquareSplitVertical,
   RectangleHorizontal,
   BadgeCheck,
@@ -117,6 +119,8 @@ export function GlobalDockBar({ thesisId, blocks, keyboardVisible = true }: Prop
   const selectedBlocks = useWorkspaceStore((s) => s.selectedBlocks);
   const editingBlockIndex = useWorkspaceStore((s) => s.editingBlockIndex);
   const headerVisible = useWorkspaceStore((s) => s.headerVisible);
+  const selectMode = useWorkspaceStore((s) => s.selectMode);
+  const reorderMode = useWorkspaceStore((s) => s.reorderMode);
   const canUndo = useThesisDocStore((s) => s.history[thesisId]?.canUndo ?? false);
   const canRedo = useThesisDocStore((s) => s.history[thesisId]?.canRedo ?? false);
   const pendingOps = useThesisDocStore((s) => s.pending[thesisId] ?? 0);
@@ -293,6 +297,7 @@ export function GlobalDockBar({ thesisId, blocks, keyboardVisible = true }: Prop
     onPress: () => void;
     disabled?: boolean;
     busy?: boolean;
+    active?: boolean;
     accessibilityLabel: string;
     enterIndex?: number;
   }) => (
@@ -300,18 +305,31 @@ export function GlobalDockBar({ thesisId, blocks, keyboardVisible = true }: Prop
       key={opts.keyProp}
       onPress={opts.onPress}
       disabled={opts.disabled || opts.busy}
+      active={opts.active}
       accessibilityLabel={opts.accessibilityLabel}
       enterIndex={opts.enterIndex}
       style={[
         styles.chip,
-        { borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
+        opts.active
+          ? { borderColor: colors.brandPrimary, backgroundColor: colors.brandPrimary }
+          : { borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
         (opts.disabled || opts.busy) && styles.chipDim,
       ]}
     >
       {opts.busy ? (
         <ActivityIndicator size="small" color={colors.textPrimary} />
       ) : (
-        <opts.Icon size={17} color={opts.disabled ? colors.textPlaceholder : colors.textPrimary} strokeWidth={2} />
+        <opts.Icon
+          size={17}
+          color={
+            opts.active
+              ? colors.bgPrimary
+              : opts.disabled
+                ? colors.textPlaceholder
+                : colors.textPrimary
+          }
+          strokeWidth={2}
+        />
       )}
     </AnimatedChip>
   );
@@ -498,6 +516,34 @@ export function GlobalDockBar({ thesisId, blocks, keyboardVisible = true }: Prop
               accessibilityLabel: t("dockBar.search", { defaultValue: "Search" }),
               enterIndex: 6,
               onPress: openSearch,
+            })}
+            {chip({
+              keyProp: "selectMode",
+              Icon: ListChecks,
+              active: selectMode,
+              accessibilityLabel: selectMode
+                ? t("dockBar.selectDone", { defaultValue: "Done selecting" })
+                : t("dockBar.select", { defaultValue: "Select blocks" }),
+              enterIndex: 6,
+              onPress: () => {
+                const wasOn = useWorkspaceStore.getState().selectMode;
+                useWorkspaceStore.getState().toggleSelectMode();
+                // Turning it ON: the next thing to do is tap blocks in the
+                // document, so get the dock out of the way.
+                if (!wasOn) {
+                  useFloatingPillStore.getState().setInputOpen(false);
+                  useFloatingPillStore.getState().setExpanded(false);
+                  Keyboard.dismiss();
+                }
+              },
+            })}
+            {chip({
+              keyProp: "reorderMode",
+              Icon: ArrowUpDown,
+              active: reorderMode,
+              accessibilityLabel: t("dockBar.reorder", { defaultValue: "Reorder" }),
+              enterIndex: 6,
+              onPress: () => useWorkspaceStore.getState().toggleReorderMode(),
             })}
             {sep("s3")}
             {chip({
