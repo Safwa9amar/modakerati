@@ -51,9 +51,58 @@
       "checkNumbers": "Check numbers",
       "addTotals": "Add totals row",
       "format": "Format table"
-    }
+    },
+    "header": {
+      "chrome": "This header/footer section",
+      "memoir": "Whole memoir",
+      "table": "This table",
+      "image": "This figure",
+      "heading": "This heading",
+      "emptyParagraph": "Empty paragraph",
+      "paragraph": "This paragraph",
+      "range": "{{count}} adjacent sections",
+      "gapped": "{{count}} sections, not adjacent",
+      "notLexical": "{{count}} sections",
+      "mixed_one": "1 block",
+      "mixed": "{{count}} blocks"
+    },
+    "outcome": {
+      "review": "you'll review the change",
+      "write": "AI will write it",
+      "range": "rewritten as one passage",
+      "direct": "applied directly"
+    },
+    "ask": {
+      "chrome": "Ask about this section…",
+      "memoir": "Ask the AI…",
+      "table": "Ask about this table…",
+      "image": "Ask about this figure…",
+      "heading": "Ask about this heading…",
+      "emptyParagraph": "What should go here?",
+      "paragraph": "Ask about this paragraph…",
+      "range_one": "Ask about this block…",
+      "range": "Ask about these {{count}} sections…"
+    },
+    "summarize": "Summarize",
+    "improve": "Improve writing",
+    "format": "Fix formatting",
+    "translate": "Translate",
+    "rewrite": "Rewrite",
+    "expand": "Expand",
+    "shorten": "Shorten",
+    "writeIt": "Write it",
+    "insertTable": "Insert a table",
+    "continueAbove": "Continue from above",
+    "writeSection": "Write the section",
+    "rewordTitle": "Reword title",
+    "writeCaption": "Write a caption",
+    "improveCaption": "Improve caption",
+    "rewriteAsOne": "Rewrite as one",
+    "unifyStyle": "Unify style",
+    "selectGaps": "Select the gaps"
   },
   "blockBar": {
+    "collapse": "Collapse",
     "style": "Style",
     "align": "Align",
     "direction": "Direction",
@@ -87,7 +136,10 @@
     "nextBlock": "Next block",
     "search": "Search",
     "sectionMarkers": "Section markers",
-    "reorder": "Reorder"
+    "reorder": "Reorder",
+    "select": "Select blocks",
+    "selectDone": "Done selecting",
+    "clearSelection": "Clear selection"
   },
   "common": {
     "continue": "Continue",
@@ -272,6 +324,9 @@
     "language": "Language",
     "theme": "Theme",
     "autocomplete": "AI text completion",
+    "toolbarLayout": "Toolbar layout",
+    "toolbarHorizontal": "Horizontal",
+    "toolbarVertical": "Vertical",
     "autocompleteDesc": "Suggest the next words as you type",
     "aiModel": "AI Model",
     "notificationsSection": "Notifications",
@@ -394,7 +449,12 @@
     "analyzeFile": "Please analyze this document.",
     "pages": "{{n}} pages",
     "previewFile": "Preview file",
-    "regenerate": "Regenerate"
+    "regenerate": "Regenerate",
+    "tryAgain": "Try again",
+    "noResponse": "I couldn't produce a response this time. Tap Regenerate to try again.",
+    "noResponseDocChanged": "I made the changes to your thesis but couldn't write a summary of them. Open your document to check them before trying again.",
+    "listen": "Listen",
+    "stopAudio": "Stop"
   },
   "editor": {
     "sectionEditor": "Section Editor",
@@ -689,6 +749,7 @@
       "bottomOfPage": "Bottom of every page",
       "newSectionHere": "New section starts here",
       "addHeaderFooter": "Add header / footer",
+      "addHint": "Choose what this section should repeat on every page.",
       "addHeader": "Add header",
       "addFooter": "Add footer",
       "pageNumberValue": "page number",

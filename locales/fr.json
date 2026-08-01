@@ -51,9 +51,58 @@
       "checkNumbers": "Vérifier les chiffres",
       "addTotals": "Ajouter une ligne de totaux",
       "format": "Mettre en forme le tableau"
-    }
+    },
+    "header": {
+      "chrome": "Cette section d'en-tête/pied de page",
+      "memoir": "Tout le mémoire",
+      "table": "Ce tableau",
+      "image": "Cette figure",
+      "heading": "Ce titre",
+      "emptyParagraph": "Paragraphe vide",
+      "paragraph": "Ce paragraphe",
+      "range": "{{count}} sections adjacentes",
+      "gapped": "{{count}} sections, non adjacentes",
+      "notLexical": "{{count}} sections",
+      "mixed_one": "1 bloc",
+      "mixed": "{{count}} blocs"
+    },
+    "outcome": {
+      "review": "vous validerez la modification",
+      "write": "l'IA va l'écrire",
+      "range": "réécrit en un seul passage",
+      "direct": "appliqué directement"
+    },
+    "ask": {
+      "chrome": "Poser une question sur cette section…",
+      "memoir": "Demander à l'IA…",
+      "table": "Poser une question sur ce tableau…",
+      "image": "Poser une question sur cette figure…",
+      "heading": "Poser une question sur ce titre…",
+      "emptyParagraph": "Que faut-il mettre ici ?",
+      "paragraph": "Poser une question sur ce paragraphe…",
+      "range_one": "Poser une question sur ce bloc…",
+      "range": "Poser une question sur ces {{count}} sections…"
+    },
+    "summarize": "Résumer",
+    "improve": "Améliorer la rédaction",
+    "format": "Corriger la mise en forme",
+    "translate": "Traduire",
+    "rewrite": "Réécrire",
+    "expand": "Développer",
+    "shorten": "Raccourcir",
+    "writeIt": "L'écrire",
+    "insertTable": "Insérer un tableau",
+    "continueAbove": "Continuer ci-dessus",
+    "writeSection": "Rédiger la section",
+    "rewordTitle": "Reformuler le titre",
+    "writeCaption": "Rédiger une légende",
+    "improveCaption": "Améliorer la légende",
+    "rewriteAsOne": "Réécrire en un seul",
+    "unifyStyle": "Uniformiser le style",
+    "selectGaps": "Sélectionner les intervalles"
   },
   "blockBar": {
+    "collapse": "Réduire",
     "style": "Style",
     "align": "Alignement",
     "direction": "Direction",
@@ -87,7 +136,10 @@
     "nextBlock": "Bloc suivant",
     "search": "Recherche",
     "sectionMarkers": "Repères de section",
-    "reorder": "Réorganiser"
+    "reorder": "Réorganiser",
+    "select": "Sélectionner des blocs",
+    "selectDone": "Terminer la sélection",
+    "clearSelection": "Effacer la sélection"
   },
   "common": {
     "continue": "Continuer",
@@ -272,6 +324,9 @@
     "language": "Langue",
     "theme": "Theme",
     "autocomplete": "Complétion IA du texte",
+    "toolbarLayout": "Disposition de la barre d'outils",
+    "toolbarHorizontal": "Horizontale",
+    "toolbarVertical": "Verticale",
     "autocompleteDesc": "Proposer la suite du texte pendant la saisie",
     "aiModel": "Modele IA",
     "notificationsSection": "Notifications",
@@ -394,7 +449,12 @@
     "analyzeFile": "Veuillez analyser ce document.",
     "pages": "{{n}} pages",
     "previewFile": "Aperçu du fichier",
-    "regenerate": "Régénérer"
+    "regenerate": "Régénérer",
+    "tryAgain": "Réessayer",
+    "noResponse": "Je n'ai pas réussi à produire de réponse cette fois. Appuyez sur « Régénérer » pour réessayer.",
+    "noResponseDocChanged": "J'ai appliqué les modifications à votre mémoire mais je n'ai pas pu en rédiger le résumé. Ouvrez le document pour les vérifier avant de réessayer.",
+    "listen": "Écouter",
+    "stopAudio": "Arrêter"
   },
   "editor": {
     "sectionEditor": "Editeur de section",
@@ -689,6 +749,7 @@
       "bottomOfPage": "Bas de chaque page",
       "newSectionHere": "Nouvelle section ici",
       "addHeaderFooter": "Ajouter en-tête / pied de page",
+      "addHint": "Choisissez ce que cette section doit répéter sur chaque page.",
       "addHeader": "Ajouter un en-tête",
       "addFooter": "Ajouter un pied de page",
       "pageNumberValue": "numéro de page",

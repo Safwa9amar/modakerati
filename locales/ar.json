@@ -51,9 +51,58 @@
       "checkNumbers": "تحقّق من الأرقام",
       "addTotals": "أضف صف المجموع",
       "format": "نسّق الجدول"
-    }
+    },
+    "header": {
+      "chrome": "قسم الرأس/التذييل هذا",
+      "memoir": "المذكرة كاملة",
+      "table": "هذا الجدول",
+      "image": "هذا الشكل",
+      "heading": "هذا العنوان",
+      "emptyParagraph": "فقرة فارغة",
+      "paragraph": "هذه الفقرة",
+      "range": "{{count}} أقسام متجاورة",
+      "gapped": "{{count}} أقسام غير متجاورة",
+      "notLexical": "{{count}} أقسام",
+      "mixed_one": "كتلة واحدة",
+      "mixed": "{{count}} كتل"
+    },
+    "outcome": {
+      "review": "ستراجع التغيير قبل تطبيقه",
+      "write": "سيكتبها الذكاء الاصطناعي",
+      "range": "تُعاد كتابتها كمقطع واحد",
+      "direct": "يُطبَّق مباشرة"
+    },
+    "ask": {
+      "chrome": "اسأل عن هذا القسم…",
+      "memoir": "اسأل الذكاء الاصطناعي…",
+      "table": "اسأل عن هذا الجدول…",
+      "image": "اسأل عن هذا الشكل…",
+      "heading": "اسأل عن هذا العنوان…",
+      "emptyParagraph": "ما الذي يجب أن يوضع هنا؟",
+      "paragraph": "اسأل عن هذه الفقرة…",
+      "range_one": "اسأل عن هذه الكتلة…",
+      "range": "اسأل عن هذه الأقسام ({{count}})…"
+    },
+    "summarize": "لخّص",
+    "improve": "حسّن الصياغة",
+    "format": "أصلح التنسيق",
+    "translate": "ترجم",
+    "rewrite": "أعد الصياغة",
+    "expand": "وسّع",
+    "shorten": "اختصر",
+    "writeIt": "اكتبها",
+    "insertTable": "أدرج جدولاً",
+    "continueAbove": "أكمل ممّا سبق",
+    "writeSection": "اكتب القسم",
+    "rewordTitle": "أعد صياغة العنوان",
+    "writeCaption": "اكتب تسمية توضيحية",
+    "improveCaption": "حسّن التسمية التوضيحية",
+    "rewriteAsOne": "أعد كتابتها كمقطع واحد",
+    "unifyStyle": "وحّد الأسلوب",
+    "selectGaps": "حدّد الفجوات"
   },
   "blockBar": {
+    "collapse": "طيّ",
     "style": "النمط",
     "align": "المحاذاة",
     "direction": "الاتجاه",
@@ -87,7 +136,10 @@
     "nextBlock": "الكتلة التالية",
     "search": "بحث",
     "sectionMarkers": "علامات الأقسام",
-    "reorder": "إعادة الترتيب"
+    "reorder": "إعادة الترتيب",
+    "select": "تحديد الفقرات",
+    "selectDone": "إنهاء التحديد",
+    "clearSelection": "إلغاء التحديد"
   },
   "common": {
     "continue": "متابعة",
@@ -272,6 +324,9 @@
     "language": "اللغة",
     "theme": "المظهر",
     "autocomplete": "الإكمال التلقائي بالذكاء الاصطناعي",
+    "toolbarLayout": "تخطيط شريط الأدوات",
+    "toolbarHorizontal": "أفقي",
+    "toolbarVertical": "عمودي",
     "autocompleteDesc": "اقتراح الكلمات التالية أثناء الكتابة",
     "aiModel": "نموذج الذكاء",
     "notificationsSection": "الإشعارات",
@@ -394,7 +449,12 @@
     "analyzeFile": "يرجى تحليل هذا المستند.",
     "pages": "{{n}} صفحات",
     "previewFile": "معاينة الملف",
-    "regenerate": "إعادة التوليد"
+    "regenerate": "إعادة التوليد",
+    "tryAgain": "أعد المحاولة",
+    "noResponse": "لم أتمكّن من إنتاج ردّ هذه المرة. اضغط «إعادة التوليد» للمحاولة من جديد.",
+    "noResponseDocChanged": "نفّذت التعديلات على مذكرتك لكنني لم أتمكّن من كتابة ملخّص لها. افتح المستند لمراجعتها قبل إعادة المحاولة.",
+    "listen": "استماع",
+    "stopAudio": "إيقاف"
   },
   "editor": {
     "sectionEditor": "محرر القسم",
@@ -689,6 +749,7 @@
       "bottomOfPage": "أسفل كل صفحة",
       "newSectionHere": "يبدأ قسم جديد هنا",
       "addHeaderFooter": "إضافة رأس / تذييل",
+      "addHint": "اختر ما تريد تكراره في كل صفحة من هذا القسم.",
       "addHeader": "إضافة رأس الصفحة",
       "addFooter": "إضافة تذييل الصفحة",
       "pageNumberValue": "رقم الصفحة",
