@@ -12,6 +12,7 @@ import {
   PanelBottomClose,
   Maximize2,
   Check,
+  Eye,
   type LucideIcon,
 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -51,6 +52,7 @@ export function HeaderMenuButton({
   // individually — never an object-literal selector, which would loop).
   const focusMode = useWorkspaceStore((s) => s.focusMode);
   const composerOpen = useWorkspaceStore((s) => s.composerOpen);
+  const showChrome = useWorkspaceStore((s) => s.showChrome);
 
   const canExport = !!downloadUrl;
 
@@ -103,6 +105,13 @@ export function HeaderMenuButton({
               color={focusMode ? colors.brandPrimary : colors.textPrimary}
               active={focusMode}
               onPress={run(() => useWorkspaceStore.getState().toggleFocusMode())}
+            />
+            <Row
+              icon={Eye}
+              label={t("dockBar.sectionMarkers", { defaultValue: "Section markers" })}
+              color={showChrome ? colors.brandPrimary : colors.textPrimary}
+              active={showChrome}
+              onPress={run(() => useWorkspaceStore.getState().toggleShowChrome())}
             />
             <Row
               icon={Library}
