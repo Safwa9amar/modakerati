@@ -1,13 +1,12 @@
-// The visual half of the ask sheet: a two-column grid of preview cards, each a
-// mini divider page — the fetched ornament SVG around GENERIC Arabic sample
-// text. Generic on purpose: with real chapter text every card looks
-// near-identical and the ornament, the only thing being chosen, becomes the
-// hardest part to see (same rule as the dashboard studio's preview).
+// The visual half of the ask sheet: full-width rows, IMAGE ONLY — the ornament
+// artwork at its natural wide-strip shape with its name beneath, no composed
+// mini-page around it (the student sees the real page in the document itself;
+// here the artwork is the whole question). Chosen over a grid (halves the
+// artwork) and a carousel (hides the alternatives while choosing).
 //
-// Interaction: first tap EXPANDS a card to full width (the ornament needs room
-// to be judged); the expanded card's confirm button answers the ask. Tapping a
-// different card moves the expansion. Dismissing without choosing stays the
-// sheet's job — this component only ever answers.
+// Interaction: tap selects a row (highlight + description); the confirm button
+// appears directly under the selected row and answers the ask. Dismissing
+// without choosing stays the sheet's job — this component only ever answers.
 import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { SvgXml } from "react-native-svg";
@@ -16,11 +15,8 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { fetchOrnamentSvg } from "@/lib/api";
 import type { AskPreview } from "@/types/chat";
 
-const SAMPLE_LABEL = "الفصل الأول";
-const SAMPLE_TITLE = "الإطار النظري";
-
-/** viewBox height/width — tells a page-shaped frame SVG (≈1.4) apart from a
- *  flanking ornament strip (≪1) without the payload having to carry `kind`. */
+/** viewBox height/width — a page-shaped frame SVG (≈1.4) vs a flanking
+ *  ornament strip (≪1), without the payload having to carry `kind`. */
 function svgAspect(svg: string): number {
   const m = /viewBox\s*=\s*["']\s*[\d.-]+[\s,]+[\d.-]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(svg);
   if (!m) return 0;
@@ -29,14 +25,14 @@ function svgAspect(svg: string): number {
   return w > 0 ? h / w : 0;
 }
 
-function PreviewCard({
+function OrnamentRow({
   preview,
-  expanded,
+  selected,
   onPress,
   onConfirm,
 }: {
   preview: AskPreview;
-  expanded: boolean;
+  selected: boolean;
   onPress: () => void;
   onConfirm: () => void;
 }) {
@@ -53,61 +49,53 @@ function PreviewCard({
     return () => { alive = false; };
   }, [preview.previewUrl]);
 
-  const frame = svg ? svgAspect(svg) > 0.8 : false;
+  const aspect = svg ? svgAspect(svg) : 0;
+  const pageShaped = aspect > 0.8; // a frame; strips are ≪1
 
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={preview.label}
-      style={[
-        styles.card,
-        expanded && styles.cardExpanded,
-        { borderColor: expanded ? colors.brandPrimary : colors.borderDefault, backgroundColor: "#fdfcf8" },
-      ]}
-    >
-      <View style={styles.page}>
+    <View>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={preview.label}
+        style={[
+          styles.row,
+          {
+            backgroundColor: "#fdfcf8",
+            borderColor: selected ? colors.brandPrimary : colors.borderDefault,
+            borderWidth: selected ? 2 : 1,
+          },
+        ]}
+      >
         {failed ? (
-          // The card stays choosable without its picture — the label still names
-          // the ornament, and killing the option entirely would bias the choice.
+          // Choosable without its picture — the label still names the ornament;
+          // hiding the option entirely would bias the choice.
           <Text style={styles.failText}>{preview.label}</Text>
         ) : !svg ? (
           // Layout-shaped placeholder while the SVG loads — never a spinner.
-          <View style={styles.skeleton}>
-            <View style={[styles.skelBar, { width: "70%" }]} />
-            <View style={[styles.skelBar, { width: "45%" }]} />
-            <View style={[styles.skelBar, { width: "62%" }]} />
-          </View>
-        ) : frame ? (
-          // Page-shaped frame: the SVG is the page, sample text centred inside.
-          <View style={styles.frameWrap}>
-            <SvgXml xml={svg} width="100%" height="100%" />
-            <View style={styles.frameText}>
-              <Text style={styles.label}>{SAMPLE_LABEL}</Text>
-              <Text style={[styles.title, expanded && styles.titleExpanded]}>{SAMPLE_TITLE}</Text>
-            </View>
+          <View style={[styles.skelBar, { width: "82%" }]} />
+        ) : pageShaped ? (
+          // Frame family: a page outline can't stretch full-width — show it
+          // small beside the name instead.
+          <View style={styles.frameRow}>
+            {/* Explicit height: viewBox-only SVGs collapse to zero without it. */}
+            <SvgXml xml={svg} height={64} width={64 / Math.max(aspect, 0.1)} />
+            <Text style={[styles.name, styles.frameName]}>{preview.label}</Text>
           </View>
         ) : (
-          // Flanking ornament: above + below the sample text, like the document.
-          <View style={styles.flankWrap}>
-            <SvgXml xml={svg} width="86%" />
-            <Text style={styles.label}>{SAMPLE_LABEL}</Text>
-            <View style={styles.rule} />
-            <Text style={[styles.title, expanded && styles.titleExpanded]}>{SAMPLE_TITLE}</Text>
-            <SvgXml xml={svg} width="86%" />
+          // Ornament strip at its natural shape: full width, height from the
+          // viewBox via aspectRatio (SvgXml alone renders 0-high without it).
+          <View style={{ width: "100%", aspectRatio: 1 / Math.max(aspect, 0.02) }}>
+            <SvgXml xml={svg} width="100%" height="100%" />
           </View>
         )}
-      </View>
+        {!failed && !pageShaped && <Text style={styles.name}>{preview.label}</Text>}
+        {selected && !!preview.description && (
+          <Text style={styles.desc}>{preview.description}</Text>
+        )}
+      </Pressable>
 
-      <Text style={[styles.name, { color: "#3a3020" }]} numberOfLines={1}>
-        {preview.label}
-      </Text>
-      {expanded && !!preview.description && (
-        <Text style={styles.desc} numberOfLines={2}>
-          {preview.description}
-        </Text>
-      )}
-      {expanded && (
+      {selected && (
         <Pressable
           onPress={onConfirm}
           accessibilityRole="button"
@@ -118,7 +106,7 @@ function PreviewCard({
           </Text>
         </Pressable>
       )}
-    </Pressable>
+    </View>
   );
 }
 
@@ -129,18 +117,18 @@ export function AskPreviewGrid({
   previews: AskPreview[];
   onChoose: (label: string) => void;
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   return (
-    <View style={styles.grid}>
+    <View style={styles.list}>
       {previews.map((p) => {
-        const expanded = expandedId === p.id;
+        const selected = selectedId === p.id;
         return (
-          <PreviewCard
+          <OrnamentRow
             key={p.id}
             preview={p}
-            expanded={expanded}
-            onPress={() => setExpandedId(expanded ? null : p.id)}
+            selected={selected}
+            onPress={() => setSelectedId(selected ? null : p.id)}
             onConfirm={() => onChoose(p.label)}
           />
         );
@@ -150,32 +138,20 @@ export function AskPreviewGrid({
 }
 
 const styles = StyleSheet.create({
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
-  // Two columns; an expanded card takes the whole row so the ornament gets room.
-  card: { width: "48%", flexGrow: 1, borderWidth: 2, borderRadius: 12, padding: 8 },
-  cardExpanded: { width: "100%" },
-  page: { aspectRatio: 1 / 1.35, justifyContent: "center" },
-  flankWrap: { alignItems: "center", justifyContent: "center", gap: 6, flex: 1 },
-  frameWrap: { flex: 1 },
-  frameText: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  list: { gap: 10, marginBottom: 16 },
+  row: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
+    gap: 8,
   },
-  label: { fontSize: 10, letterSpacing: 2, color: "#5c4d33", writingDirection: "rtl" },
-  rule: { height: StyleSheet.hairlineWidth, width: "38%", backgroundColor: "#5c4d33", opacity: 0.5 },
-  title: { fontSize: 15, fontWeight: "700", color: "#2a2118", writingDirection: "rtl" },
-  titleExpanded: { fontSize: 20 },
-  name: { marginTop: 6, fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center" },
-  desc: { marginTop: 2, fontSize: 11, color: "#6b5d45", textAlign: "center", writingDirection: "rtl" },
-  confirm: { marginTop: 8, borderRadius: 10, paddingVertical: 9, alignItems: "center" },
+  frameRow: { flexDirection: "row-reverse", alignItems: "center", gap: 14 },
+  frameName: { fontSize: 14 },
+  name: { fontSize: 12, fontFamily: "Inter_500Medium", color: "#3a3020", textAlign: "center", writingDirection: "rtl" },
+  desc: { fontSize: 11, color: "#6b5d45", textAlign: "center", writingDirection: "rtl" },
+  confirm: { marginTop: 6, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
   confirmText: { color: "#fff", fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  skeleton: { alignItems: "center", justifyContent: "center", gap: 6, flex: 1 },
-  skelBar: { height: 8, borderRadius: 4, backgroundColor: "#e8e2d5" },
+  skelBar: { height: 10, borderRadius: 5, backgroundColor: "#e8e2d5", marginVertical: 10 },
   failText: { textAlign: "center", fontSize: 13, color: "#5c4d33", writingDirection: "rtl" },
 });
