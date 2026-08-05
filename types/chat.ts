@@ -42,10 +42,24 @@ export interface FilePayload {
 }
 
 // Payload the model sends (via the ask_user tool) to open a question bottom sheet.
+/** One visual choice on the ask sheet — a preview card instead of a text chip.
+ *  Mirrors the server's AskPreview (lib/ai/tool-loop.ts). */
+export interface AskPreview {
+  id: string;
+  label: string;
+  description?: string;
+  /** Server-relative API path returning the preview SVG; fetched with the
+   *  app's own auth (see fetchOrnamentSvg). */
+  previewUrl: string;
+}
+
 export interface AskPayload {
   question: string;
   options: string[];
   allowFreeText: boolean;
+  /** When present the sheet renders a visual picker (AskPreviewGrid) instead of
+   *  text chips. Older servers simply never send it. */
+  previews?: AskPreview[];
 }
 
 // A destructive tool the model requested; parked server-side until the student
@@ -69,4 +83,20 @@ export interface DocChangesPayload {
   turnId: string;
   checkpointSeq: number;
   tools: string[];
+}
+
+// DEVELOPER TRACE. One frame as a tool starts and another when it finishes, so a
+// turn's tool work is visible while it runs. Sent only when the server has
+// AI_SHOW_TOOLS on outside production — a student's build never receives these,
+// which is why nothing here is translated or persisted.
+export interface ToolTracePayload {
+  kind: "tool";
+  /** Stable across the running → done pair, so the row updates in place. */
+  id: string;
+  name: string;
+  state: "running" | "done" | "error";
+  /** Short argument summary, e.g. `index: 41, text: "…"`. */
+  detail?: string;
+  /** Wall time of the call, on the terminal frame only. */
+  ms?: number;
 }

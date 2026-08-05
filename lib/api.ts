@@ -5,7 +5,7 @@ import type {
   AppNotification,
   NotificationPreferences,
 } from "@/types/notification";
-import type { AskPayload, FilePayload, ConfirmPayload, DocChangesPayload } from "@/types/chat";
+import type { AskPayload, FilePayload, ConfirmPayload, DocChangesPayload, ToolTracePayload } from "@/types/chat";
 import type { NewsArticle, NewsCopy, NewsPagination, NewsRow } from "@/types/news";
 import type {
   Align,
@@ -15,16 +15,38 @@ import type {
 } from "@/types/document";
 import type { Thesis, Template, NormProfile, University, StartingPoint } from "@/types/thesis";
 import type { ThesisSource } from "@/types/source";
+import { byokHeaders, whenByokHydrated, useByokStore, isByokErrorCode } from "@/stores/byok-store";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  // Wait for the keychain read before deciding whose AI key this request uses.
+  // Without it, anything fired during app start would go out with no BYOK
+  // header and quietly run on the platform's keys — the student would believe
+  // they were paying their own way while we picked up the bill.
+  const [{ data: { session } }] = await Promise.all([
+    supabase.auth.getSession(),
+    whenByokHydrated(),
+  ]);
   const token = session?.access_token;
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...byokHeaders(),
   };
+}
+
+/**
+ * Turn a failed response into the thrown Error every caller already expects,
+ * and record the failures that belong to the student's own AI key so the
+ * settings screen can tell them what to fix (top up, re-enter, wait).
+ */
+async function raiseApiError(response: Response): Promise<never> {
+  const body = await response.json().catch(() => ({ error: response.statusText }));
+  if (body?.byok && isByokErrorCode(body.error)) {
+    useByokStore.getState().setLastError(body.error);
+  }
+  throw new Error(body?.error || `API Error: ${response.status}`);
 }
 
 /**
@@ -75,10 +97,28 @@ async function apiGet<T>(path: string): Promise<T> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${path}`, { headers });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `API Error: ${response.status}`);
+    await raiseApiError(response);
   }
   return response.json();
+}
+
+/**
+ * Fetch an ornament preview's SVG SOURCE for the visual ask sheet
+ * (AskPreviewGrid). `previewUrl` is the server-relative path carried by an
+ * AskPreview; it is fetched with the app's own auth like every API call.
+ * Rejects anything that does not look like an <svg> document — the sheet
+ * renders the text with SvgXml and must never be handed HTML (e.g. a login
+ * page from a proxy).
+ */
+export async function fetchOrnamentSvg(previewUrl: string): Promise<string> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}${previewUrl}`, { headers });
+  if (!response.ok) {
+    await raiseApiError(response);
+  }
+  const text = await response.text();
+  if (!/^\s*<svg[\s>]/i.test(text)) throw new Error("Not an SVG preview");
+  return text;
 }
 
 async function apiPost<T>(path: string, body: any, signal?: AbortSignal): Promise<T> {
@@ -90,8 +130,7 @@ async function apiPost<T>(path: string, body: any, signal?: AbortSignal): Promis
     signal,
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `API Error: ${response.status}`);
+    await raiseApiError(response);
   }
   return response.json();
 }
@@ -104,8 +143,7 @@ async function apiPut<T>(path: string, body: any): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `API Error: ${response.status}`);
+    await raiseApiError(response);
   }
   return response.json();
 }
@@ -114,8 +152,7 @@ async function apiDelete(path: string): Promise<void> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${path}`, { method: "DELETE", headers });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `API Error: ${response.status}`);
+    await raiseApiError(response);
   }
 }
 
@@ -127,8 +164,7 @@ async function apiDeleteWithBody<T>(path: string, body: any): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `API Error: ${response.status}`);
+    await raiseApiError(response);
   }
   return response.json();
 }
@@ -155,7 +191,7 @@ export interface ChatSendResponse {
 export async function chatSend(
   thesisId: string,
   message: string,
-  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[] }
+  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; regenerate?: boolean }
 ): Promise<ChatSendResponse> {
   return apiPost("/api/chat/send", {
     thesisId,
@@ -163,6 +199,8 @@ export async function chatSend(
     chapterId: options?.chapterId,
     sectionId: options?.sectionId,
     selection: options?.selection,
+    // See chatSendStream: a re-ask of a question already saved server-side.
+    regenerate: options?.regenerate ?? false,
     // Live-.docx (L2): the engine block index the student selected, so the AI
     // edits that exact paragraph. `null` when nothing block-specific is focused.
     docBlockIndex: options?.docBlockIndex ?? null,
@@ -225,6 +263,8 @@ export interface ChatStreamHandlers {
   onFile?: (file: FilePayload) => void;
   onConfirm?: (confirm: ConfirmPayload) => void;
   onDocChanges?: (changes: DocChangesPayload) => void;
+  /** Developer tool trace — only ever arrives from a server with AI_SHOW_TOOLS on. */
+  onTool?: (tool: ToolTracePayload) => void;
 }
 
 // The streaming endpoint escapes emoji (astral chars) to \uXXXX because RN's
@@ -240,6 +280,40 @@ function unescapeUnicode(s: string): string {
 function safeEscapeBoundary(s: string): number {
   const m = s.match(/\\(?:u[0-9a-fA-F]{0,3})?$/);
   return m && m.index !== undefined ? m.index : s.length;
+}
+
+/**
+ * Wraps `signal` so a pending `reader.read()` can be raced against it.
+ *
+ * `expo/fetch` handles an abort by cancelling the NATIVE request and waiting for
+ * the platform to report back before it errors the body stream. When that report
+ * never comes — a stalled socket, a cancel the OS swallows — `reader.read()`
+ * never settles, the read loop below never unwinds, and the caller is stuck: the
+ * chat stays "generating" with a Stop button that has nothing left to stop.
+ * Racing the read against the signal makes the abort itself authoritative.
+ */
+function watchAbort(signal: AbortSignal | undefined) {
+  if (!signal) return { race: <T,>(p: Promise<T>) => p, cleanup: () => {} };
+  let onAbort: (() => void) | null = null;
+  const aborted = new Promise<never>((_, reject) => {
+    const fail = () => {
+      const err = new Error("The operation was aborted.");
+      err.name = "AbortError";
+      reject(err);
+    };
+    if (signal.aborted) return fail();
+    onAbort = fail;
+    signal.addEventListener("abort", fail);
+  });
+  // The race is this promise's only consumer; keep a rejection that lands after
+  // the loop has exited from surfacing as an unhandled promise rejection.
+  aborted.catch(() => {});
+  return {
+    race: <T,>(p: Promise<T>) => Promise.race([p, aborted]),
+    cleanup: () => {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+    },
+  };
 }
 
 /**
@@ -266,7 +340,14 @@ async function postChatStream(
   });
 
   if (!response.ok || !response.body) {
-    const err = new Error(`API Error: ${response.status}`) as Error & { status?: number };
+    // A BYOK failure arrives here as a small JSON error rather than a stream —
+    // read it so a dead or empty key is reported as itself instead of a bare
+    // "API Error: 402" in the middle of a chat.
+    const body = await response.json().catch(() => null);
+    if (body?.byok && isByokErrorCode(body.error)) {
+      useByokStore.getState().setLastError(body.error);
+    }
+    const err = new Error(body?.error || `API Error: ${response.status}`) as Error & { status?: number };
     err.status = response.status;
     throw err;
   }
@@ -289,6 +370,8 @@ async function postChatStream(
   const CONFIRM_CLOSE = "[[/MODK_CONFIRM]]";
   const DC_OPEN = "[[MODK_DOCCHANGES]]";
   const DC_CLOSE = "[[/MODK_DOCCHANGES]]";
+  const TOOL_OPEN = "[[MODK_TOOL]]";
+  const TOOL_CLOSE = "[[/MODK_TOOL]]";
 
   let mode: "answer" | "think" = "answer";
   let buf = ""; // unescaped text awaiting routing
@@ -314,9 +397,10 @@ async function postChatStream(
         const fi = buf.indexOf(FILE_OPEN);
         const ci = buf.indexOf(CONFIRM_OPEN);
         const di = buf.indexOf(DC_OPEN);
-        const first = [ti, ai, fi, ci, di].filter((i) => i !== -1).sort((a, b) => a - b)[0];
+        const oi = buf.indexOf(TOOL_OPEN);
+        const first = [ti, ai, fi, ci, di, oi].filter((i) => i !== -1).sort((a, b) => a - b)[0];
         if (first === undefined) {
-          const hold = isFinal ? 0 : heldLen(buf, [THINK_OPEN, ASK_OPEN, FILE_OPEN, CONFIRM_OPEN, DC_OPEN]);
+          const hold = isFinal ? 0 : heldLen(buf, [THINK_OPEN, ASK_OPEN, FILE_OPEN, CONFIRM_OPEN, DC_OPEN, TOOL_OPEN]);
           const out = buf.slice(0, buf.length - hold);
           if (out) handlers.onDelta(out);
           buf = buf.slice(buf.length - hold);
@@ -356,6 +440,15 @@ async function postChatStream(
           buf = buf.slice(closeAt + DC_CLOSE.length);
           continue;
         }
+        if (first === oi) {
+          // TOOL frame (developer trace): mid-turn, so several arrive per turn —
+          // parsed and routed, never shown as text.
+          const closeAt = buf.indexOf(TOOL_CLOSE, first + TOOL_OPEN.length);
+          if (closeAt === -1) { buf = buf.slice(first); break; }
+          try { handlers.onTool?.(JSON.parse(buf.slice(first + TOOL_OPEN.length, closeAt))); } catch {}
+          buf = buf.slice(closeAt + TOOL_CLOSE.length);
+          continue;
+        }
         // ASK frame: need the closing marker before we can parse the JSON.
         const closeAt = buf.indexOf(ASK_CLOSE, first + ASK_OPEN.length);
         if (closeAt === -1) { buf = buf.slice(first); break; }
@@ -380,9 +473,10 @@ async function postChatStream(
     }
   };
 
+  const watch = watchAbort(signal);
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await watch.race(reader.read());
       if (done) break;
       pending += decoder.decode(value, { stream: true });
       const cut = safeEscapeBoundary(pending);
@@ -393,7 +487,15 @@ async function postChatStream(
     pending += decoder.decode();
     pump(pending ? unescapeUnicode(pending) : "", true);
   } finally {
-    reader.releaseLock();
+    watch.cleanup();
+    if (signal?.aborted) {
+      // Hang up on the native request, but never await it: `cancel()` resolves
+      // through the same native layer that may be unresponsive. `releaseLock()`
+      // is skipped here — a read can still be pending after an abort.
+      reader.cancel().catch(() => {});
+    } else {
+      reader.releaseLock();
+    }
   }
 }
 
@@ -406,12 +508,14 @@ export async function chatSendStream(
   thesisId: string,
   message: string,
   handlers: ChatStreamHandlers,
-  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; signal?: AbortSignal }
+  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; regenerate?: boolean; signal?: AbortSignal }
 ): Promise<void> {
   // `docBlockIndex` (live-.docx, L2): the selected engine block index → the AI
   // edits that paragraph. `docBlockIndices` carries a multi-select set so the AI
   // acts on all of them. Legacy fields (chapterId/sectionId/selection) stay so
   // the server's legacy chapter/section path keeps working unchanged.
+  // `regenerate`: this question is ALREADY saved server-side (the app is re-asking
+  // it) — the server must not store it twice, and drops the reply being replaced.
   const body = {
     thesisId,
     message,
@@ -420,6 +524,7 @@ export async function chatSendStream(
     selection: options?.selection,
     docBlockIndex: options?.docBlockIndex ?? null,
     docBlockIndices: options?.docBlockIndices,
+    regenerate: options?.regenerate ?? false,
   };
   return postChatStream("/api/chat/stream", body, handlers, options?.signal);
 }
@@ -535,12 +640,20 @@ export async function getStartingPoints(input: {
   level?: string | null;
   language?: string;
   discipline?: string;
+  /**
+   * "templates" is catalogue mode: every active template, best matches first,
+   * with the rules-only starting points filtered out. Only the Browse-all
+   * screen passes it — the "For you" card must keep showing the full ladder,
+   * rulesets included.
+   */
+  scope?: "templates";
 }): Promise<StartingPoint[]> {
   const params = new URLSearchParams();
   if (input.universityId) params.set("universityId", input.universityId);
   if (input.level) params.set("level", input.level);
   params.set("language", input.language ?? i18n.language);
   if (input.discipline) params.set("discipline", input.discipline);
+  if (input.scope) params.set("scope", input.scope);
   const res = await apiGet<{ count: number; startingPoints: StartingPoint[] }>(
     `/api/starting-points?${params.toString()}`
   );
@@ -588,7 +701,14 @@ export async function streamThesisPlan(
     signal,
   });
   if (!response.ok || !response.body) {
-    const err = new Error(`API Error: ${response.status}`) as Error & { status?: number };
+    // A BYOK failure arrives here as a small JSON error rather than a stream —
+    // read it so a dead or empty key is reported as itself instead of a bare
+    // "API Error: 402" in the middle of a chat.
+    const body = await response.json().catch(() => null);
+    if (body?.byok && isByokErrorCode(body.error)) {
+      useByokStore.getState().setLastError(body.error);
+    }
+    const err = new Error(body?.error || `API Error: ${response.status}`) as Error & { status?: number };
     err.status = response.status;
     throw err;
   }
@@ -609,9 +729,10 @@ export async function streamThesisPlan(
       } catch { /* partial/garbage line — skip */ }
     }
   };
+  const watch = watchAbort(signal); // see watchAbort: an ignored abort must not hang the loop
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await watch.race(reader.read());
       if (done) break;
       buf += decoder.decode(value, { stream: true });
       drain(false);
@@ -619,7 +740,9 @@ export async function streamThesisPlan(
     buf += decoder.decode();
     drain(true);
   } finally {
-    reader.releaseLock();
+    watch.cleanup();
+    if (signal?.aborted) reader.cancel().catch(() => {});
+    else reader.releaseLock();
   }
 }
 
@@ -1272,6 +1395,92 @@ export async function chromeOp(
   op: ChromeOp,
 ): Promise<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO; note?: string }> {
   return apiPost<{ ok: true; document?: DocumentDTO; history?: HistoryStateDTO; note?: string }>(`/api/thesis/${thesisId}/chrome-op`, op);
+}
+
+// ── Captions (Word's References → Insert Caption) ───────────────────────────
+//
+// A caption is the real Word object — the `Caption` style, a self-numbering `SEQ`
+// field and a bookmark — so the numbers renumber themselves and a List of Figures
+// can collect them. The app never composes the "Figure 3" prefix: the label comes
+// from the picker and the number from the field.
+
+/** Word's Caption Numbering → Format list. */
+export type CaptionNumberFormat = "arabic" | "ROMAN" | "roman" | "ALPHABETIC" | "alphabetic";
+/** Word's "Use separator" list: hyphen, period, colon, en-dash, em-dash. */
+export type CaptionSeparator = "-" | "." | ":" | "\u2013" | "\u2014";
+
+export interface CaptionDTO {
+  /** Block index of the caption paragraph (engine block space). */
+  index: number;
+  /** The label as it reads in the document ("Figure", "الشكل رقم"), "" if excluded. */
+  label: string;
+  /** The number the field currently shows. */
+  number: string;
+  /** The caption wording, without label or number. */
+  text: string;
+  /** True when the caption lives inside a table cell — `index` is then the table's. */
+  inTable: boolean;
+}
+
+export interface CaptionsDTO {
+  /** The document reads right-to-left (drives the sheet's default direction). */
+  rtl: boolean;
+  /** Labels for the picker: the document's own first, then the usual ones. */
+  labels: { label: string; count: number }[];
+  captions: CaptionDTO[];
+}
+
+export async function listThesisCaptions(thesisId: string): Promise<CaptionsDTO> {
+  return apiGet<CaptionsDTO>(`/api/thesis/${thesisId}/captions`);
+}
+
+export interface InsertCaptionBody {
+  /** Block the caption describes (the figure, table or equation). */
+  nearIndex: number;
+  label: string;
+  text: string;
+  position?: "above" | "below";
+  /** Word's "Exclude label from caption" — number only. */
+  excludeLabel?: boolean;
+  format?: CaptionNumberFormat;
+  includeChapterNumber?: boolean;
+  /** "Heading1".."Heading9" — only with includeChapterNumber. */
+  chapterStyle?: string;
+  chapterSeparator?: CaptionSeparator;
+}
+
+/** Insert a caption. Shifts later block indices by +1 — reconcile from `document`. */
+export async function insertThesisCaption(
+  thesisId: string,
+  body: InsertCaptionBody,
+): Promise<{ ok: true; index: number; number: string | null; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost(`/api/thesis/${thesisId}/captions`, body);
+}
+
+/** Re-word a caption, keeping its label, number and bookmark. */
+export async function updateThesisCaption(
+  thesisId: string,
+  index: number,
+  text: string,
+): Promise<{ ok: true; index: number; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPut(`/api/thesis/${thesisId}/captions/${index}`, { text });
+}
+
+/** Delete a caption and renumber the rest of its sequence. */
+export async function deleteThesisCaption(
+  thesisId: string,
+  index: number,
+): Promise<{ ok: true; index: number; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiDeleteWithBody(`/api/thesis/${thesisId}/captions/${index}`, {});
+}
+
+/** Insert a List of Figures / List of Tables for `label` (References → Insert
+ *  Table of Figures). Place it OUTSIDE any existing list. */
+export async function insertThesisCaptionList(
+  thesisId: string,
+  body: { label: string; title?: string; atIndex?: number },
+): Promise<{ ok: true; entries: number; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost(`/api/thesis/${thesisId}/caption-list`, body);
 }
 
 // A compact, render-agnostic preview digest of a template's header/footer that the
