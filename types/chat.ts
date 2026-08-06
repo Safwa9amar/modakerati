@@ -55,7 +55,8 @@ export interface AskPreview {
   label: string;
   description?: string;
   /** Server-relative API path returning the preview SVG; fetched with the
-   *  app's own auth (see fetchOrnamentSvg). */
+   *  app's own auth (see fetchOrnamentPreview). Serves SVG source for a vector
+   *  ornament and image bytes for uploaded artwork. */
   previewUrl: string;
 }
 

@@ -102,23 +102,73 @@ async function apiGet<T>(path: string): Promise<T> {
   return response.json();
 }
 
+/** An ornament preview, in whichever form the catalogue holds it. Vector rows
+ *  come back as SVG source (rendered with SvgXml, so it recolours and stays
+ *  sharp); uploaded artwork comes back as a data URI for a plain <Image>. */
+export type OrnamentPreview =
+  | { kind: "svg"; svg: string }
+  | { kind: "image"; dataUri: string };
+
+/** Base64 for a byte array, without Buffer or btoa.
+ *
+ *  Hermes has no Buffer, and btoa is binary-string-only — building that
+ *  intermediate string for a full-page PNG is the slow, memory-heavy path. This
+ *  walks the bytes directly. */
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+function bytesToBase64(bytes: Uint8Array): string {
+  let out = "";
+  let i = 0;
+  for (; i + 2 < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + B64[(n >> 6) & 63] + B64[n & 63];
+  }
+  const rest = bytes.length - i;
+  if (rest === 1) {
+    const n = bytes[i] << 16;
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + "==";
+  } else if (rest === 2) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8);
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + B64[(n >> 6) & 63] + "=";
+  }
+  return out;
+}
+
 /**
- * Fetch an ornament preview's SVG SOURCE for the visual ask sheet
- * (AskPreviewGrid). `previewUrl` is the server-relative path carried by an
- * AskPreview; it is fetched with the app's own auth like every API call.
- * Rejects anything that does not look like an <svg> document — the sheet
- * renders the text with SvgXml and must never be handed HTML (e.g. a login
- * page from a proxy).
+ * Fetch an ornament preview for the visual ask sheet (AskPreviewGrid).
+ * `previewUrl` is the server-relative path carried by an AskPreview; it is
+ * fetched with the app's own auth like every API call.
+ *
+ * The form is decided by the response's Content-Type, not by guessing at the
+ * bytes: the endpoint serves SVG for a vector ornament and the stored image for
+ * uploaded artwork. Anything that is neither (an HTML login page from a proxy,
+ * say) is rejected rather than handed to a renderer.
+ *
+ * The image branch inlines the bytes as a data URI instead of letting <Image>
+ * re-fetch the URL, because the endpoint needs an Authorization header that
+ * RN's image loader does not reliably send on both platforms — and the bytes
+ * are already in hand here.
  */
-export async function fetchOrnamentSvg(previewUrl: string): Promise<string> {
+export async function fetchOrnamentPreview(previewUrl: string): Promise<OrnamentPreview> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${previewUrl}`, { headers });
   if (!response.ok) {
     await raiseApiError(response);
   }
-  const text = await response.text();
-  if (!/^\s*<svg[\s>]/i.test(text)) throw new Error("Not an SVG preview");
-  return text;
+  const type = (response.headers.get("content-type") ?? "").toLowerCase();
+
+  if (type.includes("image/svg")) {
+    const text = await response.text();
+    if (!/^\s*<svg[\s>]/i.test(text)) throw new Error("Not an SVG preview");
+    return { kind: "svg", svg: text };
+  }
+
+  if (type.startsWith("image/")) {
+    const buf = await response.arrayBuffer();
+    const mime = type.split(";")[0].trim();
+    return { kind: "image", dataUri: `data:${mime};base64,${bytesToBase64(new Uint8Array(buf))}` };
+  }
+
+  throw new Error(`Unsupported preview type: ${type || "unknown"}`);
 }
 
 async function apiPost<T>(path: string, body: any, signal?: AbortSignal): Promise<T> {
