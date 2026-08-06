@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
+import { AiWorkingNote } from "@/components/AiWorkingNote";
 
 interface Props {
   isGenerating: boolean;
@@ -59,6 +60,10 @@ export function ComposerThinking({ isGenerating, reasoning, thinking, durationMs
         ScrollComponent={scrollComponent ?? BottomSheetScrollView}
         surfaceColor={colors.bgSurface}
       />
+      {/* Reasoning ends long before an agentic turn does — the tools it then runs
+          produce no tokens at all. Without this the box sits on a frozen
+          "Thought for Xs" chip for minutes. Silent until the stream is. */}
+      <AiWorkingNote rtl={appRtl} />
     </View>
   );
 }

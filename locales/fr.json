@@ -27,9 +27,16 @@
       "same-university-adapted": "Votre université — adapté",
       "own-rules": "Selon les règles de votre université",
       "peer-rules": "Mise en page standard",
-      "national": "Mise en page algérienne standard"
+      "national": "Mise en page algérienne standard",
+      "browse": "Autre établissement"
     },
     "noDocument": "Règles de mise en forme uniquement"
+  },
+  "working": {
+    "short": "Traitement en cours…",
+    "long": "Toujours en cours — cela peut prendre un moment. Veuillez patienter.",
+    "veryLong": "Tâche longue toujours en cours — merci de patienter.",
+    "veryLongStoppable": "Tâche longue toujours en cours — patientez, ou appuyez sur Arrêter."
   },
   "tableAI": {
     "proposal": "Suggestion de l'IA",
@@ -117,9 +124,11 @@
     "moveUp": "Monter",
     "moveDown": "Descendre",
     "image": "Insérer une image",
+    "pasteImage": "Coller l'image",
     "clear": "Effacer la mise en forme",
     "more": "Plus d'outils",
     "askAi": "Demander à l'IA",
+    "caption": "Légende",
     "replaceImage": "Remplacer l'image",
     "rotate": "Pivoter",
     "flip": "Retourner",
@@ -132,8 +141,18 @@
   },
   "dockBar": {
     "dismissKeyboard": "Masquer le clavier",
+    "keyboard": "Clavier",
+    "topBar": "Barre du haut",
+    "prev": "Précédent",
+    "next": "Suivant",
+    "tools": "Outils du document",
+    "expandTools": "Déplier la feuille d'outils",
+    "collapseTools": "Replier la feuille d'outils",
     "prevBlock": "Bloc précédent",
     "nextBlock": "Bloc suivant",
+    "insert": "Insérer",
+    "prevHeading": "Titre précédent",
+    "nextHeading": "Titre suivant",
     "search": "Recherche",
     "sectionMarkers": "Repères de section",
     "reorder": "Réorganiser",
@@ -174,6 +193,44 @@
     "thesis": "Mémoire",
     "notifications": "Notifications",
     "profile": "Profil"
+  },
+  "drawer": {
+    "openMenu": "Ouvrir le menu",
+    "newThesis": "Nouveau mémoire",
+    "writer": "Éditeur",
+    "ask": "Demander",
+    "tools": "Outils",
+    "templates": "Modèles",
+    "importCombine": "Importer et combiner",
+    "export": "Exporter",
+    "library": "Bibliothèque",
+    "history": "Historique",
+    "news": "Actualités",
+    "currentThesis": "Mémoire en cours",
+    "contents": "Sommaire",
+    "recent": "Récents",
+    "noTheses": "Aucun mémoire",
+    "searchTheses": "Rechercher un mémoire",
+    "account": "Compte"
+  },
+  "account": {
+    "mine": "Mon Modakerati",
+    "aiKey": "Clé IA",
+    "upgradePlan": "Passer à l'offre supérieure",
+    "about": "À propos"
+  },
+  "library": {
+    "all": "Tout",
+    "figures": "Figures",
+    "tables": "Tableaux",
+    "sources": "Sources",
+    "search": "Rechercher dans la bibliothèque",
+    "empty": "Rien ici pour l'instant"
+  },
+  "writer": {
+    "emptyTitle": "Commencez à écrire",
+    "emptyHint": "Créez un mémoire, importez un document ou partez d'un modèle.",
+    "askPlaceholder": "Demandez à Modakerati"
   },
   "auth": {
     "welcomeTo": "Bienvenue sur",
@@ -310,6 +367,8 @@
     "academicYear": "Annee universitaire",
     "academicYearPlaceholder": "ex. 2025/2026",
     "saving": "Enregistrement…",
+    "loadFailed": "Impossible de charger votre profil",
+    "loadFailedBody": "Vérifiez votre connexion et réessayez.",
     "saveError": "Impossible d'enregistrer votre profil. Veuillez reessayer.",
     "notSet": "Non defini",
     "levels": {
@@ -350,7 +409,33 @@
     "clearCacheConfirmMessage": "Cela supprime les fichiers temporaires (aperçus, exports et imports en cache). Vos mémoires et réglages sont conservés.",
     "clearCacheDoneTitle": "Cache vidé",
     "clearCacheDoneMessage": "Les fichiers temporaires ont été supprimés.",
-    "clearCacheError": "Impossible de vider le cache. Veuillez réessayer."
+    "clearCacheError": "Impossible de vider le cache. Veuillez réessayer.",
+    "aiSection": "IA",
+    "aiKey": "Votre propre clé IA",
+    "aiKeyOn": "Activée",
+    "aiKeyOff": "Désactivée"
+  },
+  "aiKey": {
+    "title": "Votre propre clé IA",
+    "lead": "Utilisez l'application gratuitement avec votre propre clé",
+    "explainer": "Ajoutez une clé API depuis votre compte chez un fournisseur d'IA : l'IA de l'application fonctionnera dessus. Vous payez votre fournisseur directement pour ce que vous consommez, et nous ne vous facturons rien.",
+    "getKey": "Obtenir une clé sur OpenRouter",
+    "keyLabel": "Clé API",
+    "keyHint": "Conservée dans le trousseau sécurisé de votre appareil. Envoyée à notre serveur uniquement pour exécuter vos requêtes, jamais enregistrée.",
+    "modelLabel": "Modèle (facultatif)",
+    "modelHint": "Laissez vide pour utiliser un modèle peu coûteux. Un modèle plus puissant écrit mieux et vous coûte davantage.",
+    "useMyKey": "Utiliser ma clé",
+    "statusOn": "L'IA fonctionne avec votre clé : la consommation est facturée sur votre compte.",
+    "statusOff": "Désactivée — l'application utilise notre IA.",
+    "saved": "Enregistré",
+    "remove": "Supprimer la clé",
+    "errorKeyRejected": "Votre fournisseur a refusé cette clé. Vérifiez que vous l'avez copiée en entier et qu'elle est toujours active.",
+    "errorInsufficientCredit": "Votre compte fournisseur n'a plus de crédit. Rechargez-le pour continuer à utiliser l'IA.",
+    "errorRateLimited": "Votre fournisseur limite le débit de cette clé. Patientez un instant et réessayez.",
+    "errorModelDenied": "Votre fournisseur a refusé d'exécuter ce modèle avec cette clé. Essayez un autre modèle ou vérifiez les paramètres de données de votre compte.",
+    "errorKeyInvalid": "Cette clé semble incorrecte. Recollez-la depuis le tableau de bord de votre fournisseur.",
+    "errorProviderUnsupported": "Ce fournisseur n'est pas encore pris en charge.",
+    "errorModelInvalid": "Ce nom de modèle n'est pas valide."
   },
   "deleteAccountScreen": {
     "lead": "Supprimer votre compte",
@@ -424,6 +509,7 @@
     "genericError": "Une erreur est survenue. Veuillez réessayer."
   },
   "chat": {
+    "pickThesis": "Ouvrez le menu pour choisir un mémoire",
     "askPlaceholder": "Posez une question sur votre memoire...",
     "dismissQuestion": "Ignorer la question",
     "typeYourOwn": "Écrivez votre réponse…",
@@ -451,6 +537,7 @@
     "previewFile": "Aperçu du fichier",
     "regenerate": "Régénérer",
     "tryAgain": "Réessayer",
+    "notSent": "Non envoyé",
     "noResponse": "Je n'ai pas réussi à produire de réponse cette fois. Appuyez sur « Régénérer » pour réessayer.",
     "noResponseDocChanged": "J'ai appliqué les modifications à votre mémoire mais je n'ai pas pu en rédiger le résumé. Ouvrez le document pour les vérifier avant de réessayer.",
     "listen": "Écouter",
@@ -733,7 +820,7 @@
     "block": {
       "h1": "Titre 1", "h2": "Titre 2", "h3": "Titre 3", "h4": "Titre 4", "h5": "Titre 5", "h6": "Titre 6",
       "quote": "Citation", "normal": "Normal", "title": "Titre", "subtitle": "Sous-titre", "intenseQuote": "Citation intense", "noSpacing": "Sans interligne", "bullet": "Liste à puces", "number": "Liste numérotée",
-      "figure": "Figure / image", "pageBreak": "Saut de page",
+      "figure": "Figure / image", "pasteImage": "Coller une image", "pageBreak": "Saut de page",
       "table": "Tableau", "divider": "Séparateur", "equation": "Équation",
       "toc": "Table des matières", "footnote": "Note de bas de page", "imageGen": "Génération d'image IA"
     }
@@ -818,7 +905,34 @@
     "bulkEditError": "Impossible d'appliquer la modification.",
     "removingBg": "Suppression de l'arrière-plan…",
     "updatingImage": "Mise à jour de l'image…",
+    "caption": {
+      "title": "Insérer une légende",
+      "editTitle": "Légende",
+      "text": "Légende",
+      "textPlaceholder": "Ce que cela montre…",
+      "label": "Étiquette",
+      "newLabel": "Nouvelle étiquette",
+      "newLabelPlaceholder": "ex. Carte, Planche",
+      "position": "Position",
+      "above": "Au-dessus de l'élément",
+      "below": "Sous l'élément",
+      "excludeLabel": "Exclure l'étiquette de la légende",
+      "numbering": "Numérotation",
+      "format": "Format",
+      "includeChapter": "Inclure le numéro de chapitre",
+      "chapterStyle": "Le chapitre commence par le style",
+      "heading": "Titre {{n}}",
+      "separator": "Séparateur",
+      "insert": "Insérer",
+      "deleteTitle": "Supprimer cette légende ?",
+      "deleteBody": "Les légendes restantes sont renumérotées.",
+      "listOfFigures": "Liste des figures",
+      "noneTitle": "Aucune légende",
+      "noneBody": "Légendez d'abord vos figures — la liste les rassemble."
+    },
     "imageError": "Impossible de mettre à jour l'image.",
+    "pasteImageError": "Impossible de coller l'image.",
+    "clipboardNoImage": "Aucune image dans le presse-papiers. Copiez d'abord une image, puis collez-la ici.",
     "bgError": "Impossible de supprimer l'arrière-plan. Réessayez.",
     "cropTitle": "Rogner l'image",
     "cropApply": "Appliquer",
@@ -862,7 +976,7 @@
   },
   "confirmAction": {
     "title": "L'IA souhaite effectuer une modification critique",
-    "deleteBlock": "Supprimer le bloc {{index}} : « {{snippet}} »",
+    "deleteBlock": "Retirer ceci de votre mémoire : « {{snippet}} »",
     "replaceText": "Remplacer {{count}} occurrence(s) de « {{find}} » par « {{replace}} »",
     "overwriteHeader": "Remplacer l'en-tête de page par « {{next}} »",
     "overwriteFooter": "Remplacer le pied de page par « {{next}} »",

@@ -45,7 +45,7 @@ export default function PaymentSuccessScreen() {
 
         <Button
           title={t("payment.startBuilding")}
-          onPress={() => router.replace("/(tabs)")}
+          onPress={() => router.replace("/" as any)}
           style={styles.button}
         />
       </View>

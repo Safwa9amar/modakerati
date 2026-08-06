@@ -266,14 +266,16 @@ const IMAGE_ACTIONS: DockAction[] = [
     Icon: PenLine,
     labelKey: "aiDock.writeCaption",
     labelFallback: "Write a caption",
-    prompt: "Write a caption for this figure, numbered and worded to the document's conventions.",
+    // No numbering here: the caption is written as a real Word caption, so the
+    // label and number come from the document's SEQ field, not from the model.
+    prompt: "Write a caption for this figure, worded to the document's conventions.",
   },
   {
     key: "improve-caption",
     Icon: WandSparkles,
     labelKey: "aiDock.improveCaption",
     labelFallback: "Improve caption",
-    prompt: "Improve this figure's caption, keeping its language and numbering.",
+    prompt: "Improve this figure's caption, keeping its language. Leave the label and number out — the document numbers captions itself.",
   },
   {
     key: "translate-caption",

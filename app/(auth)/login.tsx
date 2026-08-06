@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,12 +7,14 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthStore } from "@/stores/auth-store";
+import { isAppleSignInAvailable } from "@/lib/apple-auth";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 
@@ -21,11 +23,32 @@ export default function LoginScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const signInWithEmail = useAuthStore((s) => s.signInWithEmail);
+  const signInWithGoogle = useAuthStore((s) => s.signInWithGoogle);
+  const signInWithApple = useAuthStore((s) => s.signInWithApple);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Asked at runtime, not inferred from Platform: Sign in with Apple is also
+  // unavailable on an iOS build made before the entitlement was added, and an
+  // Apple button that cannot work is worse than no Apple button. Starts hidden
+  // so it never flashes in on Android.
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  useEffect(() => {
+    let active = true;
+    isAppleSignInAvailable().then((ok) => {
+      if (active) setAppleAvailable(ok);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const busy = loading || googleLoading || appleLoading;
 
   const handleSignIn = async () => {
     setError(null);
@@ -33,6 +56,26 @@ export default function LoginScreen() {
     const { error: err } = await signInWithEmail(email, password);
     setLoading(false);
     if (err) setError(err);
+  };
+
+  const handleGoogle = async () => {
+    setError(null);
+    setGoogleLoading(true);
+    const { error: err, cancelled } = await signInWithGoogle();
+    setGoogleLoading(false);
+    // Backing out of the Google sheet is a normal thing to do — say nothing.
+    // On success there is nothing to do either: the new session moves the app
+    // to the chat through useProtectedRoute, and this screen unmounts.
+    if (!cancelled && err) setError(err);
+  };
+
+  const handleApple = async () => {
+    setError(null);
+    setAppleLoading(true);
+    const { error: err, cancelled } = await signInWithApple();
+    setAppleLoading(false);
+    // Dismissing the Apple sheet is normal — say nothing.
+    if (!cancelled && err) setError(err);
   };
 
   return (
@@ -98,7 +141,7 @@ export default function LoginScreen() {
               title={t("auth.signIn")}
               onPress={handleSignIn}
               loading={loading}
-              disabled={!email || !password}
+              disabled={!email || !password || busy}
             />
           </View>
 
@@ -112,19 +155,43 @@ export default function LoginScreen() {
 
           <View style={styles.socialButtons}>
             <Pressable
-              style={[styles.socialButton, { backgroundColor: colors.bgCard, borderColor: colors.borderSubtle, borderWidth: 1 }]}
+              onPress={handleGoogle}
+              disabled={busy}
+              style={[
+                styles.socialButton,
+                { backgroundColor: colors.bgCard, borderColor: colors.borderSubtle, borderWidth: 1 },
+                busy && styles.socialButtonDisabled,
+              ]}
             >
-              <Text style={[styles.socialText, { color: colors.textPrimary }]}>
-                {t("auth.continueGoogle")}
-              </Text>
+              {googleLoading ? (
+                <ActivityIndicator color={colors.textPrimary} />
+              ) : (
+                <Text style={[styles.socialText, { color: colors.textPrimary }]}>
+                  {t("auth.continueGoogle")}
+                </Text>
+              )}
             </Pressable>
-            <Pressable
-              style={[styles.socialButton, { backgroundColor: "#000000" }]}
-            >
-              <Text style={[styles.socialText, { color: "#FFFFFF" }]}>
-                {t("auth.continueApple")}
-              </Text>
-            </Pressable>
+            {/* iOS only — see isAppleSignInAvailable. Android students still
+                have Google and email. */}
+            {appleAvailable && (
+              <Pressable
+                onPress={handleApple}
+                disabled={busy}
+                style={[
+                  styles.socialButton,
+                  { backgroundColor: "#000000" },
+                  busy && styles.socialButtonDisabled,
+                ]}
+              >
+                {appleLoading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={[styles.socialText, { color: "#FFFFFF" }]}>
+                    {t("auth.continueApple")}
+                  </Text>
+                )}
+              </Pressable>
+            )}
           </View>
 
           <View style={styles.switchRow}>
@@ -196,6 +263,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  socialButtonDisabled: { opacity: 0.5 },
   socialText: {
     fontSize: 15,
     fontFamily: "Inter_600SemiBold",

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { View, Text, StyleSheet, AppState, ActivityIndicator, Keyboard, I18nManager } from "react-native";
+import { View, Text, StyleSheet, AppState, ActivityIndicator, Dimensions, Keyboard, I18nManager } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
@@ -9,6 +9,8 @@ import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/comp
 import type { ChromeData, ChromeKind } from "@/components/workspace/lexical/blockLexical";
 import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocSectionDTO, type DocumentDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useHfSheetStore } from "@/stores/hf-sheet-store";
+import { HF_SHEET_FRACTION } from "@/components/HeaderFooterSheet";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
@@ -22,8 +24,9 @@ import { diffToOps, layoutDelta } from "@/lib/table-diff";
 import { applyOpToDoc } from "@/lib/thesis-ops";
 import { planOps, tally } from "@/lib/lexical-writeback";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
+import { pasteImageFromClipboard } from "@/lib/paste-image";
 import { useEditorScrollStore, type ScrollAnchor } from "@/stores/editor-scroll-store";
-import { hLight, hMedium } from "@/lib/haptics";
+import { hLight, hMedium, hSelection } from "@/lib/haptics";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -209,6 +212,15 @@ export function WorkspaceLexicalView({
   // Global view toggle (from the ✦ dock "Reorder" pill): arms the gutter-handle
   // one-finger drag-to-reorder gesture in the DOM editor.
   const reorderMode = useWorkspaceStore((s) => s.reorderMode);
+  // Global view toggle (from the ✦ dock "Select" chip): a leading checkbox on every
+  // block, tap-to-toggle, editor read-only — replaces the OS text-selection drag as
+  // the way to build a multi-block selection.
+  const selectMode = useWorkspaceStore((s) => s.selectMode);
+  // The checkboxes drive the selection without going through onState, so the
+  // dedupe key it guards on goes stale while the mode is on: leaving the mode and
+  // re-tapping the last block the CARET was on would otherwise match the stale key
+  // and skip the re-select (no pill). Clearing it on every mode flip re-arms it.
+  useEffect(() => { lastSelKeyRef.current = ""; }, [selectMode]);
   // Block-editing keyboard mode (issue #6): drives the editor's inputmode so a tap
   // selects a block WITHOUT opening the OS keyboard while inactive.
   const keyboardActive = useWorkspaceStore((s) => s.keyboardActive);
@@ -248,6 +260,20 @@ export function WorkspaceLexicalView({
   );
   // Outline-drawer navigation target (heading tapped in the Structure drawer).
   const scrollTarget = useWorkspaceStore((s) => s.scrollTarget);
+  // Header/footer sheet: which band to bring into view, and a nonce that re-fires it.
+  // The sheet covers the lower two-thirds of the screen, so the band being edited has
+  // to be scrolled up into what's left — otherwise the student can't see what changes.
+  const hfRegion = useHfSheetStore((s) => s.region);
+  const hfIndex = useHfSheetStore((s) => s.index);
+  const hfRevealNonce = useHfSheetStore((s) => s.revealNonce);
+  // Live band preview — a template / AI proposal drawn on the real band before it's
+  // applied. Display-only: chrome bands are excluded from the block model, so this can
+  // never reach a save.
+  const hfPreview = useHfSheetStore((s) => s.preview);
+  // Where in the visible strip the band should land. Aligning it to the very top parks
+  // it half under the status bar (the sheet's app-recede transform shifts the whole app
+  // up), so aim for a bit under half of whatever the sheet leaves uncovered.
+  const hfRevealOffset = Math.round(Dimensions.get("window").height * (1 - HF_SHEET_FRACTION) * 0.45);
   // Persistent highlight for a MULTI-block selection: once the OS text selection is
   // dismissed (e.g. the AI dock opens), keep the chosen blocks visibly marked in the
   // editor. Only for multi-select — a single selected block is the caret/editing case
@@ -328,12 +354,20 @@ export function WorkspaceLexicalView({
   // dismissed (e.g. the AI dock opens), keep the chosen blocks visibly marked. Only
   // for multi-select, and NOT while a proposal is showing (the cards ARE the focus
   // then, and the range node has replaced those blocks). Primitive subscriptions.
+  // In SELECT mode the checkbox + row tint already mark the chosen blocks, so this
+  // second (OS-selection-mimicking) highlight would just double-paint them.
   const highlightIndices = useMemo(
     () =>
-      multiSelect && selectedBlocks.length > 1 && !range && Object.keys(byIndex).length === 0
+      multiSelect && !selectMode && selectedBlocks.length > 1 && !range && Object.keys(byIndex).length === 0
         ? selectedBlocks.map((b) => b.index)
         : [],
-    [multiSelect, selectedBlocks, range, byIndex],
+    [multiSelect, selectMode, selectedBlocks, range, byIndex],
+  );
+  // Which blocks the editor draws CHECKED. Unlike the highlight this includes a
+  // single selected block — one checked box is a legitimate state here.
+  const checkedIndices = useMemo(
+    () => (selectMode ? selectedBlocks.map((b) => b.index) : []),
+    [selectMode, selectedBlocks],
   );
 
   // Approve/reject from the in-editor suggestion node → the native store (its
@@ -596,6 +630,21 @@ export function WorkspaceLexicalView({
       // when a part is genuinely missing (an inherited header counts as present).
       const hasHeader = kind === "section" ? !!sec?.header : undefined;
       const hasFooter = kind === "section" ? !!sec?.footer : undefined;
+      // A running header / footer band opens the BOTTOM SHEET, not the floating bubble:
+      // its whole toolset is the ✦ flow (instruction, compiled preview, template cards),
+      // which never fitted in a pill hovering over the page. The bubble still owns the
+      // section-break band, whose actions are all one-tap.
+      if (kind === "top" || kind === "bottom") {
+        ws.setChromeSelection(null);
+        ws.clearSelection();
+        useHfSheetStore.getState().openBand({
+          thesisId,
+          index: s.index,
+          region: kind === "top" ? "header" : "footer",
+          text,
+        });
+        return;
+      }
       ws.setChromeSelection({ kind, index: s.index, text, pageNumbers, linkedToPrevious, startsOnNewPage, segments, hasHeader, hasFooter });
       ws.clearSelection();
       useLexicalEditorStore.getState().setFormat({
@@ -647,6 +696,21 @@ export function WorkspaceLexicalView({
       store.setQuery(tr.query);
     }
   }, []);
+
+  // An image pasted with the OS Paste menu (or ⌘V) inside the Writer. The plugin has
+  // already swallowed the paste and told us the caret's block; native reads the
+  // clipboard itself. Flush pending text first — insertImage is structural, and the
+  // reseed it triggers would otherwise drop whatever hasn't synced yet, exactly as
+  // the Insert menu does before its own structural ops.
+  const onPasteImage = useCallback(
+    (index: number) => {
+      void (async () => {
+        await flushEdits();
+        await pasteImageFromClipboard(thesisId, index);
+      })();
+    },
+    [thesisId, flushEdits],
+  );
 
   const runSave = useCallback(async (serialized: DocBlockDTO[]) => {
     try {
@@ -741,6 +805,17 @@ export function WorkspaceLexicalView({
       notePlaceholder: t("tableAI.notePlaceholder", { defaultValue: "Note for the retry…" }),
       failed: t("tableAI.failed", { defaultValue: "Suggestion failed" }),
       retry: t("tableAI.retry", { defaultValue: "Retry" }),
+    }),
+    [t],
+  );
+  // The "still working" wait lines every inline AI surface shares. No Stop
+  // control on an inline edit — the only thing to do is wait — so the longest
+  // line says exactly that (unlike the chat's, which points at its Stop button).
+  const workingLabels = useMemo(
+    () => ({
+      short: t("working.short", { defaultValue: "Working on it…" }),
+      long: t("working.long", { defaultValue: "Still working — this can take a while. Please wait." }),
+      veryLong: t("working.veryLong", { defaultValue: "Still working on a long task — please keep waiting." }),
     }),
     [t],
   );
@@ -847,6 +922,15 @@ export function WorkspaceLexicalView({
   }, [thesisId]);
   const onLift = useCallback(() => { hLight(); }, []);
 
+  // Checkbox select mode: a tap on a block toggles it in/out of the native
+  // selection (the store is the single source of truth — the editor only paints
+  // the checked marks back from it). hSelection gives the tap a physical tick,
+  // which the pure-web checkbox can't.
+  const onToggleSelect = useCallback((index: number, text: string) => {
+    hSelection();
+    useWorkspaceStore.getState().toggleBlock(index, text);
+  }, []);
+
   return (
     <View
       style={styles.container}
@@ -864,12 +948,23 @@ export function WorkspaceLexicalView({
           appRtl={I18nManager.isRTL}
           onState={onState}
           onInsertTrigger={onInsertTrigger}
+          onPasteImage={onPasteImage}
           onBlocks={onBlocks}
           reseed={reseed}
           scrollRestore={scrollRestore}
           onScroll={onScroll}
           onScrollRestored={onScrollRestored}
           scrollToIndex={scrollTarget ? { index: scrollTarget.index, nonce: scrollTarget.nonce } : undefined}
+          chromePreview={
+            hfRegion && hfPreview
+              ? { kind: hfRegion === "footer" ? "bottom" : "top", index: hfIndex, segments: hfPreview.segments, text: hfPreview.text, nonce: hfPreview.nonce }
+              : null
+          }
+          scrollToChrome={
+            hfRegion && hfRevealNonce > 0
+              ? { kind: hfRegion === "footer" ? "bottom" : "top", index: hfIndex, nonce: hfRevealNonce, offset: hfRevealOffset }
+              : undefined
+          }
           suggestion={suggestion ?? undefined}
           onSuggestAction={onSuggestAction}
           completionEnabled={completionEnabled}
@@ -886,11 +981,15 @@ export function WorkspaceLexicalView({
           reorderActive={reorderMode}
           onReorder={onReorder}
           onLift={onLift}
+          selectActive={selectMode}
+          selectedForCheck={checkedIndices}
+          onToggleSelect={onToggleSelect}
           tableProposal={tableProposal}
           tableLoadingIndex={tblLoadingIndex}
           tableThinking={tblThinking}
           tableErrorIndex={tblErrorIndex}
           tableLabels={tableLabels}
+          workingLabels={workingLabels}
           onTableProposalAction={onTableProposalAction}
           dom={{ style: { flex: 1 }, scrollEnabled: true, keyboardDisplayRequiresUserAction: false, hideKeyboardAccessoryView: true }}
         />

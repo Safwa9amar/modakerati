@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { supabase } from "@/lib/supabase";
+import { signInWithGoogle as runGoogleSignIn } from "@/lib/google-auth";
+import { signInWithApple as runAppleSignIn } from "@/lib/apple-auth";
 import { useProfileStore } from "@/stores/profile-store";
+import type { GoogleSignInResult } from "@/lib/google-auth";
+import type { AppleSignInResult } from "@/lib/apple-auth";
 import type { Session, User } from "@supabase/supabase-js";
 
 interface AuthState {
@@ -16,6 +20,8 @@ interface AuthState {
     fullName: string,
     university?: { id: string; name: string } | null
   ) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<GoogleSignInResult>;
+  signInWithApple: () => Promise<AppleSignInResult>;
   signOut: () => Promise<void>;
   initialize: () => Promise<void>;
 }
@@ -48,6 +54,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
     return { error: error?.message ?? null };
   },
+  // No `set` here on the way out: the session is written by
+  // exchangeCodeForSession inside the browser flow, and onAuthStateChange (wired
+  // up in initialize) is what lands it on this store. Setting it twice would
+  // race the listener for the same value.
+  signInWithGoogle: async () => runGoogleSignIn(),
+  signInWithApple: async () => runAppleSignIn(),
   signOut: async () => {
     await supabase.auth.signOut();
     useProfileStore.getState().reset();

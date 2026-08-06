@@ -27,9 +27,16 @@
       "same-university-adapted": "Your university — adapted",
       "own-rules": "Built to your university's rules",
       "peer-rules": "Standard layout",
-      "national": "Standard Algerian layout"
+      "national": "Standard Algerian layout",
+      "browse": "Another institution"
     },
     "noDocument": "Formatting rules only"
+  },
+  "working": {
+    "short": "Working on it…",
+    "long": "Still working — this can take a while. Please wait.",
+    "veryLong": "Still working on a long task — please keep waiting.",
+    "veryLongStoppable": "Still working on a long task — keep waiting, or tap Stop."
   },
   "tableAI": {
     "proposal": "AI suggestion",
@@ -117,9 +124,11 @@
     "moveUp": "Move up",
     "moveDown": "Move down",
     "image": "Insert image",
+    "pasteImage": "Paste image",
     "clear": "Clear formatting",
     "more": "More tools",
     "askAi": "Ask AI",
+    "caption": "Caption",
     "replaceImage": "Replace image",
     "rotate": "Rotate",
     "flip": "Flip",
@@ -132,8 +141,18 @@
   },
   "dockBar": {
     "dismissKeyboard": "Dismiss keyboard",
+    "keyboard": "Keyboard",
+    "topBar": "Top bar",
+    "prev": "Previous",
+    "next": "Next",
+    "tools": "Document tools",
+    "expandTools": "Expand the tool sheet",
+    "collapseTools": "Collapse the tool sheet",
     "prevBlock": "Previous block",
     "nextBlock": "Next block",
+    "insert": "Insert",
+    "prevHeading": "Previous heading",
+    "nextHeading": "Next heading",
     "search": "Search",
     "sectionMarkers": "Section markers",
     "reorder": "Reorder",
@@ -174,6 +193,44 @@
     "thesis": "Thesis",
     "notifications": "Notifications",
     "profile": "Profile"
+  },
+  "drawer": {
+    "openMenu": "Open menu",
+    "newThesis": "New thesis",
+    "writer": "Writer",
+    "ask": "Ask",
+    "tools": "Tools",
+    "templates": "Templates",
+    "importCombine": "Import & combine",
+    "export": "Export",
+    "library": "Library",
+    "history": "History",
+    "news": "News",
+    "currentThesis": "Current thesis",
+    "contents": "Contents",
+    "recent": "Recent",
+    "noTheses": "No theses yet",
+    "searchTheses": "Search theses",
+    "account": "Account"
+  },
+  "account": {
+    "mine": "My Modakerati",
+    "aiKey": "AI key",
+    "upgradePlan": "Upgrade plan",
+    "about": "About"
+  },
+  "library": {
+    "all": "All",
+    "figures": "Figures",
+    "tables": "Tables",
+    "sources": "Sources",
+    "search": "Search library",
+    "empty": "Nothing here yet"
+  },
+  "writer": {
+    "emptyTitle": "Start writing",
+    "emptyHint": "Create a thesis, import a document, or start from a template.",
+    "askPlaceholder": "Ask Modakerati"
   },
   "auth": {
     "welcomeTo": "Welcome to",
@@ -310,6 +367,8 @@
     "academicYear": "Academic Year",
     "academicYearPlaceholder": "e.g. 2025/2026",
     "saving": "Saving…",
+    "loadFailed": "Couldn't load your profile",
+    "loadFailedBody": "Check your connection and try again.",
     "saveError": "Couldn't save your profile. Please try again.",
     "notSet": "Not set",
     "levels": {
@@ -350,7 +409,33 @@
     "clearCacheConfirmMessage": "This removes temporary files (previews, exports and cached uploads). Your theses and settings are kept.",
     "clearCacheDoneTitle": "Cache cleared",
     "clearCacheDoneMessage": "Temporary files have been removed.",
-    "clearCacheError": "Could not clear the cache. Please try again."
+    "clearCacheError": "Could not clear the cache. Please try again.",
+    "aiSection": "AI",
+    "aiKey": "Your own AI key",
+    "aiKeyOn": "On",
+    "aiKeyOff": "Off"
+  },
+  "aiKey": {
+    "title": "Your own AI key",
+    "lead": "Use the app for free with your own key",
+    "explainer": "Add an API key from your own AI provider account and the app's AI runs on it. You pay your provider directly for what you use, and we charge you nothing.",
+    "getKey": "Get a key from OpenRouter",
+    "keyLabel": "API key",
+    "keyHint": "Stored in your device's secure keychain. Sent to our server only to run your requests — never saved there.",
+    "modelLabel": "Model (optional)",
+    "modelHint": "Leave empty to use an inexpensive model. A stronger model gives better writing and costs you more.",
+    "useMyKey": "Use my key",
+    "statusOn": "The AI runs on your key and your account is billed.",
+    "statusOff": "Turned off — the app uses our AI instead.",
+    "saved": "Saved",
+    "remove": "Remove key",
+    "errorKeyRejected": "Your provider rejected this key. Check that you copied it in full and that it is still active.",
+    "errorInsufficientCredit": "Your provider account is out of credit. Top it up to keep using the AI.",
+    "errorRateLimited": "Your provider is rate-limiting this key. Wait a moment and try again.",
+    "errorModelDenied": "Your provider would not run this model with this key. Try another model, or check your account's data settings.",
+    "errorKeyInvalid": "That key doesn't look right. Paste it again from your provider dashboard.",
+    "errorProviderUnsupported": "That provider isn't supported yet.",
+    "errorModelInvalid": "That model name isn't valid."
   },
   "deleteAccountScreen": {
     "lead": "Delete your account",
@@ -424,6 +509,7 @@
     "genericError": "Something went wrong. Please try again."
   },
   "chat": {
+    "pickThesis": "Open the menu to pick a thesis",
     "askPlaceholder": "Ask about your thesis...",
     "dismissQuestion": "Dismiss question",
     "typeYourOwn": "Type your own…",
@@ -451,6 +537,7 @@
     "previewFile": "Preview file",
     "regenerate": "Regenerate",
     "tryAgain": "Try again",
+    "notSent": "Not sent",
     "noResponse": "I couldn't produce a response this time. Tap Regenerate to try again.",
     "noResponseDocChanged": "I made the changes to your thesis but couldn't write a summary of them. Open your document to check them before trying again.",
     "listen": "Listen",
@@ -733,7 +820,7 @@
     "block": {
       "h1": "Heading 1", "h2": "Heading 2", "h3": "Heading 3", "h4": "Heading 4", "h5": "Heading 5", "h6": "Heading 6",
       "quote": "Quote", "normal": "Normal", "title": "Title", "subtitle": "Subtitle", "intenseQuote": "Intense Quote", "noSpacing": "No Spacing", "bullet": "Bulleted list", "number": "Numbered list",
-      "figure": "Figure / image", "pageBreak": "Page break",
+      "figure": "Figure / image", "pasteImage": "Paste image", "pageBreak": "Page break",
       "table": "Table", "divider": "Divider", "equation": "Equation",
       "toc": "Table of contents", "footnote": "Footnote", "imageGen": "AI image generation"
     }
@@ -818,7 +905,34 @@
     "bulkEditError": "Could not apply the change.",
     "removingBg": "Removing background…",
     "updatingImage": "Updating image…",
+    "caption": {
+      "title": "Insert caption",
+      "editTitle": "Caption",
+      "text": "Caption",
+      "textPlaceholder": "What this shows…",
+      "label": "Label",
+      "newLabel": "New label",
+      "newLabelPlaceholder": "e.g. Map, Plate",
+      "position": "Position",
+      "above": "Above the item",
+      "below": "Below the item",
+      "excludeLabel": "Exclude label from caption",
+      "numbering": "Numbering",
+      "format": "Format",
+      "includeChapter": "Include chapter number",
+      "chapterStyle": "Chapter starts with style",
+      "heading": "Heading {{n}}",
+      "separator": "Use separator",
+      "insert": "Insert",
+      "deleteTitle": "Delete this caption?",
+      "deleteBody": "The remaining captions are renumbered.",
+      "listOfFigures": "List of Figures",
+      "noneTitle": "No captions yet",
+      "noneBody": "Caption your figures first — the list collects them."
+    },
     "imageError": "Couldn't update the image.",
+    "pasteImageError": "Couldn't paste the image.",
+    "clipboardNoImage": "No image in the clipboard. Copy an image first, then paste it here.",
     "bgError": "Couldn't remove the background. Please try again.",
     "cropTitle": "Crop image",
     "cropApply": "Apply",
@@ -862,7 +976,7 @@
   },
   "confirmAction": {
     "title": "The AI wants to make a critical change",
-    "deleteBlock": "Delete block {{index}}: «{{snippet}}»",
+    "deleteBlock": "Remove this from your thesis: «{{snippet}}»",
     "replaceText": "Replace {{count}} occurrence(s) of «{{find}}» with «{{replace}}»",
     "overwriteHeader": "Overwrite the page header with «{{next}}»",
     "overwriteFooter": "Overwrite the page footer with «{{next}}»",

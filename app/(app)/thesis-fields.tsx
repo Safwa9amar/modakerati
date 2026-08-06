@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset } from "@/hooks/useBottomInset";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
 import { useProfileStore } from "@/stores/profile-store";
@@ -33,6 +34,7 @@ function prefillFor(
 export default function ThesisFieldsScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const bottomInset = useBottomInset(30);
   const router = useRouter();
   const { templateId, title } = useThesisWizard();
   const templates = useThesisStore((s) => s.templates);
@@ -101,7 +103,7 @@ export default function ThesisFieldsScreen() {
         })}
       </ScrollView>
 
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: bottomInset }]}>
         <Button title={t("wizard.continue")} onPress={handleContinue} variant="accent" disabled={missingRequired && showErrors} />
       </View>
     </SafeAreaView>

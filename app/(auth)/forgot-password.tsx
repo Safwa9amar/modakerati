@@ -5,12 +5,14 @@ import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Lock } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset } from "@/hooks/useBottomInset";
 import { BackButton } from "@/components/BackButton";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 
 export default function ForgotPasswordScreen() {
   const colors = useThemeColors();
+  const bottomInset = useBottomInset(32);
   const router = useRouter();
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
@@ -64,7 +66,7 @@ export default function ForgotPasswordScreen() {
         </View>
       </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: bottomInset }]}>
         <Pressable onPress={() => router.push("/(auth)/login" as any)}>
           <Text style={[styles.backLink, { color: colors.brandPrimary }]}>
             {t("auth.backToSignIn")}

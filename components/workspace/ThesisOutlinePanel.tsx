@@ -323,14 +323,22 @@ function ListSkeleton({
  * else a native "Table N"/"Figure N". Tapping any entry closes the drawer and
  * scrolls the workspace to that block. Hosted by the root `PushDrawer`.
  */
-export function ThesisOutlinePanel() {
+/**
+ * The thesis structure (Contents / Tables / Figures). It no longer owns the root
+ * drawer — it's the "outline" view of `AppDrawer`, so `onBack` returns to the app
+ * index. Rendered without `onBack` it behaves as the standalone panel it was.
+ */
+export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
   const thesis = useThesisStore((s) => s.getCurrentThesis());
-  const open = useNavDrawerStore((s) => s.open);
+  // "Visible", not merely "drawer open": the drawer now hosts an app index too, and
+  // this panel stays mounted behind it. Everything gated below is gated on being on
+  // screen, so the app view must not wake the outline's scroll-driven selectors.
+  const open = useNavDrawerStore((s) => s.open && s.view === "outline");
   // Stable-ref selector (the stored object, or undefined) → no zustand loop.
   const outline = useOutlineStore((s) => (thesis ? s.byId[thesis.id] : undefined));
   // Live document (blocks) for the Tables/Figures tabs. Stable ref + primitive tick.
@@ -538,6 +546,21 @@ export function ThesisOutlinePanel() {
       {/* Sticky header: title + close, the tab switcher, and the search field. */}
       <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <View style={[styles.titleRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+          {onBack && (
+            <Pressable
+              onPress={onBack}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={t("common.back", { defaultValue: "Back" })}
+              style={styles.iconBtn}
+            >
+              {rtl ? (
+                <ChevronRight size={24} color={colors.textPrimary} />
+              ) : (
+                <ChevronLeft size={24} color={colors.textPrimary} />
+              )}
+            </Pressable>
+          )}
           <Text
             style={[styles.title, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}
             numberOfLines={1}

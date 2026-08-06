@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset } from "@/hooks/useBottomInset";
 import { useThesisStore } from "@/stores/thesis-store";
 import {
   useThesisWizard,
@@ -35,6 +36,7 @@ const KIND_LABELS: Record<WizardPlanSection["kind"], string> = {
 export default function ThesisPlanScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const bottomInset = useBottomInset(30);
   const router = useRouter();
 
   const { plan, title, language, templateId, brief } = useThesisWizard();
@@ -530,7 +532,7 @@ export default function ThesisPlanScreen() {
       </ScrollView>
 
       {/* Sticky footer: Create */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: bottomInset }]}>
         <Pressable
           onPress={handleCreate}
           disabled={creating || generating}

@@ -23,6 +23,7 @@ interface MessageRow {
   chapter_id: string | null;
   section_id: string | null;
   pending: number;
+  failed: number;
   created_at: string;
 }
 
@@ -42,6 +43,7 @@ function getDb(): Promise<SQLite.SQLiteDatabase> {
           chapter_id TEXT,
           section_id TEXT,
           pending INTEGER NOT NULL DEFAULT 0,
+          failed INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_chat_thesis_created
@@ -51,6 +53,11 @@ function getDb(): Promise<SQLite.SQLiteDatabase> {
           last_synced_at TEXT
         );
       `);
+      // Additive column for installs created before it existed. SQLite has no
+      // ADD COLUMN IF NOT EXISTS, and re-adding throws — so swallow that one
+      // error rather than version-gating a single boolean.
+      await db.execAsync(`ALTER TABLE chat_messages ADD COLUMN failed INTEGER NOT NULL DEFAULT 0;`)
+        .catch(() => {});
       return db;
     })();
   }
@@ -66,6 +73,7 @@ function rowToMessage(r: MessageRow): ChatMessage {
     chapterId: r.chapter_id ?? undefined,
     sectionId: r.section_id ?? undefined,
     pending: r.pending === 1 ? true : undefined,
+    failed: r.failed === 1 ? true : undefined,
     createdAt: r.created_at,
   };
 }
@@ -122,8 +130,8 @@ export async function upsertMessages(thesisId: string, messages: ChatMessage[]):
       for (const m of messages) {
         await db.runAsync(
           `INSERT OR REPLACE INTO chat_messages
-             (id, thesis_id, role, content, chapter_id, section_id, pending, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             (id, thesis_id, role, content, chapter_id, section_id, pending, failed, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             m.id,
             thesisId,
@@ -132,6 +140,7 @@ export async function upsertMessages(thesisId: string, messages: ChatMessage[]):
             m.chapterId ?? null,
             m.sectionId ?? null,
             m.pending ? 1 : 0,
+            m.failed ? 1 : 0,
             m.createdAt,
           ]
         );
@@ -151,6 +160,34 @@ export async function deletePending(thesisId: string): Promise<void> {
     await db.runAsync(`DELETE FROM chat_messages WHERE thesis_id = ? AND pending = 1`, [thesisId]);
   } catch {
     // ignore
+  }
+}
+
+/**
+ * Drop optimistic rows older than `maxAgeMs` — a send that never landed.
+ *
+ * `deletePending` only runs after a SUCCESSFUL sync, so a message sent while
+ * offline stayed in SQLite forever: it reloaded on every app open, looking to
+ * the student like the message had been sent. They re-sent it, got another
+ * un-reaped row, and the same question stacked up — which is what "the same
+ * message repeats forever" actually was. (Confirmed against the server: the
+ * database held ONE copy while the app rendered three.)
+ *
+ * A pending row that survived a restart is BY DEFINITION a send that failed:
+ * the turn is long over. Reaping by age needs no network and no server round
+ * trip, so it works in exactly the offline case that creates the problem.
+ */
+export async function deleteStalePending(thesisId: string, maxAgeMs: number): Promise<number> {
+  try {
+    const db = await getDb();
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+    const res = await db.runAsync(
+      `DELETE FROM chat_messages WHERE thesis_id = ? AND pending = 1 AND created_at < ?`,
+      [thesisId, cutoff]
+    );
+    return res.changes ?? 0;
+  } catch {
+    return 0;
   }
 }
 

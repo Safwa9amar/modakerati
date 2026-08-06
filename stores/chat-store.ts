@@ -1,14 +1,56 @@
 import { create } from "zustand";
-import type { ChatMessage, AskPayload, FilePayload, ConfirmPayload, DocChangesPayload } from "@/types/chat";
+import type { ChatMessage, AskPayload, FilePayload, ConfirmPayload, DocChangesPayload, ToolTracePayload } from "@/types/chat";
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
+}
+
+// The generating state, wound all the way down. Stop and a turn's own teardown
+// both land here so a cancelled turn can't leave a half-idle chat behind.
+const IDLE_TURN = {
+  isGenerating: false,
+  generatingPhase: "idle" as const,
+  generatingStep: 0,
+  streamingId: null,
+  abortController: null,
+  activeTurnId: null,
+  turnStartedAt: null,
+  lastEventAt: null,
+  toolTrace: [] as ToolTracePayload[],
+};
+
+// Stable empty trace — a fresh `[]` from a selector would re-render forever.
+const EMPTY_TOOL_TRACE: ToolTracePayload[] = [];
+
+// Stamp the end of reasoning on `id` wherever it lives. Stop is a global control
+// with no thesis in hand, so the bubble is found by id across the loaded
+// windows; one whose clock never started or already stopped is left alone.
+function stampThinkingEnded(
+  messages: Record<string, ChatMessage[]>,
+  id: string,
+): Record<string, ChatMessage[]> {
+  for (const [thesisId, list] of Object.entries(messages)) {
+    const target = list.find((m) => m.id === id);
+    if (!target) continue;
+    if (!target.thinkingStartedAt || target.thinkingEndedAt) return messages;
+    return {
+      ...messages,
+      [thesisId]: list.map((m) => (m.id === id ? { ...m, thinkingEndedAt: new Date().toISOString() } : m)),
+    };
+  }
+  return messages;
 }
 
 // Stable reference for the "no messages yet" case. Returning a fresh `[]` from
 // the selector makes zustand's useSyncExternalStore see a new snapshot every
 // render, causing an infinite render loop ("Maximum update depth exceeded").
 const EMPTY_MESSAGES: ChatMessage[] = [];
+
+// How recently an identical message must have been added for `addMessage` to
+// treat a repeat as the same send rather than a new one. Long enough to cover a
+// student re-tapping send on a turn that appears frozen; short enough that
+// deliberately asking the same question again later still gets its own bubble.
+const DUPLICATE_WINDOW_MS = 60_000;
 
 // Phase of the AI turn, surfaced in the chat UI as a typing indicator.
 //  - "thinking": request sent, no tokens received yet
@@ -25,10 +67,27 @@ interface ChatState {
   isGenerating: boolean;
   generatingStep: number;
   generatingPhase: GeneratingPhase;
+  // Wall clock of the CURRENT turn (epoch ms), and the last moment anything
+  // streamed in (reasoning, answer text or a file). A long agentic turn spends
+  // most of its time running tools, where neither arrives — the gap between
+  // `lastEventAt` and now is what tells the UI the AI is busy but silent, so it
+  // can say so instead of looking hung. Both null while idle.
+  turnStartedAt: number | null;
+  lastEventAt: number | null;
   streamingId: string | null; // id of the assistant message currently streaming
   abortController: AbortController | null; // aborts the in-flight AI turn when the user taps Stop
+  // Id of the turn that OWNS the generating state above. Stop clears it, which
+  // instantly disowns the in-flight request: its callbacks stop writing and its
+  // teardown can no longer touch a turn the user has since started. Without this
+  // the UI could only leave "generating" when the network call itself unwound —
+  // and a transport that ignores the abort left the composer locked forever.
+  activeTurnId: string | null;
   pendingAsk: AskPayload | null; // active model question → drives the AskBottomSheet
   pendingConfirm: ConfirmPayload | null; // parked destructive action → Approve/Cancel chips
+  // Tools the CURRENT turn has run, oldest→newest. Populated only when the server
+  // is a developer one (AI_SHOW_TOOLS); empty in every student build, which is why
+  // the UI reading it renders nothing at all rather than a translated fallback.
+  toolTrace: ToolTracePayload[];
   // Last AI turn's doc changes per thesis → drives the "Undo AI changes" chip.
   docChanges: Record<string, DocChangesPayload | null>;
 
@@ -41,17 +100,30 @@ interface ChatState {
   getLoadingOlder: (thesisId: string) => boolean;
   setLoadingOlder: (thesisId: string, value: boolean) => void;
   addMessage: (thesisId: string, role: "user" | "assistant", content: string, opts?: { chapterId?: string; pending?: boolean }) => string;
+  /** Mark (or clear) a message as a send whose turn never completed. */
+  setMessageFailed: (thesisId: string, id: string, failed: boolean) => void;
+  /** The most recent user message, for the failed-send retry. */
+  getLastUserMessage: (thesisId: string) => ChatMessage | undefined;
   appendToMessage: (thesisId: string, id: string, chunk: string) => void;
   appendToThinking: (thesisId: string, id: string, chunk: string) => void;
   markThinkingEnded: (thesisId: string, id: string) => void;
   addFileToMessage: (thesisId: string, id: string, file: FilePayload) => void;
   setGenerating: (generating: boolean) => void;
+  // Turn ownership. `beginTurn` claims the generating state and returns the
+  // token the caller must carry; `isTurnActive` gates every write the turn makes;
+  // `endTurn` releases it — and does nothing if the turn no longer owns it.
+  beginTurn: () => string;
+  isTurnActive: (turnId: string) => boolean;
+  endTurn: (turnId: string) => void;
   setGeneratingStep: (step: number) => void;
   setGeneratingPhase: (phase: GeneratingPhase) => void;
   setStreamingId: (id: string | null) => void;
   setAbortController: (controller: AbortController | null) => void;
   setPendingAsk: (ask: AskPayload | null) => void;
   setPendingConfirm: (confirm: ConfirmPayload | null) => void;
+  /** Record a tool frame: a "running" row is appended, its terminal frame updates
+   *  that same row in place (matched on id). */
+  pushToolTrace: (tool: ToolTracePayload) => void;
   setDocChanges: (thesisId: string, changes: DocChangesPayload | null) => void;
   stopGenerating: () => void;
   clearMessages: (thesisId: string) => void;
@@ -64,10 +136,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isGenerating: false,
   generatingStep: 0,
   generatingPhase: "idle",
+  turnStartedAt: null,
+  lastEventAt: null,
   streamingId: null,
   abortController: null,
+  activeTurnId: null,
   pendingAsk: null,
   pendingConfirm: null,
+  toolTrace: EMPTY_TOOL_TRACE,
   docChanges: {},
 
   getMessages: (thesisId) => get().messages[thesisId] ?? EMPTY_MESSAGES,
@@ -95,6 +171,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => (s.loadingOlder[thesisId] === value ? s : { loadingOlder: { ...s.loadingOlder, [thesisId]: value } })),
 
   addMessage: (thesisId, role, content, opts) => {
+    // Re-sending the same question must not stack up another bubble.
+    //
+    // A student whose turn dies silently types the same thing again — three
+    // times, in the case this guard was written for — and every send appended a
+    // fresh row with a fresh local id. Nothing deduped, and `persistCache`
+    // wrote them all to SQLite, so they came back after a restart too.
+    //
+    // Guarded HERE rather than at the call sites because there are eight of
+    // them, and the next one added would forget. Empty content is exempt:
+    // streaming assistant bubbles all start as "" and must stay distinct.
+    const existing = get().messages[thesisId] ?? [];
+    if (content) {
+      const last = existing[existing.length - 1];
+      if (last && last.role === role && last.content === content) {
+        const age = Date.now() - Date.parse(last.createdAt);
+        if (Number.isFinite(age) && age >= 0 && age < DUPLICATE_WINDOW_MS) return last.id;
+      }
+    }
     const id = generateId();
     set((s) => ({
       messages: {
@@ -108,11 +202,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return id;
   },
 
+  setMessageFailed: (thesisId, id, failed) =>
+    set((s) => {
+      const list = s.messages[thesisId];
+      if (!list) return s;
+      return {
+        messages: {
+          ...s.messages,
+          // New object for the target so the memoized bubble re-renders into
+          // (or out of) its failed state.
+          [thesisId]: list.map((m) => (m.id === id ? { ...m, failed } : m)),
+        },
+      };
+    }),
+
+  getLastUserMessage: (thesisId) => {
+    const list = get().messages[thesisId] ?? [];
+    for (let i = list.length - 1; i >= 0; i--) if (list[i].role === "user") return list[i];
+    return undefined;
+  },
+
   appendToMessage: (thesisId, id, chunk) =>
     set((s) => {
       const list = s.messages[thesisId];
       if (!list) return s;
       return {
+        lastEventAt: Date.now(),
         messages: {
           ...s.messages,
           // New object for the target message so memoized bubbles re-render.
@@ -126,6 +241,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const list = s.messages[thesisId];
       if (!list) return s;
       return {
+        lastEventAt: Date.now(),
         messages: {
           ...s.messages,
           [thesisId]: list.map((m) =>
@@ -147,6 +263,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const list = s.messages[thesisId];
       if (!list) return s;
       return {
+        lastEventAt: Date.now(),
         messages: {
           ...s.messages,
           [thesisId]: list.map((m) => {
@@ -159,13 +276,68 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
-  setGenerating: (generating) => set({ isGenerating: generating }),
+  // Starting a turn arms the wall clock the "still working" note counts from,
+  // and seeds `lastEventAt` so the quiet gap is measured from the send, not from
+  // 1970. Ending it disarms both so a finished turn can never look busy.
+  // Prefer beginTurn/endTurn for anything that runs an AI turn — they carry the
+  // ownership token Stop needs; this raw setter leaves the turn unstoppable.
+  setGenerating: (generating) =>
+    set(
+      generating
+        ? { isGenerating: true, turnStartedAt: Date.now(), lastEventAt: Date.now() }
+        : { isGenerating: false, turnStartedAt: null, lastEventAt: null },
+    ),
+
+  // Claim the chat for a new turn and hand back the token that proves ownership.
+  // Any turn already running is disowned on the spot: it keeps unwinding in the
+  // background but can no longer write to the chat or end this one.
+  beginTurn: () => {
+    // A turn still in flight (the user sent again before the last one unwound)
+    // is hung up on here, so two streams can never write to the same chat.
+    try {
+      get().abortController?.abort();
+    } catch {
+      // Best effort — the ownership swap below is what actually disowns it.
+    }
+    const turnId = generateId();
+    set({
+      activeTurnId: turnId,
+      abortController: null,
+      isGenerating: true,
+      generatingPhase: "thinking",
+      generatingStep: 0,
+      streamingId: null,
+      turnStartedAt: Date.now(),
+      lastEventAt: Date.now(),
+      toolTrace: EMPTY_TOOL_TRACE, // last turn's tools are not this turn's story
+    });
+    return turnId;
+  },
+
+  isTurnActive: (turnId) => get().activeTurnId === turnId,
+
+  // Release the generating state — but only if this turn still holds it. A turn
+  // the user stopped (or superseded) must not idle a chat that has since moved on.
+  endTurn: (turnId) =>
+    set((s) => (s.activeTurnId === turnId ? IDLE_TURN : s)),
+
   setGeneratingStep: (step) => set({ generatingStep: step }),
   setGeneratingPhase: (phase) => set({ generatingPhase: phase }),
   setStreamingId: (id) => set({ streamingId: id }),
   setAbortController: (controller) => set({ abortController: controller }),
   setPendingAsk: (ask) => set({ pendingAsk: ask }),
   setPendingConfirm: (confirm) => set({ pendingConfirm: confirm }),
+  pushToolTrace: (tool) =>
+    set((s) => {
+      const at = s.toolTrace.findIndex((t) => t.id === tool.id);
+      // A tool finishing is also a sign of life: it keeps the "still working"
+      // note from reading as a hang through a long stretch of tool calls.
+      const lastEventAt = Date.now();
+      if (at === -1) return { toolTrace: [...s.toolTrace, tool], lastEventAt };
+      const next = s.toolTrace.slice();
+      next[at] = { ...next[at], ...tool };
+      return { toolTrace: next, lastEventAt };
+    }),
   setDocChanges: (thesisId, changes) =>
     set((s) => ({ docChanges: { ...s.docChanges, [thesisId]: changes } })),
   // Stamp when reasoning ended. Idempotent: only stamps if thinking actually
@@ -183,10 +355,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
       return changed ? { messages: { ...s.messages, [thesisId]: next } } : s;
     }),
-  // Cancel the in-flight AI turn. The request's reader rejects with an
-  // AbortError, which sendMessageToAI swallows — the partial response stays.
+  // Cancel the in-flight AI turn. Stop is the user's escape hatch, so it must be
+  // unconditional: the chat goes idle HERE, in the same tick as the tap, and the
+  // abort below is only a best-effort request to the transport to hang up. The
+  // old shape — abort and wait for the reader to reject — meant that any stream
+  // that swallowed the abort (a stalled socket, a native layer that never errors
+  // the body) left the composer disabled and the Stop button stuck on screen with
+  // nothing left to press. Whatever streamed so far stays in the bubble.
   stopGenerating: () => {
-    get().abortController?.abort();
+    const { abortController, streamingId, isGenerating } = get();
+    if (!isGenerating) return;
+    try {
+      abortController?.abort();
+    } catch {
+      // An abort that throws must not keep the UI generating — fall through.
+    }
+    set((s) => ({
+      ...IDLE_TURN,
+      // The turn is over: stop the reasoning clock on the bubble it was writing.
+      messages: streamingId ? stampThinkingEnded(s.messages, streamingId) : s.messages,
+    }));
   },
   clearMessages: (thesisId) =>
     set((s) => {

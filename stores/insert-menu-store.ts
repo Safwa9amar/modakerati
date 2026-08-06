@@ -5,7 +5,7 @@ import { create } from "zustand";
 export type BlockKind =
   | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "quote" | "bullet" | "number" // text (Lexical transform)
   | "normal" | "title" | "subtitle" | "intenseQuote" | "noSpacing" // Word paragraph styles (styleId)
-  | "figure" | "pageBreak"                              // structural (native op)
+  | "figure" | "pasteImage" | "pageBreak"               // structural (native op)
   | "table" | "divider" | "equation" | "toc" | "footnote"; // Phase 2+
 
 // Where the menu blooms: the block index (for placement) + screen Y of that line

@@ -7,7 +7,6 @@ import {
   Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   ScrollView,
   InteractionManager,
@@ -29,14 +28,14 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useRibbonStore } from "@/stores/ribbon-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useChatHead } from "@/stores/chat-head-store";
-import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useOutlineStore } from "@/stores/outline-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
-import { useSearchStore } from "@/stores/search-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
-import { BackButton } from "@/components/BackButton";
+import { DrawerMenuButton } from "@/components/DrawerMenuButton";
+import { EmptyWriter } from "@/components/EmptyWriter";
+import { useSettingsStore } from "@/stores/settings-store";
 import { WordDocxView, type DocTapBlock } from "@/components/workspace/WordDocxView";
 import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
 import { PdfView } from "@/components/workspace/PdfView";
@@ -46,7 +45,6 @@ import { DocSkeleton } from "@/components/workspace/DocSkeleton";
 import { BlockComposer, BLOCK_COMPOSER_MIN_INSET } from "@/components/workspace/BlockComposer";
 import { FloatingPill } from "@/components/workspace/FloatingPill";
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
-import { HeaderMenuButton } from "@/components/workspace/WorkspaceHeaderMenu";
 import { SearchPanel } from "@/components/workspace/SearchPanel";
 import { countWords } from "@/lib/word-count";
 import { MilestoneToast } from "@/components/workspace/MilestoneToast";
@@ -199,6 +197,9 @@ export default function ThesisWorkspaceScreen() {
   useEffect(() => {
     if (!thesisId) return;
     useThesisStore.getState().setCurrentThesis(thesisId);
+    // The writer is the app's root surface — remember which document to reopen on
+    // the next launch (see useProtectedRoute in app/_layout.tsx).
+    useSettingsStore.getState().setLastThesisId(thesisId);
     useThesisStore.getState().refreshThesis(thesisId);
     useWorkspaceStore.getState().setThesis(thesisId);
     return () => {
@@ -306,11 +307,6 @@ export default function ThesisWorkspaceScreen() {
       setPdfDoc({ available: false, reason: "failed" });
     }
   }, [thesisId]);
-
-  // Toggle the Thesis Structure outline — now the root push-drawer.
-  const handleOutlineToggle = useCallback(() => {
-    useNavDrawerStore.getState().toggleDrawer();
-  }, []);
 
   // Load the document model + editor config on focus. `load` paints instantly from
   // the on-device cache, replays any unsent edit ops, then revalidates from the
@@ -528,7 +524,10 @@ export default function ThesisWorkspaceScreen() {
 
   const title = thesis?.title ?? "";
 
-  
+  // No thesis asked for at all — this screen is the app's root, so that is the
+  // "nothing open yet" state, not an error. The writer keeps its shape; only the
+  // page is missing.
+  if (!thesisId) return <EmptyWriter />;
 
   // Loading: no thesis yet (refreshThesis still in flight).
   if (!thesis) {
@@ -538,7 +537,7 @@ export default function ThesisWorkspaceScreen() {
         edges={[]}
       >
         <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
-          <BackButton />
+          <DrawerMenuButton />
           <Text
             style={[styles.topTitle, { color: colors.textPrimary }]}
             numberOfLines={1}
@@ -578,7 +577,7 @@ export default function ThesisWorkspaceScreen() {
       <View style={{ paddingTop: insets.top }}>
         <Animated.View style={headerCollapseStyle} onLayout={(e) => measureHeaderBar(e.nativeEvent.layout.height)}>
         <View style={styles.topBar}>
-          <BackButton />
+          <DrawerMenuButton />
           <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
             {title}
           </Text>
@@ -615,27 +614,6 @@ export default function ThesisWorkspaceScreen() {
           )}
           {/* Read-only preview (Word / PDF), live docs only — editing is the Writer. */}
           {liveDoc && <PreviewButton />}
-          {/* Secondary actions (Navigator, Focus, Sources, Export, Composer show/hide,
-              Maximize) collapsed into a single ⋯ overflow menu to declutter the header. */}
-          {liveDoc ? (
-            <HeaderMenuButton
-              onOpenOutline={handleOutlineToggle}
-              onOpenSearch={() => {
-                useWorkspaceStore.getState().closePreview();
-                useSearchStore.getState().openSearch();
-              }}
-              onOpenSources={() => useBottomSheet.getState().openSheet("thesis-sources")}
-              onExport={() => {
-                if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
-              }}
-              onMaximize={() => {
-                if (liveDoc.downloadUrl) Linking.openURL(liveDoc.downloadUrl).catch(() => {});
-              }}
-              downloadUrl={liveDoc.downloadUrl}
-            />
-          ) : (
-            <View style={styles.expandBtn} />
-          )}
         </View>
         </Animated.View>
       </View>
@@ -799,16 +777,11 @@ export default function ThesisWorkspaceScreen() {
         <NavOverlay />
       </Animated.View>
 
-      {/* Context-aware action zone (replaces the old always-present composer sheet):
-          whole-memoir AI input when nothing is selected, a block-anchored formatting
-          + Ask-AI bar when a block is. Sources / Outline / Export live in the header
-          ⋯ menu now, so the composer no longer carries them. */}
-      <BlockComposer
-        thesisId={thesisId}
-        rtl={docRtl}
-        insetValue={composerInset}
-        blocks={liveDoc?.blocks ?? []}
-      />
+      {/* The AI's docked gate (approve/cancel, or a question to answer) — and only
+          that. Nothing docks while the AI is idle: the global document tools open
+          as a root push drawer from the ✦ bubble's ⋮⋮ drop target, and block
+          formatting lives in the bubble itself. */}
+      <BlockComposer thesisId={thesisId} rtl={docRtl} insetValue={composerInset} />
         </View>
       </KeyboardAvoidingView>
 

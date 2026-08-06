@@ -1,19 +1,22 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard, Image, ActivityIndicator } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset, useKeyboardLift } from "@/hooks/useBottomInset";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useChatHead } from "@/stores/chat-head-store";
-import { sendMessageToAI, loadInitialMessages, loadOlderMessages, regenerateLastResponse, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
+import { sendMessageToAI, loadInitialMessages, loadOlderMessages, regenerateLastResponse, retryFailedMessage, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { ComposerConfirm } from "@/components/workspace/ComposerConfirm";
-import { Send, Plus, Home, List, Paperclip, Image as ImageIcon, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw } from "lucide-react-native";
+import { Send, Plus, Menu, List, Paperclip, Image as ImageIcon, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw, Volume2, AlertCircle } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
+import { DrawerMenuButton } from "@/components/DrawerMenuButton";
+import { EmptyWriter } from "@/components/EmptyWriter";
 import { Markdown } from "@/components/Markdown";
 import { MessageViewer } from "@/components/MessageViewer";
 import { ChatSkeleton } from "@/components/ChatSkeleton";
@@ -21,9 +24,11 @@ import { FileCard } from "@/components/FileCard";
 import { splitFileFrames } from "@/lib/file-frames";
 import { ComposerQuickActions } from "@/components/workspace/ComposerQuickActions";
 import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
+import { useSpeakMessage } from "@/hooks/useSpeakMessage";
 import { getTextDirection } from "@/lib/text-direction";
 import { TypingIndicator } from "@/components/TypingIndicator";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
+import { AiWorkingNote } from "@/components/AiWorkingNote";
 import { deriveThinkingMs } from "@/lib/thinking";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -72,7 +77,7 @@ function FadeOverlay({ color }: { color: string }) {
   );
 }
 
-const Bubble = memo(({ item, colors, isStreaming, isLastAssistant, onExpand, onPreviewFile, onRegenerate }: { item: ChatMessage; colors: any; isStreaming?: boolean; isLastAssistant?: boolean; onExpand?: (content: string) => void; onPreviewFile?: (file: FilePayload) => void; onRegenerate?: () => void }) => {
+const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, isUnanswered, isSpeaking, onExpand, onPreviewFile, onRegenerate, onRetryMessage, onSpeak }: { item: ChatMessage; colors: any; isStreaming?: boolean; isLiveTurn?: boolean; isLastAssistant?: boolean; isUnanswered?: boolean; isSpeaking?: boolean; onExpand?: (content: string) => void; onPreviewFile?: (file: FilePayload) => void; onRegenerate?: () => void; onRetryMessage?: (id: string) => void; onSpeak?: (id: string, text: string) => void }) => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const isUser = item.role === "user";
@@ -93,7 +98,23 @@ const Bubble = memo(({ item, colors, isStreaming, isLastAssistant, onExpand, onP
   const collapsed = isLong && !expanded;
   // The most recent assistant reply gets a "Regenerate" affordance — re-runs the
   // last user turn for a different answer (ChatGPT-style). Hidden while streaming.
-  const canRegenerate = !!isLastAssistant && !isStreaming && hasContent;
+  // Deliberately NOT gated on there being answer text: a turn that ends with only
+  // a thinking trace (or nothing at all) is exactly when the student needs to
+  // retry, and gating on content made that bubble a dead end.
+  const canRegenerate = !!isLastAssistant && !isStreaming;
+  // The student's own last message never got an answer (they hit Stop, or the turn
+  // died before a bubble existed). Offer the same retry there — otherwise the only
+  // way back is retyping the question.
+  // A send whose turn never landed is marked failed by ai-service, wherever it
+  // sits in the list — not only when it happens to be last. `isUnanswered` still
+  // covers the softer case (the student hit Stop, or the turn ended with no
+  // bubble), so both routes to a dead end offer the same way out.
+  const sendFailed = isUser && !!item.failed;
+  const canRetryOwn = isUser && (sendFailed || !!isUnanswered);
+  // Read-aloud is offered on every finished assistant answer, not just the last
+  // one — the reason to tap it is usually a long reply further up. Dev-only
+  // while the neural voice is still being evaluated on real devices.
+  const canSpeak = __DEV__ && !isUser && !isStreaming && hasContent && !!onSpeak;
   // The reasoning is still streaming (no answer text yet) → the "Thinking" toggle
   // shows live bouncing dots so it reads as active, replacing the separate typing
   // indicator. Once the answer starts (or the turn ends) the dots stop and it
@@ -120,18 +141,48 @@ const Bubble = memo(({ item, colors, isStreaming, isLastAssistant, onExpand, onP
         {isUser ? (
           <Text selectable style={[styles.messageText, { color: colors.chatUserText }, textDirStyle]}>{item.content}</Text>
         ) : hasContent ? (
-          isStreaming ? (
-            // While streaming, render plain text — re-parsing markdown on every
-            // token is O(n²) and janky. Markdown is applied once the message ends.
-            <Text selectable style={[styles.messageText, { color: colors.textPrimary }, textDirStyle]}>{bodyText}</Text>
-          ) : (
-            <View style={collapsed ? styles.collapsedWrap : undefined}>
-              <Markdown content={bodyText} color={colors.textPrimary} direction={dir} />
-              {collapsed && <FadeOverlay color={colors.chatAiBubble} />}
-            </View>
-          )
+          // Markdown renders live while streaming too — <Markdown streaming> re-parses
+          // on a timer instead of per token, so headings/tables/lists appear as they
+          // are written without the O(n²) re-lex that made per-token parsing janky.
+          <View style={collapsed ? styles.collapsedWrap : undefined}>
+            <Markdown content={bodyText} color={colors.textPrimary} direction={dir} streaming={isStreaming} />
+            {collapsed && <FadeOverlay color={colors.chatAiBubble} />}
+          </View>
         ) : null}
-        {(isLong || canRegenerate) && (
+        {/* The turn is still running but nothing has streamed for a while — the
+            AI is off running tools (reading the source .docx, writing blocks).
+            Mounted for the whole live turn; it stays invisible until the stream
+            actually goes quiet. */}
+        {isLiveTurn && <AiWorkingNote rtl={dir === "rtl"} />}
+        {canRetryOwn && (
+          <View style={[styles.bubbleActions, { borderTopColor: colors.chatUserText + "33" }]}>
+            {/* Say it plainly. A failed send that looks delivered is what makes a
+                student send the same request again — the retry below exists so
+                they never have to retype it. */}
+            {sendFailed && (
+              <View style={styles.actionBtn}>
+                <AlertCircle size={13} color={colors.chatUserText} strokeWidth={2} />
+                <Text style={[styles.actionLabel, { color: colors.chatUserText }]}>
+                  {t("chat.notSent", { defaultValue: "Not sent" })}
+                </Text>
+              </View>
+            )}
+            <Pressable
+              // A FAILED send re-runs this exact row (no new bubble, and no
+              // server-side regenerate — that path deletes the reply it replaces).
+              // The unanswered case keeps the old regenerate behaviour.
+              onPress={() => (sendFailed ? onRetryMessage?.(item.id) : onRegenerate?.())}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={t("chat.tryAgain", { defaultValue: "Try again" })}
+              style={styles.actionBtn}
+            >
+              <RotateCcw size={13} color={colors.chatUserText} strokeWidth={2} />
+              <Text style={[styles.actionLabel, { color: colors.chatUserText }]}>{t("chat.tryAgain", { defaultValue: "Try again" })}</Text>
+            </Pressable>
+          </View>
+        )}
+        {(isLong || canRegenerate || canSpeak) && (
           <View style={[styles.bubbleActions, { borderTopColor: colors.borderDefault }]}>
             {isLong && (
               <>
@@ -162,6 +213,24 @@ const Bubble = memo(({ item, colors, isStreaming, isLastAssistant, onExpand, onP
                   <Text style={[styles.actionLabel, { color: colors.brandPrimaryLight }]}>{t("chat.viewFull", { defaultValue: "View full" })}</Text>
                 </Pressable>
               </>
+            )}
+            {canSpeak && (
+              <Pressable
+                onPress={() => onSpeak?.(item.id, bodyText)}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={isSpeaking ? t("chat.stopAudio", { defaultValue: "Stop" }) : t("chat.listen", { defaultValue: "Listen" })}
+                style={styles.actionBtn}
+              >
+                {isSpeaking ? (
+                  <Square size={11} color={colors.brandPrimaryLight} strokeWidth={2} fill={colors.brandPrimaryLight} />
+                ) : (
+                  <Volume2 size={13} color={colors.brandPrimaryLight} strokeWidth={2} />
+                )}
+                <Text style={[styles.actionLabel, { color: colors.brandPrimaryLight }]}>
+                  {isSpeaking ? t("chat.stopAudio", { defaultValue: "Stop" }) : t("chat.listen", { defaultValue: "Listen" })}
+                </Text>
+              </Pressable>
             )}
             {canRegenerate && (
               <Pressable
@@ -194,7 +263,6 @@ const Bubble = memo(({ item, colors, isStreaming, isLastAssistant, onExpand, onP
 // (variant "overlay", with a Close button that collapses back to the bubble).
 export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose }: { thesisId: string; thesisTitle: string; variant?: "screen" | "overlay"; onClose?: () => void }) {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { t, i18n } = useTranslation();
   const [inputText, setInputText] = useState("");
@@ -205,6 +273,16 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [viewerContent, setViewerContent] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
+  // Room under the composer for whatever the phone puts there — a three-button
+  // navigation bar, a gesture pill, or nothing — and none of it while the
+  // keyboard is up. See hooks/useBottomInset.
+  const composerInset = useBottomInset(8);
+  const confirmInset = useBottomInset(12);
+  // …plus, on Android, the keyboard's own height: edge-to-edge never resizes the
+  // window for the IME, so the composer clears the keys by padding itself. The
+  // list is the flexing sibling, so it shrinks by the same amount and the last
+  // message stays reachable. iOS returns 0 — its KAV already shrank the region.
+  const keyboardLift = useKeyboardLift();
   const pendingAsk = useChatStore((s) => s.pendingAsk);
   const pendingConfirm = useChatStore((s) => s.pendingConfirm);
   const setPendingAsk = useChatStore((s) => s.setPendingAsk);
@@ -218,6 +296,9 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // visible instance fetches, and not while an ask sheet is open. No block
   // selection in plain chat, so it grounds on the conversation alone.
   const { suggestions } = useComposerSuggestions(thesisId, { enabled: active && !pendingAsk });
+  // Read-aloud for a tapped assistant answer. One at a time, owned here so
+  // starting a second message cuts the first off (see useSpeakMessage).
+  const { speakingId, toggle: toggleSpeak, stop: stopSpeaking } = useSpeakMessage(i18n.language);
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<RNTextInput>(null);
   // True while the list is within NEAR_BOTTOM of the end. Gates auto-scroll so
@@ -235,7 +316,6 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   const hasMoreOlder = useChatStore((s) => s.getHasMoreOlder(thesisId));
   const loadingOlder = useChatStore((s) => s.getLoadingOlder(thesisId));
   const isGenerating = useChatStore((s) => s.isGenerating);
-  const generatingPhase = useChatStore((s) => s.generatingPhase);
   const streamingId = useChatStore((s) => s.streamingId);
   const loadedRef = useRef(false);
   const rotation = useSharedValue(0);
@@ -280,6 +360,13 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
     setShowScrollDown(false);
   }, [thesisId]);
 
+  // Which bubble (if any) the running turn is streaming into. Derived from the
+  // list rather than `streamingId` so it survives a turn whose stream id was
+  // already cleared, and so exactly ONE surface owns the "still working" note:
+  // the bubble when there is one, the footer indicator when there isn't yet.
+  const lastMessage = messages[messages.length - 1];
+  const liveTurnId = isGenerating && lastMessage?.role === "assistant" ? lastMessage.id : null;
+
   const NEAR_BOTTOM = 160;
   function handleScroll(e: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -311,10 +398,22 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // user turn). Stable identity so the memoized Bubble doesn't re-render on every
   // keystroke; snaps to the bottom so the fresh answer streams into view.
   const handleRegenerate = useCallback(() => {
+    // The answer being read aloud is the one about to be replaced.
+    stopSpeaking();
     isNearBottomRef.current = true;
     setShowScrollDown(false);
     void regenerateLastResponse(thesisId);
-  }, [thesisId]);
+  }, [thesisId, stopSpeaking]);
+
+  // Retry a send that never landed. Re-runs the turn for the EXISTING user row —
+  // no second bubble, and no server-side regenerate (that path deletes the reply
+  // it means to replace).
+  const handleRetryMessage = useCallback((messageId: string) => {
+    stopSpeaking();
+    isNearBottomRef.current = true;
+    setShowScrollDown(false);
+    void retryFailedMessage(thesisId, messageId);
+  }, [thesisId, stopSpeaking]);
 
   // Folds a staged attachment into the outgoing text. The `[Attached …]` marker
   // is what the assistant sees; a typed prompt overrides the generic default.
@@ -334,6 +433,8 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
     // Send when there's text, an attachment, or both — but never an empty turn.
     if (!text && !attachment) return;
     const message = composeMessage(text, attachment);
+    // A new turn takes the floor — don't keep reading the previous answer over it.
+    stopSpeaking();
     setInputText("");
     // Also clear the native buffer: a controlled value="" set in the same tick as
     // the editable flip / keyboard dismiss can be dropped on Fabric, leaving the
@@ -420,16 +521,21 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
               <X size={22} color={colors.textPrimary} strokeWidth={1.8} />
             </Pressable>
           ) : (
-            <Pressable onPress={() => router.push("/(tabs)/" as any)} style={{ padding: 4 }}>
-              <Home size={22} color={colors.textPrimary} strokeWidth={1.8} />
-            </Pressable>
+            <DrawerMenuButton />
           )}
           <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>{thesisTitle}</Text>
           <View style={{ width: 30 }} />
         </View>
       </SafeAreaView>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      {/* iOS only. behavior="height" DID clear the keyboard on Android, but it
+          measures the gap as `frame.bottom - keyboard.screenY`, and under
+          edge-to-edge the frame spans the navigation bar while the keyboard
+          metrics don't — so it kept a navigation bar's height reserved with the
+          keyboard CLOSED, which is the gap that used to sit under the composer.
+          Android clears the keys with `keyboardLift` instead (see below); the
+          two must never both be on or they double-count. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={{ flex: 1 }}>
           {loadingHistory && messages.length === 0 ? (
             <ChatSkeleton />
@@ -437,8 +543,11 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
           <FlatList
             ref={flatListRef}
             data={messages}
-            renderItem={({ item, index }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1} onExpand={setViewerContent} onPreviewFile={handlePreviewFile} onRegenerate={handleRegenerate} />}
+            renderItem={({ item, index }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} isLiveTurn={item.id === liveTurnId} isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1} isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating} isSpeaking={item.id === speakingId} onExpand={setViewerContent} onPreviewFile={handlePreviewFile} onRegenerate={handleRegenerate} onRetryMessage={handleRetryMessage} onSpeak={toggleSpeak} />}
             keyExtractor={(item) => item.id}
+            // The live-turn flag lives outside `data`, so tell the list about it —
+            // otherwise the last bubble can keep its working note after the turn ends.
+            extraData={liveTurnId}
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -482,9 +591,14 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
               // Only show the standalone typing indicator BEFORE the assistant
               // bubble exists. Once it streams (reasoning models create it on the
               // first thinking token), the bubble's own live "Thinking" toggle is
-              // the single indicator — no duplicate row.
-              isGenerating && generatingPhase === "thinking" && !streamingId ? (
-                <TypingIndicator label={t("chat.thinking")} />
+              // the single indicator — no duplicate row. The working note rides
+              // along here for the same reason it does in the bubble: a turn can
+              // spend minutes in a tool before the first token ever arrives.
+              isGenerating && !liveTurnId ? (
+                <View>
+                  <TypingIndicator label={t("chat.thinking")} />
+                  <AiWorkingNote rtl={i18n.language === "ar"} style={styles.footerNote} />
+                </View>
               ) : null
             }
             onTouchStart={() => {
@@ -512,7 +626,11 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
           )}
         </View>
 
-        <View style={[styles.inputContainer, { backgroundColor: colors.bgCard, paddingBottom: Math.max(insets.bottom, 8) }]}>
+        {/* The composer sits ON the system navigation bar: its background runs
+            under it and `composerInset` is the padding that keeps the input
+            clear of it, whichever navigation the phone uses. `keyboardLift`
+            replaces that with the keyboard's height while typing. */}
+        <View style={[styles.inputContainer, { backgroundColor: colors.bgCard, paddingBottom: composerInset + keyboardLift }]}>
           {/* Tools tray */}
           {toolsExpanded && (
             <View style={styles.toolsRow}>
@@ -604,11 +722,19 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
                 placeholderTextColor={colors.textPlaceholder}
                 value={inputText}
                 onChangeText={setInputText}
-                onContentSizeChange={(e) =>
-                  setInputHeight(
-                    Math.min(INPUT_MAX_HEIGHT, Math.max(INPUT_MIN_HEIGHT, e.nativeEvent.contentSize.height))
-                  )
-                }
+                // The measurement feeds back into the height we just set, so a
+                // sub-pixel difference between what we wrote and what the native
+                // side measures back would setState forever — a native-event loop
+                // React eventually kills with "Maximum update depth exceeded",
+                // taking the whole JS thread (and every tap) with it. Ignore
+                // anything under a point: no layout depends on that much.
+                onContentSizeChange={(e) => {
+                  const measured = Math.min(
+                    INPUT_MAX_HEIGHT,
+                    Math.max(INPUT_MIN_HEIGHT, e.nativeEvent.contentSize.height)
+                  );
+                  setInputHeight((prev) => (prev != null && Math.abs(prev - measured) < 1 ? prev : measured));
+                }}
                 onSubmitEditing={handleSend}
                 onFocus={() => {
                   if (toolsExpanded) {
@@ -667,7 +793,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
         <View
           style={[
             styles.confirmOverlay,
-            { backgroundColor: colors.bgCard, borderColor: colors.borderDefault, paddingBottom: Math.max(insets.bottom, 12) },
+            { backgroundColor: colors.bgCard, borderColor: colors.borderDefault, paddingBottom: confirmInset + keyboardLift },
           ]}
         >
           <ComposerConfirm
@@ -689,6 +815,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
 }
 
 export default function ChatScreen() {
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const thesisId = useThesisStore((s) => s.currentThesisId);
@@ -697,25 +824,10 @@ export default function ChatScreen() {
     return s.theses.find((t) => t.id === s.currentThesisId)?.title ?? "";
   });
 
-  if (!thesisId) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
-        <View style={styles.noThesis}>
-          <Text style={[styles.noThesisText, { color: colors.textSecondary }]}>
-            Select a thesis from Home to start chatting
-          </Text>
-          <Pressable
-            onPress={() => router.push("/(tabs)" as never)}
-            style={[styles.homeBtn, { backgroundColor: colors.brandPrimary }]}
-            accessibilityRole="button"
-            accessibilityLabel="Go to Home">
-            <Home size={18} color="#FFFFFF" strokeWidth={2.4} />
-            <Text style={styles.homeBtnText}>Home</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // The chat is the app's first screen, so "no thesis" is the FIRST RUN, not an
+  // error. Show the writer's starters — a chat turn is scoped to a thesis, so
+  // there is nothing to say until one exists.
+  if (!thesisId) return <EmptyWriter />;
 
   return <ThesisChat thesisId={thesisId} thesisTitle={thesisTitle} />;
 }
@@ -726,6 +838,9 @@ const styles = StyleSheet.create({
   topTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", flex: 1, textAlign: "center" },
   messageList: { padding: 16, paddingBottom: 10, gap: 14, flexGrow: 1 },
   loadOlder: { paddingVertical: 10, alignItems: "center" },
+  // Indented to the typing indicator's bubble (avatar 28 + gap 8) so the note
+  // reads as part of it rather than as a stray row under the list.
+  footerNote: { marginHorizontal: 36 },
   messageRow: { flexDirection: "row", gap: 8 },
   userRow: { justifyContent: "flex-end" },
   aiRow: { justifyContent: "flex-start", alignItems: "flex-start" },

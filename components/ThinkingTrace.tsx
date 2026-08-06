@@ -14,6 +14,12 @@ import { windowLines, formatThinkingDuration, estimateTokenCount } from "@/lib/t
 
 // How many trailing reasoning lines the live window shows.
 const LIVE_LINES = 6;
+// How much of the trace the live window is allowed to look at. The window only
+// ever shows its last few lines, but a long turn's reasoning grows without
+// bound and this component re-renders on every chunk of it — splitting the WHOLE
+// trace each time is O(n²) over the turn, and the JS thread pays for it in
+// dropped taps. Far more than LIVE_LINES lines of reasoning fit in this much.
+const LIVE_TAIL_CHARS = 2000;
 
 interface Props {
   /** Accumulated reasoning text. */
@@ -119,7 +125,12 @@ export function ThinkingTrace({
         ? t("chat.thoughtFor", { d: durLabel, defaultValue: `Thought for ${durLabel}` })
         : t("chat.thinking", { defaultValue: "Thinking" })) + (tokenLabel ? ` · ${tokenLabel}` : "");
 
-  const liveLines = windowLines(text, LIVE_LINES);
+  // Bounded scan (see LIVE_TAIL_CHARS): start at the first line break inside the
+  // tail so the window never opens on half a sentence.
+  const tailFrom = text.length - LIVE_TAIL_CHARS;
+  const tailBreak = tailFrom > 0 ? text.indexOf("\n", tailFrom) : -1;
+  const tail = tailFrom > 0 ? text.slice(tailBreak === -1 ? tailFrom : tailBreak + 1) : text;
+  const liveLines = windowLines(tail, LIVE_LINES);
 
   return (
     <View style={dividerBelow ? [styles.dividerWrap, { borderColor: colors.borderDefault }] : undefined}>

@@ -14,6 +14,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { INSERT_BLOCKS, INSERT_CATEGORIES, filterBlocks, type InsertBlockDef, type InsertCategory } from "@/components/workspace/insert/insert-blocks";
 import { pickAndInsertImage } from "@/lib/insert-image";
+import { pasteImageFromClipboard } from "@/lib/paste-image";
 import { createThesisStyle, getThesisStyles, type ThesisStyle } from "@/lib/thesis-styles";
 
 const DRAWER_FRACTION = 0.64;
@@ -58,7 +59,15 @@ export function BottomInsertDrawer({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     openSV.value = open;
-    if (open) Keyboard.dismiss();
+    if (!open) return;
+    // Drop the keyboard the moment the drawer opens — it would otherwise sit
+    // under the panel and eat the tiles. Two dismissals are needed: RN's for a
+    // native TextInput (AI ask / bubble), and an explicit editor blur for the
+    // Lexical Writer, whose caret lives inside a WebView that Keyboard.dismiss()
+    // can't reach (this is the common case — the drawer opens from `/` or the
+    // dock `+` while the user is typing).
+    Keyboard.dismiss();
+    if (useLexicalEditorStore.getState().active) useLexicalEditorStore.getState().dispatch("blur");
   }, [open]);
 
   useAnimatedReaction(
@@ -219,6 +228,7 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
     if (!a || !thesisId) return;
     if (d.kind === "pageBreak") await useThesisDocStore.getState().mutate(thesisId, { type: "startOnNewPage", indices: [a.index] });
     else if (d.kind === "figure") await pickAndInsertImage(thesisId, a.index);
+    else if (d.kind === "pasteImage") await pasteImageFromClipboard(thesisId, a.index);
   };
 
   // Apply a Word paragraph styleId (from a fetched thesis style) to the current block.

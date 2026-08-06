@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Image, Linking } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { BackButton } from "@/components/BackButton";
 import { RenderHtml } from "@/components/RenderHtml";
+import { NewsArticleSkeleton } from "@/components/skeletons/NewsSkeletons";
 import { getNewsArticle, recordNewsClick } from "@/lib/api";
 import { Eye, ExternalLink, Newspaper } from "lucide-react-native";
 import type { NewsArticle } from "@/types/news";
@@ -65,9 +66,9 @@ export default function NewsDetailScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.brandPrimary} />
-        </View>
+        <ScrollView contentContainerStyle={styles.skeletonScroll} scrollEnabled={false}>
+          <NewsArticleSkeleton />
+        </ScrollView>
       ) : notFound || !article ? (
         <View style={styles.centered}>
           <Newspaper size={48} color={colors.textSecondary} strokeWidth={1.5} />
@@ -122,6 +123,7 @@ const styles = StyleSheet.create({
   topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14, gap: 12 },
   topTitle: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold", textAlign: "center" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center", gap: 12, padding: 32 },
+  skeletonScroll: { paddingBottom: 60 },
   content: { padding: 20, paddingBottom: 60, gap: 12 },
   cover: { width: "100%", height: 200, borderRadius: 18 },
   metaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },

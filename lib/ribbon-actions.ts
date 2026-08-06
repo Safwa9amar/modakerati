@@ -6,6 +6,8 @@ import { buildToolInstruction } from "@/lib/ribbon-ai-bridge";
 import i18n from "@/lib/i18n";
 import {
   formatThesis,
+  insertThesisCaptionList,
+  listThesisCaptions,
   insertThesisImage,
   replaceThesisBlockImage,
   removeThesisBlockBg,
@@ -14,6 +16,8 @@ import {
   setThesisPageSetup,
 } from "@/lib/api";
 import { rotateFlipBlockImage, type RotateFlipOp } from "@/lib/thesis-image-edit";
+import { useCaptionSheetStore } from "@/stores/caption-sheet-store";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
 
 export interface DispatchDeps {
   thesisId: string;
@@ -29,6 +33,8 @@ export interface DispatchDeps {
   onBusy?: (messageKey: string | null) => void;
   /** Open the interactive crop modal for the given engine block index. */
   onCropImage?: (blockIndex: number) => void;
+  /** The document's blocks, so a tool can tell a table from a figure. */
+  blocks?: { index: number; kind: string }[];
 }
 
 /** Run a ribbon tool. `optionValue` is the chosen preset/segment value (if any). */
@@ -176,6 +182,47 @@ export async function dispatchRibbonAction(
         } finally {
           deps.onBusy?.(null);
         }
+        return;
+      }
+
+      // ── Captions (Word's References → Insert Caption) ──────────────────────
+      // Interactive: a caption needs a label, a position and the numbering options,
+      // so these hand off to the Caption sheet rather than guessing.
+      case "ref.caption":
+      case "picture.caption": {
+        if (!first) return toAi(); // nothing selected → let the AI find the figure
+        const kind = deps.blocks?.find((b) => b.index === first.index)?.kind;
+        useCaptionSheetStore.getState().openInsert({
+          thesisId: deps.thesisId,
+          index: first.index,
+          kind: kind === "table" ? "table" : "figure",
+        });
+        return;
+      }
+
+      // References → Insert Table of Figures, for the label this thesis actually
+      // uses (an Arabic thesis's figures are "الشكل", not "Figure").
+      case "ref.figuresList": {
+        const { labels, captions } = await listThesisCaptions(deps.thesisId);
+        const FIGURE = /^(figure|fig\.?|illustration|schéma|schema|الشكل|شكل|رسم)/i;
+        const label =
+          labels.find((l) => l.count > 0 && FIGURE.test(l.label))?.label ??
+          labels.find((l) => l.count > 0)?.label;
+        if (!label || !captions.length) {
+          Alert.alert(
+            i18n.t("workspace.caption.noneTitle", { defaultValue: "No captions yet" }),
+            i18n.t("workspace.caption.noneBody", { defaultValue: "Caption your figures first — the list collects them." }),
+          );
+          return;
+        }
+        const res = await insertThesisCaptionList(deps.thesisId, {
+          label,
+          title: i18n.t("workspace.caption.listOfFigures", { defaultValue: "List of Figures" }),
+          // Where the student is, like Word; the front matter when nothing is selected.
+          atIndex: first?.index ?? 0,
+        });
+        if (res.document) useThesisDocStore.getState().setDoc(deps.thesisId, res.document);
+        deps.onAfterEdit();
         return;
       }
 

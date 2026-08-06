@@ -1,21 +1,24 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset } from "@/hooks/useBottomInset";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
 import { BackButton } from "@/components/BackButton";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PdfView } from "@/components/workspace/PdfView";
+import { TemplatePreviewSkeleton } from "@/components/skeletons/TemplatePreviewSkeleton";
 import { getTemplate } from "@/lib/api";
 import type { Template } from "@/types/thesis";
 
 export default function TemplatePreviewScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const bottomInset = useBottomInset(30);
   const router = useRouter();
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
   const templates = useThesisStore((s) => s.templates);
@@ -60,9 +63,7 @@ export default function TemplatePreviewScreen() {
           </Text>
           <View style={{ width: 30 }} />
         </View>
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.brandPrimary} />
-        </View>
+        <TemplatePreviewSkeleton />
       </SafeAreaView>
     );
   }
@@ -183,7 +184,7 @@ export default function TemplatePreviewScreen() {
       )}
 
       {/* Bottom button */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: bottomInset }]}>
         <Button
           title={t("template.useTemplate")}
           onPress={handleUseTemplate}

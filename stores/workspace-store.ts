@@ -83,6 +83,15 @@ interface WorkspaceState {
   // data model — a later task wires the editor's drag behavior to this flag.
   reorderMode: boolean;
   toggleReorderMode: () => void;
+  // View-mode toggle (default off) for CHECKBOX block selection in the editor —
+  // flipped from the global ✦ dock's "Select" chip. While on, every block shows a
+  // leading checkbox, a tap anywhere on the block toggles it in/out of
+  // `selectedBlocks`, and the editor goes read-only so the OS text-selection
+  // handles (the old way of building a multi-block selection, unusable on both
+  // platforms) never appear. Mutually exclusive with reorderMode — both claim the
+  // same leading gutter.
+  selectMode: boolean;
+  toggleSelectMode: () => void;
   // Screen top-bar (back / title / undo / redo / ⋯) visibility — a toggle (default
   // shown) flipped from the global ✦ dock's top-bar chip so students can reclaim
   // vertical space while writing (issue #6). NOT the docx running header/footer.
@@ -191,6 +200,7 @@ const INITIAL = {
   focusMode: false,
   showChrome: true,
   reorderMode: false,
+  selectMode: false,
   headerVisible: true,
   chromeVisible: true,
   keyboardActive: false,
@@ -286,7 +296,31 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   toggleShowChrome: () => set((s) => ({ showChrome: !s.showChrome })),
 
-  toggleReorderMode: () => set((s) => ({ reorderMode: !s.reorderMode })),
+  // The two gutter modes share the same leading strip (grip vs checkbox), so each
+  // turns the other off rather than stacking two gutters on every block.
+  toggleReorderMode: () => set((s) => ({ reorderMode: !s.reorderMode, selectMode: false })),
+
+  // Asymmetric on purpose. ENTERING starts a clean pick — whatever a caret tap left
+  // selected isn't what the student means to check. LEAVING KEEPS the set: it becomes
+  // an ordinary multi-block selection, so the checkboxes hand their result straight to
+  // the same tools a drag-selection feeds (bulk delete, start-on-new-page, …). The
+  // one place that must also clear is the bubble's drag-to-✕, which means "get me
+  // out" — it calls clearSelection() itself.
+  toggleSelectMode: () =>
+    set((s) =>
+      s.selectMode
+        ? { selectMode: false }
+        : {
+            selectMode: true,
+            reorderMode: false,
+            selectedBlocks: [],
+            multiSelect: false,
+            chromeSelection: null,
+            editingBlockIndex: null,
+            inlineEditing: false,
+            pendingCaret: null,
+          },
+    ),
 
   toggleHeaderVisible: () => set((s) => ({ headerVisible: !s.headerVisible })),
 

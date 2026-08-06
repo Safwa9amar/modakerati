@@ -55,3 +55,10 @@ modules/**/android/build/
 
 # supabase local temp
 /supabase/.temp/
+
+# Android release signing (NEVER commit)
+credentials/
+*.keystore
+
+# production env (secrets — never commit)
+.env.production

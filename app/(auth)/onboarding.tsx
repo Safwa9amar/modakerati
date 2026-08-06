@@ -13,6 +13,7 @@ import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { MessageSquare, FileText, Download } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset } from "@/hooks/useBottomInset";
 import { Button } from "@/components/ui/Button";
 
 const { width } = Dimensions.get("window");
@@ -47,6 +48,7 @@ const slides: Slide[] = [
 
 export default function OnboardingScreen() {
   const colors = useThemeColors();
+  const bottomInset = useBottomInset(32);
   const router = useRouter();
   const { t } = useTranslation();
   const [activeIndex, setActiveIndex] = useState(0);
@@ -125,7 +127,7 @@ export default function OnboardingScreen() {
         ))}
       </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: bottomInset }]}>
         <Button
           title={
             activeIndex === slides.length - 1

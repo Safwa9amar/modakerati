@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { View, Text, Image, Pressable, FlatList, TextInput, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, Image, Pressable, FlatList, TextInput, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -8,17 +8,24 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useProfileStore } from "@/stores/profile-store";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
 import { BackButton } from "@/components/BackButton";
+import { TemplateListSkeleton } from "@/components/skeletons/TemplateListSkeleton";
 import { getStartingPoints } from "@/lib/api";
 import type { StartingPoint } from "@/types/thesis";
 
 /**
  * The escape hatch behind "Browse all templates" on the match-first screen.
  *
- * Same ranked data, shown as a list rather than one card. The three filter chips
- * the old picker had (university / discipline / language) are gone: the server
- * already orders by how well each option fits, so a single search field over the
- * results is enough, and filtering by university made no sense once the ladder
- * started answering that question itself.
+ * The same ranking, but over the whole template catalogue rather than only what
+ * the ladder could justify recommending — and documents ONLY. A ruleset with no
+ * document is a real starting point, but it is not a template, and a screen
+ * called "Browse all templates" listing three rows of "Formatting rules only"
+ * reads as an error. Those still lead the match-first card, which is where a
+ * student who has no document to start from is meant to find them.
+ *
+ * The three filter chips the old picker had (university / discipline / language)
+ * are gone: the server already orders by how well each option fits, so a single
+ * search field over the results is enough, and filtering by university made no
+ * sense once the ladder started answering that question itself.
  */
 export default function BrowseTemplatesScreen() {
   const colors = useThemeColors();
@@ -38,6 +45,12 @@ export default function BrowseTemplatesScreen() {
           universityId: profile?.universityId ?? null,
           level: profile?.level ?? null,
           language: i18n.language,
+          // The ladder is gated on knowing the student's university, so without
+          // one it can recommend rules but never a document. This screen is the
+          // escape hatch from that: catalogue mode appends the rest of the
+          // templates after the ranked ones and drops the rules-only results,
+          // so "Browse all templates" contains templates and nothing else.
+          scope: "templates",
         });
         if (!cancelled) setPoints(res);
       } catch {
@@ -156,9 +169,7 @@ export default function BrowseTemplatesScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.brandPrimary} />
-        </View>
+        <TemplateListSkeleton />
       ) : (
         <FlatList
           data={results}

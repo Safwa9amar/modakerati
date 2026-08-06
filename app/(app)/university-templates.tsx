@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, Image, Pressable, FlatList, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, Image, Pressable, FlatList, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -7,6 +7,7 @@ import { FileText, ChevronRight, GraduationCap } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useUniversityStore } from "@/stores/university-store";
 import { BackButton } from "@/components/BackButton";
+import { TemplateListSkeleton } from "@/components/skeletons/TemplateListSkeleton";
 import { listTemplates } from "@/lib/api";
 import type { Template } from "@/types/thesis";
 
@@ -98,9 +99,7 @@ export default function UniversityTemplatesScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.brandPrimary} />
-        </View>
+        <TemplateListSkeleton />
       ) : (
         <FlatList
           data={templates}

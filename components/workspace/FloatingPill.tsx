@@ -21,6 +21,7 @@ import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
+import { useDockToolsStore } from "@/stores/dock-tools-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -29,7 +30,7 @@ import { hSelection } from "@/lib/haptics";
 import { bubbleIn, bubbleOut, layoutSpring, SPRING } from "@/lib/motion";
 import { estimateTokenCount } from "@/lib/thinking";
 import type { DocBlockDTO } from "@/lib/api";
-import { Plus, KeyboardOff, Keyboard as KeyboardIcon, SquareCheck, type LucideIcon } from "lucide-react-native";
+import { Plus, KeyboardOff, Keyboard as KeyboardIcon, SquareCheck, LayoutGrid, type LucideIcon } from "lucide-react-native";
 import { BUBBLE_ICONS, type BubbleKind } from "@/lib/bubble-configs";
 import { resolveToolbarKind } from "@/stores/toolbar-store";
 import { AIDock } from "./ai-dock";
@@ -286,7 +287,12 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   }, [selectedBlocks, selectMode]);
 
   // ── Drag position ──
-  const defaultX = (width - maxPillW) / 2;
+  // Messenger chat-head rule: the COLLAPSED bubble always rests against a screen
+  // edge, never mid-screen — it would otherwise sit on top of the text being read.
+  // Its home is the trailing edge (right in LTR, left in RTL), which is also where
+  // the block anchor puts it. The EXPANDED pill is exempt: it is a panel, and it
+  // needs its full width wherever it is.
+  const defaultX = rtl ? 8 : Math.max(8, width - BUBBLE_SIZE - 8);
   const defaultY = height - insets.bottom - PILL_H - 120;
   const startX = pos?.x ?? defaultX;
   const startY = pos?.y ?? defaultY;
@@ -356,6 +362,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const dragActive = useSharedValue(0); // DismissTarget fade
   const overTarget = useSharedValue(0); // close (X) target grow
   const overKeyboard = useSharedValue(0); // keyboard-dismiss target grow (keyboard up only)
+  const overTools = useSharedValue(0);    // document-tools target grow
   const startTX = useSharedValue(0);
   const startTY = useSharedValue(0);
 
@@ -373,8 +380,12 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // whole tray up to mid-screen. The block keyboard is usually off in this mode, so the
   // tray belongs at the bottom-right regardless.
   const kbBottom = insets.bottom + 72;                     // keyboard circle bottom offset (lower target)
-  const closeBottom = kbBottom + DISMISS_SIZE + 20;        // close sits one slot above
+  // ⋮⋮ tools sits one slot above ⌨, close one slot above that (farthest from the
+  // thumb, so the destructive one can't be fat-fingered).
+  const toolsBottom = kbBottom + DISMISS_SIZE + 20;
+  const closeBottom = toolsBottom + DISMISS_SIZE + 20;
   const kbCY = height - kbBottom - DISMISS_SIZE / 2;       // keyboard center Y
+  const toolsCY = height - toolsBottom - DISMISS_SIZE / 2; // tools center Y
   const closeCY = height - closeBottom - DISMISS_SIZE / 2; // close center Y
 
   const minX = 8;
@@ -434,11 +445,16 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
       prevColumnW.current = null;
     }
     const clampedX = Math.min(Math.max(tx.value, minX), maxX);
-    if (clampedX !== tx.value) tx.value = withSpring(clampedX, SPRING);
+    // COLLAPSING is the case that strands the bubble mid-screen: the pill's x was
+    // clamped for its wide form, and a 52px bubble at that x sits nowhere near an
+    // edge. Snap it back to the nearer one (Messenger chat-head rule). The expanded
+    // pill keeps the plain clamp.
+    const restX = expanded ? clampedX : clampedX + curW / 2 < width / 2 ? minX : maxX;
+    if (restX !== tx.value) tx.value = withSpring(restX, SPRING);
     const clampedY = Math.min(Math.max(ty.value, minY), maxY);
     if (clampedY !== ty.value) ty.value = withSpring(clampedY, SPRING);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curW, curH, columnForm]);
+  }, [curW, curH, columnForm, expanded]);
 
   const dismiss = () => {
     const ws = useWorkspaceStore.getState();
@@ -487,6 +503,15 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // it ON focuses the editor so the keyboard rises on the current selection; turning it
   // OFF dismisses it. The editor's inputmode (KeyboardModePlugin) then keeps the keyboard
   // closed on block taps until it's turned back on. Bubble/pill inputs are unaffected.
+  // Drop on the ⋮⋮ target → open the global document tools sheet, or put it away
+  // if it's already up. The bubble is the only always-reachable surface now that
+  // the docked tool bar is gone, so it doubles as the sheet's toggle.
+  const toggleTools = () => {
+    Keyboard.dismiss();
+    if (useLexicalEditorStore.getState().active) useLexicalEditorStore.getState().dispatch("blur");
+    useDockToolsStore.getState().toggle();
+  };
+
   const toggleKeyboard = () => {
     useWorkspaceStore.getState().toggleKeyboardActive();
     if (useWorkspaceStore.getState().keyboardActive) {
@@ -547,12 +572,19 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           const cx = tx.value + curW / 2;
           const cy = ty.value + curH / 2;
           const distClose = Math.hypot(cx - trayCX, cy - closeCY);
+          const distTools = Math.hypot(cx - trayCX, cy - toolsCY);
           const distKb = Math.hypot(cx - trayCX, cy - kbCY);
-          const overC = distClose < DISMISS_HIT_RADIUS && distClose <= distKb ? 1 : 0;
-          const overK = distKb < DISMISS_HIT_RADIUS && distKb < distClose ? 1 : 0;
+          const nearest = Math.min(distClose, distTools, distKb);
+          const overC = distClose < DISMISS_HIT_RADIUS && distClose === nearest ? 1 : 0;
+          const overT = distTools < DISMISS_HIT_RADIUS && distTools === nearest ? 1 : 0;
+          const overK = distKb < DISMISS_HIT_RADIUS && distKb === nearest ? 1 : 0;
           if (overC !== overTarget.value) {
             overTarget.value = withTiming(overC, { duration: 120 });
             if (overC) runOnJS(hSelection)();
+          }
+          if (overT !== overTools.value) {
+            overTools.value = withTiming(overT, { duration: 120 });
+            if (overT) runOnJS(hSelection)();
           }
           if (overK !== overKeyboard.value) {
             overKeyboard.value = withTiming(overK, { duration: 120 });
@@ -564,19 +596,27 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           if (overTarget.value > 0.5) {
             overTarget.value = 0;
             overKeyboard.value = 0;
+            overTools.value = 0;
             runOnJS(dismiss)();
             return;
           }
           const droppedOnKeyboard = overKeyboard.value > 0.5;
+          const droppedOnTools = overTools.value > 0.5;
           overTarget.value = 0;
           overKeyboard.value = 0;
+          overTools.value = 0;
           if (droppedOnKeyboard) runOnJS(toggleKeyboard)();
-          // Clamp into bounds and persist (snap back — also after a keyboard drop).
+          if (droppedOnTools) runOnJS(toggleTools)();
+          // Clamp into bounds and persist (snap back — also after a target drop).
+          // The COLLAPSED bubble additionally flies to the nearer screen edge, the
+          // Messenger chat-head rule: it may be dropped anywhere, but it never rests
+          // over the text. The expanded pill stays exactly where it was let go.
           const clampedX = Math.min(Math.max(tx.value, minX), maxX);
           const clampedY = Math.min(Math.max(ty.value, minY), maxY);
-          tx.value = withSpring(clampedX, SPRING);
+          const restX = expanded ? clampedX : clampedX + curW / 2 < width / 2 ? minX : maxX;
+          tx.value = withSpring(restX, SPRING);
           ty.value = withSpring(clampedY, SPRING);
-          runOnJS(persistPos)({ x: clampedX, y: clampedY });
+          runOnJS(persistPos)({ x: restX, y: clampedY });
         })
         .onFinalize(() => {
           "worklet";
@@ -585,6 +625,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           dragActive.value = withTiming(0, { duration: 140 });
           overTarget.value = 0;
           overKeyboard.value = 0;
+          overTools.value = 0;
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width, height, insets.top, insets.bottom, curW, curH, columnForm, keyboardHeight]);
@@ -659,6 +700,15 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
             right={trayRight}
             bottom={closeBottom}
             label={t("bubble.close", { defaultValue: "Close" })}
+          />
+          <DismissTarget
+            visible={dragActive}
+            active={overTools}
+            right={trayRight}
+            bottom={toolsBottom}
+            Icon={LayoutGrid}
+            variant="neutral"
+            label={t("dockBar.tools", { defaultValue: "Document tools" })}
           />
           <DismissTarget
             visible={dragActive}

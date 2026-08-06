@@ -3,6 +3,7 @@ import { StyleSheet, BackHandler } from "react-native";
 import {
   BottomSheetModal,
   BottomSheetView,
+  BottomSheetScrollView,
   BottomSheetBackdrop,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
@@ -28,6 +29,13 @@ interface BottomSheetProps {
   blocking?: boolean;
   /** Hide the grabber handle at the top. */
   hideHandle?: boolean;
+  /**
+   * Content scrolls inside the sheet (BottomSheetScrollView) instead of sizing it
+   * (BottomSheetView). Needed whenever the content can be taller than the SMALLEST
+   * snap point — gorhom has to own the scroll view for the drag-vs-scroll handoff
+   * to work, so a plain ScrollView here would fight the sheet's pan.
+   */
+  scrollable?: boolean;
   /** Fires after the sheet is dismissed by the user (swipe / backdrop). */
   onDismiss?: () => void;
 }
@@ -41,7 +49,7 @@ interface BottomSheetProps {
  * so we mount fresh on open and present once via a single requestAnimationFrame.
  * Compose concrete sheets by rendering their content as children.
  */
-export function BottomSheet({ name, children, snapPoints, keyboardBehavior, blocking, hideHandle, onDismiss }: BottomSheetProps) {
+export function BottomSheet({ name, children, snapPoints, keyboardBehavior, blocking, hideHandle, scrollable, onDismiss }: BottomSheetProps) {
   const colors = useThemeColors();
   const isOpen = useBottomSheet((s) => s.openSheets.has(name));
   if (!isOpen) return null;
@@ -52,6 +60,7 @@ export function BottomSheet({ name, children, snapPoints, keyboardBehavior, bloc
       keyboardBehavior={keyboardBehavior}
       blocking={blocking}
       hideHandle={hideHandle}
+      scrollable={scrollable}
       onDismiss={onDismiss}
       colors={colors}
     >
@@ -67,6 +76,7 @@ function BottomSheetInner({
   keyboardBehavior,
   blocking,
   hideHandle,
+  scrollable,
   onDismiss,
   colors,
 }: BottomSheetProps & { colors: ThemeColors }) {
@@ -121,7 +131,11 @@ function BottomSheetInner({
       backgroundStyle={{ backgroundColor: colors.bgModal }}
       handleIndicatorStyle={{ backgroundColor: colors.textPlaceholder }}
     >
-      <BottomSheetView style={styles.content}>{children}</BottomSheetView>
+      {scrollable ? (
+        <BottomSheetScrollView contentContainerStyle={styles.content}>{children}</BottomSheetScrollView>
+      ) : (
+        <BottomSheetView style={styles.content}>{children}</BottomSheetView>
+      )}
     </BottomSheetModal>
   );
 }

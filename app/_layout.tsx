@@ -7,6 +7,9 @@ import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-c
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { PushDrawer } from "@/components/PushDrawer";
 import { BottomInsertDrawer } from "@/components/BottomInsertDrawer";
+import { DockToolsSheet } from "@/components/DockToolsSheet";
+import { HeaderFooterSheet } from "@/components/HeaderFooterSheet";
+import { CaptionSheet } from "@/components/CaptionSheet";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { NetworkBanner } from "@/components/NetworkBanner";
 // import { ChatHead } from "@/components/ChatHead"; // disabled for now
@@ -14,6 +17,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useNotificationStore } from "@/stores/notification-store";
 import { useProfileStore } from "@/stores/profile-store";
+import { useThesisStore } from "@/stores/thesis-store";
+import { listTheses } from "@/lib/api";
 import { registerForPushNotificationsAsync, addNotificationListeners } from "@/lib/push-notifications";
 import { getStoredLanguage } from "@/lib/i18n";
 import i18n from "@/lib/i18n";
@@ -21,13 +26,19 @@ import "../global.css";
 
 SplashScreen.preventAutoHideAsync();
 
+// The app's root surface is the chat, on the thesis you last worked on — there is
+// no dashboard to land on any more. It takes no params (the chat reads the current
+// thesis from the store, restored below), and with no thesis at all it renders the
+// empty writer's starters, so this href is correct in every state.
+const HOME_HREF = "/(app)/chat";
+
 function useProtectedRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isLoading = useAuthStore((s) => s.isLoading);
   const hasCompletedOnboarding = useSettingsStore((s) => s.hasCompletedOnboarding);
   const segments = useSegments();
   const router = useRouter();
-
+  
   useEffect(() => {
     if (isLoading) return;
 
@@ -42,8 +53,8 @@ function useProtectedRoute() {
       //
       // The bug this fixes: an authenticated user who hasn't finished onboarding
       // used to bounce forever between (auth)/onboarding (sent there because
-      // onboarding is incomplete) and (tabs) (sent there because "authenticated +
-      // in (auth) → tabs"). Gating the tabs redirect behind hasCompletedOnboarding
+      // onboarding is incomplete) and the app (sent there because "authenticated +
+      // in (auth) → app"). Gating the app redirect behind hasCompletedOnboarding
       // breaks the loop — onboarding now wins until it's actually complete.
       if (!hasCompletedOnboarding) {
         // Must finish onboarding first; it lives in (auth). Don't redirect while
@@ -52,7 +63,7 @@ function useProtectedRoute() {
       } else if (!isAuthenticated) {
         if (!inAuthGroup) router.replace("/(auth)/login" as any);
       } else if (inAuthGroup) {
-        router.replace("/(tabs)" as any);
+        router.replace(HOME_HREF as any);
       }
     }, Platform.OS === "android" ? 100 : 0);
 
@@ -97,6 +108,32 @@ export default function RootLayout() {
     useNotificationStore.getState().loadPreferences().catch(() => {});
     useNotificationStore.getState().fetchNotifications().catch(() => {});
 
+    // Restore WHICH thesis the app is about. The chat is the first screen and it
+    // reads `currentThesisId` from the (in-memory) thesis store, so without this
+    // every cold start would open on "pick a thesis" even for a returning student.
+    // The id lands synchronously from the persisted setting; the list follows over
+    // the network and only supplies titles.
+    const remembered = useSettingsStore.getState().lastThesisId;
+    if (remembered) useThesisStore.getState().setCurrentThesis(remembered);
+    listTheses()
+      .then((rows) => {
+        const store = useThesisStore.getState();
+        store.setTheses(rows);
+        // The remembered thesis can be gone — deleted here or on another device.
+        // Fall back to the most recently touched one rather than stranding the
+        // chat on an id the server no longer knows.
+        if (!rows.some((r) => r.id === store.currentThesisId)) {
+          const newest = [...rows].sort((a, b) =>
+            (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""),
+          )[0];
+          store.setCurrentThesis(newest?.id ?? null);
+          useSettingsStore.getState().setLastThesisId(newest?.id ?? null);
+        }
+      })
+      .catch(() => {
+        // Offline / transient: keep whatever the persisted id gave us.
+      });
+
     const cleanup = addNotificationListeners((route) => router.push(route as never));
     return cleanup;
   }, [isAuthenticated]);
@@ -114,16 +151,30 @@ export default function RootLayout() {
               right. Wraps everything so the push moves the entire tree as one. */}
           <PushDrawer>
             <BottomInsertDrawer>
+            {/* Running header / footer editor — same push-drawer surface as the Insert
+                menu. Nested INSIDE it: only one of the two is ever open. */}
+            <HeaderFooterSheet>
+            {/* Word's Insert Caption dialog — same push-drawer surface, nested the
+                same way: only one of the three sheets is ever open. */}
+            <CaptionSheet>
+            {/* The writer's global document tools — same push-drawer surface again,
+                opened by the bottom-edge grip or the bubble's ⋮⋮ drop target. */}
+            <DockToolsSheet>
             <BottomSheetModalProvider>
               <NetworkBanner />
-              <Stack screenOptions={{ headerShown: false }}>
+              {/* gestureEnabled: false — see app/(app)/_layout.tsx. The root stack
+                  claims the same leading edge the drawer's open-swipe needs. */}
+              <Stack screenOptions={{ headerShown: false, gestureEnabled: false }}>
+                <Stack.Screen name="index" />
                 <Stack.Screen name="(auth)" />
-                <Stack.Screen name="(tabs)" />
                 <Stack.Screen name="(app)" />
               </Stack>
               {/* Floating chat-head disabled for now — re-add <ChatHead /> here
                   (and its import) to restore the draggable bubble. */}
             </BottomSheetModalProvider>
+            </DockToolsSheet>
+            </CaptionSheet>
+            </HeaderFooterSheet>
             </BottomInsertDrawer>
           </PushDrawer>
         </ThemeProvider>

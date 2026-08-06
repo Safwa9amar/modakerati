@@ -10,6 +10,7 @@ import { useProfileStore } from "@/stores/profile-store";
 import { LEVELS, type Level } from "@/types/profile";
 import { AvatarPicker } from "@/components/AvatarPicker";
 import { UniversityPicker } from "@/components/UniversityPicker";
+import { EditProfileSkeleton } from "@/components/skeletons/EditProfileSkeleton";
 import { ChevronDown } from "lucide-react-native";
 
 export default function EditProfileScreen() {
@@ -21,6 +22,7 @@ export default function EditProfileScreen() {
   const profile = useProfileStore((s) => s.profile);
   const isLoading = useProfileStore((s) => s.isLoading);
   const isSaving = useProfileStore((s) => s.isSaving);
+  const loadError = useProfileStore((s) => s.loadError);
   const fetchProfile = useProfileStore((s) => s.fetchProfile);
   const saveProfile = useProfileStore((s) => s.saveProfile);
 
@@ -51,6 +53,9 @@ export default function EditProfileScreen() {
 
   const handleSave = async () => {
     if (isSaving) return;
+    // Never PUT a form that was never filled from a real profile: every field
+    // would go up blank and overwrite good server data.
+    if (!profile) return;
     const { error } = await saveProfile({
       fullName: fullName.trim(),
       university: university.trim() || null,
@@ -67,6 +72,10 @@ export default function EditProfileScreen() {
   };
 
   const showLoader = isLoading && !profile;
+  // The profile could not be read and nothing is cached — so there is nothing to
+  // edit. Showing the form anyway is what made a dead server look like an empty
+  // account, and one Save would have written those blanks back.
+  const showError = !isLoading && !profile;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
@@ -75,18 +84,46 @@ export default function EditProfileScreen() {
           <Text style={[styles.headerAction, { color: colors.textSecondary }]}>{t("common.cancel")}</Text>
         </Pressable>
         <Text style={[styles.title, { color: colors.textPrimary }]}>{t("profile.editProfile")}</Text>
-        <Pressable onPress={handleSave} disabled={isSaving || showLoader} hitSlop={8}>
+        <Pressable onPress={handleSave} disabled={isSaving || showLoader || showError} hitSlop={8}>
           {isSaving ? (
             <ActivityIndicator size="small" color={colors.semanticSuccess} />
           ) : (
-            <Text style={[styles.headerAction, { color: colors.semanticSuccess }]}>{t("common.save")}</Text>
+            <Text
+              style={[
+                styles.headerAction,
+                { color: showError ? colors.textPlaceholder : colors.semanticSuccess },
+              ]}
+            >
+              {t("common.save")}
+            </Text>
           )}
         </Pressable>
       </View>
 
       {showLoader ? (
+        // The skeleton carries the form's own padding — don't double it here.
+        <ScrollView scrollEnabled={false}>
+          <EditProfileSkeleton />
+        </ScrollView>
+      ) : showError ? (
         <View style={styles.loader}>
-          <ActivityIndicator size="large" color={colors.brandPrimary} />
+          <Text style={[styles.errorTitle, { color: colors.textPrimary }]}>
+            {t("profile.loadFailed", { defaultValue: "Couldn't load your profile" })}
+          </Text>
+          <Text style={[styles.errorBody, { color: colors.textSecondary }]}>
+            {t("profile.loadFailedBody", { defaultValue: "Check your connection and try again." })}
+          </Text>
+          {/* The raw reason: "Network request failed" and "API Error: 500" send
+              the student to very different places. */}
+          {!!loadError && (
+            <Text style={[styles.errorDetail, { color: colors.textPlaceholder }]}>{loadError}</Text>
+          )}
+          <Pressable
+            onPress={() => void fetchProfile()}
+            style={[styles.retry, { backgroundColor: colors.brandPrimary }]}
+          >
+            <Text style={styles.retryText}>{t("common.retry")}</Text>
+          </Pressable>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -197,7 +234,12 @@ const styles = StyleSheet.create({
   header: { alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 12 },
   title: { fontSize: 18, fontFamily: "Inter_600SemiBold" },
   headerAction: { fontSize: 15, fontFamily: "Inter_500Medium" },
-  loader: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loader: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 8 },
+  errorTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  errorBody: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center" },
+  errorDetail: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
+  retry: { marginTop: 12, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+  retryText: { color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" },
   content: { paddingHorizontal: 20, paddingBottom: 40 },
   avatarSection: { alignItems: "center", marginBottom: 32 },
   form: { gap: 18 },

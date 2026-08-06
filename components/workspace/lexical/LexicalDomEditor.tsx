@@ -65,7 +65,9 @@ import {
   CAN_UNDO_COMMAND,
   CAN_REDO_COMMAND,
   CLEAR_HISTORY_COMMAND,
+  PASTE_COMMAND,
   COMMAND_PRIORITY_LOW,
+  COMMAND_PRIORITY_HIGH,
   SKIP_DOM_SELECTION_TAG,
   type ElementFormatType,
   type ElementNode,
@@ -85,12 +87,16 @@ import {
   ChromeNode,
   $isChromeNode,
   type ChromeData,
+  type ChromeKind,
   MediaContext,
   EditCellContext,
   TableProposalContext,
   TABLE_AI_LABELS_EN,
+  WorkingLabelsContext,
+  WORKING_LABELS_EN,
   type TableProposalData,
   type TableAILabels,
+  type WorkingLabels,
   SuggestionNode,
   $createSuggestionNode,
   $isSuggestionNode,
@@ -401,46 +407,95 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   .lx-sug, .lx-sug-pill { animation: none; }
   .lx-sug-proposed.lx-sug-loading::after, .lx-sug-think svg, .lx-sug-add { animation: none; }
   .lx-sug.lx-leaving-approve, .lx-sug.lx-leaving-reject { animation: none; }
+  .lx-content.lx-reorder-on > .lx-drag-ok::before { animation: none; }
+  .lx-content.lx-reorder-on > .lx-reorder-shift { transition: none; }
+  .lx-drop-slot, .lx-drag-pill-drop { transition: none; }
+  .lx-drag-pill { animation: none; }
 }
-/* One-finger gutter-handle drag-to-reorder: the lifted block's floating ghost, the
-   drop-target line (amber -cross variant + the reorder-mode toggle are Phase 2/3). */
-.lx-drag-ghost { position: fixed; z-index: 9999; pointer-events: none; background: #fff; border: 2px solid #4b57c4; border-radius: 10px; box-shadow: 0 16px 30px -8px rgba(75,87,196,.65); transform: rotate(-1.2deg) scale(1.03); padding: 6px 10px; opacity: .96; }
-.lx-drop-line { position: fixed; z-index: 9998; height: 0; border-top: 3px solid #4b57c4; box-shadow: 0 0 8px #4b57c4; border-radius: 2px; pointer-events: none; }
-.lx-drop-line-cross { border-top-color: #d68a2e; box-shadow: 0 0 8px #d68a2e; }
-.lx-drag-toggle { position: fixed; z-index: 10000; background: #fff; border: 1px solid #d8d8de; border-radius: 999px; box-shadow: 0 8px 22px -6px rgba(20,22,40,.3); font-size: 12px; display: flex; gap: 2px; padding: 3px; }
-/* Reorder mode: reserve a leading gutter ON EACH BLOCK (per-block, via logical
-   padding, so it lands on the correct side in both LTR and RTL — direction is set
-   per paragraph, not on the root) + a clearly-visible grip handle chip inside it. */
-.lx-content.lx-reorder-on > *:not(.lx-chrome):not(.lx-chrome-wrap) { position: relative; padding-inline-start: 40px; }
-.lx-content.lx-reorder-on > *:not(.lx-chrome):not(.lx-chrome-wrap)::before {
-  content: "⠿"; position: absolute; inset-inline-start: 6px; top: 0.05em;
-  width: 26px; height: 26px; box-sizing: border-box;
+/* ── One-finger gutter-handle drag-to-reorder ────────────────────────────────
+   Mode on → one gutter column with a grip chip on every DRAGGABLE unit (JS tags
+   those 'lx-drag-ok'; multi-block units get the indent but no chip, so the column
+   stays straight and nothing offers a handle that won't lift).
+   The gutter side is the DOCUMENT's, resolved once by JS ('lx-reorder-rtl') —
+   NOT each block's own logical side: direction is per paragraph here, so logical
+   padding put the handle on the right of an Arabic block and on the left of the
+   empty one under it, which reads as a broken UI rather than an affordance. */
+.lx-content.lx-reorder-on > *:not(.lx-chrome):not(.lx-chrome-wrap) { position: relative; padding-left: 42px; }
+.lx-content.lx-reorder-on.lx-reorder-rtl > *:not(.lx-chrome):not(.lx-chrome-wrap) { padding-left: 0; padding-right: 42px; }
+.lx-content.lx-reorder-on > .lx-drag-ok::before {
+  content: "⠿"; position: absolute; left: 8px; top: 1px;
+  width: 24px; height: 24px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
-  color: #4b57c4; font-size: 17px; line-height: 1; font-weight: 700;
-  background: rgba(75,87,196,.16); border-radius: 7px;
+  color: rgba(75,87,196,.62); font-size: 15px; line-height: 1;
+  background: rgba(75,87,196,.09); border-radius: 8px;
+  transition: background .12s ease, color .12s ease, transform .12s ease;
+  animation: lxGripIn .18s ease; /* NO fill-mode: a held end state would outrank the press transform below */
   -webkit-user-select: none; user-select: none; pointer-events: none;
 }
-/* Collapsed source while its block is lifted: content hidden, slim placeholder held
-   (keeps its footprint → no reflow, so the drag's cached rects stay valid). */
-.lx-content.lx-reorder-on .lx-reorder-lifted { color: transparent !important; }
-.lx-content.lx-reorder-on .lx-reorder-lifted * { visibility: hidden !important; }
-.lx-content.lx-reorder-on .lx-reorder-lifted::before { opacity: .18; }
-.lx-content.lx-reorder-on .lx-reorder-lifted::after {
-  content: ""; position: absolute; inset-inline: 40px 12px; top: 50%; margin-top: -9px;
-  height: 18px; border: 1.5px dashed #b3b9e0; border-radius: 7px; background: rgba(75,87,196,.06); visibility: visible;
-}
-/* Magnetic slot: the block after the target gap slides down to open a slot. */
-.lx-content.lx-reorder-on > .lx-reorder-part { transition: transform .16s cubic-bezier(.3,0,.2,1); }
-/* The moving sign — a preview pill that follows the finger, then expands on drop. */
+.lx-content.lx-reorder-on.lx-reorder-rtl > .lx-drag-ok::before { left: auto; right: 8px; }
+@keyframes lxGripIn { from { opacity: 0; transform: scale(.72); } to { opacity: 1; transform: scale(1); } }
+/* finger down on a handle, before the lift arms */
+.lx-content.lx-reorder-on > .lx-drag-hot::before { background: rgba(75,87,196,.2); color: #4b57c4; transform: scale(1.06); }
+/* The lifted block leaves NO hole: it hides, and its neighbours slide across it,
+   so the page previews exactly the post-drop order. Transforms only → no reflow,
+   so the rects cached at lift time stay valid for the whole drag. */
+.lx-content.lx-reorder-on > .lx-reorder-lifted { visibility: hidden; }
+.lx-content.lx-reorder-on > .lx-reorder-shift { transition: transform .19s cubic-bezier(.22,1,.36,1); will-change: transform; }
+/* A thin rule down the middle of the opened slot — the slot itself is the loud
+   signal, so this stays quiet instead of a glowing full-bleed bar. */
+.lx-drop-slot { position: fixed; z-index: 9998; height: 2px; border-radius: 2px; pointer-events: none;
+  background: rgba(75,87,196,.85); transition: top .12s cubic-bezier(.2,0,0,1); }
+.lx-drop-slot::before, .lx-drop-slot::after { content: ""; position: absolute; top: -2px; width: 6px; height: 6px; border-radius: 50%; background: rgba(75,87,196,.85); }
+.lx-drop-slot::before { left: 0; }
+.lx-drop-slot::after { right: 0; }
+/* The moving sign — a small pill of the block's text that follows the finger and
+   sinks into the slot on release. */
 .lx-drag-pill { position: fixed; z-index: 9999; pointer-events: none; box-sizing: border-box;
-  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 13px;
-  font-size: 12px; font-weight: 700; background: #fff; border: 1.5px solid #4b57c4; color: #333;
-  border-radius: 999px; white-space: nowrap; max-width: 64vw; overflow: hidden;
-  box-shadow: 0 12px 26px -6px rgba(75,87,196,.6); animation: lxPillIn .18s cubic-bezier(.34,1.56,.64,1); }
-.lx-drag-pill-grip { color: #4b57c4; flex: 0 0 auto; }
-.lx-drag-pill-txt { overflow: hidden; text-overflow: ellipsis; }
-.lx-drag-pill-land { transition: left .2s ease, top .2s ease, width .2s ease, height .2s cubic-bezier(.34,1.4,.64,1), border-radius .2s ease; }
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px;
+  font-size: 12.5px; font-weight: 600; background: rgba(255,255,255,.97); color: #2a2d3d;
+  border: 1px solid rgba(75,87,196,.35); border-radius: 999px; white-space: nowrap;
+  max-width: 62vw; overflow: hidden;
+  box-shadow: 0 10px 24px -10px rgba(20,22,40,.5), 0 2px 6px -2px rgba(20,22,40,.18);
+  animation: lxPillIn .16s cubic-bezier(.34,1.5,.64,1); }
+.lx-drag-pill-grip { color: rgba(75,87,196,.7); flex: 0 0 auto; }
+.lx-drag-pill-txt { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.lx-drag-pill-drop { transition: top .18s cubic-bezier(.3,0,.2,1), opacity .18s ease, transform .18s ease; }
 @keyframes lxPillIn { from { transform: scale(.7); opacity: .3; } to { transform: scale(1); opacity: 1; } }
+/* ── Checkbox SELECT mode ────────────────────────────────────────────────────
+   The OS text-selection drag (handles + magnifier) was the only way to build a
+   multi-block selection and it was unusable on both platforms — the handles
+   fight the page scroll and never land on block boundaries. In this mode the
+   editor goes read-only, the OS selection is switched off entirely, and every
+   selectable block grows a leading checkbox; a tap anywhere on the block toggles
+   it. Rows are marked by the plugin (lx-selrow), NOT by a child selector, so a
+   LIST contributes one row per ITEM — matching the block model, where each item
+   is its own block.
+   The checkbox column sits on the DOCUMENT's side, resolved once by JS
+   ('lx-select-rtl') — same reason the reorder gutter above does: direction is set
+   per paragraph, so logical padding puts the box on the right of an Arabic block
+   and on the left of the empty one under it. */
+.lx-content.lx-select-on { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* cursor:pointer is load-bearing on iOS, not decoration: WebKit only dispatches a
+   click for a tap on an element it considers clickable, and the listener sits on the
+   editor ROOT. Same trick .lx-blockpick / .lx-chrome already rely on. */
+.lx-content.lx-select-on .lx-selrow {
+  position: relative; padding-left: 42px; list-style: none; cursor: pointer;
+  border-radius: 6px; transition: background-color .12s ease;
+}
+.lx-content.lx-select-on.lx-select-rtl .lx-selrow { padding-left: 0; padding-right: 42px; }
+.lx-content.lx-select-on .lx-selrow::before {
+  content: ""; position: absolute; left: 8px; top: 0.05em;
+  width: 22px; height: 22px; box-sizing: border-box;
+  border: 2px solid #b9bcc8; border-radius: 6px; background-color: #fff;
+  background-repeat: no-repeat; background-position: center; background-size: 15px 15px;
+  pointer-events: none;
+}
+.lx-content.lx-select-on.lx-select-rtl .lx-selrow::before { left: auto; right: 8px; }
+.lx-content.lx-select-on .lx-selrow.lx-selon { background-color: rgba(75,87,196,.11); }
+.lx-content.lx-select-on .lx-selrow.lx-selon::before {
+  border-color: #4b57c4; background-color: #4b57c4;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.2 8.4l3.1 3.1 6.5-6.5'/%3E%3C/svg%3E");
+}
 `;
 
 // Seed a little bilingual content so RTL auto-detection is visible immediately.
@@ -464,12 +519,16 @@ function EditorBridge({
   onBlocks,
   reseed,
   scrollToIndex,
+  scrollToChrome,
+  chromePreview,
 }: {
   command?: LexicalCommand | null;
   onState: (s: LexicalState) => void;
   onBlocks?: (blocks: DocBlockDTO[]) => void;
   reseed?: { blocks: DocBlockDTO[]; chrome?: ChromeData[]; nonce: number };
   scrollToIndex?: { index: number; nonce: number };
+  scrollToChrome?: { kind: ChromeKind; index: number; nonce: number; offset?: number };
+  chromePreview?: { kind: ChromeKind; index: number; segments: string[]; text: string; nonce: number } | null;
 }) {
   const [editor] = useLexicalComposerContext();
 
@@ -505,6 +564,104 @@ function EditorBridge({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollToIndex?.nonce]);
 
+  // Reveal a running header / footer band — its editor opens as a bottom sheet that
+  // covers the lower two-thirds of the screen, so the band has to come up into the
+  // strip that's still visible or the student is editing something they can't see.
+  // A band is identified by (kind, startBlockIndex), the same pair onState reports.
+  useEffect(() => {
+    if (!scrollToChrome) return;
+    const findBand = () => {
+      let key: string | null = null;
+      editor.getEditorState().read(() => {
+        for (const child of $getRoot().getChildren()) {
+          if (!$isChromeNode(child)) continue;
+          const d = child.getData();
+          if (d.kind === scrollToChrome.kind && d.startBlockIndex === scrollToChrome.index) {
+            key = child.getKey();
+            break;
+          }
+        }
+      });
+      if (!key) return false;
+      const el = editor.getElementByKey(key);
+      if (!el) return false;
+      // scrollIntoView + scrollBy, NOT scrollTo — the same pair ScrollSyncPlugin's
+      // restore uses, because `window.scrollTo` is unreliable inside this WebView.
+      // "start" alone parks the band hard against the top edge, half under the status
+      // bar (the sheet's app-recede transform shifts everything up), so back it off by
+      // the offset native computed from the strip left visible above the sheet.
+      el.scrollIntoView({ block: "start" });
+      if (scrollToChrome.offset) window.scrollBy(0, -scrollToChrome.offset);
+      return true;
+    };
+    if (findBand()) return;
+    // A band CREATED from the sheet ("add header") isn't in the tree until the echoed
+    // document reseeds the editor — retry once that has had a chance to land.
+    const timer = setTimeout(findBand, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToChrome?.nonce]);
+
+  // LIVE PREVIEW of a header/footer template or AI proposal, rendered on the REAL band
+  // so the student sees the result in the document before committing. Purely visual:
+  // the band's data is swapped in place and the original is kept here to be written
+  // back on clear. Chrome bands are display-only (skipped by $lexicalToBlocks), so a
+  // preview can never reach a save — but it MUST be restored, or the band would keep
+  // showing a template the student walked away from.
+  const previewOriginal = useRef<{ key: string; data: ChromeData } | null>(null);
+  useEffect(() => {
+    const findKey = (kind: ChromeKind, index: number) => {
+      let key: string | null = null;
+      editor.getEditorState().read(() => {
+        for (const child of $getRoot().getChildren()) {
+          if (!$isChromeNode(child)) continue;
+          const d = child.getData();
+          if (d.kind === kind && d.startBlockIndex === index) { key = child.getKey(); break; }
+        }
+      });
+      return key;
+    };
+    const restore = () => {
+      const saved = previewOriginal.current;
+      previewOriginal.current = null;
+      if (!saved) return;
+      editor.update(() => {
+        const n = $getNodeByKey(saved.key);
+        if (n && $isChromeNode(n)) n.setData(saved.data);
+      });
+    };
+    if (!chromePreview) {
+      restore();
+      return;
+    }
+    const key = findKey(chromePreview.kind, chromePreview.index);
+    if (!key) return;
+    // Moved to a different band → put the previous one back before taking this one over.
+    if (previewOriginal.current && previewOriginal.current.key !== key) restore();
+    editor.update(() => {
+      const n = $getNodeByKey(key);
+      if (!n || !$isChromeNode(n)) return;
+      const cur = n.getData();
+      if (!previewOriginal.current) previewOriginal.current = { key, data: cur };
+      const base = previewOriginal.current.data;
+      n.setData({ ...base, text: chromePreview.text, segments: chromePreview.segments });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chromePreview?.nonce, chromePreview == null]);
+
+  // Never leave a preview behind if the editor goes away mid-browse.
+  useEffect(() => {
+    return () => {
+      const saved = previewOriginal.current;
+      previewOriginal.current = null;
+      if (!saved) return;
+      editor.update(() => {
+        const n = $getNodeByKey(saved.key);
+        if (n && $isChromeNode(n)) n.setData(saved.data);
+      });
+    };
+  }, [editor]);
+
   // Apply the latest command. Keyed on nonce so a repeated tap re-fires.
   useEffect(() => {
     if (!command) return;
@@ -513,7 +670,7 @@ function EditorBridge({
     // without moving the caret). The lab's selection commands still focus. Undo/
     // redo also skip focus: tapped from the dock with the keyboard closed, they
     // must not pop it (Lexical's history doesn't need a live selection).
-    if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list" && command.type !== "undo" && command.type !== "redo" && command.type !== "insert") editor.focus();
+    if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list" && command.type !== "undo" && command.type !== "redo" && command.type !== "insert" && command.type !== "blur") editor.focus();
     switch (command.type) {
       case "bold":
       case "italic":
@@ -590,6 +747,14 @@ function EditorBridge({
         // value = JSON { kind }. Delegate to SlashPlugin's command (owns the /query
         // deletion + placement). No focus() side-effect needed — the caret is live.
         if (command.value) editor.dispatchCommand(INSERT_BLOCK_COMMAND, JSON.parse(command.value) as InsertBlockPayload);
+        break;
+      case "blur":
+        // Close the OS keyboard. RN's Keyboard.dismiss() can't reach the caret
+        // inside the WebView, so the surface that wants the keyboard gone (the
+        // Insert drawer) dispatches this instead. `editor.blur()` only drops the
+        // DOM range — the editor-state selection survives, so the /slash insert
+        // still lands on the right block afterwards.
+        editor.blur();
         break;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1476,20 +1641,24 @@ function CompletionPlugin({
 }
 
 // One-finger gutter-handle drag-to-reorder, gated by reorder MODE (`active`). When
-// the mode is on a leading gutter with a grip (⠿) appears beside each draggable
-// block; a one-finger press in that gutter arms a lift (tiny hold OR small move):
-// the block clones into a floating ghost and a drop line tracks the nearest block
-// gap; on release the block moves there via `onReorder(from, to)`. The plugin only
-// READS geometry via $blockEntries + getElementByKey and paints its own overlay
-// elements on document.body — it never mutates the Lexical document. It is fully
+// the mode is on a gutter with a grip (⠿) appears beside each draggable block; a
+// one-finger press in that gutter arms a lift (tiny hold OR small move). The block
+// then HIDES and the page previews the post-drop order live — every block between
+// it and the target gap slides by one block-height, opening a real slot the finger
+// drags around — while a pill of its text follows the finger. On release the move
+// commits via `onReorder(from, to)` and the preview is held until the reseed paints
+// the real order. Geometry is READ via $blockEntries + getElementByKey and the
+// preview is transform-only (no reflow → the rects cached at lift stay valid); the
+// pill and slot rule are the plugin's own elements on document.body, so the
+// Lexical document is never mutated here. It is fully
 // inert while the mode is off (`!active`), while `suppressed` (an AI proposal is
 // open), or when its callbacks are undefined.
-const GUTTER_PX = 40;     // width of the drag-handle gutter (hit zone) — matches the CSS padding-inline-start
+const GUTTER_PX = 42;     // width of the drag-handle gutter (hit zone) — matches the CSS padding
 const LIFT_HOLD_MS = 150; // tiny hold on the handle before the block lifts…
 const LIFT_MOVE_PX = 6;   // …or this much finger movement, whichever comes first
 const EDGE_PX = 44;       // auto-scroll band at top/bottom
 const EDGE_SPEED = 12;    // px per frame at the very edge
-const PART_PX = 34;       // how far the neighbour slides to open the magnetic slot
+const SETTLE_MS = 420;    // how long the drop preview is held while the real move round-trips
 
 function ReorderPlugin({
   onReorder,
@@ -1512,12 +1681,45 @@ function ReorderPlugin({
   const onLiftRef = useRef(onLift);
   onLiftRef.current = onLift;
 
-  // Toggle the reorder-mode class on the editor root → CSS reveals the gutter grips.
+  // Reorder-mode class on the editor root (→ CSS reveals the gutter) plus the two
+  // things CSS alone can't know: WHICH units are draggable (only those get a grip
+  // chip — offering a handle on a unit that refuses to lift is the worst kind of
+  // affordance) and WHICH SIDE the gutter belongs on for the document as a whole.
   useEffect(() => {
     const root = editor.getRootElement();
     if (!root) return;
-    root.classList.toggle("lx-reorder-on", !!active);
-    return () => { root.classList.remove("lx-reorder-on"); };
+    const strip = () => {
+      root.classList.remove("lx-reorder-on", "lx-reorder-rtl");
+      root.querySelectorAll(".lx-drag-ok, .lx-drag-hot").forEach((el) => el.classList.remove("lx-drag-ok", "lx-drag-hot"));
+      root.querySelectorAll(".lx-reorder-shift").forEach((el) => {
+        (el as HTMLElement).style.transform = "";
+        el.classList.remove("lx-reorder-shift");
+      });
+      root.querySelectorAll(".lx-reorder-lifted").forEach((el) => el.classList.remove("lx-reorder-lifted"));
+    };
+    if (!active) { strip(); return; }
+    const mark = () => {
+      let entries: BlockEntry[] = [];
+      editor.getEditorState().read(() => { entries = $blockEntries(); });
+      let rtl = 0, sided = 0;
+      for (const e of entries) {
+        const el = editor.getElementByKey(e.key) as HTMLElement | null;
+        if (!el) continue;
+        el.classList.toggle("lx-drag-ok", e.count === 1); // Phase 1: single-block units only
+        // Only blocks that DECLARE a direction get a vote — an empty paragraph just
+        // inherits the root's and would drag the whole gutter to the wrong side.
+        const dir = el.getAttribute("dir") || el.style.direction;
+        if (dir === "rtl" || dir === "ltr") { sided++; if (dir === "rtl") rtl++; }
+      }
+      root.classList.add("lx-reorder-on");
+      root.classList.toggle(
+        "lx-reorder-rtl",
+        sided ? rtl * 2 >= sided : getComputedStyle(root).direction === "rtl",
+      );
+    };
+    mark();
+    const un = editor.registerUpdateListener(() => mark());
+    return () => { un(); strip(); };
   }, [editor, active]);
 
   useEffect(() => {
@@ -1532,23 +1734,47 @@ function ReorderPlugin({
     // drag needs device verification; the drop math itself re-reads live rects.
     const scroller = (document.scrollingElement as HTMLElement | null) ?? root;
 
+    type Ent = { from: number; count: number; top: number; bottom: number; left: number; right: number; rtl: boolean; key: string; el: HTMLElement };
     type Live = {
       start: { x: number; y: number };
       timer: ReturnType<typeof setTimeout> | null;
       armed: boolean;
       lifted: boolean;
       from: number;
-      grabDY: number;
-      entries: { from: number; count: number; top: number; bottom: number; left: number; right: number; rtl: boolean; key: string }[];
+      srcIdx: number;      // index of the dragged unit in `entries`
+      srcH: number;        // its full row height incl. the margin below it = the slot size
+      entries: Ent[];
+      rows: HTMLElement[][]; // per entry: its element + any chrome band trailing it
       gaps: number[];
+      shift: number[];     // px currently applied to each row (the slot preview)
+      gapIdx: number;      // gap the preview is currently opened at (-1 = none)
       pill: HTMLElement | null;
       line: HTMLElement | null;
-      srcEl: HTMLElement | null;
-      parted: HTMLElement | null;
+      hot: HTMLElement | null;
       raf: number | null;
+      lastX: number;
       lastY: number;
     };
     let L: Live | null = null;
+    // A drop holds its preview for a beat (see onTouchEnd). Anything that needs
+    // honest geometry — the next drag, teardown — must land it FIRST: transforms
+    // are baked into getBoundingClientRect, so measuring over a held preview would
+    // read every block a slot out of place.
+    let landPreview: (() => void) | null = null;
+
+    // Undo the slot preview. Transitions are killed for the reset frame so the
+    // blocks don't animate back home — on a drop the reseed is about to paint the
+    // real order, and an eased snap-back reads as the move being rejected.
+    const stripEls = (els: HTMLElement[]) => {
+      const touched = els.filter((el) => el.classList.contains("lx-reorder-shift"));
+      for (const el of touched) {
+        el.style.transition = "none";
+        el.style.transform = "";
+        el.classList.remove("lx-reorder-shift");
+      }
+      for (const el of els) el.classList.remove("lx-reorder-lifted");
+      if (touched.length) requestAnimationFrame(() => { for (const el of touched) el.style.transition = ""; });
+    };
 
     const cleanup = () => {
       if (!L) return;
@@ -1556,8 +1782,8 @@ function ReorderPlugin({
       if (L.raf) cancelAnimationFrame(L.raf);
       L.pill?.remove();
       L.line?.remove();
-      if (L.parted) { L.parted.style.transform = ""; L.parted.classList.remove("lx-reorder-part"); }
-      if (L.srcEl) { L.srcEl.classList.remove("lx-reorder-lifted"); L.srcEl.style.opacity = ""; }
+      L.hot?.classList.remove("lx-drag-hot");
+      stripEls(L.rows.flat());
       L = null;
     };
 
@@ -1566,16 +1792,35 @@ function ReorderPlugin({
       editor.getEditorState().read(() => { entries = $blockEntries(); });
       const rects = entries
         .map((e) => {
-          const el = editor.getElementByKey(e.key);
+          const el = editor.getElementByKey(e.key) as HTMLElement | null;
           const r = el?.getBoundingClientRect();
           if (!el || !r) return null;
           const rtl = getComputedStyle(el).direction === "rtl";
-          return { from: e.from, count: e.count, top: r.top, bottom: r.bottom, left: r.left, right: r.right, rtl, key: e.key };
+          return { from: e.from, count: e.count, top: r.top, bottom: r.bottom, left: r.left, right: r.right, rtl, key: e.key, el };
         })
-        .filter(Boolean) as Live["entries"];
+        .filter(Boolean) as Ent[];
       const gaps = rects.map((r) => r.top);
       if (rects.length) gaps.push(rects[rects.length - 1].bottom);
       return { rects, gaps };
+    };
+
+    // Chrome bands (section breaks, header/footer strips) are NOT block entries, so
+    // a preview that moved only entry elements would slide text straight across
+    // them. Group each band with the block it trails: rows then tile the page with
+    // no gaps, every row height is exactly top-to-top, and the preview shifts whole
+    // rows — nothing can overlap. Children above the first block never move (gap 0
+    // means "below the page header", which is where they already are).
+    const buildRows = (rects: Ent[]) => {
+      const rows: HTMLElement[][] = rects.map(() => []);
+      const idxOf = new Map<HTMLElement, number>();
+      rects.forEach((r, i) => idxOf.set(r.el, i));
+      let cur = -1;
+      for (const child of Array.from(root.children) as HTMLElement[]) {
+        const own = idxOf.get(child);
+        if (own !== undefined) cur = own;
+        if (cur >= 0) rows[cur].push(child);
+      }
+      return rows;
     };
 
     const unitAt = (y: number, rects: Live["entries"]) =>
@@ -1592,53 +1837,65 @@ function ReorderPlugin({
 
     const onTouchStart = (e: TouchEvent) => {
       if (!activeRef.current || suppressedRef.current || e.touches.length !== 1) { cleanup(); return; }
+      landPreview?.(); // a drop still holding its preview → settle it before measuring
       const t = e.touches[0];
       const { rects } = buildEntries();
       const overRect = unitAt(t.clientY, rects);
       if (!overRect || overRect.count !== 1) return; // Phase 1: only single-block units draggable (lists/sections are Phase 2)
-      // Grip zone = the GUTTER_PX-wide leading band of THIS block (right edge for an
-      // RTL block, left edge for LTR) — matches the per-block grip the CSS renders.
-      // Direction is per-paragraph, so we read it off the block, not the root.
-      const inGrip = overRect.rtl
+      // Grip zone = the GUTTER_PX-wide band on the document's gutter side — the same
+      // single column the CSS draws the chips in, so the hit area is always under
+      // the handle the user can see (per-block direction must NOT be consulted here).
+      const right = root.classList.contains("lx-reorder-rtl");
+      const inGrip = right
         ? t.clientX > overRect.right - GUTTER_PX && t.clientX <= overRect.right
         : t.clientX >= overRect.left && t.clientX < overRect.left + GUTTER_PX;
       if (!inGrip) return; // touch in the text body → leave typing/selection/scroll alone
       e.preventDefault(); // own the gesture from the gutter (suppress scroll + selection)
       L = { start: { x: t.clientX, y: t.clientY }, timer: null, armed: true, lifted: false,
-            from: overRect.from, grabDY: 0, entries: rects, gaps: [], pill: null, line: null, srcEl: null, parted: null, raf: null, lastY: t.clientY };
+            from: overRect.from, srcIdx: -1, srcH: 0, entries: rects, rows: [], gaps: [], shift: [], gapIdx: -1,
+            pill: null, line: null, hot: overRect.el, raf: null, lastX: t.clientX, lastY: t.clientY };
+      overRect.el.classList.add("lx-drag-hot"); // the handle answers the finger immediately
       L.timer = setTimeout(() => lift(), LIFT_HOLD_MS);
     };
 
     const lift = () => {
       if (!L || !L.armed) return;
-      L.armed = false; L.lifted = true;
-      onLiftRef.current?.(); // real native haptic pop
-      let srcKey = "";
-      editor.getEditorState().read(() => { const es = $blockEntries().find((x) => x.from === L!.from); srcKey = es ? es.key : ""; });
-      const srcEl = srcKey ? (editor.getElementByKey(srcKey) as HTMLElement | null) : null;
-      if (!srcEl) { cleanup(); return; }
-      L.srcEl = srcEl;
-      // Preview-pill sign: grip + a truncated peek of the block's text (or "block").
-      const raw = (srcEl.textContent || "").replace(/\s+/g, " ").trim();
-      const label = raw ? `“${raw.slice(0, 26)}${raw.length > 26 ? "…" : ""}”` : "block";
-      // Collapse the source IN PLACE — hide its content, hold a slim placeholder. It
-      // keeps its footprint (no reflow), so the rects captured at arm time stay valid.
-      srcEl.classList.add("lx-reorder-lifted");
       const { rects, gaps } = buildEntries();
-      L.entries = rects; L.gaps = gaps;
+      const srcIdx = rects.findIndex((r) => r.from === L!.from);
+      if (srcIdx < 0) { cleanup(); return; }
+      L.armed = false; L.lifted = true;
+      L.entries = rects; L.gaps = gaps; L.srcIdx = srcIdx;
+      L.rows = buildRows(rects);
+      L.srcH = Math.max(24, gaps[srcIdx + 1] - gaps[srcIdx]); // top-to-top = the whole row
+      L.shift = rects.map(() => 0);
+      L.hot?.classList.remove("lx-drag-hot"); L.hot = null;
+      onLiftRef.current?.(); // real native haptic pop
+      const srcEl = rects[srcIdx].el;
+      // Preview-pill sign: grip + a truncated peek of the block's text. The peek is
+      // tagged with the block's own direction — an Arabic snippet in an LTR box
+      // comes out scrambled by bidi, and quote marks around it make it worse.
+      const raw = (srcEl.textContent || "").replace(/\s+/g, " ").trim();
       const pill = document.createElement("div");
       pill.className = "lx-drag-pill";
       const g = document.createElement("span"); g.className = "lx-drag-pill-grip"; g.textContent = "⠿";
-      const s = document.createElement("span"); s.className = "lx-drag-pill-txt"; s.textContent = label;
+      const s = document.createElement("span"); s.className = "lx-drag-pill-txt";
+      s.textContent = raw ? raw.slice(0, 30) + (raw.length > 30 ? "…" : "") : "¶";
+      s.setAttribute("dir", rects[srcIdx].rtl ? "rtl" : "ltr");
       pill.appendChild(g); pill.appendChild(s);
       document.body.appendChild(pill);
+      // The slot rule spans the text column, inset — not the full bleed of the root.
       const line = document.createElement("div");
-      line.className = "lx-drop-line";
+      line.className = "lx-drop-slot";
+      const rootR = root.getBoundingClientRect();
+      line.style.left = (rootR.left + 14) + "px";
+      line.style.width = Math.max(40, rootR.width - 28) + "px";
       document.body.appendChild(line);
       L.pill = pill; L.line = line;
-      movePill(L.lastY, L.start.x);
-      positionLine(L.lastY);
-      partAt(L.lastY);
+      // Hide the source row: its neighbours close over it, so there is no hole to
+      // explain — and nothing of it is left behind for them to slide across.
+      for (const el of L.rows[srcIdx]) el.classList.add("lx-reorder-lifted");
+      movePill(L.lastY, L.lastX);
+      track(L.lastY);
     };
 
     // The moving sign floats just above the finger (the finger would cover it otherwise).
@@ -1646,27 +1903,48 @@ function ReorderPlugin({
       if (!L?.pill) return;
       const r = L.pill.getBoundingClientRect();
       L.pill.style.left = Math.max(6, Math.min(window.innerWidth - r.width - 6, x - r.width / 2)) + "px";
-      L.pill.style.top = (y - r.height - 16) + "px";
+      L.pill.style.top = (y - r.height - 22) + "px";
     };
 
-    // Magnetic slot: slide the block just after the target gap down to open a slot.
-    const partAt = (y: number) => {
+    const track = (y: number) => {
       if (!L) return;
-      const gapIdx = gapFor(y, L.gaps);
-      const target = gapIdx < L.entries.length ? (editor.getElementByKey(L.entries[gapIdx].key) as HTMLElement | null) : null;
-      if (target === L.parted) return;
-      if (L.parted) { L.parted.style.transform = ""; L.parted.classList.remove("lx-reorder-part"); }
-      L.parted = target;
-      if (target) { target.classList.add("lx-reorder-part"); target.style.transform = `translateY(${PART_PX}px)`; }
+      applyPreview(gapFor(y, L.gaps));
+      positionLine();
     };
 
-    const positionLine = (y: number) => {
-      if (!L?.line) return;
-      const gapIdx = gapFor(y, L.gaps);
-      L.line.style.top = (L.gaps[Math.min(gapIdx, L.gaps.length - 1)]) + "px";
-      const rootR = editor.getRootElement()!.getBoundingClientRect();
-      L.line.style.left = rootR.left + "px";
-      L.line.style.width = rootR.width + "px";
+    // The slot preview: every block between the source and the target gap slides by
+    // exactly one source-height, so the page shows the post-drop order. The old
+    // model nudged only the single block after the gap, which slid it straight on
+    // top of the next one — the overlapping text that made this look broken.
+    const applyPreview = (gapIdx: number) => {
+      if (!L || gapIdx === L.gapIdx) return;
+      L.gapIdx = gapIdx;
+      for (let i = 0; i < L.entries.length; i++) {
+        let d = 0;
+        if (i !== L.srcIdx) {
+          if (i > L.srcIdx && i < gapIdx) d = -L.srcH;      // closes the hole above
+          else if (i >= gapIdx && i < L.srcIdx) d = L.srcH;  // opens the slot below
+        }
+        if (d === L.shift[i]) continue;
+        L.shift[i] = d;
+        for (const el of L.rows[i]) {
+          el.classList.add("lx-reorder-shift");
+          el.style.transform = d ? `translateY(${d}px)` : "";
+        }
+      }
+    };
+
+    // Middle of the slot the preview just opened. Dropping back onto the source's
+    // own gap opens nothing, and this lands on the source's old centre — which is
+    // exactly the "nothing moves" the drop will commit.
+    const slotCenter = () => {
+      if (!L) return 0;
+      const g = L.gaps[Math.min(Math.max(L.gapIdx, 0), L.gaps.length - 1)];
+      return L.gapIdx > L.srcIdx ? g - L.srcH / 2 : g + L.srcH / 2;
+    };
+
+    const positionLine = () => {
+      if (L?.line) L.line.style.top = Math.round(slotCenter()) + "px";
     };
 
     const autoScroll = () => {
@@ -1676,11 +1954,17 @@ function ReorderPlugin({
       if (L.lastY < EDGE_PX) dv = -EDGE_SPEED * (1 - L.lastY / EDGE_PX);
       else if (L.lastY > vh - EDGE_PX) dv = EDGE_SPEED * (1 - (vh - L.lastY) / EDGE_PX);
       if (dv !== 0) {
-        scroller.scrollTop += dv;
-        if (L.parted) { L.parted.style.transform = ""; L.parted.classList.remove("lx-reorder-part"); L.parted = null; }
-        const { rects, gaps } = buildEntries(); L.entries = rects; L.gaps = gaps;
-        positionLine(L.lastY);
-        partAt(L.lastY);
+        // Shift the cached geometry by what the scroller ACTUALLY moved rather than
+        // re-measuring: the preview transforms may be mid-transition, so a fresh
+        // getBoundingClientRect would fold them into the cache and drift the slots.
+        const before = scroller.scrollTop;
+        scroller.scrollTop = before + dv;
+        const moved = scroller.scrollTop - before;
+        if (moved) {
+          for (const en of L.entries) { en.top -= moved; en.bottom -= moved; }
+          for (let i = 0; i < L.gaps.length; i++) L.gaps[i] -= moved;
+          track(L.lastY);
+        }
       }
       L.raf = requestAnimationFrame(autoScroll);
     };
@@ -1689,7 +1973,7 @@ function ReorderPlugin({
       if (!L) return;
       if (e.touches.length !== 1) { cleanup(); return; }
       const t = e.touches[0];
-      L.lastY = t.clientY;
+      L.lastX = t.clientX; L.lastY = t.clientY;
       e.preventDefault(); // armed from the gutter → we own this gesture
       if (L.armed && !L.lifted) {
         if (Math.hypot(t.clientX - L.start.x, t.clientY - L.start.y) > LIFT_MOVE_PX) lift();
@@ -1697,39 +1981,54 @@ function ReorderPlugin({
       }
       if (!L.lifted) return;
       movePill(t.clientY, t.clientX);
-      positionLine(t.clientY);
-      partAt(t.clientY);
+      track(t.clientY);
       if (L.raf == null) L.raf = requestAnimationFrame(autoScroll);
     };
 
     const onTouchEnd = () => {
       if (!L || !L.lifted) { cleanup(); return; }
-      const gapIdx = gapFor(L.lastY, L.gaps);
-      const gapBlock = gapToBlock(gapIdx, L.entries);
+      const gapIdx = L.gapIdx < 0 ? gapFor(L.lastY, L.gaps) : L.gapIdx; // commit what's on screen
       const from = L.from;
-      const to = singleMoveTo(from, gapBlock);
-      // Teardown — but EXPAND the sign into a full block at the slot before removing it
-      // (the reseed rebuilds the real block underneath; the morph reads as "grow back").
+      const to = singleMoveTo(from, gapToBlock(gapIdx, L.entries));
       if (L.timer) clearTimeout(L.timer);
       if (L.raf) cancelAnimationFrame(L.raf);
-      if (L.parted) { L.parted.style.transform = ""; L.parted.classList.remove("lx-reorder-part"); }
-      if (L.srcEl) { L.srcEl.classList.remove("lx-reorder-lifted"); L.srcEl.style.opacity = ""; }
       L.line?.remove();
+      L.hot?.classList.remove("lx-drag-hot");
       const pill = L.pill;
-      const ref = L.entries[Math.min(gapIdx, L.entries.length - 1)];
-      const slotY = L.gaps[Math.min(gapIdx, L.gaps.length - 1)];
+      const centre = slotCenter();
+      const els = L.rows.flat();
       L = null;
-      if (pill && ref) {
-        pill.classList.add("lx-drag-pill-land");
-        pill.style.left = ref.left + "px";
-        pill.style.top = slotY + "px";
-        pill.style.width = (ref.right - ref.left) + "px";
-        pill.style.height = "38px";
-        pill.style.borderRadius = "9px";
-        pill.style.justifyContent = "flex-start";
-        setTimeout(() => pill.remove(), 220);
-      } else { pill?.remove(); }
-      if (to !== from) onReorderRef.current?.(from, to);
+      // The sign sinks into the slot it opened instead of morphing into a block —
+      // the real block arrives there a beat later, so the pill only has to point.
+      if (pill) {
+        const r = pill.getBoundingClientRect();
+        pill.classList.add("lx-drag-pill-drop");
+        pill.style.top = (centre - r.height / 2) + "px";
+        pill.style.transform = "scale(.92)";
+        pill.style.opacity = "0";
+        setTimeout(() => pill.remove(), 240);
+      }
+      if (to === from) { stripEls(els); return; }
+      onReorderRef.current?.(from, to);
+      // HOLD the preview until the real move lands (native → store → reseed). Undoing
+      // it here would flash the old order back for the length of that round-trip.
+      let un: (() => void) | null = null;
+      let cleared = false;
+      const settle = () => {
+        if (cleared) return;
+        cleared = true;
+        clearTimeout(tm);
+        un?.();
+        if (landPreview === settle) landPreview = null;
+        stripEls(els);
+      };
+      const tm = setTimeout(settle, SETTLE_MS);
+      // Only a CONTENT update ends the hold early — a selection-only one (the touch
+      // itself can produce one) would drop the preview a frame after the release.
+      un = editor.registerUpdateListener(({ dirtyElements, dirtyLeaves }) => {
+        if (dirtyElements.size || dirtyLeaves.size) settle();
+      });
+      landPreview = settle;
     };
 
     root.addEventListener("touchstart", onTouchStart, { passive: false });
@@ -1737,6 +2036,7 @@ function ReorderPlugin({
     root.addEventListener("touchend", onTouchEnd, { passive: true });
     root.addEventListener("touchcancel", cleanup, { passive: true });
     return () => {
+      landPreview?.();
       cleanup();
       root.removeEventListener("touchstart", onTouchStart);
       root.removeEventListener("touchmove", onTouchMove);
@@ -1745,6 +2045,56 @@ function ReorderPlugin({
     };
   }, [editor]);
 
+  return null;
+}
+
+/**
+ * The OS paste — long-press → Paste, or ⌘V — when what's on the clipboard is an
+ * IMAGE. Left alone the picture silently vanishes: Lexical's rich-text paste only
+ * understands text/html and text/plain, and this editor has no image node to drop
+ * one into anyway. So intercept the paste, swallow it, and report WHERE the caret
+ * is; native re-reads that same system clipboard through expo-clipboard and runs the
+ * durable insertImage op, exactly like the Insert menu's "Paste image" tile. The
+ * bytes never cross the DOM bridge — only the block index does.
+ *
+ * The "is this an image?" test is deliberately generous. WebKit routinely exposes
+ * NOTHING to clipboardData for a pasted image (no items, no files, no types), so an
+ * empty payload counts as a maybe and native asks the real pasteboard. Anything
+ * carrying text is left to Lexical untouched, which keeps ordinary text paste — the
+ * common case — on its normal path.
+ */
+function PasteImagePlugin({ onPasteImage, suppressed }: { onPasteImage?: (index: number) => void; suppressed: boolean }) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(() => {
+    if (!onPasteImage || suppressed) return;
+    return editor.registerCommand(
+      PASTE_COMMAND,
+      (event) => {
+        const cd = event && "clipboardData" in event ? (event as ClipboardEvent).clipboardData : null;
+        if (!cd) return false;
+        const types = Array.from(cd.types ?? []);
+        const hasImage =
+          types.some((t) => t.startsWith("image/")) ||
+          Array.from(cd.files ?? []).some((f) => f.type.startsWith("image/"));
+        // WebKit often hands a pasted picture over as text/html wrapping a single
+        // <img> (blob: or data: src) rather than as a file — HTML whose text content
+        // is empty is that case, not a text paste.
+        const html = types.includes("text/html") ? cd.getData("text/html") : "";
+        const htmlIsOnlyImage = /<img[\s/>]/i.test(html) && !html.replace(/<[^>]*>/g, "").trim();
+        const plain = types.includes("text/plain") ? cd.getData("text/plain") : "";
+        const hasText = !!plain.trim() || (!!html && !htmlIsOnlyImage);
+        if (!hasImage && !htmlIsOnlyImage && hasText) return false; // real text paste — Lexical's job
+        // Command handlers run inside an editor update, so the selection reads directly.
+        const sel = $getSelection();
+        const index = $isRangeSelection(sel) ? $blockIndexOfNode(sel.anchor.getNode()) : -1;
+        if (index < 0) return false; // no caret to anchor the figure to — let it through
+        event.preventDefault();
+        onPasteImage(index);
+        return true;
+      },
+      COMMAND_PRIORITY_HIGH, // beat @lexical/rich-text, which registers PASTE at EDITOR
+    );
+  }, [editor, onPasteImage, suppressed]);
   return null;
 }
 
@@ -1981,6 +2331,181 @@ function SelectionHighlightPlugin({ indices }: { indices?: number[] }) {
   return null;
 }
 
+// ── Checkbox select mode ─────────────────────────────────────────────────────
+// One tappable row per BLOCK-MODEL block: the node whose element carries the
+// checkbox, the block index it maps to, and its text (the native store keeps a
+// snippet alongside each selected index). The walk mirrors $lexicalToBlocks /
+// $blockEntries exactly — same skips, same list-item recursion — so the indices
+// these rows report are the ones the AI tools and ops act on.
+type SelectRow = { key: string; index: number; text: string };
+
+function $pushSelectListRows(list: ListNode, out: SelectRow[], start: number): number {
+  let idx = start;
+  for (const item of list.getChildren()) {
+    if (!$isListItemNode(item)) continue;
+    const nested = item.getChildren().find($isListNode) as ListNode | undefined;
+    // An item that only wraps a nested list is a container, not a block of its own.
+    if (nested) { idx = $pushSelectListRows(nested, out, idx); continue; }
+    out.push({ key: item.getKey(), index: idx, text: item.getTextContent() });
+    idx += 1;
+  }
+  return idx;
+}
+
+function $selectRows(): SelectRow[] {
+  const out: SelectRow[] = [];
+  let idx = 0;
+  for (const child of $getRoot().getChildren()) {
+    if ($isChromeNode(child)) continue; // display-only band — not a block, not selectable
+    if ($isSuggestionNode(child) || $isRangeSuggestionNode(child)) {
+      // A proposal under review isn't selectable, but it still stands in for the
+      // blocks it replaced — advance past them so later rows keep the right index.
+      idx += $isRangeSuggestionNode(child) ? child.__originals.length : 1;
+      continue;
+    }
+    if ($isListNode(child)) { idx = $pushSelectListRows(child, out, idx); continue; }
+    if ($isBlockDataNode(child) || $isHeadingNode(child) || $isParagraphNode(child)) {
+      out.push({ key: child.getKey(), index: idx, text: child.getTextContent() });
+      idx += 1;
+      continue;
+    }
+    // Unknown node: mirrors $lexicalToBlocks' fallback — only counts (and only
+    // advances idx) when it actually carries text, so the two never drift apart.
+    const text = child.getTextContent();
+    if (text) {
+      out.push({ key: child.getKey(), index: idx, text });
+      idx += 1;
+    }
+  }
+  return out;
+}
+
+// Checkbox block selection, gated by select MODE (`active`). While on:
+//   • the editor is set read-only, so a tap can't place a caret, open the keyboard,
+//     or start an OS text selection (the drag-handle selection this replaces);
+//   • every selectable block gets `lx-selrow` → CSS draws a leading checkbox;
+//   • a tap ANYWHERE on a block toggles it via `onToggle(index, text)` — the whole
+//     row is the hit target, not just the 22px box;
+//   • the checked marks are painted from `indices` (the native store's selection),
+//     so the store stays the single source of truth in both directions.
+// Never mutates the editor state — classes only, like SelectionHighlightPlugin.
+function SelectPlugin({
+  active: modeOn,
+  suppressed,
+  indices,
+  onToggle,
+}: {
+  active?: boolean;
+  suppressed?: boolean;  // an AI proposal is showing → hand the editor back
+  indices?: number[];
+  onToggle?: (index: number, text: string) => void;
+}) {
+  const [editor] = useLexicalComposerContext();
+  const active = !!modeOn && !suppressed;
+  const onToggleRef = useRef(onToggle);
+  onToggleRef.current = onToggle;
+  const selKey = (indices ?? []).join(",");
+  // Refs, so `mark` can be stable: it must not be rebuilt on every check, or the
+  // effect that owns read-only + the update listener would tear down and re-arm
+  // on each tap (a setEditable flip-flop per checkbox).
+  const selRef = useRef<number[]>(indices ?? []);
+  selRef.current = indices ?? [];
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  const mark = useCallback(() => {
+    const root = editor.getRootElement();
+    if (!root || !activeRef.current) return;
+    root.classList.add("lx-select-on");
+    let rows: SelectRow[] = [];
+    editor.getEditorState().read(() => { rows = $selectRows(); });
+    const on = new Set(selRef.current);
+    const stale = new Set<Element>(root.querySelectorAll(".lx-selrow"));
+    // Same majority vote the reorder gutter uses to pick ONE side for the whole
+    // column: only blocks that DECLARE a direction get a vote (an empty paragraph
+    // just inherits the root's and would drag the column to the wrong side).
+    let rtl = 0, sided = 0;
+    for (const r of rows) {
+      const el = editor.getElementByKey(r.key);
+      if (!el) continue;
+      stale.delete(el);
+      el.classList.add("lx-selrow");
+      el.classList.toggle("lx-selon", on.has(r.index));
+      const dir = el.getAttribute("dir") || el.style.direction;
+      if (dir === "rtl" || dir === "ltr") { sided++; if (dir === "rtl") rtl++; }
+    }
+    root.classList.toggle(
+      "lx-select-rtl",
+      sided ? rtl * 2 >= sided : getComputedStyle(root).direction === "rtl",
+    );
+    stale.forEach((el) => el.classList.remove("lx-selrow", "lx-selon"));
+  }, [editor]);
+
+  // Mode on/off: read-only + the row marks, re-applied after every reconcile (a
+  // reseed rebuilds every block's DOM, dropping the classes with it).
+  useEffect(() => {
+    const clear = () => {
+      const root = editor.getRootElement();
+      root?.querySelectorAll(".lx-selrow").forEach((el) => el.classList.remove("lx-selrow", "lx-selon"));
+      root?.classList.remove("lx-select-on", "lx-select-rtl");
+    };
+    if (!active) {
+      clear();
+      editor.setEditable(true);
+      return;
+    }
+    editor.setEditable(false);
+    mark();
+    const off = editor.registerUpdateListener(() => mark());
+    return () => {
+      off();
+      clear();
+      editor.setEditable(true);
+    };
+  }, [editor, active, mark]);
+
+  // Repaint the checked boxes when the store's selection moves (the tap round-trips
+  // out to native and back — this is the "back").
+  useEffect(() => {
+    if (active) mark();
+  }, [active, selKey, mark]);
+
+  // Tap → toggle. Capture phase on the root so nothing downstream (the structural
+  // blocks' own pick handler, the chrome bands' band-tap, the checklist's box) reacts
+  // while the mode owns the surface. NOTE: deliberately no touchstart preventDefault —
+  // on WebKit that also cancels the page scroll, and the finger starts on a row
+  // basically everywhere. Nothing needs suppressing anyway: the editor is read-only
+  // and the rows are user-select:none, so a tap can't place a caret or raise the
+  // selection handles in the first place.
+  useEffect(() => {
+    if (!active) return;
+    const root = editor.getRootElement();
+    if (!root) return;
+    const rowAt = (target: EventTarget | null) => {
+      let el = target instanceof HTMLElement ? target : null;
+      while (el && el !== root && !el.classList.contains("lx-selrow")) el = el.parentElement;
+      return el && el !== root && el.classList.contains("lx-selrow") ? el : null;
+    };
+    const onClick = (e: MouseEvent) => {
+      const el = rowAt(e.target);
+      if (!el) return;
+      e.preventDefault();
+      e.stopPropagation();
+      let hit: SelectRow | null = null;
+      editor.getEditorState().read(() => {
+        hit = $selectRows().find((r) => editor.getElementByKey(r.key) === el) ?? null;
+      });
+      // Cast: TS can't track the assignment made inside the read() callback above.
+      const row = hit as SelectRow | null;
+      if (row) onToggleRef.current?.(row.index, row.text);
+    };
+    root.addEventListener("click", onClick, true);
+    return () => root.removeEventListener("click", onClick, true);
+  }, [editor, active]);
+
+  return null;
+}
+
 // Document-search hit highlighting. Paints amber over every match + a stronger tint
 // on the CURRENT match using the CSS Custom Highlight API — NON-destructive (no
 // editor-state change → nothing to serialize/undo/reseed). Match spans arrive as
@@ -2156,6 +2681,8 @@ export default function LexicalDomEditor({
   chrome,
   reseed,
   scrollToIndex,
+  scrollToChrome,
+  chromePreview,
   suggestion,
   onSuggestAction,
   completionEnabled,
@@ -2174,14 +2701,19 @@ export default function LexicalDomEditor({
   tableThinking,
   tableErrorIndex,
   tableLabels,
+  workingLabels,
   onTableProposalAction,
   onInsertTrigger,
+  onPasteImage,
   scrollRestore,
   onScroll,
   onScrollRestored,
   onReorder,
   onLift,
   reorderActive,
+  selectActive,
+  selectedForCheck,
+  onToggleSelect,
   keyboardActive,
   onSwipeOpenDrawer,
   appRtl,
@@ -2200,6 +2732,12 @@ export default function LexicalDomEditor({
   reseed?: { blocks: DocBlockDTO[]; chrome?: ChromeData[]; nonce: number };
   // Outline-drawer navigation: on nonce change, scroll the block at `index` into view.
   scrollToIndex?: { index: number; nonce: number };
+  // Header/footer sheet: on nonce change, scroll that BAND into view — the sheet
+  // covers the lower two-thirds, so the band being edited has to be visible above it.
+  scrollToChrome?: { kind: ChromeKind; index: number; nonce: number; offset?: number };
+  // Header/footer sheet: render a template / AI proposal ON the real band while the
+  // student browses. Display-only and reverted on clear — never saved.
+  chromePreview?: { kind: ChromeKind; index: number; segments: string[]; text: string; nonce: number } | null;
   // Pending AI proposal to render in-flow, and its approve/reject callback.
   suggestion?: SuggestionInput;
   onSuggestAction?: (action: string, text?: string) => void;
@@ -2238,10 +2776,17 @@ export default function LexicalDomEditor({
   // Proposal UI strings resolved native-side via i18next (the DOM bundle has no
   // i18n instance) — the app is trilingual ar/fr/en. Defaults to English.
   tableLabels?: Partial<TableAILabels>;
+  // "Still working" wait lines, shared by all three inline AI surfaces (table
+  // proposal, paragraph suggestion, range rewrite). Same native-side i18next
+  // arrangement as tableLabels; defaults to English.
+  workingLabels?: Partial<WorkingLabels>;
   onTableProposalAction?: (action: string, note?: string) => void;
   // Notion-style Insert menu: fires when a "/query" is detected/cleared at the
   // caret (active + block index + query text) so native can bloom the menu.
   onInsertTrigger?: (t: { active: boolean; index: number; query: string }) => void;
+  // An OS paste carrying an image: native reads the system clipboard itself and
+  // inserts a figure AFTER this block index (see PasteImagePlugin).
+  onPasteImage?: (index: number) => void;
   // Scroll persistence: `scrollRestore` requests a restore to `anchor` whenever its
   // `nonce` changes (native bumps it on focus / preview-return); `onScroll` reports
   // the live position out (throttled) so native keeps it; `onScrollRestored` fires
@@ -2256,6 +2801,14 @@ export default function LexicalDomEditor({
   onReorder?: (from: number, to: number) => void;
   onLift?: () => void;
   reorderActive?: boolean;
+  // Checkbox select mode (the ✦ dock's "Select" chip): every block grows a leading
+  // checkbox and the editor goes read-only, so a multi-block selection is built by
+  // TAPPING blocks instead of dragging the OS text-selection handles across them.
+  // `selectedForCheck` are the block indices to draw checked (the native store's
+  // selection); `onToggleSelect` reports a tapped block back to it.
+  selectActive?: boolean;
+  selectedForCheck?: number[];
+  onToggleSelect?: (index: number, text: string) => void;
   // Block-editing keyboard mode: false → inputmode="none" (select a block WITHOUT
   // opening the keyboard); true → inputmode="text" (a tap/focus opens it). Issue #6.
   keyboardActive?: boolean;
@@ -2281,6 +2834,7 @@ export default function LexicalDomEditor({
       <style>{CSS}</style>
       <MediaContext.Provider value={media ?? { base: "", token: "", thesisId: "", version: "" }}>
       <EditCellContext.Provider value={onEditCell ?? null}>
+      <WorkingLabelsContext.Provider value={{ ...WORKING_LABELS_EN, ...(workingLabels ?? {}) }}>
       <TableProposalContext.Provider
         value={{
           proposal: tableProposal ?? null,
@@ -2307,7 +2861,7 @@ export default function LexicalDomEditor({
         {/* Checklist support: adds the click-to-toggle checkbox handling for
             list items created with $insertList("check"). */}
         <CheckListPlugin />
-        <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} scrollToIndex={scrollToIndex} />
+        <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} scrollToIndex={scrollToIndex} scrollToChrome={scrollToChrome} chromePreview={chromePreview} />
         <SuggestionPlugin suggestion={suggestion} onSuggestAction={onSuggestAction} />
         <CompletionPlugin
           enabled={completionEnabled}
@@ -2318,11 +2872,18 @@ export default function LexicalDomEditor({
           onCancel={onCancelCompletion}
         />
         <SlashPlugin onInsertTrigger={onInsertTrigger} suppressed={!!suggestion || !!rangeSuggestion || !!tableProposal} />
+        <PasteImagePlugin onPasteImage={onPasteImage} suppressed={!!suggestion || !!rangeSuggestion || !!tableProposal} />
         <ReorderPlugin
           onReorder={onReorder}
           onLift={onLift}
           active={reorderActive}
           suppressed={!!suggestion || !!rangeSuggestion || !!tableProposal}
+        />
+        <SelectPlugin
+          active={selectActive}
+          suppressed={!!suggestion || !!rangeSuggestion || !!tableProposal}
+          indices={selectedForCheck}
+          onToggle={onToggleSelect}
         />
         <RangeSuggestionPlugin rangeSuggestion={rangeSuggestion} onRangeAction={onRangeAction} />
         <SelectionHighlightPlugin indices={selectedIndices} />
@@ -2330,6 +2891,7 @@ export default function LexicalDomEditor({
         <ScrollSyncPlugin restore={scrollRestore} onScroll={onScroll} onRestored={onScrollRestored} />
       </div>
       </TableProposalContext.Provider>
+      </WorkingLabelsContext.Provider>
       </EditCellContext.Provider>
       </MediaContext.Provider>
     </LexicalComposer>

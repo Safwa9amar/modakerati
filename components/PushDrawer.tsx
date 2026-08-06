@@ -1,22 +1,27 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Pressable, StyleSheet, useWindowDimensions, BackHandler, Keyboard, I18nManager } from "react-native";
 import Animated, {
-  useSharedValue,
   useAnimatedStyle,
   useAnimatedReaction,
   withSpring,
   runOnJS,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { usePathname } from "expo-router";
-import { drawerOpenSV, useNavDrawerStore } from "@/stores/nav-drawer-store";
-import { useThesisStore } from "@/stores/thesis-store";
-import { ThesisOutlinePanel } from "@/components/workspace/ThesisOutlinePanel";
+import { usePathname, useSegments } from "expo-router";
+import {
+  drawerOpenSV,
+  drawerProgressSV,
+  drawerDraggingSV,
+  useNavDrawerStore,
+} from "@/stores/nav-drawer-store";
+import { AppDrawer } from "@/components/AppDrawer";
 
 // Drawer covers 72% of the width; the pushed screen keeps a 28% dimmed peek.
 const DRAWER_FRACTION = 0.72;
-// Width of the leading-edge zone that starts an open-swipe when the drawer is closed.
-const EDGE_WIDTH = 24;
+// Width of the leading-edge zone that starts an open-swipe when the drawer is
+// closed. Wide enough to be found without looking — this is now the only gesture
+// into the app's index, from every screen, so it can't be a hairline.
+const EDGE_WIDTH = 32;
 const SPRING = { damping: 22, stiffness: 240, mass: 0.7 } as const;
 
 // Which side the drawer lives on, derived from the app's writing direction:
@@ -32,16 +37,19 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 /**
- * Root-level "push" (slide) navigation drawer for the Thesis Structure outline.
- * Opening slides the ENTIRE app (children) toward the trailing side as one piece
- * and reveals the drawer on the LEADING edge — left for LTR, right for RTL. Because
- * it wraps the whole navigator tree, the header, document, and chat tab bar all
- * push together (no per-screen wiring, no tab-bar left behind).
+ * Root-level "push" (slide) navigation drawer — the app's ONLY index. Opening
+ * slides the ENTIRE app (children) toward the trailing side as one piece and
+ * reveals the drawer on the LEADING edge — left for LTR, right for RTL. Because it
+ * wraps the whole navigator tree, every screen pushes with it (no per-screen
+ * wiring).
+ *
+ * It hosts `AppDrawer`, which switches between the app index and the thesis
+ * outline that used to own this drawer outright.
  *
  * Open state lives in `nav-drawer-store` (the settled truth); the `progress`
  * shared value is driven live by the edge/peek gestures and springs to the store
- * value on release / on a button/back/heading-tap. The edge gesture is inert
- * unless a thesis is current AND we're on the workspace or chat route.
+ * value on release / on a button/back/heading-tap. The edge gesture is live on
+ * every authenticated surface and inert only inside the (auth) group.
  */
 export function PushDrawer({ children }: { children: React.ReactNode }) {
   const { width } = useWindowDimensions();
@@ -49,20 +57,32 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
 
   const open = useNavDrawerStore((s) => s.open);
   const pathname = usePathname();
-  const hasThesis = useThesisStore((s) => !!s.getCurrentThesis());
-  // Only the workspace and chat surfaces host the outline → gate the edge-swipe
-  // (and back handler) there so it's inert on settings / home / auth / onboarding.
-  const gateOk = hasThesis && !!pathname && (pathname.includes("thesis-workspace") || pathname.includes("chat"));
+  const segments = useSegments();
+  // The drawer reaches every page now, so the edge-swipe is live everywhere the
+  // user is signed in. Login / onboarding are the one exception: there is no app
+  // to index yet, and those screens own their own horizontal gestures.
+  const gateOk = segments[0] !== "(auth)";
 
-  // 0 = closed, 1 = open. `dragging` is true only while a gesture owns `progress`;
-  // `openSV` mirrors the store's boolean on the UI thread so the reconcile reaction
-  // and a cancelled gesture can settle WITHOUT a JS round-trip. It lives in the
-  // store module (not `useSharedValue`) so `openDrawer()` writes it synchronously —
-  // the spring then starts on the UI thread immediately, without waiting for this
-  // component to re-render.
-  const progress = useSharedValue(0);
-  const dragging = useSharedValue(false);
+  // All three live in the store module, not in `useSharedValue`: the store's
+  // actions settle `progress` themselves (see `settle` there), so a slide starts
+  // on the UI thread the instant it is asked for — and, more importantly, EVERY
+  // request settles rather than only the ones that happen to change a value.
+  const progress = drawerProgressSV;
+  const dragging = drawerDraggingSV;
   const openSV = drawerOpenSV;
+
+  // Whether the drawer is VISIBLE, which is not the same question as whether the
+  // store thinks it is open. The scrim's interactivity hangs off this: if you can
+  // see the drawer you must be able to dismiss it, even if the two states have
+  // drifted apart. Flips only when progress crosses the threshold, so this is a
+  // couple of re-renders per open/close, not one per frame.
+  const [visuallyOpen, setVisuallyOpen] = useState(false);
+  useAnimatedReaction(
+    () => progress.value > 0.01,
+    (shown, prev) => {
+      if (shown !== prev) runOnJS(setVisuallyOpen)(shown);
+    },
+  );
 
   const setOpen = (v: boolean) => {
     const s = useNavDrawerStore.getState();
@@ -70,17 +90,21 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
     else s.closeDrawer();
   };
 
-  // Defensive resync (fast-refresh / remount) + dismiss the keyboard on open. The
-  // store actions already wrote `openSV`, so this is a no-op on the hot path.
+  // Dismiss the keyboard on open, and re-settle defensively after a remount /
+  // fast refresh (the store actions already did this on the hot path).
   useEffect(() => {
     openSV.value = open;
     if (open) Keyboard.dismiss();
+    // Unconditional, for the same reason `settle` in the store is: a live pan
+    // overwrites `progress` every frame anyway, so guarding on `dragging` bought
+    // nothing and turned a dropped gesture-end into a permanently wedged drawer.
+    progress.value = withSpring(open ? 1 : 0, SPRING);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Single source of settling: whenever we're NOT dragging, spring `progress` to
-  // the store's open state. This fires for a button / back / heading-tap / peek-tap
-  // (openSV changed) AND the instant a gesture releases or is cancelled (dragging
-  // → false) — so the drawer can never get stuck half-open.
+  // Settle the instant a gesture releases or is cancelled, without a JS round-trip.
+  // The store handles every non-gesture path, so this reaction now only has to
+  // cover `dragging` going false — it can no longer be the sole settler.
   useAnimatedReaction(
     () => (dragging.value ? -1 : openSV.value ? 1 : 0),
     (target) => {
@@ -88,15 +112,16 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
     },
   );
 
-  // Android hardware back closes the drawer instead of leaving the screen.
+  // Android hardware back closes the drawer instead of leaving the screen. Gated on
+  // VISIBLE, so back is also a way out of a drawer whose store state has drifted.
   useEffect(() => {
-    if (!open) return;
+    if (!open && !visuallyOpen) return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       setOpen(false);
       return true;
     });
     return () => sub.remove();
-  }, [open]);
+  }, [open, visuallyOpen]);
 
   // Close on route change (defensive — heading-tap already closes before nav).
   useEffect(() => {
@@ -113,6 +138,9 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
       Gesture.Pan()
         .activeOffsetX([-12, 12])
         .failOffsetY([-16, 16])
+        // The finger leaves this 32pt strip almost immediately once the drag is
+        // under way — the gesture has to keep tracking it across the whole screen.
+        .shouldCancelWhenOutside(false)
         .onBegin(() => {
           dragging.value = true;
         })
@@ -190,7 +218,9 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
         <GestureDetector gesture={closePan}>
           <Animated.View
             style={[styles.scrim, { width, left: scrimLeft }, scrimStyle]}
-            pointerEvents={open ? "auto" : "none"}
+            // `visuallyOpen`, not `open`: a drawer you can see is a drawer you can
+            // always dismiss, even mid-slide or after the two states have drifted.
+            pointerEvents={open || visuallyOpen ? "auto" : "none"}
           >
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
           </Animated.View>
@@ -198,14 +228,22 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
 
         {/* The drawer panel, parked just off the leading edge until the track slides. */}
         <View style={[styles.drawer, { left: IS_LEFT ? drawerLeft : -DRAWER_W, width: DRAWER_W }]}>
-          <ThesisOutlinePanel />
+          <AppDrawer />
         </View>
       </Animated.View>
 
-      {/* Leading-edge open-swipe zone (closed state only, thesis surfaces only). */}
-      {gateOk && !open && (
+      {/* Leading-edge open-swipe zone. Made INERT while open rather than unmounted:
+          this detector is what opens the drawer, so `!open` used to tear it down in
+          the middle of its own gesture. Unmounting between onEnd and onFinalize
+          loses the onFinalize, `dragging` sticks true forever, and from then on
+          nothing — button, scrim, back, route change — can settle the drawer again.
+          That is the drawer that opens and will not close. */}
+      {gateOk && (
         <GestureDetector gesture={openPan}>
-          <View style={[styles.edge, { width: EDGE_WIDTH, [SIDE]: 0 }]} />
+          <View
+            style={[styles.edge, { width: EDGE_WIDTH, [SIDE]: 0 }]}
+            pointerEvents={open || visuallyOpen ? "none" : "auto"}
+          />
         </GestureDetector>
       )}
     </View>
@@ -218,5 +256,8 @@ const styles = StyleSheet.create({
   app: { position: "absolute", top: 0, bottom: 0, zIndex: 0 },
   scrim: { position: "absolute", top: 0, bottom: 0, backgroundColor: "#000", zIndex: 1 },
   drawer: { position: "absolute", top: 0, bottom: 0, zIndex: 2 },
-  edge: { position: "absolute", top: 0, bottom: 0, zIndex: 10 },
+  // `elevation` as well as `zIndex`: on Android touch dispatch follows elevation,
+  // so a zIndex-only strip paints above the screen but still loses the touch to
+  // whatever the screen put underneath it.
+  edge: { position: "absolute", top: 0, bottom: 0, zIndex: 10, elevation: 10 },
 });

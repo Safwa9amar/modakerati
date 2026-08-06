@@ -17,7 +17,9 @@ function previewText(t: TFunction, c: ConfirmPayload): string {
   const d = c.preview.data as Record<string, string | number>;
   switch (c.preview.kind) {
     case "delete_block":
-      return t("confirmAction.deleteBlock", { index: d.index, snippet: d.snippet, defaultValue: c.preview.text });
+      // The snippet identifies it, not `d.index` — the student never sees a
+      // position (see the server's lib/ai/no-index-leak.ts for the same rule).
+      return t("confirmAction.deleteBlock", { snippet: d.snippet, defaultValue: c.preview.text });
     case "replace_text":
       return t("confirmAction.replaceText", { find: d.find, replace: d.replace, count: d.count, defaultValue: c.preview.text });
     case "set_header": case "set_section_header":

@@ -53,7 +53,7 @@ export function ComposerRibbon({ thesisId, blocks, selection, homeSlot, onAfterE
     setSearchOpen(false);
     void dispatchRibbonAction(tool, option?.value, {
       thesisId, selection, onAfterEdit, onAiAction, optionLabel: option?.label,
-      onBusy: setBusyKey, onCropImage: setCropIndex,
+      onBusy: setBusyKey, onCropImage: setCropIndex, blocks,
     });
   };
 

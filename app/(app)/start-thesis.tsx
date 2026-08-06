@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { View, Text, Image, Pressable, ScrollView, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, Image, Pressable, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -9,6 +9,7 @@ import { useProfileStore } from "@/stores/profile-store";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
 import { UniversityPicker } from "@/components/UniversityPicker";
 import { BackButton } from "@/components/BackButton";
+import { StartingPointSkeleton } from "@/components/skeletons/StartingPointSkeleton";
 import { getStartingPoints } from "@/lib/api";
 import type { StartingPoint, University } from "@/types/thesis";
 
@@ -118,9 +119,7 @@ export default function StartThesisScreen() {
           />
         </View>
       ) : loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.brandPrimary} />
-        </View>
+        <StartingPointSkeleton />
       ) : (
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {best ? (

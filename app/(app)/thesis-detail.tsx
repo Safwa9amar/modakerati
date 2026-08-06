@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
@@ -15,6 +15,7 @@ import { ThesisStatStrip } from "@/components/thesis/ThesisStatStrip";
 import { SectionRow } from "@/components/thesis/SectionRow";
 import { ThesisActionBar } from "@/components/thesis/ThesisActionBar";
 import { ThesisHeaderMenu } from "@/components/thesis/ThesisHeaderMenu";
+import { ThesisDetailSkeleton } from "@/components/skeletons/ThesisDetailSkeleton";
 import type { Thesis, ThesisStatus } from "@/types/thesis";
 
 // getThesis() returns the thesis row (no structure — that lives in the .docx).
@@ -81,7 +82,7 @@ export default function ThesisDetailScreen() {
   const openChat = () => {
     if (!thesis) return;
     useThesisStore.getState().setCurrentThesis(thesis.id);
-    router.push("/(tabs)/chat" as any);
+    router.push("/(app)/chat" as any);
   };
 
   const openWorkspace = () => {
@@ -116,9 +117,9 @@ export default function ThesisDetailScreen() {
           <Text style={[styles.topTitle, { color: colors.textPrimary }]}>{t("thesis.thesisDetails")}</Text>
           <View style={{ width: 40 }} />
         </View>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.brandPrimary} />
-        </View>
+        <ScrollView contentContainerStyle={styles.skeletonScroll} scrollEnabled={false}>
+          <ThesisDetailSkeleton />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -202,6 +203,7 @@ const styles = StyleSheet.create({
   topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14, gap: 12 },
   topTitle: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold", textAlign: "center" },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+  skeletonScroll: { paddingBottom: 120 },
   content: { padding: 20, gap: 18, paddingBottom: 120 },
   sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
   emptyChapters: { borderRadius: 12, padding: 24, alignItems: "center" },

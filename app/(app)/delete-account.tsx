@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset } from "@/hooks/useBottomInset";
 import { useRTL } from "@/hooks/useRTL";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
@@ -13,6 +14,7 @@ import { AlertTriangle, Check } from "lucide-react-native";
 export default function DeleteAccountScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const bottomInset = useBottomInset(12);
   const { flexDirection, textAlign } = useRTL();
   const signOut = useAuthStore((s) => s.signOut);
 
@@ -107,7 +109,7 @@ export default function DeleteAccountScreen() {
         </Pressable>
       </ScrollView>
 
-      <View style={[styles.footer, { borderTopColor: colors.borderSubtle }]}>
+      <View style={[styles.footer, { borderTopColor: colors.borderSubtle, paddingBottom: bottomInset }]}>
         <Pressable
           style={[
             styles.deleteButton,

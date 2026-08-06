@@ -29,6 +29,26 @@ export function formatThinkingDuration(ms: number): string {
   return s === 0 ? `${m}m` : `${m}m ${s}s`;
 }
 
+/** Live clock for a running turn: "0:07", "1:24", "12:03". Unlike
+ *  formatThinkingDuration (a finished duration, read as prose) this ticks in
+ *  place, so it stays a fixed-width m:ss the eye can watch. */
+export function formatElapsed(ms: number): string {
+  const secs = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** Which reassurance line the "still working" note shows, by how long the turn
+ *  has been running. A turn only ever escalates — copying a whole chapter with
+ *  its figures and tables runs for minutes, and by then "working…" alone reads
+ *  as a hang. */
+export function workingStage(elapsedMs: number): "short" | "long" | "veryLong" {
+  if (elapsedMs >= 90_000) return "veryLong";
+  if (elapsedMs >= 25_000) return "long";
+  return "short";
+}
+
 /** Rough token estimate from character count (~4 chars/token, the common
  *  rule-of-thumb for English text) — a live approximation for the reasoning
  *  streaming in, NOT the model provider's actual billed usage (which isn't

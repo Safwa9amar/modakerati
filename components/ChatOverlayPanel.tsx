@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut } from "react-native-reanimated";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useChatHead } from "@/stores/chat-head-store";
-import { ThesisChat } from "@/app/(tabs)/chat";
+import { ThesisChat } from "@/app/(app)/chat";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 

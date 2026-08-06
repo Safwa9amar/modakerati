@@ -32,6 +32,7 @@ import { useTranslation } from "react-i18next";
 import { Sparkles, Check, Pencil, X, RotateCw } from "lucide-react-native";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
+import { AiWorkingNote } from "@/components/AiWorkingNote";
 import { paragraphTextStyle, detectDir } from "@/components/workspace/DocBlock";
 import { hSelection, hSuccess } from "@/lib/haptics";
 import { diffWords, type DiffSegment } from "@/lib/word-diff";
@@ -237,6 +238,18 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
           </Text>
           {!reduce && <SweepBand />}
         </View>
+        {/* Reasoning stops long before the proposal lands — the model is still
+            generating, and none of it reaches here until it parses. Stays
+            invisible until the request actually goes quiet. No Stop control on
+            this surface, so the longest line just asks for patience. */}
+        <AiWorkingNote
+          active
+          stream={sug.reasoning + sug.proposed}
+          stoppable={false}
+          rtl={I18nManager.isRTL}
+          ink={ICON_INK}
+          accent={CHIP_INK}
+        />
         {/* Thinking capsule in the SHARED pill anchor — the same key="pill-anchor"
             wrapper persists across all four status branches, so React reconciles
             it against the pill (not whatever sibling happens to share its index;

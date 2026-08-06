@@ -17,7 +17,8 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
-import { useNavBarClearance } from "@/components/FloatingNavBar";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { NewsListSkeleton } from "@/components/skeletons/NewsSkeletons";
 import { listNews, getNewsCategories } from "@/lib/api";
 import { Search, Eye, Pin, Newspaper } from "lucide-react-native";
 import type { NewsArticle } from "@/types/news";
@@ -29,7 +30,9 @@ export default function NewsListScreen() {
   const colors = useThemeColors();
   const router = useRouter();
   const { textAlign } = useRTL();
-  const bottomPad = useNavBarClearance();
+  // The floating tab bar is gone, so scroll content only has to clear the home
+  // indicator now — not a bar hovering over it.
+  const bottomPad = useSafeAreaInsets().bottom + 24;
 
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -149,9 +152,7 @@ export default function NewsListScreen() {
       )}
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.brandPrimary} />
-        </View>
+        <NewsListSkeleton />
       ) : articles.length === 0 ? (
         <View style={styles.centered}>
           <Newspaper size={48} color={colors.textSecondary} strokeWidth={1.5} />

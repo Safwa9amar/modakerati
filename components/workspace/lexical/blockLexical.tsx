@@ -12,7 +12,8 @@
 
 import * as React from "react";
 import { diffWords, type DiffSegment } from "@/lib/word-diff";
-import { estimateTokenCount } from "@/lib/thinking";
+import { estimateTokenCount, formatElapsed } from "@/lib/thinking";
+import { useWorkingClock, type WorkingClock } from "@/hooks/useWorkingClock";
 import {
   $getRoot,
   $createParagraphNode,
@@ -461,11 +462,67 @@ function AIChip({ label, open, onToggle }: { label: string; open?: boolean; onTo
   );
 }
 
+// ── "Still working" note ─────────────────────────────────────────────────────
+// The in-editor twin of the native components/AiWorkingNote.tsx, for the three
+// INLINE AI surfaces: the table proposal, the paragraph suggestion and the range
+// rewrite. Each streams reasoning first and then goes silent for the rest of the
+// request — the model is generating a grid or a passage, and none of that
+// reaches the editor until it parses. Their "✦ Thinking…" chip therefore freezes
+// mid-edit with no way to tell waiting from broken. This adds the elapsed clock
+// and the escalating wait line to say which it is.
+
+/** The wait lines, resolved NATIVE-side via i18next and passed down (the DOM
+ *  bundle has no i18n instance — same arrangement as TableAILabels). */
+export interface WorkingLabels {
+  short: string;
+  long: string;
+  veryLong: string;
+}
+export const WORKING_LABELS_EN: WorkingLabels = {
+  short: "Working on it…",
+  long: "Still working — this can take a while. Please wait.",
+  veryLong: "Still working on a long task — please keep waiting.",
+};
+export const WorkingLabelsContext = React.createContext<WorkingLabels>(WORKING_LABELS_EN);
+
+/** The note itself: wait line on one side, a live m:ss on the other. The clock
+ *  comes from the shared hooks/useWorkingClock (same one the native chat note
+ *  uses), so the thresholds can never drift between the two. */
+function WorkingNote({ clock }: { clock: WorkingClock | null }) {
+  const labels = React.useContext(WorkingLabelsContext);
+  if (!clock) return null;
+  return React.createElement(
+    "div",
+    {
+      className: "lx-working",
+      dir: "auto",
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        fontSize: "11.5px",
+        lineHeight: 1.45,
+        color: "#6b7280",
+        margin: "4px 0 2px",
+      },
+    },
+    React.createElement("span", { key: "l", style: { flex: "1 1 auto" } }, labels[clock.stage]),
+    // Digits stay LTR in every locale so the clock never reorders in Arabic.
+    React.createElement(
+      "span",
+      { key: "t", dir: "ltr", style: { flex: "0 0 auto", fontVariantNumeric: "tabular-nums", opacity: 0.85 } },
+      formatElapsed(clock.elapsedMs),
+    ),
+  );
+}
+
 // Live reasoning while the model works — COLLAPSED by default (just the pulsing
 // "✦ Thinking…" chip); tapping the chip expands the auto-scrolling trace.
 // Mirrors the paragraph inline suggestion's collapsible ThinkingTrace.
 function ThinkingPanel({ text, label }: { text: string; label: string }) {
   const [open, setOpen] = React.useState(false);
+  // Mounted only while the request is in flight, so the clock is always live.
+  const clock = useWorkingClock({ active: true, stream: text });
   // Live token estimate (~4 chars/token — see estimateTokenCount), not the
   // provider's actual billed usage. Hardcoded English suffix: this DOM bundle
   // has no i18n instance (see the file's own top-of-file note), same as the
@@ -477,6 +534,7 @@ function ThinkingPanel({ text, label }: { text: string; label: string }) {
     { style: { margin: "6px 0" } },
     React.createElement(AIChip, { label: chipLabel, open, onToggle: text ? () => setOpen((v) => !v) : undefined }),
     open && text ? React.createElement(TraceBox, { text }) : null,
+    React.createElement(WorkingNote, { clock }),
   );
 }
 
@@ -996,7 +1054,8 @@ type SerializedChromeNode = SerializedLexicalNode & { data: ChromeData };
 /** The band rendered inside the WebView for a chrome node. */
 function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }): React.ReactElement {
   const isSection = data.kind === "section";
-  const glyph = data.kind === "top" ? "⊤" : data.kind === "bottom" ? "⊥" : "§";
+  // Only the section-break band is labelled now (see below).
+  const glyph = "§";
   // Tapping a display-only band must NOT move DOM focus into the contentEditable
   // root — a focused caret-less CE makes iOS WKWebView scroll to the document top
   // (the same rule the pill buttons / table cells guard against). preventDefault on
@@ -1043,10 +1102,14 @@ function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }):
       ),
     );
   }
+  // No "Top/Bottom of every page" tag — same reasoning as the segmented header above:
+  // the band is a faithful preview of what the page actually carries, and a label
+  // baked into it reads as part of the document (worst with the sheet's live preview,
+  // where it sat in the middle of the footer's real text). The plain-language label
+  // still titles the editing sheet. `label` remains for the section-break band.
   return React.createElement(
     "div",
     { className: "lx-chrome lx-chrome-band", dir: data.rtl ? "rtl" : "ltr", onMouseDown: noFocus, onClick: onPick },
-    React.createElement("span", { className: "lx-chrome-tag" }, `${glyph} ${data.label}`),
     React.createElement("span", { className: "lx-chrome-text" }, data.text || "—"),
   );
 }
@@ -1066,6 +1129,13 @@ export class ChromeNode extends DecoratorNode<React.ReactNode> {
   }
   getData(): ChromeData {
     return this.getLatest().__data;
+  }
+  /** Swap the band's rendered data in place — used for the header/footer sheet's LIVE
+   *  PREVIEW, where a template or an AI proposal is shown on the real band before the
+   *  student commits to it. Safe because chrome bands are display-only: they're skipped
+   *  by $lexicalToBlocks, so a preview can never leak into a save. */
+  setData(data: ChromeData): void {
+    this.getWritable().__data = data;
   }
   getTextContent(): string {
     return ""; // invisible to $lexicalToBlocks / the block model
@@ -1257,6 +1327,10 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
   const loading = sug.status === "loading";
   const err = sug.status === "error";
   const ready = sug.status === "ready";
+  // Called before the early returns below (rules of hooks). Both the reasoning
+  // and the proposal-so-far count as liveness — either one arriving means the
+  // request is visibly moving.
+  const clock = useWorkingClock({ active: loading, stream: sug.reasoning + sug.proposed });
   const rootCls = "lx-sug" + (leaving ? " lx-leaving-" + leaving : "");
   const doApprove = () => { if (leaving) return; setLeaving("approve"); setTimeout(() => editor.dispatchCommand(SUGGEST_APPROVE_COMMAND, undefined), 190); };
   const doReject = () => { if (leaving) return; setLeaving("reject"); setTimeout(() => editor.dispatchCommand(SUGGEST_REJECT_COMMAND, undefined), 170); };
@@ -1321,6 +1395,7 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
       chip,
       trace,
       React.createElement("div", { className: "lx-sug-proposed lx-sug-loading", dir: "auto" }, sug.proposed || sug.original),
+      React.createElement(WorkingNote, { clock }),
       pill(React.createElement("div", { className: "lx-sug-think" }, svgIcon(ICON_SPARK, 13), React.createElement("span", { key: "t" }, sugThinkingLabel))),
     );
   }
@@ -1523,6 +1598,9 @@ function RangeSuggestionView({ data, editor }: { data: RangeData; editor: Lexica
   const loading = data.status === "loading";
   const err = data.status === "error";
   const rootCls = "lx-sug" + (leaving ? " lx-leaving-" + leaving : "");
+  // See SuggestionView: hooks before the early returns; reasoning OR proposal
+  // text arriving both count as the request being visibly alive.
+  const clock = useWorkingClock({ active: loading, stream: data.reasoning + data.proposed });
 
   // The dynamic paragraphs the AI produced (count follows the content).
   const paras = data.proposed.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
@@ -1568,6 +1646,7 @@ function RangeSuggestionView({ data, editor }: { data: RangeData; editor: Lexica
       chip,
       trace,
       React.createElement("div", { className: "lx-sug-proposed lx-sug-loading", dir: "auto" }, data.proposed || data.original),
+      React.createElement(WorkingNote, { clock }),
       pill(React.createElement("div", { className: "lx-sug-think" }, svgIcon(ICON_SPARK, 13), React.createElement("span", { key: "t" }, rangeThinkingLabel))),
     );
   }

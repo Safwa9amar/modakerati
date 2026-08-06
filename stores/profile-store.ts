@@ -8,6 +8,13 @@ interface ProfileState {
   profile: Profile | null;
   isLoading: boolean;
   isSaving: boolean;
+  /**
+   * Why the last fetch failed, or null if it succeeded. A failed read used to be
+   * indistinguishable from "this account has no details yet": the screen showed
+   * an empty, editable form, and saving it would PUT those blanks over a profile
+   * that was fine on the server. Screens MUST refuse to edit while this is set.
+   */
+  loadError: string | null;
 
   fetchProfile: () => Promise<void>;
   saveProfile: (patch: ProfileUpdate) => Promise<{ error: string | null }>;
@@ -20,15 +27,20 @@ export const useProfileStore = create<ProfileState>()(
       profile: null,
       isLoading: false,
       isSaving: false,
+      loadError: null,
 
       fetchProfile: async () => {
-        set({ isLoading: true });
+        set({ isLoading: true, loadError: null });
         try {
           const profile = await getProfile();
-          set({ profile });
+          set({ profile, loadError: null });
         } catch (err) {
-          // Offline-safe: keep the persisted profile, never throw.
+          // Offline-safe: keep the persisted profile, never throw — but RECORD
+          // the failure, so a screen can tell "couldn't reach the server" apart
+          // from "this profile is genuinely empty".
+          const message = err instanceof Error ? err.message : "Failed to load profile";
           console.warn("[profile] fetch failed", err);
+          set({ loadError: message });
         } finally {
           set({ isLoading: false });
         }
@@ -55,7 +67,7 @@ export const useProfileStore = create<ProfileState>()(
         }
       },
 
-      reset: () => set({ profile: null, isLoading: false, isSaving: false }),
+      reset: () => set({ profile: null, isLoading: false, isSaving: false, loadError: null }),
     }),
     {
       name: "modakerati-profile",

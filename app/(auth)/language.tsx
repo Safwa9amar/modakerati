@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { GraduationCap } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset } from "@/hooks/useBottomInset";
 import { useSettingsStore } from "@/stores/settings-store";
 import { restartApp, setLanguageWithRTL } from "@/lib/i18n";
 import { Button } from "@/components/ui/Button";
@@ -20,6 +21,7 @@ const languages: { code: Language; native: string; subtitle: string }[] = [
 
 export default function LanguageScreen() {
   const colors = useThemeColors();
+  const bottomInset = useBottomInset(32);
   const router = useRouter();
   const { t } = useTranslation();
   const completeOnboarding = useSettingsStore((s) => s.completeOnboarding);
@@ -124,7 +126,7 @@ export default function LanguageScreen() {
         </View>
       </View>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: bottomInset }]}>
         <Button title={t("common.continue")} onPress={handleContinue} loading={busy} />
       </View>
     </SafeAreaView>

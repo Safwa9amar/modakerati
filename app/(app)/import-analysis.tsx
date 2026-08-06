@@ -1,7 +1,12 @@
-import { View, Text, ScrollView, Pressable, SafeAreaView, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, ScrollView, Pressable, ActivityIndicator, StyleSheet } from "react-native";
+// react-native's own SafeAreaView is iOS-only — on Android it padded nothing,
+// so this screen's header sat under the status bar. Every other screen uses the
+// safe-area-context one.
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset } from "@/hooks/useBottomInset";
 import { useImportStore } from "@/stores/import-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { BackButton } from "@/components/BackButton";
@@ -78,6 +83,7 @@ function SuggestionSection({
 export default function ImportAnalysisScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const bottomInset = useBottomInset(16);
   const router = useRouter();
 
   const analysisReport = useImportStore((s) => s.analysisReport);
@@ -117,7 +123,7 @@ export default function ImportAnalysisScreen() {
   const isApplying = status === "applying";
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
       {/* Header */}
       <View style={styles.header}>
         <BackButton />
@@ -183,7 +189,7 @@ export default function ImportAnalysisScreen() {
           </ScrollView>
 
           {/* Bottom actions */}
-          <View style={[styles.bottomActions, { borderTopColor: colors.borderDefault }]}>
+          <View style={[styles.bottomActions, { borderTopColor: colors.borderDefault, paddingBottom: bottomInset }]}>
             <Pressable
               style={[styles.primaryButton, { backgroundColor: colors.brandPrimary }, isApplying && styles.disabledButton]}
               onPress={handleApply}

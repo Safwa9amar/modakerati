@@ -7,37 +7,32 @@ import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { sendMessageToAI, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
-import { type DocBlockDTO } from "@/lib/api";
 import { ComposerAsk } from "./ComposerAsk";
 import { ComposerConfirm } from "./ComposerConfirm";
-import { GlobalDockBar } from "./GlobalDockBar";
 
-/** Initial reserved bottom inset (before the bar measures itself). */
+/** Initial reserved bottom inset (before the surface measures itself). */
 export const BLOCK_COMPOSER_MIN_INSET = 150;
 
 interface Props {
   thesisId: string;
   rtl: boolean;
-  /** The doc area reserves this many px at the bottom so content clears the
-   *  composer at any state (pill / docked bar). Written on every layout. */
+  /** The doc area reserves this many px at the bottom so content clears whatever
+   *  is docked. Written on every layout; 0 while nothing is. */
   insetValue: SharedValue<number>;
-  /** Live-.docx block model — powers the block formatting tools. */
-  blocks: DocBlockDTO[];
 }
 
 /**
- * The context-aware action zone that replaces the old always-present composer
- * sheet. Its shape follows selection + keyboard state:
- *   • pending confirm / ask → the AI's gate surface (docked).
- *   • otherwise → the GLOBAL document dock (GlobalDockBar): undo/redo, outline,
- *     prev/next block, page break/setup, thesis-ready + the pinned ✦ Ask AI. It is
- *     PERSISTENT (issue #1) — always docked while the workspace is open, keyboard
- *     up or down, so the document tools never vanish. Block FORMATTING tools live
- *     exclusively in the floating ✦ bubble.
- * Positioned absolutely at the container bottom; the parent's KeyboardAvoidingView
- * lifts it above the keyboard, so its own detent/docking math isn't needed.
+ * The AI's docked gate surface — and nothing else. Only two things ever dock at
+ * the bottom of the writer now:
+ *   • a pending confirm → the approve/cancel gate.
+ *   • a pending ask → the question + answer field.
+ * Idle renders NOTHING, so the document keeps the full screen height. The global
+ * document tools live in a root push drawer (`DockToolsSheet`), opened by dropping
+ * the floating ✦ bubble on its ⋮⋮ target; block FORMATTING tools live in the
+ * bubble itself. Positioned absolutely at the container bottom; the parent's
+ * KeyboardAvoidingView lifts it above the keyboard.
  */
-export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
+export function BlockComposer({ thesisId, rtl, insetValue }: Props) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
 
@@ -154,11 +149,11 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     if (isGenerating || pendingAsk || pendingConfirm) useWorkspaceStore.getState().setComposerOpen(true);
   }, [isGenerating, pendingAsk, pendingConfirm]);
 
-  // The bottom dock is now ALWAYS present while the workspace is open (issue #1):
-  // the global document tools must not vanish when the keyboard is down. So a
-  // surface always renders (confirm > ask > the persistent dock) and the reserved
-  // inset never collapses while composerOpen.
-  const hasSurface = true;
+  // Nothing is docked at the bottom any more — no tool bar, no grip. The global
+  // document tools live in a root push drawer opened by dropping the floating ✦
+  // bubble on its ⋮⋮ target, so the ONLY surfaces left here are the AI's two
+  // gates. Idle → no surface at all, and the document gets the full height.
+  const hasSurface = !!pendingConfirm || !!pendingAsk;
 
   // Collapse the reserved inset imperatively whenever nothing renders at the
   // bottom (hidden via the header ⋯ toggle, or the floating-pill state above).
@@ -215,9 +210,8 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
     insetValue.value = h;
   };
 
-  // Which surface: confirm > ask > the persistent document dock. The dock always
-  // renders while the workspace is open (issue #1), so `surface` is never null
-  // here — keep this chain in sync with `hasSurface` above.
+  // Which surface: confirm > ask > nothing. Keep this chain in sync with
+  // `hasSurface` above.
   let surface: React.ReactNode = null;
   if (pendingConfirm) {
     surface = (
@@ -231,15 +225,10 @@ export function BlockComposer({ thesisId, rtl, insetValue, blocks }: Props) {
         <ComposerAsk ask={pendingAsk} onAnswer={handleAnswer} onDismiss={handleDismissAsk} rtl={rtl} onInputFocus={markInputFocused} onInputBlur={markInputBlurred} />
       </Dock>
     );
-  } else {
-    // The PERSISTENT global document dock (issue #1): undo/redo, outline, prev/
-    // next block, page break/setup, thesis-ready + the pinned ✦ Ask AI. Always
-    // docked while the workspace is open so the tools stay reachable with the
-    // keyboard DOWN; it rides above the keyboard (parent KeyboardAvoidingView)
-    // when up. Block FORMATTING tools stay exclusively in the floating bubble.
-    // keyboardVisible drives the bar's own bottom padding (flush vs. safe-area).
-    surface = <GlobalDockBar thesisId={thesisId} blocks={blocks} keyboardVisible={keyboardVisible} />;
   }
+  // Idle: render nothing at all. Returning null (rather than an empty host) also
+  // keeps the reserved inset from being re-measured by a lingering exiting subtree.
+  if (!surface) return null;
 
   return (
     <Animated.View

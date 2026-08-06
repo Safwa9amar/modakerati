@@ -1,6 +1,12 @@
 import { Stack } from "expo-router";
+
+// `gestureEnabled: false` — the LEADING EDGE BELONGS TO THE DRAWER. The native
+// stack's interactive back-swipe lives in the same strip and, on any screen with
+// something behind it, wins the touch, so the edge-swipe appeared to work on the
+// workspace (stack root, nothing to pop) and nowhere else. Going back is the back
+// arrow's job now, and every screen the drawer opens has one.
 export default function AppLayout() {
-  return <Stack screenOptions={{ headerShown: false, animation: "default" }}>
+  return <Stack screenOptions={{ headerShown: false, animation: "none", gestureEnabled: false }}>
     <Stack.Screen name="settings" />
     <Stack.Screen name="delete-account" />
     <Stack.Screen name="terms-of-service" />
@@ -30,5 +36,11 @@ export default function AppLayout() {
     <Stack.Screen name="network-error" />
     <Stack.Screen name="import-analysis" />
     <Stack.Screen name="combine-arrange" />
+    {/* Former tab screens — every page is a push from the drawer now. */}
+    <Stack.Screen name="chat" />
+    <Stack.Screen name="notifications" />
+    <Stack.Screen name="account" />
+    <Stack.Screen name="library" />
+    <Stack.Screen name="ai-key" />
   </Stack>;
 }

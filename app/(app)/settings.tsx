@@ -5,8 +5,9 @@ import { useRouter } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { useSettingsStore } from "@/stores/settings-store";
+import { useSettingsStore, type ToolbarOrientation } from "@/stores/settings-store";
 import { useNotificationStore } from "@/stores/notification-store";
+import { useByokStore } from "@/stores/byok-store";
 import { registerForPushNotificationsAsync } from "@/lib/push-notifications";
 import { restartApp, setLanguageWithRTL } from "@/lib/i18n";
 import { BackButton } from "@/components/BackButton";
@@ -15,6 +16,7 @@ import {
   Globe, Moon, Sun, Bell, Sparkles, Clock,
   Trash2, AlertTriangle, RefreshCw,
   Info, FileText, Shield, ChevronRight, ChevronDown, Check, FlaskConical, Mic,
+  Rows3, Columns3, KeyRound,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 
@@ -53,10 +55,18 @@ export default function SettingsScreen() {
   const setLanguage = useSettingsStore((s) => s.setLanguage);
   const autocompleteEnabled = useSettingsStore((s) => s.autocompleteEnabled);
   const setAutocompleteEnabled = useSettingsStore((s) => s.setAutocompleteEnabled);
+  const toolbarOrientation = useSettingsStore((s) => s.toolbarOrientation);
+  const setToolbarOrientation = useSettingsStore((s) => s.setToolbarOrientation);
+  // Selected as two primitives, not a derived object — a fresh literal from a
+  // selector re-renders on every store write (see the Zustand selector trap).
+  const byokEnabled = useByokStore((s) => s.enabled);
+  const byokHasKey = useByokStore((s) => s.apiKey.length > 0);
+  const byokActive = byokEnabled && byokHasKey;
 
   const preferences = useNotificationStore((s) => s.preferences);
   const updatePreferences = useNotificationStore((s) => s.updatePreferences);
   const [langExpanded, setLangExpanded] = useState(false);
+  const [toolbarExpanded, setToolbarExpanded] = useState(false);
   // Shown while the app reboots itself after an RTL⇄LTR language switch.
   const [restarting, setRestarting] = useState(false);
 
@@ -110,6 +120,14 @@ export default function SettingsScreen() {
 
   const languageLabel = LANGUAGES.find((l) => l.value === language)?.label ?? language;
 
+  // How the workspace's floating block toolbar lays out: a wide pill under the block
+  // (default) or a narrow side column that leaves the line being edited visible.
+  const TOOLBAR_LAYOUTS: { value: ToolbarOrientation; label: string }[] = [
+    { value: "horizontal", label: t("settings.toolbarHorizontal", { defaultValue: "Horizontal" }) },
+    { value: "vertical", label: t("settings.toolbarVertical", { defaultValue: "Vertical" }) },
+  ];
+  const toolbarLabel = TOOLBAR_LAYOUTS.find((o) => o.value === toolbarOrientation)?.label ?? toolbarOrientation;
+
   const sections: { title: string; rows: SettingRow[] }[] = [
     {
       title: t("settings.general"),
@@ -129,6 +147,32 @@ export default function SettingsScreen() {
           icon: Sparkles, iconColor: colors.brandAccent, label: t("settings.autocomplete"),
           type: "toggle", toggleValue: autocompleteEnabled,
           onToggle: (v: boolean) => setAutocompleteEnabled(v),
+        },
+        {
+          icon: toolbarOrientation === "vertical" ? Columns3 : Rows3,
+          iconColor: colors.brandPrimary,
+          label: t("settings.toolbarLayout", { defaultValue: "Toolbar layout" }),
+          type: "select", value: toolbarLabel, options: TOOLBAR_LAYOUTS,
+          selectedValue: toolbarOrientation, expanded: toolbarExpanded,
+          onPress: () => setToolbarExpanded((e) => !e),
+          onSelect: (v) => { setToolbarOrientation(v as ToolbarOrientation); setToolbarExpanded(false); },
+        },
+      ],
+    },
+    {
+      title: t("settings.aiSection", { defaultValue: "AI" }),
+      rows: [
+        {
+          icon: KeyRound,
+          iconColor: colors.brandPrimary,
+          label: t("settings.aiKey", { defaultValue: "Your own AI key" }),
+          // The row doubles as the free-tier's status line: "On" means the
+          // student's own key is paying for the AI, not us.
+          value: byokActive
+            ? t("settings.aiKeyOn", { defaultValue: "On" })
+            : t("settings.aiKeyOff", { defaultValue: "Off" }),
+          type: "chevron",
+          onPress: () => router.push("/(app)/ai-key" as any),
         },
       ],
     },

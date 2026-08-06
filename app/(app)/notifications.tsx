@@ -29,7 +29,8 @@ import type { LucideIcon } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
-import { useNavBarClearance } from "@/components/FloatingNavBar";
+import { NotificationsSkeleton } from "@/components/skeletons/NotificationsSkeleton";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNotificationStore } from "@/stores/notification-store";
 import type {
   AppNotification,
@@ -102,7 +103,9 @@ export default function NotificationsScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
-  const bottomPad = useNavBarClearance();
+  // The floating tab bar is gone, so scroll content only has to clear the home
+  // indicator now — not a bar hovering over it.
+  const bottomPad = useSafeAreaInsets().bottom + 24;
 
   // Select slices individually — never build new objects/arrays in a selector.
   const notifications = useNotificationStore((s) => s.notifications);
@@ -255,9 +258,7 @@ export default function NotificationsScreen() {
       </View>
 
       {showLoading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.brandPrimary} size="large" />
-        </View>
+        <NotificationsSkeleton />
       ) : showEmpty ? (
         <View style={styles.center}>
           <View style={[styles.emptyIconBox, { backgroundColor: colors.textSecondary + "26" }]}>

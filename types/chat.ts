@@ -9,6 +9,12 @@ export interface ChatMessage {
   // Optimistic message created on-device, not yet reconciled with the server.
   // Dropped and replaced by the authoritative server copy on the next sync.
   pending?: boolean;
+  // The turn this message asked for never completed (network gone, provider
+  // error, stream died). Set on the USER row, because that is what the student
+  // is looking at when they decide whether to type it again — and typing it
+  // again is exactly what a send that LOOKS delivered provokes. Rendered as a
+  // failed bubble with Retry; cleared when a retry succeeds.
+  failed?: boolean;
   // Reasoning ("thinking") tokens from a reasoning model, shown in a collapsible
   // section. Ephemeral — streamed live, not persisted server-side.
   thinking?: string;

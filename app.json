@@ -14,7 +14,8 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.modakerati.app"
+      "bundleIdentifier": "com.modakerati.app",
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -42,7 +43,9 @@
           "speechRecognitionPermission": "Modakerati uses speech recognition to turn your voice into text in your thesis."
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "./plugins/withReleaseSigning",
+      "expo-web-browser"
     ]
   }
 }

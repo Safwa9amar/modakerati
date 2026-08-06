@@ -16,6 +16,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Send, Square } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useBottomInset, useKeyboardLift } from "@/hooks/useBottomInset";
 import { useChatStore } from "@/stores/chat-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { sendMessageToAI } from "@/lib/ai-service";
@@ -52,6 +53,12 @@ export default function BlockEditorScreen() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
+  // Room under the AI row for the phone's navigation — buttons, gesture pill or
+  // nothing — and none of it while the keyboard covers it. The lift is what
+  // keeps the row ABOVE the keyboard on Android, which never resizes the window
+  // for the IME under edge-to-edge; on iOS the KAV below does that job.
+  const rowInset = useBottomInset(8);
+  const keyboardLift = useKeyboardLift();
 
   // Load the paragraph's current text. Prefer the doc store (already loaded by the
   // workspace) so the editor opens instantly with no fetch; fall back to the server
@@ -151,7 +158,9 @@ export default function BlockEditorScreen() {
         </Pressable>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      {/* iOS only — Android lifts the AI row by the measured IME height instead.
+          Same split as chat.tsx, where the reasoning is written out. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         {loading ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={colors.brandPrimary} />
@@ -191,7 +200,7 @@ export default function BlockEditorScreen() {
               style={[
                 styles.aiRow,
                 {
-                  paddingBottom: Math.max(insets.bottom, 8),
+                  paddingBottom: rowInset + keyboardLift,
                   borderTopColor: colors.borderDefault,
                   backgroundColor: colors.bgPrimary,
                 },
