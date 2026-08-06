@@ -10,6 +10,7 @@ import { BottomInsertDrawer } from "@/components/BottomInsertDrawer";
 import { DockToolsSheet } from "@/components/DockToolsSheet";
 import { HeaderFooterSheet } from "@/components/HeaderFooterSheet";
 import { CaptionSheet } from "@/components/CaptionSheet";
+import { EquationSheet } from "@/components/EquationSheet";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { NetworkBanner } from "@/components/NetworkBanner";
 // import { ChatHead } from "@/components/ChatHead"; // disabled for now
@@ -157,6 +158,9 @@ export default function RootLayout() {
             {/* Word's Insert Caption dialog — same push-drawer surface, nested the
                 same way: only one of the three sheets is ever open. */}
             <CaptionSheet>
+            {/* Word's Insert Equation — the same push-drawer surface again, nested
+                the same way: only one of the sheets is ever open. */}
+            <EquationSheet>
             {/* The writer's global document tools — same push-drawer surface again,
                 opened by the bottom-edge grip or the bubble's ⋮⋮ drop target. */}
             <DockToolsSheet>
@@ -173,6 +177,7 @@ export default function RootLayout() {
                   (and its import) to restore the draggable bubble. */}
             </BottomSheetModalProvider>
             </DockToolsSheet>
+            </EquationSheet>
             </CaptionSheet>
             </HeaderFooterSheet>
             </BottomInsertDrawer>

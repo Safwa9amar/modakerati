@@ -27,6 +27,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useSearchStore } from "@/stores/search-store";
+import { useEquationSheetStore } from "@/stores/equation-sheet-store";
 import { thesisBlockImageUrl, type DocBlockDTO, type InlineMathDTO } from "@/lib/api";
 import { hSelection, hMedium } from "@/lib/haptics";
 
@@ -472,7 +473,23 @@ function DocBlockInner({
 
   return (
     <Pressable
-      onPress={(e) => enterOrSelect(block.index, block.text, e.nativeEvent.pageY, !math)}
+      onPress={(e) => {
+        // Tapping an equation opens the equation editor on it — the same gesture
+        // as in the Writer. It is the only way in: an equation isn't text, so the
+        // caret can't reach it and there is nothing to type.
+        const eq = math?.find((m) => m.latex);
+        if (eq?.latex && !useWorkspaceStore.getState().multiSelect) {
+          useWorkspaceStore.getState().selectBlock(block.index, block.text);
+          useEquationSheetStore.getState().openEdit({
+            thesisId,
+            index: block.index,
+            latex: eq.latex,
+            number: block.text.trim(), // an equation line's own text IS its number
+          });
+          return;
+        }
+        enterOrSelect(block.index, block.text, e.nativeEvent.pageY, !math);
+      }}
       onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, block.text))}
       // Selected paragraphs show the border + tint box (same recipe as image/table
       // blocks) — with selection now surviving keyboard dismiss, the bubble alone

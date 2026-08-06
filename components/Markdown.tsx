@@ -13,6 +13,7 @@ import { useMarkdown, Renderer, type useMarkdownHookOptions } from "react-native
 import { SvgXml } from "react-native-svg";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { firstStrongDirection, getTextDirection, isolateBidi, type TextDirection } from "@/lib/text-direction";
+import { splitMath } from "@/lib/latex-unicode";
 import { chartToSvg, type ChartSpec } from "@/lib/chart-svg";
 import type { ThemeColors } from "@/constants/colors";
 
@@ -30,6 +31,14 @@ const EMOJI_RE =
 // explicitly is what restores the fallback.
 const EMOJI_FONT: TextStyle = {
   fontFamily: Platform.select({ ios: "System", android: "sans-serif", default: undefined }),
+};
+
+// A formula inside a chat message. A serif face is what makes "P=∑ᵢ₌₁ⁿPᵢVᵢ" read as
+// maths rather than as prose — the same distinction the document's own equations
+// get on native surfaces (DocBlock's `equation` style).
+const MATH_FONT: TextStyle = {
+  fontFamily: Platform.select({ ios: "Times New Roman", android: "serif", default: undefined }),
+  fontSize: 15.5,
 };
 
 /**
@@ -76,6 +85,28 @@ function collectText(node: ReactNode): string {
  * left-aligned single bullets inside otherwise right-aligned Arabic lists.
  */
 function inlineRuns(text: string, blockDir: TextDirection): string | ReactNode[] {
+  // Maths first: the AI answers about equations in LaTeX, and `$P = \sum_{i=1}^{n}
+  // P_i V_i$` is not something a student can read. Rendered as the SAME Unicode
+  // linearisation the document's own equations show on this surface, in a serif
+  // face and LTR-isolated so a formula reads correctly inside an Arabic sentence.
+  const chunks = splitMath(text);
+  if (chunks.length > 1 || chunks[0].math) {
+    return chunks.flatMap((c, i) =>
+      c.math ? (
+        <Text key={`m${i}`} style={MATH_FONT}>
+          {isolateBidi(c.text, "ltr")}
+        </Text>
+      ) : (
+        // Prose between formulas still needs the emoji/bidi treatment below.
+        toRuns(c.text, blockDir, `t${i}`)
+      ),
+    );
+  }
+  return toRuns(text, blockDir);
+}
+
+/** Bidi-isolate a run and break its emoji out into their own <Text>. */
+function toRuns(text: string, blockDir: TextDirection, keyPrefix = ""): string | ReactNode[] {
   const isolated = isolateBidi(text, blockDir);
   if (!EMOJI_RE.test(isolated)) return isolated;
   return isolated
@@ -83,7 +114,7 @@ function inlineRuns(text: string, blockDir: TextDirection): string | ReactNode[]
     .filter((p) => p !== "")
     .map((p, i) =>
       EMOJI_RE.test(p) ? (
-        <Text key={i} style={EMOJI_FONT}>
+        <Text key={`${keyPrefix}e${i}`} style={EMOJI_FONT}>
           {p}
         </Text>
       ) : (
@@ -381,9 +412,12 @@ class MdRenderer extends Renderer {
 // through; override it at runtime, preserving the exact wrapper structure.
 (MdRenderer.prototype as any).getTextNode = function (this: MdRenderer, children: ReactNode, textStyle: TextStyle) {
   if (typeof children === "string") {
+    // A code span is quoted verbatim BECAUSE it is quoted: `$x^2$` inside backticks
+    // is someone showing the LaTeX, not writing an equation.
+    const isCode = (textStyle as TextStyle | undefined)?.fontFamily === MONO;
     return (
       <Text key={this.getKey()} selectable style={textStyle}>
-        {inlineRuns(children, this.ctx.dir)}
+        {isCode ? children : inlineRuns(children, this.ctx.dir)}
       </Text>
     );
   }

@@ -109,6 +109,8 @@
     "selectGaps": "Select the gaps"
   },
   "blockBar": {
+      "equation": "Equation",
+      "editEquation": "Edit equation",
     "collapse": "Collapse",
     "style": "Style",
     "align": "Align",
@@ -905,6 +907,21 @@
     "bulkEditError": "Could not apply the change.",
     "removingBg": "Removing background…",
     "updatingImage": "Updating image…",
+    "equation": {
+      "ask": "Ask AI",
+      "askPlaceholder": "Describe it… e.g. area of a circle",
+      "askEditPlaceholder": "Change it… e.g. add a shear term",
+      "insertTitle": "Insert equation",
+      "editTitle": "Edit equation",
+      "field": "Formula (LaTeX)",
+      "previewEmpty": "Your equation appears here",
+      "keepsNumber": "Keeps its number {{number}}",
+      "insert": "Insert",
+      "structure": "Structure",
+      "greek": "Greek",
+      "operators": "Operators",
+      "functions": "Functions"
+    },
     "caption": {
       "title": "Insert caption",
       "editTitle": "Caption",

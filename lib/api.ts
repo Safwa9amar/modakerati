@@ -925,6 +925,9 @@ export type InlineMathDTO = {
   display?: boolean;
   mathml?: string;
   text: string;
+  /** The equation as LaTeX — what the Equation sheet opens for editing. Absent for
+   *  a legacy OLE object, which is a binary with no readable structure. */
+  latex?: string;
   image?: { dataUri?: string; width?: number; height?: number };
 };
 
@@ -1531,6 +1534,50 @@ export async function updateThesisCaption(
   text: string,
 ): Promise<{ ok: true; index: number; document?: DocumentDTO; history?: HistoryStateDTO }> {
   return apiPut(`/api/thesis/${thesisId}/captions/${index}`, { text });
+}
+
+// ── Equations ───────────────────────────────────────────────────────────────
+// LaTeX travels in both directions; only the server ever sees OMML. `preview`
+// validates and typesets WITHOUT touching the document, so the sheet can refuse a
+// malformed formula before it reaches the .docx.
+
+/** Typeset LaTeX for the sheet's live preview. `ok:false` = a parse error to show. */
+export async function previewThesisEquation(
+  thesisId: string,
+  latex: string,
+): Promise<{ ok: true; mathml: string; text: string } | { ok: false; error: string }> {
+  return apiPost(`/api/thesis/${thesisId}/equations/preview`, { latex });
+}
+
+/**
+ * Ask the AI to write or rewrite an equation from a plain-language instruction
+ * ("add a shear term", "اكتب معادلة مساحة الدائرة"). Returns LaTeX for the sheet's
+ * field — nothing is written to the document, so the student reviews the typeset
+ * proposal and decides. The server validates by converting it, so what comes back
+ * is always a formula that can actually become a Word equation.
+ */
+export async function askThesisEquationAI(
+  thesisId: string,
+  body: { prompt: string; latex?: string },
+): Promise<{ ok: true; latex: string; mathml: string; text: string } | { ok: false; error: string }> {
+  return apiPost(`/api/thesis/${thesisId}/equations/ai`, body);
+}
+
+/** Insert an equation as its own centred paragraph after `afterIndex` (-1 = first). */
+export async function insertThesisEquation(
+  thesisId: string,
+  body: { latex: string; afterIndex: number; number?: string },
+): Promise<{ ok: true; index: number; latex: string; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPost(`/api/thesis/${thesisId}/equations`, body);
+}
+
+/** Replace the equation in a block, keeping its paragraph, tabs and number. */
+export async function updateThesisEquation(
+  thesisId: string,
+  index: number,
+  latex: string,
+): Promise<{ ok: true; index: number; latex: string; document?: DocumentDTO; history?: HistoryStateDTO }> {
+  return apiPut(`/api/thesis/${thesisId}/equations/${index}`, { latex });
 }
 
 /** Delete a caption and renumber the rest of its sequence. */

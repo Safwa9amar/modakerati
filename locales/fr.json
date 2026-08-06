@@ -109,6 +109,8 @@
     "selectGaps": "Sélectionner les intervalles"
   },
   "blockBar": {
+      "equation": "Équation",
+      "editEquation": "Modifier l’équation",
     "collapse": "Réduire",
     "style": "Style",
     "align": "Alignement",
@@ -905,6 +907,21 @@
     "bulkEditError": "Impossible d'appliquer la modification.",
     "removingBg": "Suppression de l'arrière-plan…",
     "updatingImage": "Mise à jour de l'image…",
+    "equation": {
+      "ask": "Demander à l’IA",
+      "askPlaceholder": "Décrivez-la… ex. aire d’un cercle",
+      "askEditPlaceholder": "Modifiez-la… ex. ajouter un terme de cisaillement",
+      "insertTitle": "Insérer une équation",
+      "editTitle": "Modifier l\u2019équation",
+      "field": "Formule (LaTeX)",
+      "previewEmpty": "Votre équation apparaît ici",
+      "keepsNumber": "Conserve son numéro {{number}}",
+      "insert": "Insérer",
+      "structure": "Structure",
+      "greek": "Grec",
+      "operators": "Opérateurs",
+      "functions": "Fonctions"
+    },
     "caption": {
       "title": "Insérer une légende",
       "editTitle": "Légende",

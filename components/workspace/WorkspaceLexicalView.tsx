@@ -7,8 +7,9 @@ import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/comp
 // type-only — blockLexical is a web-only ('use dom') module; importing the type is
 // erased at compile time so no Lexical/DOM globals enter this native bundle.
 import type { ChromeData, ChromeKind } from "@/components/workspace/lexical/blockLexical";
-import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocSectionDTO, type DocumentDTO } from "@/lib/api";
+import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocSectionDTO, type DocumentDTO, type InlineMathDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useEquationSheetStore } from "@/stores/equation-sheet-store";
 import { useHfSheetStore } from "@/stores/hf-sheet-store";
 import { HF_SHEET_FRACTION } from "@/components/HeaderFooterSheet";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -369,6 +370,36 @@ export function WorkspaceLexicalView({
     () => (selectMode ? selectedBlocks.map((b) => b.index) : []),
     [selectMode, selectedBlocks],
   );
+
+  // A tapped equation → the native equation sheet, opened on THAT equation. An
+  // equation is not text, so this is the only gesture that reaches one; the payload
+  // is JSON because DOM component props are serializable only.
+  //
+  // The sheet then does the right thing either way: it UPDATES the equation it was
+  // opened on, and if the block turns out to hold none it inserts one instead.
+  const onEquationTap = useCallback((payload: string) => {
+    try {
+      const { index, math } = JSON.parse(payload) as { index: number; math: InlineMathDTO };
+      const store = useEquationSheetStore.getState();
+      if (math?.latex) {
+        // The paragraph's own text on an equation line is its number, "(I.1)".
+        const block = useThesisDocStore.getState().byId[thesisId];
+        const line = block?.available ? block.blocks.find((b) => b.index === index) : undefined;
+        store.openEdit({
+          thesisId,
+          index,
+          latex: math.latex,
+          number: line?.kind === "paragraph" ? line.text.trim() : "",
+        });
+      } else {
+        // A legacy OLE equation has no readable LaTeX — nothing to open for editing,
+        // so offer to write a real one after it rather than doing nothing.
+        store.openInsert({ thesisId, index });
+      }
+    } catch {
+      // A malformed payload must never take the writer down.
+    }
+  }, [thesisId]);
 
   // Approve/reject from the in-editor suggestion node → the native store (its
   // approve dispatches an editText op that flows back through the sync layer).
@@ -967,6 +998,7 @@ export function WorkspaceLexicalView({
           }
           suggestion={suggestion ?? undefined}
           onSuggestAction={onSuggestAction}
+          onEquationTap={onEquationTap}
           completionEnabled={completionEnabled}
           completion={completion}
           onRequestCompletion={onRequestCompletion}

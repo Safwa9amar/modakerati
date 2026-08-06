@@ -12,6 +12,7 @@ import {
   List,
   Palette,
   PilcrowLeft,
+  Sigma,
   Tag,
   Trash2,
   Type,
@@ -20,6 +21,7 @@ import {
 import { AnimatedChip } from "../AnimatedChip";
 import { useChipKit, useTools } from "./context";
 import { useCaptionSheetStore } from "@/stores/caption-sheet-store";
+import { useEquationSheetStore } from "@/stores/equation-sheet-store";
 import { toolStyles } from "./styles";
 
 /**
@@ -52,6 +54,34 @@ export function ParagraphTools({ full }: { full: boolean }) {
       })
     : null;
 
+  // An equation is not text at all — Word keeps it outside the paragraph's words —
+  // so the only way to change one is its own editor. This chip is EDIT-ONLY and
+  // appears solely on a paragraph that already holds an equation; writing a new one
+  // starts from the Insert menu, where every other "add something" lives.
+  //
+  // It works on an equation the student never typed here: the server hands back the
+  // LaTeX for any OMML, so a formula that arrived with an imported thesis opens for
+  // editing like one we wrote.
+  const existingMath =
+    selectedBlock?.kind === "paragraph" ? selectedBlock.math?.find((m) => m.latex) : undefined;
+  const equationChip =
+    existingMath && soleIndex != null
+      ? chip({
+          keyProp: "p-equation",
+          Icon: Sigma,
+          accessibilityLabel: t("blockBar.editEquation", { defaultValue: "Edit equation" }),
+          enterIndex: 3,
+          onPress: () =>
+            useEquationSheetStore.getState().openEdit({
+              thesisId,
+              index: soleIndex,
+              latex: existingMath.latex!,
+              // The paragraph's own text on an equation line is its number, "(I.1)".
+              number: selectedBlock?.kind === "paragraph" ? selectedBlock.text.trim() : "",
+            }),
+        })
+      : null;
+
   const marks = (
     <>
       {chip({ keyProp: "bold", Icon: Bold, accessibilityLabel: t("blockBar.bold", { defaultValue: "Bold" }), active: allBold, disabled: !canFormat, enterIndex: 0, onPress: () => apply({ bold: !allBold }) })}
@@ -65,6 +95,7 @@ export function ParagraphTools({ full }: { full: boolean }) {
       <>
         {marks}
         {captionChip}
+        {equationChip}
         {sep("s1-compact")}
         {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }), 4)}
         {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 5)}
@@ -78,6 +109,7 @@ export function ParagraphTools({ full }: { full: boolean }) {
     <>
       {marks}
       {captionChip}
+      {equationChip}
       {sep("s1")}
       {categoryChip("style", Type, t("blockBar.style", { defaultValue: "Style" }), 3)}
       {categoryChip("align", AlignLeft, t("blockBar.align", { defaultValue: "Align" }), 4)}

@@ -109,6 +109,8 @@
     "selectGaps": "حدّد الفجوات"
   },
   "blockBar": {
+      "equation": "معادلة",
+      "editEquation": "تعديل المعادلة",
     "collapse": "طيّ",
     "style": "النمط",
     "align": "المحاذاة",
@@ -905,6 +907,21 @@
     "bulkEditError": "تعذّر تطبيق التغيير.",
     "removingBg": "جارٍ إزالة الخلفية…",
     "updatingImage": "جارٍ تحديث الصورة…",
+    "equation": {
+      "ask": "اسأل الذكاء الاصطناعي",
+      "askPlaceholder": "صِفها… مثل مساحة الدائرة",
+      "askEditPlaceholder": "عدّلها… مثل أضف حد القص",
+      "insertTitle": "إدراج معادلة",
+      "editTitle": "تعديل المعادلة",
+      "field": "الصيغة (LaTeX)",
+      "previewEmpty": "تظهر معادلتك هنا",
+      "keepsNumber": "تحتفظ برقمها {{number}}",
+      "insert": "إدراج",
+      "structure": "البنية",
+      "greek": "حروف يونانية",
+      "operators": "عوامل",
+      "functions": "دوال"
+    },
     "caption": {
       "title": "إدراج تسمية توضيحية",
       "editTitle": "تسمية توضيحية",

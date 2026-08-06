@@ -119,6 +119,8 @@ import {
   $isGhostCompletionNode,
   ACCEPT_COMPLETION_COMMAND,
   EquationNode,
+  EQUATION_EDIT_COMMAND,
+  $equationTarget,
   $blockEntries,
   type BlockEntry,
 } from "./blockLexical";
@@ -1399,6 +1401,32 @@ function rebuildOriginal(text: string, origType: string) {
 // SuggestionNode captures the replaced block's type so reject can restore it, and
 // $lexicalToBlocks reports the original text for it (so a flush never drops the
 // block). Approve/Reject dispatch commands that call back to `onSuggestAction`.
+/**
+ * A tapped equation → the native equation editor.
+ *
+ * The command carries only the node key, because that is all a decorator knows;
+ * resolving it to a BLOCK INDEX has to happen here, where the whole tree is
+ * readable. The payload crosses to native as a JSON string — DOM component props
+ * are serializable only.
+ */
+function EquationTapPlugin({ onEquationTap }: { onEquationTap?: (payload: string) => void }) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(
+    () =>
+      editor.registerCommand(
+        EQUATION_EDIT_COMMAND,
+        (nodeKey: string) => {
+          const target = editor.getEditorState().read(() => $equationTarget(nodeKey));
+          if (target) onEquationTap?.(JSON.stringify(target));
+          return true;
+        },
+        COMMAND_PRIORITY_LOW,
+      ),
+    [editor, onEquationTap],
+  );
+  return null;
+}
+
 function SuggestionPlugin({
   suggestion,
   onSuggestAction,
@@ -2725,6 +2753,7 @@ export default function LexicalDomEditor({
   tableLabels,
   workingLabels,
   onTableProposalAction,
+  onEquationTap,
   onInsertTrigger,
   onPasteImage,
   scrollRestore,
@@ -2744,6 +2773,9 @@ export default function LexicalDomEditor({
   onState: (s: LexicalState) => void;
   // Serialized blocks emitted in response to a `serialize` command (round-trip test).
   onBlocks?: (blocks: DocBlockDTO[]) => void;
+  // A tapped equation, as JSON: { index, math }. Opens the native equation sheet —
+  // an equation is not text, so this is the only gesture that can reach one.
+  onEquationTap?: (payload: string) => void;
   // When provided, the editor is seeded FROM these blocks instead of the demo text.
   initialBlocks?: DocBlockDTO[];
   // Display-only section chrome (header/footer/section-break bands) interleaved into
@@ -2885,6 +2917,7 @@ export default function LexicalDomEditor({
         <CheckListPlugin />
         <EditorBridge command={command} onState={onState} onBlocks={onBlocks} reseed={reseed} scrollToIndex={scrollToIndex} scrollToChrome={scrollToChrome} chromePreview={chromePreview} />
         <SuggestionPlugin suggestion={suggestion} onSuggestAction={onSuggestAction} />
+        <EquationTapPlugin onEquationTap={onEquationTap} />
         <CompletionPlugin
           enabled={completionEnabled}
           completion={completion}

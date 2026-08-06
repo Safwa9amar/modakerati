@@ -10,6 +10,7 @@ import { useRTL } from "@/hooks/useRTL";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useEquationSheetStore } from "@/stores/equation-sheet-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { INSERT_BLOCKS, INSERT_CATEGORIES, filterBlocks, type InsertBlockDef, type InsertCategory } from "@/components/workspace/insert/insert-blocks";
@@ -229,6 +230,10 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
     if (d.kind === "pageBreak") await useThesisDocStore.getState().mutate(thesisId, { type: "startOnNewPage", indices: [a.index] });
     else if (d.kind === "figure") await pickAndInsertImage(thesisId, a.index);
     else if (d.kind === "pasteImage") await pasteImageFromClipboard(thesisId, a.index);
+    // An equation can't be inserted from here directly — it has to be WRITTEN
+    // first. The sheet takes the formula (with a live preview of what will land on
+    // the page) and does the insert itself, anchored to this same block.
+    else if (d.kind === "equation") useEquationSheetStore.getState().openInsert({ thesisId, index: a.index });
   };
 
   // Apply a Word paragraph styleId (from a fetched thesis style) to the current block.

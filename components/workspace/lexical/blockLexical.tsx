@@ -13,9 +13,12 @@
 import * as React from "react";
 import { diffWords, type DiffSegment } from "@/lib/word-diff";
 import { estimateTokenCount, formatElapsed } from "@/lib/thinking";
+// Web-only: this file is imported exclusively by the 'use dom' editor (see header).
+import { typesetMathML } from "@/lib/mathjax-web";
 import { useWorkingClock, type WorkingClock } from "@/hooks/useWorkingClock";
 import {
   $getRoot,
+  $getNodeByKey,
   $createParagraphNode,
   $createTextNode,
   $createNodeSelection,
@@ -1550,72 +1553,6 @@ function GhostView({ text, editor }: { text: string; editor: LexicalEditor }) {
 export function $createGhostCompletionNode(text: string): GhostCompletionNode { return new GhostCompletionNode(text); }
 export function $isGhostCompletionNode(node: LexicalNode | null | undefined): node is GhostCompletionNode { return node instanceof GhostCompletionNode; }
 
-// ── Maths typesetting (MathJax) ──────────────────────────────────────────────
-// The WebView's own MathML support is uneven — and neither iOS nor Android ships
-// a maths font, so native MathML renders fractions and radicals with whatever the
-// system face has. MathJax typesets the MathML the server sends into SVG with the
-// TeX glyphs embedded as paths: no font files to load, and identical output on
-// both platforms. Only this file (the 'use dom' web bundle) ever pulls it in.
-//
-// A conversion costs a few ms, so results are cached by MathML string — a thesis
-// repeats the same symbols on dozens of lines, and a re-render must never retypeset.
-let mjDoc: { convert: (mml: string, opts: { display: boolean }) => unknown } | null = null;
-let mjAdaptor: { outerHTML: (node: unknown) => string } | null = null;
-let mjFailed = false;
-const mjCache = new Map<string, string>();
-
-function initMathJax(): boolean {
-  if (mjDoc) return true;
-  if (mjFailed) return false;
-  try {
-    // Required lazily: pulling ~1.3 MB of glyph data at module load would delay
-    // the editor's first paint even for a thesis with no equations in it.
-    const { mathjax } = require("mathjax-full/js/mathjax.js");
-    const { MathML } = require("mathjax-full/js/input/mathml.js");
-    const { SVG } = require("mathjax-full/js/output/svg.js");
-    const { browserAdaptor } = require("mathjax-full/js/adaptors/browserAdaptor.js");
-    const { RegisterHTMLHandler } = require("mathjax-full/js/handlers/html.js");
-    mjAdaptor = browserAdaptor();
-    RegisterHTMLHandler(mjAdaptor);
-    // fontCache "local" keeps each equation's glyph <defs> inside its own <svg>,
-    // so a node can be moved, re-rendered or dropped without a shared cache going
-    // stale and leaving blank glyphs behind.
-    const out = new SVG({ fontCache: "local" });
-    mjDoc = mathjax.document("", { InputJax: new MathML(), OutputJax: out });
-    // MathJax's own stylesheet (container metrics, line-breaking). Injected once.
-    const sheet = out.styleSheet(mjDoc);
-    const css = mjAdaptor!.outerHTML(sheet);
-    if (css && !document.getElementById("mjx-styles")) {
-      const el = document.createElement("div");
-      el.innerHTML = css;
-      const style = el.firstElementChild;
-      if (style) { style.id = "mjx-styles"; document.head.appendChild(style); }
-    }
-    return true;
-  } catch {
-    // Never let a typesetter failure blank the equation — the caller falls back
-    // to handing the raw MathML to the browser.
-    mjFailed = true;
-    return false;
-  }
-}
-
-/** MathML → self-contained SVG markup, or null to fall back to raw MathML. */
-function typesetMathML(mathml: string): string | null {
-  const hit = mjCache.get(mathml);
-  if (hit !== undefined) return hit || null;
-  if (!initMathJax()) return null;
-  try {
-    const node = mjDoc!.convert(mathml, { display: /display="block"/.test(mathml) });
-    const html = mjAdaptor!.outerHTML(node);
-    mjCache.set(mathml, html);
-    return html;
-  } catch {
-    mjCache.set(mathml, ""); // remember the failure; don't retry every render
-    return null;
-  }
-}
-
 // ── Inline equation node (Word OMML) ─────────────────────────────────────────
 // An equation is NOT text: Word keeps it in `<m:oMath>`, so it never reaches
 // `text`/`runs` and the line rendered blank. The server hands us MathML, which
@@ -1628,6 +1565,12 @@ function typesetMathML(mathml: string): string | null {
 // equation cannot be edited here — a text-level rewrite of the paragraph cannot
 // express where the maths sits, so it would corrupt or delete it (planOps
 // refuses those ops too; see lexical-writeback.ts).
+// Tapping an equation opens the equation editor — that is the ONLY way to change
+// one, since it isn't text and the caret can't enter it. Carries the node key; the
+// editor resolves it to a block index (see EquationTapPlugin) because a decorator
+// has no idea where in the document it sits.
+export const EQUATION_EDIT_COMMAND: LexicalCommand<string> = createCommand("EQUATION_EDIT");
+
 type SerializedEquationNode = SerializedLexicalNode & { math: InlineMathDTO };
 
 export class EquationNode extends DecoratorNode<React.ReactNode> {
@@ -1652,12 +1595,24 @@ export class EquationNode extends DecoratorNode<React.ReactNode> {
     return el;
   }
   updateDOM(): false { return false; }
-  decorate(): React.ReactNode { return React.createElement(EquationView, { math: this.getLatest().__math }); }
+  decorate(editor: LexicalEditor): React.ReactNode {
+    return React.createElement(EquationView, { math: this.getLatest().__math, editor, nodeKey: this.getKey() });
+  }
   exportJSON(): SerializedEquationNode { return { ...super.exportJSON(), type: "equation", version: 1, math: this.__math }; }
   static importJSON(json: SerializedEquationNode): EquationNode { return new EquationNode(json.math); }
 }
 
-function EquationView({ math }: { math: InlineMathDTO }) {
+function EquationView({ math, editor, nodeKey }: { math: InlineMathDTO; editor: LexicalEditor; nodeKey: NodeKey }) {
+  // A tap opens the equation editor. It has to be a click handler on the rendered
+  // maths itself: the caret cannot enter a decorator, so there is no other gesture
+  // that reaches an equation — and "select the paragraph, then hunt for a chip" is
+  // not how anyone expects to fix a formula they can see.
+  const open = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    editor.dispatchCommand(EQUATION_EDIT_COMMAND, nodeKey);
+  };
+  const tap = { onClick: open, onMouseDown: (e: React.MouseEvent) => e.preventDefault(), style: { cursor: "pointer" } };
   if (math.mathml) {
     // MathJax typesets it to SVG. Failing that (or before it initialises) the raw
     // MathML goes in as markup — it must be PARSED, not built with
@@ -1667,6 +1622,7 @@ function EquationView({ math }: { math: InlineMathDTO }) {
     return React.createElement("span", {
       className: "lx-eq-ml",
       dir: "ltr", // maths is LTR even inside an Arabic paragraph
+      ...tap,
       dangerouslySetInnerHTML: { __html: typesetMathML(math.mathml) ?? math.mathml },
     });
   }
@@ -1675,6 +1631,7 @@ function EquationView({ math }: { math: InlineMathDTO }) {
   if (math.image?.dataUri) {
     return React.createElement("img", {
       className: "lx-eq-img",
+      ...tap,
       src: math.image.dataUri,
       ...(math.image.width ? { width: math.image.width } : null),
       ...(math.image.height ? { height: math.image.height } : null),
@@ -1682,11 +1639,42 @@ function EquationView({ math }: { math: InlineMathDTO }) {
     });
   }
   // Neither typeset nor pictured — show the linearisation rather than a blank.
-  return React.createElement("span", { className: "lx-eq-txt", dir: "ltr" }, math.text || "⬚");
+  return React.createElement("span", { className: "lx-eq-txt", dir: "ltr", ...tap }, math.text || "⬚");
 }
 
 export function $createEquationNode(math: InlineMathDTO): EquationNode { return new EquationNode(math); }
 export function $isEquationNode(node: LexicalNode | null | undefined): node is EquationNode { return node instanceof EquationNode; }
+
+/**
+ * Where in the DOCUMENT is the equation the student just tapped?
+ *
+ * A decorator only knows its own key, and the block index the .docx uses is not the
+ * position of its top-level node — a Lexical list collapses several blocks into one
+ * node, and chrome bands occupy none. $blockEntries already resolves exactly that
+ * mapping (it is what drag-to-reorder counts with), so this reads it rather than
+ * re-deriving an index that could drift from the one the server would use.
+ *
+ * Call inside editor.read(). Returns null when the key no longer resolves.
+ */
+export function $equationTarget(nodeKey: NodeKey): { index: number; math: InlineMathDTO } | null {
+  const node = $getNodeByKey(nodeKey);
+  if (!$isEquationNode(node)) return null;
+  const top = node.getTopLevelElement();
+  if (!top) return null;
+  const entry = $blockEntries().find((e) => e.key === top.getKey());
+  if (!entry) return null;
+  let index = entry.from;
+  // Inside a list the entry spans `count` blocks, one per item — so the offset is
+  // which item holds the equation.
+  if ($isListNode(top)) {
+    const item = node.getParents().find($isListItemNode);
+    if (item) {
+      const at = top.getChildren().findIndex((c) => c.getKey() === item.getKey());
+      if (at > 0) index += at;
+    }
+  }
+  return { index, math: node.getMath() };
+}
 
 // ── AI RANGE suggestion node (multi-block dynamic rewrite) ────────────────────
 // Occupies the WHOLE selected range: it replaces blocks [start..end] with a single

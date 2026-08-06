@@ -37,7 +37,7 @@ export const INSERT_BLOCKS: InsertBlockDef[] = [
   { kind: "figure",   category: "media",    Icon: ImageIcon,           labelKey: "figure",   status: "ready" },
   { kind: "pasteImage", category: "media",  Icon: ClipboardPaste,      labelKey: "pasteImage", status: "ready" },
   { kind: "divider",  category: "media",    Icon: Minus,               labelKey: "divider",  status: "soon" },  // Phase 2
-  { kind: "equation", category: "academic", Icon: Sigma,               labelKey: "equation", status: "soon" },  // Phase 3
+  { kind: "equation", category: "academic", Icon: Sigma,               labelKey: "equation", status: "ready" },
   { kind: "toc",      category: "academic", Icon: ListTree,            labelKey: "toc",      status: "soon" },  // Phase 3
   { kind: "footnote", category: "academic", Icon: Superscript,         labelKey: "footnote", status: "soon" },  // Phase 3
   { kind: "pageBreak",category: "layout",   Icon: SquareSplitVertical, labelKey: "pageBreak",status: "ready" },
