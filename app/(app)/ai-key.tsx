@@ -148,16 +148,16 @@ export default function AiKeyScreen() {
                 style={[styles.input, { color: colors.textPrimary, textAlign }]}
                 value={draftModel}
                 onChangeText={setDraftModel}
-                placeholder="anthropic/claude-haiku-4.5"
+                placeholder="nvidia/nemotron-3-ultra-550b-a55b:free"
                 placeholderTextColor={colors.textSecondary}
                 autoCapitalize="none"
                 autoCorrect={false}
                 spellCheck={false}
               />
             </View>
-            {/* Left empty on purpose by most students: the server then picks a
-                cheap model, because the platform default is an expensive one
-                that only makes sense on our wholesale pricing. */}
+            {/* Left empty on purpose by most students: the server then picks its
+                own cheap default (see byokDefaultModel), so nothing here can hand
+                a student an unexpected bill on their own key. */}
             <Text style={[styles.hint, { color: colors.textSecondary, textAlign }]}>
               {t("aiKey.modelHint", {
                 defaultValue: "Leave empty to use an inexpensive model. A stronger model gives better writing and costs you more.",
