@@ -80,6 +80,21 @@ function listOf(b: ParagraphDTO): "bullet" | "number" | null {
   return l === "bullet" || l === "number" ? l : null;
 }
 
+/**
+ * Does this block carry an EQUATION? An equation lives in `<m:oMath>`, outside
+ * the `<w:t>` runs that `text` is built from — so a text-level op on it is
+ * writing a sentence the .docx does not actually contain:
+ *   • `editText` rewrites the paragraph's runs from `text`, which cannot describe
+ *     where the equation sits, so the result is text in the wrong order.
+ *   • `deleteBlocks` takes the equation with the line — and an equation line looks
+ *     ALMOST EMPTY in the editor (often just its "(II.1)" number), so "tidying up
+ *     a blank line" is exactly what a student would do to it.
+ * Formatting ops are still fine: they only touch `<w:pPr>`/`<w:rPr>`.
+ */
+function hasMath(b: DocBlockDTO | undefined): boolean {
+  return !!b && b.kind === "paragraph" && !!b.math?.length;
+}
+
 type Step = { op: "keep" | "del" | "ins"; ai?: number; bi?: number };
 
 function lcsScript(A: string[], B: string[]): Step[] {
@@ -119,7 +134,10 @@ export function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: Thes
       const newB = asPara(target[next.bi!]);
       if (oldB && newB) {
         const cur = asPara(sim[pos]);
-        if (cur && cur.text !== newB.text) emit({ type: "editText", index: pos, text: newB.text });
+        if (cur && cur.text !== newB.text) {
+          if (hasMath(cur)) unsupported.push(`skip-editText equation @${pos}`);
+          else emit({ type: "editText", index: pos, text: newB.text });
+        }
         const now = asPara(sim[pos]);
         if (now) {
           const fc = fmtChanges(now, newB);
@@ -150,6 +168,10 @@ export function planOps(base: DocBlockDTO[], target: DocBlockDTO[]): { ops: Thes
       // already refuses non-paragraphs.)
       const delB = sim[pos];
       if (delB && delB.kind !== "paragraph") { unsupported.push(`skip-delete ${delB.kind} @${pos}`); pos++; continue; }
+      // Same reasoning as a table/image: an equation is structural content the
+      // text-sync path can't legitimately remove, and it renders as a near-empty
+      // line, so a stray backspace would silently delete the maths.
+      if (hasMath(delB)) { unsupported.push(`skip-delete equation @${pos}`); pos++; continue; }
       emit({ type: "deleteBlocks", indices: [pos] });
     } else {
       const newB = target[step.bi!];

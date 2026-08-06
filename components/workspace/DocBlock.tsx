@@ -27,7 +27,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useSearchStore } from "@/stores/search-store";
-import { thesisBlockImageUrl, type DocBlockDTO } from "@/lib/api";
+import { thesisBlockImageUrl, type DocBlockDTO, type InlineMathDTO } from "@/lib/api";
 import { hSelection, hMedium } from "@/lib/haptics";
 
 // Dark ink / muted ink for text rendered on the always-white PaperPage.
@@ -95,6 +95,45 @@ function runTextStyle(run: Run): TextStyle {
 
 // Cap an inlined image's rendered height so a tall chart can't dominate the page.
 const MAX_IMAGE_HEIGHT = 360;
+
+/**
+ * A paragraph's text with its EQUATIONS spliced back in at their offsets.
+ *
+ * This is a native surface, so there is no MathML engine here — the Writer's
+ * WebView typesets the real thing (see EquationNode). What renders here is the
+ * server's Unicode linearisation ("σᵣᵣ=1/(√2πr)cos θ"), set in a serif face so it
+ * reads as a formula rather than as body prose, plus the Word preview bitmap for
+ * a legacy OLE equation. The point is that the maths is VISIBLE and legible:
+ * before this, an equation contributed nothing and the line came out blank.
+ */
+function mathSpans(text: string, math: InlineMathDTO[]): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  const ordered = [...math].sort((a, b) => a.at - b.at);
+  let pos = 0;
+  ordered.forEach((m, i) => {
+    const at = Math.max(pos, Math.min(m.at, text.length));
+    if (at > pos) out.push(text.slice(pos, at));
+    if (m.image?.dataUri) {
+      out.push(
+        <Image
+          key={`e${i}`}
+          source={{ uri: m.image.dataUri }}
+          style={{ width: m.image.width ?? 16, height: m.image.height ?? 18 }}
+          resizeMode="contain"
+        />,
+      );
+    } else {
+      out.push(
+        <Text key={`e${i}`} style={styles.equation}>
+          {m.text || "⬚"}
+        </Text>,
+      );
+    }
+    pos = at;
+  });
+  if (pos < text.length) out.push(text.slice(pos));
+  return out;
+}
 
 /**
  * Renders one live-.docx block (read-only). Paragraphs/tables are tappable and
@@ -324,7 +363,11 @@ function DocBlockInner({
 
   // paragraph
   const isHeading = block.level >= 1;
-  const empty = !block.text.trim();
+  // An equation-only line has no <w:t> text at all — it is NOT an empty paragraph,
+  // and rendering it as the "·" placeholder is what made a page of formulae look
+  // like a page of blank lines.
+  const math = block.math?.length ? block.math : null;
+  const empty = !block.text.trim() && !math;
   // Per-run inline formatting (bold/italic/underline/color) from the server, READ
   // path only. Render run spans when the paragraph actually carries formatting;
   // otherwise the flat `block.text` renders identically (and stays the source of
@@ -355,7 +398,12 @@ function DocBlockInner({
           : block.alignment === "both"
             ? "justify"
             : null;
-  const textAlign = (jcAlign ?? (isHeading ? align : "justify")) as
+  // A line that IS an equation centres, whatever alignment Word left on it — an
+  // imported thesis right-aligns its formulae or tabs them across, and neither
+  // survives the reflow to phone width. (The server marks those `display`; an
+  // equation inside a sentence isn't, and the sentence keeps its own alignment.)
+  const displayMath = !!math && math.every((m) => m.display);
+  const textAlign = (displayMath ? "center" : (jcAlign ?? (isHeading ? align : "justify"))) as
     | "left"
     | "right"
     | "center"
@@ -377,7 +425,8 @@ function DocBlockInner({
   // setEditingBlock(null), so the caret "shows once then hides". With no wrapping
   // press-handler the TextInput owns every touch: tapping a word places the caret
   // there natively, and staying inside the field never kicks you out.
-  if (isEditing) {
+  // `!math`: an equation paragraph is never text-editable — see enterOrSelect.
+  if (isEditing && !math) {
     return (
       <View style={styles.paraWrap}>
         <EditableParagraph
@@ -423,7 +472,7 @@ function DocBlockInner({
 
   return (
     <Pressable
-      onPress={(e) => enterOrSelect(block.index, block.text, e.nativeEvent.pageY)}
+      onPress={(e) => enterOrSelect(block.index, block.text, e.nativeEvent.pageY, !math)}
       onLongPress={onLongPressDrag ?? (() => longPickBlock(block.index, block.text))}
       // Selected paragraphs show the border + tint box (same recipe as image/table
       // blocks) — with selection now surviving keyboard dismiss, the bubble alone
@@ -451,15 +500,17 @@ function DocBlockInner({
         >
           {empty
             ? "·"
-            : searchSegs
-              ? searchSegs
-              : useRuns && runs
-                ? runs.map((r, i) => (
-                    <Text key={i} style={runTextStyle(r)}>
-                      {r.text}
-                    </Text>
-                  ))
-                : block.text}
+            : math
+              ? mathSpans(block.text, math)
+              : searchSegs
+                ? searchSegs
+                : useRuns && runs
+                  ? runs.map((r, i) => (
+                      <Text key={i} style={runTextStyle(r)}>
+                        {r.text}
+                      </Text>
+                    ))
+                  : block.text}
         </Text>
       </SettleFlash>
     </Pressable>
@@ -770,7 +821,12 @@ function longPickBlock(index: number, text: string): void {
 // up, the docked toolbar — no intermediate selection-box state. (Select it too so
 // the toolbar / ✦ Ask AI target this block.) Multi-select mode still just toggles
 // membership; during an AI turn we only select (don't open the editor).
-function enterOrSelect(index: number, text: string, pageY?: number): void {
+//
+// `editable` is false for a paragraph carrying an EQUATION: the inline editor
+// commits an editText op built from the block's text, and an equation lives
+// outside that text (in `<m:oMath>`), so the commit would write a sentence the
+// document doesn't have. It still selects, so the AI and the toolbar can act on it.
+function enterOrSelect(index: number, text: string, pageY?: number, editable = true): void {
   const ws = useWorkspaceStore.getState();
   if (ws.multiSelect) {
     ws.toggleBlock(index, text);
@@ -778,7 +834,7 @@ function enterOrSelect(index: number, text: string, pageY?: number): void {
   }
   ws.selectBlock(index, text);
   if (pageY != null) useFloatingPillStore.getState().setAnchorY(pageY);
-  if (!useChatStore.getState().isGenerating) ws.setEditingBlock(index);
+  if (editable && !useChatStore.getState().isGenerating) ws.setEditingBlock(index);
 }
 
 // RTL scripts: Hebrew, Arabic (+ supplements), Syriac, Thaana, Arabic presentation forms.
@@ -856,6 +912,14 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   emptyPara: { color: MUTED },
+  // An equation's Unicode linearisation. A serif face (the platform's own, so the
+  // Greek letters and the sub/superscripts all have glyphs) reads as maths beside
+  // the Inter body text without needing a typesetter on this surface.
+  equation: {
+    color: INK,
+    fontFamily: Platform.OS === "ios" ? "Times New Roman" : "serif",
+    fontSize: 15,
+  },
 
   // Structural/embedded (`other`) block with a text preview — a muted card set
   // slightly apart from body paragraphs so it reads as embedded content, not a

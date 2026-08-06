@@ -911,8 +911,25 @@ export type CellImageDTO = { dataUri?: string; hasMedia?: boolean; width?: numbe
 // Word list kind of a paragraph (mirrors the server's ListKind).
 export type DocListKind = "bullet" | "number";
 
+// One equation sitting inside a paragraph. Word keeps an equation's characters in
+// `<m:oMath>`/`<m:t>`, which NO reader of `<w:t>` can see — so `text` and `runs`
+// both miss it and the line used to render blank. `at` is the offset into `text`
+// where it belongs, so the renderer splits the sentence and drops it in.
+//
+// `mathml` is self-contained <math> markup, typeset natively by the Writer's
+// WebView. `text` is a Unicode linearisation ("σᵣᵣ=1/(√2πr)cos θ") for the native
+// surfaces that cannot typeset. `image` is Word's own preview bitmap for a legacy
+// OLE equation (Equation.3 / MathType), whose binary is unreadable outside Word.
+export type InlineMathDTO = {
+  at: number;
+  display?: boolean;
+  mathml?: string;
+  text: string;
+  image?: { dataUri?: string; width?: number; height?: number };
+};
+
 export type DocBlockDTO =
-  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; alignment: "left" | "center" | "right" | "both" | null; direction: "rtl" | "ltr" | null }
+  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; alignment: "left" | "center" | "right" | "both" | null; direction: "rtl" | "ltr" | null; math?: InlineMathDTO[] }
   | {
       index: number;
       kind: "table";

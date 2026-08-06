@@ -41,7 +41,7 @@ import {
   type HeadingTagType,
 } from "@lexical/rich-text";
 import { $isListNode, $isListItemNode, $createListNode, $createListItemNode, type ListNode } from "@lexical/list";
-import type { CellImageDTO, DocBlockDTO, DocListKind, TextBoxLine } from "@/lib/api";
+import type { CellImageDTO, DocBlockDTO, DocListKind, InlineMathDTO, TextBoxLine } from "@/lib/api";
 // type-only — table-diff must never enter the web bundle by value.
 import type { TableDiff } from "@/lib/table-diff";
 
@@ -1550,6 +1550,144 @@ function GhostView({ text, editor }: { text: string; editor: LexicalEditor }) {
 export function $createGhostCompletionNode(text: string): GhostCompletionNode { return new GhostCompletionNode(text); }
 export function $isGhostCompletionNode(node: LexicalNode | null | undefined): node is GhostCompletionNode { return node instanceof GhostCompletionNode; }
 
+// ── Maths typesetting (MathJax) ──────────────────────────────────────────────
+// The WebView's own MathML support is uneven — and neither iOS nor Android ships
+// a maths font, so native MathML renders fractions and radicals with whatever the
+// system face has. MathJax typesets the MathML the server sends into SVG with the
+// TeX glyphs embedded as paths: no font files to load, and identical output on
+// both platforms. Only this file (the 'use dom' web bundle) ever pulls it in.
+//
+// A conversion costs a few ms, so results are cached by MathML string — a thesis
+// repeats the same symbols on dozens of lines, and a re-render must never retypeset.
+let mjDoc: { convert: (mml: string, opts: { display: boolean }) => unknown } | null = null;
+let mjAdaptor: { outerHTML: (node: unknown) => string } | null = null;
+let mjFailed = false;
+const mjCache = new Map<string, string>();
+
+function initMathJax(): boolean {
+  if (mjDoc) return true;
+  if (mjFailed) return false;
+  try {
+    // Required lazily: pulling ~1.3 MB of glyph data at module load would delay
+    // the editor's first paint even for a thesis with no equations in it.
+    const { mathjax } = require("mathjax-full/js/mathjax.js");
+    const { MathML } = require("mathjax-full/js/input/mathml.js");
+    const { SVG } = require("mathjax-full/js/output/svg.js");
+    const { browserAdaptor } = require("mathjax-full/js/adaptors/browserAdaptor.js");
+    const { RegisterHTMLHandler } = require("mathjax-full/js/handlers/html.js");
+    mjAdaptor = browserAdaptor();
+    RegisterHTMLHandler(mjAdaptor);
+    // fontCache "local" keeps each equation's glyph <defs> inside its own <svg>,
+    // so a node can be moved, re-rendered or dropped without a shared cache going
+    // stale and leaving blank glyphs behind.
+    const out = new SVG({ fontCache: "local" });
+    mjDoc = mathjax.document("", { InputJax: new MathML(), OutputJax: out });
+    // MathJax's own stylesheet (container metrics, line-breaking). Injected once.
+    const sheet = out.styleSheet(mjDoc);
+    const css = mjAdaptor!.outerHTML(sheet);
+    if (css && !document.getElementById("mjx-styles")) {
+      const el = document.createElement("div");
+      el.innerHTML = css;
+      const style = el.firstElementChild;
+      if (style) { style.id = "mjx-styles"; document.head.appendChild(style); }
+    }
+    return true;
+  } catch {
+    // Never let a typesetter failure blank the equation — the caller falls back
+    // to handing the raw MathML to the browser.
+    mjFailed = true;
+    return false;
+  }
+}
+
+/** MathML → self-contained SVG markup, or null to fall back to raw MathML. */
+function typesetMathML(mathml: string): string | null {
+  const hit = mjCache.get(mathml);
+  if (hit !== undefined) return hit || null;
+  if (!initMathJax()) return null;
+  try {
+    const node = mjDoc!.convert(mathml, { display: /display="block"/.test(mathml) });
+    const html = mjAdaptor!.outerHTML(node);
+    mjCache.set(mathml, html);
+    return html;
+  } catch {
+    mjCache.set(mathml, ""); // remember the failure; don't retry every render
+    return null;
+  }
+}
+
+// ── Inline equation node (Word OMML) ─────────────────────────────────────────
+// An equation is NOT text: Word keeps it in `<m:oMath>`, so it never reaches
+// `text`/`runs` and the line rendered blank. The server hands us MathML, which
+// this node drops into the WebView — WKWebView and Chromium both implement
+// MathML Core, so the browser typesets the fractions, roots and limits itself.
+//
+// Atomic and text-invisible on purpose: `getTextContent()` is "" so the
+// paragraph serializes back with EXACTLY the text it was seeded with, which is
+// what lets the write-back diff see "unchanged" and leave the .docx alone. The
+// equation cannot be edited here — a text-level rewrite of the paragraph cannot
+// express where the maths sits, so it would corrupt or delete it (planOps
+// refuses those ops too; see lexical-writeback.ts).
+type SerializedEquationNode = SerializedLexicalNode & { math: InlineMathDTO };
+
+export class EquationNode extends DecoratorNode<React.ReactNode> {
+  __math: InlineMathDTO;
+  static getType(): string { return "equation"; }
+  static clone(node: EquationNode): EquationNode { return new EquationNode(node.__math, node.__key); }
+  constructor(math: InlineMathDTO, key?: NodeKey) { super(key); this.__math = math; }
+  getMath(): InlineMathDTO { return this.getLatest().__math; }
+  // ALWAYS inline in the Lexical model, even for a display equation: the node
+  // lives inside a paragraph, and a block-level decorator there breaks Lexical's
+  // "elements hold inlines" invariant. A display equation is centred on its own
+  // line in CSS instead (.lx-eq-block), which is a layout concern anyway.
+  isInline(): true { return true; }
+  isKeyboardSelectable(): false { return false; }
+  getTextContent(): string { return ""; } // invisible to the block model
+  createDOM(): HTMLElement {
+    const el = document.createElement("span");
+    el.className = this.__math.display ? "lx-eq lx-eq-block" : "lx-eq";
+    // A decorator is not editable content; without this the caret can land
+    // inside the MathML and the WebView starts mutating it.
+    el.setAttribute("contenteditable", "false");
+    return el;
+  }
+  updateDOM(): false { return false; }
+  decorate(): React.ReactNode { return React.createElement(EquationView, { math: this.getLatest().__math }); }
+  exportJSON(): SerializedEquationNode { return { ...super.exportJSON(), type: "equation", version: 1, math: this.__math }; }
+  static importJSON(json: SerializedEquationNode): EquationNode { return new EquationNode(json.math); }
+}
+
+function EquationView({ math }: { math: InlineMathDTO }) {
+  if (math.mathml) {
+    // MathJax typesets it to SVG. Failing that (or before it initialises) the raw
+    // MathML goes in as markup — it must be PARSED, not built with
+    // React.createElement, because React creates elements in the HTML namespace
+    // and a `<math>` in the wrong namespace renders as inline text. Both strings
+    // are ours: docx-math.ts escapes every text node, MathJax emits its own SVG.
+    return React.createElement("span", {
+      className: "lx-eq-ml",
+      dir: "ltr", // maths is LTR even inside an Arabic paragraph
+      dangerouslySetInnerHTML: { __html: typesetMathML(math.mathml) ?? math.mathml },
+    });
+  }
+  // A legacy Equation.3 / MathType object: Word's own preview bitmap is all
+  // anyone outside Word can show of it.
+  if (math.image?.dataUri) {
+    return React.createElement("img", {
+      className: "lx-eq-img",
+      src: math.image.dataUri,
+      ...(math.image.width ? { width: math.image.width } : null),
+      ...(math.image.height ? { height: math.image.height } : null),
+      alt: math.text || "equation",
+    });
+  }
+  // Neither typeset nor pictured — show the linearisation rather than a blank.
+  return React.createElement("span", { className: "lx-eq-txt", dir: "ltr" }, math.text || "⬚");
+}
+
+export function $createEquationNode(math: InlineMathDTO): EquationNode { return new EquationNode(math); }
+export function $isEquationNode(node: LexicalNode | null | undefined): node is EquationNode { return node instanceof EquationNode; }
+
 // ── AI RANGE suggestion node (multi-block dynamic rewrite) ────────────────────
 // Occupies the WHOLE selected range: it replaces blocks [start..end] with a single
 // node showing the AI's rewritten PASSAGE — which may be one paragraph or several
@@ -1752,15 +1890,43 @@ function runsOf(b: ParagraphDTO): ParaRun[] {
 // ── blocks → Lexical (call inside editor.update() / editorState init) ────────
 // Append a paragraph DTO's inline runs (text + bold/italic/underline/color) to an
 // element — shared by plain paragraphs, headings, and list items.
+//
+// Equations are spliced in at their character offsets, splitting a run when one
+// lands mid-run. They carry no text of their own, so the element's text content
+// still equals the DTO's `text` exactly — which is what makes the round-trip
+// through $paraFromElement lossless.
 function appendRuns(el: ElementNode, b: ParagraphDTO): void {
+  const math = [...(b.math ?? [])].sort((m, n) => m.at - n.at);
+  let mi = 0;
+  let at = 0; // characters appended so far
+  const flushMathUpTo = (limit: number) => {
+    while (mi < math.length && math[mi].at <= limit) el.append($createEquationNode(math[mi++]));
+  };
   for (const run of runsOf(b)) {
-    const t = $createTextNode(run.text);
-    if (run.bold) t.toggleFormat("bold");
-    if (run.italic) t.toggleFormat("italic");
-    if (run.underline) t.toggleFormat("underline");
-    if (run.color) t.setStyle(`color: #${run.color.replace(/^#/, "")}`);
-    el.append(t);
+    let offset = 0; // consumed within this run
+    // An equation whose offset falls inside this run splits it in two.
+    while (mi < math.length && math[mi].at < at + run.text.length) {
+      const cut = Math.max(math[mi].at - at, offset);
+      if (cut > offset) el.append(styledText(run, run.text.slice(offset, cut)));
+      el.append($createEquationNode(math[mi++]));
+      offset = cut;
+    }
+    if (offset < run.text.length) el.append(styledText(run, run.text.slice(offset)));
+    at += run.text.length;
+    // Equations sitting exactly at this run's end (the common case: a display
+    // equation before its "(III.10)" number, or one closing the paragraph).
+    flushMathUpTo(at);
   }
+  flushMathUpTo(Number.POSITIVE_INFINITY); // offsets past the end of the text
+}
+
+function styledText(run: ParaRun, text: string): TextNode {
+  const t = $createTextNode(text);
+  if (run.bold) t.toggleFormat("bold");
+  if (run.italic) t.toggleFormat("italic");
+  if (run.underline) t.toggleFormat("underline");
+  if (run.color) t.setStyle(`color: #${run.color.replace(/^#/, "")}`);
+  return t;
 }
 
 // The list kind a paragraph belongs to (server read-back on the DTO; not in the
@@ -1949,6 +2115,7 @@ function countListItems(list: ListNode): number {
 // gathers inline runs (bold/italic/underline/color) + flat text + block props.
 function $paraFromElement(el: ElementNode, level: number): ParagraphDTO {
   const runs: ParaRun[] = [];
+  const math: InlineMathDTO[] = [];
   let text = "";
   for (const child of el.getChildren()) {
     if ($isTextNode(child)) {
@@ -1961,6 +2128,11 @@ function $paraFromElement(el: ElementNode, level: number): ParagraphDTO {
       if (m) run.color = m[1].toUpperCase();
       runs.push(run);
       text += run.text;
+    } else if ($isEquationNode(child)) {
+      // Carried through verbatim, re-anchored to where it now sits in the text.
+      // Keeping it on the serialized block is what tells the write-back diff this
+      // paragraph holds an equation and must never be rewritten from its text.
+      math.push({ ...child.getMath(), at: text.length });
     } else {
       text += child.getTextContent();
     }
@@ -1974,6 +2146,7 @@ function $paraFromElement(el: ElementNode, level: number): ParagraphDTO {
     level: Math.min(level, 6) as ParagraphDTO["level"],
     alignment: formatToAlign(el.getFormatType()),
     direction: dir === "rtl" || dir === "ltr" ? dir : null,
+    ...(math.length ? { math } : null),
   };
   (para as { runs?: ParaRun[] }).runs = runs.length ? runs : [{ text }];
   return para;
