@@ -163,10 +163,20 @@ function AppIndex() {
     closeDrawer();
     const store = useCombineStore.getState();
     store.reset();
-    const result = await store.pickAndClassify();
-    if (result === "ok") {
-      router.push("/(app)/combine-arrange" as any);
-    } else if (result === "error") {
+    // Reading a handful of chapter .docx files and classifying them takes tens of
+    // seconds. Push the arrange screen the moment the picker closes so that work
+    // happens on ITS processing view — waiting on the previous page with nothing
+    // moving is what read as a hang.
+    let navigated = false;
+    const result = await store.pickAndClassify({
+      onPicked: () => {
+        navigated = true;
+        router.push("/(app)/combine-arrange" as any);
+      },
+    });
+    // Failures after the push are the arrange screen's to show (it has a retry);
+    // only a failure before it — a dead picker, too few files — needs an alert.
+    if (result === "error" && !navigated) {
       Alert.alert(t("combine.action"), useCombineStore.getState().errorMessage || t("thesis.genericError"));
     }
   }, [closeDrawer, router, t]);

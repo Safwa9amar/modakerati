@@ -852,6 +852,7 @@ export type PartRole =
   | "resultats"
   | "discussion"
   | "conclusion"
+  | "bibliographie"
   | "annexe"
   | "autre";
 
@@ -866,7 +867,14 @@ export interface ClassifiedPartDTO {
 // Classify uploaded parts (read content → role + suggested title + default order).
 export async function classifyCombineParts(
   parts: { filename: string; base64: string }[]
-): Promise<{ parts: ClassifiedPartDTO[]; suggestedOrder: string[] }> {
+): Promise<{
+  parts: ClassifiedPartDTO[];
+  suggestedOrder: string[];
+  /** How the labels were produced — "heuristic" means the model call failed and
+   *  the roles/titles come from the parts' own text. The arrange screen says so
+   *  rather than passing a guess off as the AI's reading. */
+  classifiedBy?: "ai" | "heuristic";
+}> {
   return apiPost("/api/thesis/combine/classify", { parts });
 }
 
@@ -875,7 +883,25 @@ export async function combineThesis(input: {
   title: string;
   normProfileId?: string;
   language?: string;
-  parts: { filename: string; base64: string; title: string; order: number }[];
+  /**
+   * "full" (default) — chapter headings, numbering, divider pages and one font
+   * from the norm profile. "plain" — join the files and nothing else; each part
+   * keeps its own formatting and starts its own Word section.
+   */
+  structure?: "full" | "plain";
+  /**
+   * `role` rides along so the server knows which parts are body chapters (only
+   * those get a number and a "Chapitre N" divider page), and
+   * `continuesPrevious` marks a file that is the rest of the part above it.
+   */
+  parts: {
+    filename: string;
+    base64: string;
+    title: string;
+    order: number;
+    role?: PartRole;
+    continuesPrevious?: boolean;
+  }[];
 }): Promise<{ thesis: Thesis; analysisReport: AnalysisReport | null }> {
   return apiPost("/api/thesis/combine", input);
 }
