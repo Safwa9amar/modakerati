@@ -1147,6 +1147,14 @@ Create `src/lib/chat-threads-db.ts`:
 // a thread is only ever reachable through its OWNER's id. The pre-threads
 // endpoints filtered on thesis_id alone, which meant any authenticated student
 // holding someone else's thesis uuid could read or wipe their chat.
+//
+// How that rule is kept: the functions that ACCEPT an id off the wire
+// (createThread, getThread, listThreads, patchThread, deleteThread,
+// newestThreadForThesis, searchThreadMessages) each filter on userId
+// themselves. The functions that operate on an already-resolved thread take a
+// ThreadRow rather than an id, and the only way to hold a ThreadRow is to have
+// passed one of those checks. touchThread is the single exception and is
+// marked INTERNAL.
 import { db, chatMessages, chatThreads, chatSummaries, theses } from "../db";
 import { and, eq, desc, asc, gt, lt, isNull, sql } from "drizzle-orm";
 import { sortThreads, type ThreadPatch } from "./chat-threads";
@@ -1220,8 +1228,14 @@ export async function newestThreadForThesis(userId: string, thesisId: string): P
   return created;
 }
 
-/** Stamp a thread as active. Called after every message insert so the list order
- *  and the date grouping stay honest. */
+/**
+ * Stamp a thread as active, so list order and date grouping stay honest.
+ *
+ * INTERNAL: takes a bare id and performs NO ownership check — it is only ever
+ * called immediately after a message insert on a thread the caller has already
+ * resolved through an owned path. Do not call it from a request handler with an
+ * id straight off the wire.
+ */
 export async function touchThread(threadId: string, at: Date = new Date()): Promise<void> {
   await db.update(chatThreads).set({ lastMessageAt: at, updatedAt: at }).where(eq(chatThreads.id, threadId));
 }
@@ -1229,22 +1243,29 @@ export async function touchThread(threadId: string, at: Date = new Date()): Prom
 export type MessageRow = typeof chatMessages.$inferSelect;
 
 /** History for one thread. Same three modes the thesis-keyed endpoint had:
- *  delta sync (`since`), a page (`limit`/`before`), or the lot. */
+ *  delta sync (`since`), a page (`limit`/`before`), or the lot.
+ *
+ *  Takes the ROW, not an id: holding a ThreadRow is itself the proof that the
+ *  caller passed an ownership check, since the only way to get one is through a
+ *  function that filters on userId. */
 export async function threadMessages(
-  threadId: string,
+  thread: ThreadRow,
   opts: { since?: Date | null; before?: Date | null; limit?: number | null } = {},
 ): Promise<MessageRow[]> {
   if (opts.since) {
     return db
       .select()
       .from(chatMessages)
-      .where(and(eq(chatMessages.threadId, threadId), gt(chatMessages.createdAt, opts.since)))
+      .where(and(eq(chatMessages.threadId, thread.id), gt(chatMessages.createdAt, opts.since)))
       .orderBy(asc(chatMessages.createdAt));
   }
-  if (opts.limit) {
+  // `limit != null && > 0` rather than a truthiness check: `limit: 0` is falsy,
+  // and falling through would answer a request for zero rows with the entire
+  // history.
+  if (opts.limit != null && opts.limit > 0) {
     const where = opts.before
-      ? and(eq(chatMessages.threadId, threadId), lt(chatMessages.createdAt, opts.before))
-      : eq(chatMessages.threadId, threadId);
+      ? and(eq(chatMessages.threadId, thread.id), lt(chatMessages.createdAt, opts.before))
+      : eq(chatMessages.threadId, thread.id);
     const rows = await db
       .select()
       .from(chatMessages)
@@ -1256,7 +1277,7 @@ export async function threadMessages(
   return db
     .select()
     .from(chatMessages)
-    .where(eq(chatMessages.threadId, threadId))
+    .where(eq(chatMessages.threadId, thread.id))
     .orderBy(asc(chatMessages.createdAt));
 }
 
@@ -1296,10 +1317,10 @@ export class ThreadAccessError extends Error {}
 /** Used by the thread delete path and by the shim's "clear chat". Removes the
  *  summary explicitly rather than relying on the cascade, so the same helper
  *  works for clearing a thread the student is keeping. */
-export async function clearThreadMessages(threadId: string): Promise<void> {
-  await db.delete(chatMessages).where(eq(chatMessages.threadId, threadId));
-  await db.delete(chatSummaries).where(eq(chatSummaries.threadId, threadId));
-  await db.update(chatThreads).set({ lastMessageAt: null, updatedAt: new Date() }).where(eq(chatThreads.id, threadId));
+export async function clearThreadMessages(thread: ThreadRow): Promise<void> {
+  await db.delete(chatMessages).where(eq(chatMessages.threadId, thread.id));
+  await db.delete(chatSummaries).where(eq(chatSummaries.threadId, thread.id));
+  await db.update(chatThreads).set({ lastMessageAt: null, updatedAt: new Date() }).where(eq(chatThreads.id, thread.id));
 }
 ```
 
@@ -1397,7 +1418,7 @@ chatThreadRoutes.get("/:id/messages", async (c) => {
   const limitRaw = c.req.query("limit");
   // Clamp so a bad client can't ask for an unbounded page.
   const limit = limitRaw ? Math.min(Math.max(parseInt(limitRaw, 10) || 0, 1), 200) : null;
-  return c.json(await threadMessages(thread.id, {
+  return c.json(await threadMessages(thread, {
     since: parseDate(c.req.query("since")),
     before: parseDate(c.req.query("before")),
     limit,
@@ -1513,7 +1534,7 @@ async function main() {
     threadId: thread.id, thesisId: null, role: "user", content, searchText: buildSearchText(content),
   });
 
-  const msgs = await threadMessages(thread.id);
+  const msgs = await threadMessages(thread);
   check("the message is readable through the thread", msgs.length === 1);
   check("search_text has no image URL in it", !(msgs[0]?.searchText ?? "").includes("https://"));
 
@@ -1522,7 +1543,7 @@ async function main() {
 
   check("B CANNOT delete A's thread", (await deleteThread(userB, thread.id)) === false);
   check("A can delete their own thread", (await deleteThread(userA, thread.id)) === true);
-  check("deleting the thread cascaded its messages away", (await threadMessages(thread.id)).length === 0);
+  check("deleting the thread cascaded its messages away", (await threadMessages(thread)).length === 0);
 
   console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
@@ -1996,7 +2017,7 @@ chatRoutes.get("/:thesisId", async (c) => {
 
   try {
     const thread = await newestThreadForThesis(userId, thesisId);
-    return c.json(await threadMessages(thread.id, {
+    return c.json(await threadMessages(thread, {
       since: parseDate(c.req.query("since")),
       before: parseDate(c.req.query("before")),
       limit,
@@ -2022,7 +2043,7 @@ chatRoutes.delete("/:thesisId", async (c) => {
   const userId = c.get("userId");
   try {
     const thread = await newestThreadForThesis(userId, c.req.param("thesisId"));
-    await clearThreadMessages(thread.id);
+    await clearThreadMessages(thread);
     return c.json({ success: true });
   } catch (e) {
     if (e instanceof ThreadAccessError) return c.json({ error: "Not found" }, 404);
