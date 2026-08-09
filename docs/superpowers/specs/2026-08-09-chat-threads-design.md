@@ -334,6 +334,33 @@ silently drops keys.
 **App** — there is no JS test runner. The gate is `npx tsc --noEmit` plus running
 it, per the project's standing rule.
 
+## 7b. Known gap plan 2 MUST close first
+
+Final review of the server foundation found one real gap that is **dormant today
+and becomes a bug the moment plan 2 ships**. Plan 2 has to fix it before it lets
+the app create a second thread on one thesis.
+
+`pending_tool_actions` and `ai_tool_log` have no `thread_id` — both are keyed by
+`thesis_id` alone, and predate threads. Three consequences, all invisible while
+each thesis has exactly one thread:
+
+- `/confirm-action` and `/cancel-action` resolve where to stream their reply via
+  `newestThreadForThesis`, not the thread the action was proposed in. A student
+  approving a pending edit in thread A can have the confirmation land in thread B.
+- `resumeTrace`'s trajectory and `maybeSummarize`'s tool-action grounding read
+  every tool call for the thesis, so one thread's context absorbs another's work.
+- `POST /api/chat/suggestions` grounds its composer chips on
+  `chatMessages.thesisId`, so chips can be generated from an unrelated conversation.
+
+The fix is additive and small: add `thread_id` to `pending_tool_actions` (set it
+when parking the action, read it on confirm/cancel), and thread it through the
+tool-log queries and the suggestions grounding.
+
+This is recorded rather than fixed here because plans 1–4 never produce a second
+thread per thesis — the app is what creates one — so fixing it now would be
+untestable, and shipping plan 2 without fixing it would silently undermine the
+thread isolation this whole feature exists to provide.
+
 ## 8. Build order
 
 Each slice deploys on its own, behind the compat shim.
