@@ -12,6 +12,7 @@
 
 import * as React from "react";
 import { diffWords, type DiffSegment } from "@/lib/word-diff";
+import { isOrnamentBlock } from "@/lib/doc-ornament";
 import { estimateTokenCount, formatElapsed } from "@/lib/thinking";
 // Web-only: this file is imported exclusively by the 'use dom' editor (see header).
 import { typesetMathML } from "@/lib/mathjax-web";
@@ -204,6 +205,15 @@ function figureStyle(block: Extract<DocBlockDTO, { kind: "image" }>): React.CSSP
 // URL (large), else a placeholder (a drawing with no resolvable image).
 function Figure({ block }: { block: Extract<DocBlockDTO, { kind: "image" }> }) {
   const media = React.useContext(MediaContext);
+  // A native Word chart: vector source, no bytes. Carried through an <img> data URI
+  // rather than inlined into the editor DOM, so the chart's own markup can never
+  // collide with the contentEditable tree (and figureStyle still sizes it).
+  if (block.svg)
+    return React.createElement("img", {
+      src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(block.svg)}`,
+      style: figureStyle(block),
+      alt: block.caption ?? "chart",
+    });
   if (block.dataUri) return React.createElement("img", { src: block.dataUri, style: figureStyle(block), alt: block.caption ?? "" });
   if (block.hasMedia && media.base && media.token) {
     const url = `${media.base}/api/thesis/${media.thesisId}/document/media/${block.index}?token=${encodeURIComponent(media.token)}&v=${encodeURIComponent(String(media.version))}`;
@@ -971,7 +981,11 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
   }
   createDOM(): HTMLElement {
     const el = document.createElement("div");
-    el.style.cssText = "margin:8px 0;";
+    // A page-ornament frame is page decoration Word paints BEHIND the page, so it
+    // renders nothing here — but it keeps a real (zero-height, in-flow) element:
+    // `display:none` would report an all-zero rect and break the top→bottom
+    // monotonicity `lxFirstVisible`'s binary search relies on for scroll restore.
+    el.style.cssText = isOrnamentBlock(this.__block) ? "margin:0;height:0;overflow:hidden;" : "margin:8px 0;";
     // Atomic island: the block is not rich-text-editable, so Lexical won't try to
     // manage a caret inside it. Form controls (the table cell <input>) inside a
     // contenteditable=false region stay interactive and keep their own focus, so
@@ -994,6 +1008,11 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
   decorate(editor: LexicalEditor): React.ReactNode {
     const b = this.__block;
     const key = this.getKey();
+    // Page ornament: draw nothing and stay untappable. The node itself REMAINS in
+    // the tree so `$lexicalToBlocks` still emits it — serializing without it would
+    // read as "the student deleted this block" and the write-back diff would strip
+    // the ornament out of the .docx.
+    if (isOrnamentBlock(b)) return null;
     let content: React.ReactNode;
     if (b.kind === "table") {
       // Word-styled + in-place editable table (alignment / header / per-cell fills
@@ -1218,6 +1237,10 @@ export type SugData = {
   imageDataUri?: string;
   imageWidth?: number;
   imageHeight?: number;
+  // action "setChart": the PROPOSED chart as SVG source, with the chart it replaces
+  // as the peek. Approve applies the patch the preview was rendered from.
+  chartSvg?: string;
+  chartOriginalSvg?: string;
   // A specific reason the ask couldn't be met, shown instead of the generic error line.
   errorText?: string;
 };
@@ -1318,6 +1341,26 @@ function renderImagePreview(sug: SugData): React.ReactNode {
       ? { ...FIGURE_STYLE, width: `${sug.imageWidth}px`, aspectRatio: `${sug.imageWidth} / ${sug.imageHeight}`, objectFit: "contain" }
       : FIGURE_STYLE;
   return React.createElement("div", { className: "lx-sug-proposed" }, React.createElement("img", { src: sug.imageDataUri, style, alt: "" }));
+}
+
+/**
+ * A chart proposal: the PROPOSED chart, with the current one revealed on peek so
+ * the student can see what changes. Both are SVG source produced server-side and
+ * carried as an <img> data URI, so the chart's markup can never collide with the
+ * contentEditable tree (same reason Figure does it).
+ */
+function renderChartPreview(sug: SugData, peek: boolean): React.ReactNode {
+  const svg = peek && sug.chartOriginalSvg ? sug.chartOriginalSvg : sug.chartSvg;
+  if (!svg) return React.createElement("div", { style: PLACEHOLDER }, "\u{1F4CA} chart");
+  return React.createElement(
+    "div",
+    { className: "lx-sug-proposed" },
+    React.createElement("img", {
+      src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+      style: FIGURE_STYLE,
+      alt: "",
+    }),
+  );
 }
 
 function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }) {
@@ -1431,6 +1474,40 @@ function SuggestionView({ sug, editor }: { sug: SugData; editor: LexicalEditor }
       chip,
       trace,
       renderImagePreview(sug),
+      pill([
+        pillBtn("approve", { primary: true, icon: ICON_CHECK, label: "Approve", onClick: doApprove }),
+        pillBtn("again", { icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
+        pillBtn("reject", { danger: true, icon: ICON_X, label: "Reject", onClick: doReject }),
+      ]),
+    );
+  }
+
+  // ---- ready: CHART proposal (an edit to a native Word chart) ----
+  // The proposed chart replaces the current one in place; holding the teaser peeks
+  // at the chart being replaced. No Edit — the change is a structured patch, not
+  // text. Approve applies exactly the patch this preview was rendered from.
+  if (sug.action === "setChart" && sug.chartSvg) {
+    return React.createElement(
+      "div",
+      { className: rootCls },
+      chip,
+      trace,
+      renderChartPreview(sug, peek),
+      sug.proposed.trim()
+        ? React.createElement("div", { className: "lx-sug-teaser-txt", dir: "auto" }, sug.proposed)
+        : null,
+      sug.chartOriginalSvg
+        ? React.createElement(
+            "div",
+            { className: "lx-sug-teaser", role: "button", onClick: () => setPeek((v) => !v) },
+            React.createElement(
+              "div",
+              { className: "lx-sug-teaser-txt" },
+              // Same literal-string convention as the rest of this card's chrome.
+              peek ? "Showing the current chart — tap to see the proposal" : "Tap to see the current chart",
+            ),
+          )
+        : null,
       pill([
         pillBtn("approve", { primary: true, icon: ICON_CHECK, label: "Approve", onClick: doApprove }),
         pillBtn("again", { icon: ICON_AGAIN, label: "Again", onClick: () => editor.dispatchCommand(SUGGEST_AGAIN_COMMAND, undefined) }),
@@ -1994,6 +2071,13 @@ export function $lexicalToBlocks(): DocBlockDTO[] {
   const out: DocBlockDTO[] = [];
   for (const node of $getRoot().getChildren()) {
     if ($isChromeNode(node)) continue; // display-only chrome — never serializes to a block
+    if ($isSuggestionNode(node) && node.__sug.action === "setChart") {
+      // A CHART proposal is a sidecar: it was inserted BESIDE the chart, which is
+      // still in the tree and serializes itself. Emitting a block here would insert
+      // a phantom paragraph — and emitting it as `original` ("" for a chart) is
+      // exactly how the write-back diff would delete the chart.
+      continue;
+    }
     if ($isSuggestionNode(node)) {
       // A pending proposal occupies its block's slot — serialize the ORIGINAL block
       // (unapplied) so a flush while it's showing never drops or mutates the block.
@@ -2054,8 +2138,14 @@ export function $blockEntries(): BlockEntry[] {
     if ($isChromeNode(node)) continue;           // display-only, not draggable
     if ($isSuggestionNode(node) || $isRangeSuggestionNode(node)) {
       // reorder is suppressed while a proposal shows; still advance the index so a
-      // stray call stays consistent with $lexicalToBlocks.
-      idx += $isRangeSuggestionNode(node) ? node.__originals.length : 1;
+      // stray call stays consistent with $lexicalToBlocks — except a CHART card,
+      // which is a sidecar beside its (still-present) chart and owns no slot there.
+      const slots = $isRangeSuggestionNode(node)
+        ? node.__originals.length
+        : node.__sug.action === "setChart"
+          ? 0
+          : 1;
+      idx += slots;
       continue;
     }
     if ($isListNode(node)) {

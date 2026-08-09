@@ -22,6 +22,7 @@ import { useOutlineStore } from "@/stores/outline-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { thesisBlockImageUrl, type OutlineNodeDTO, type DocBlockDTO } from "@/lib/api";
 import { normalize } from "@/lib/text-normalize";
+import { isFigureBlock } from "@/lib/doc-ornament";
 
 // Whether any heading title contains Arabic/Hebrew letters → render right-to-left.
 // thesis.language is unreliable for imports, so detect direction from the content.
@@ -414,7 +415,9 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
     const out: FigureItem[] = [];
     let n = 0;
     for (const b of blocks) {
-      if (b.kind === "image") {
+      // Page ornaments are decoration, not figures — listing one would show a
+      // full-page frame as "Figure 1" and shift every real figure's number.
+      if (isFigureBlock(b)) {
         n += 1;
         out.push({ index: b.index, n, caption: (b.caption ?? "").trim(), block: b });
       }

@@ -1,8 +1,10 @@
 import { useChatStore } from "@/stores/chat-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useOutlineStore } from "@/stores/outline-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { chatSend, chatSendStream, chatConfirmAction, chatCancelAction, getChatHistory, getChatHistoryPage } from "./api";
 import { getLatestMessages, getOlderMessages, upsertMessages, deletePending, deleteStalePending, getLastSyncedAt, setLastSyncedAt } from "./chat-cache";
+import { IMG_FRAME_OPEN, splitImageFrames, restageImage, toAttachment, toChatImage, type StagedImage } from "./chat-images";
 import i18n from "./i18n";
 import type { ChatMessage } from "@/types/chat";
 
@@ -30,6 +32,25 @@ function mapServerMessages(rows: any[], thesisId: string): ChatMessage[] {
 // server build. Localised so it doesn't land in English inside an Arabic chat.
 // `docChanged` keeps it honest: when the turn's tools already edited the .docx,
 // it must not say nothing happened, or the student re-runs an edit that landed.
+/**
+ * Re-sync the Thesis Structure outline after a turn that touched the .docx.
+ *
+ * The outline lives in its OWN cached store, so an AI turn that adds headings —
+ * a table of contents promoting plain titles, set_heading, a new chapter — left
+ * the navigator showing the pre-turn structure. thesis-workspace.tsx already
+ * syncs on the isGenerating edge, but only while THAT screen is mounted: the
+ * student reading the drawer from the chat screen saw "2 sections, 0 chapters"
+ * next to an assistant claiming it had just built the whole hierarchy.
+ *
+ * Here it is tied to the TURN instead of to a screen, so it holds wherever the
+ * student happens to be. Fire-and-forget: a failed refresh keeps the last good
+ * copy (see outline-store.sync) and must never delay ending the turn.
+ */
+function syncOutlineAfterTurn(thesisId: string, docChanged: boolean): void {
+  if (!docChanged) return;
+  void useOutlineStore.getState().sync(thesisId);
+}
+
 function emptyTurnNote(docChanged: boolean): string {
   return docChanged
     ? i18n.t("chat.noResponseDocChanged", {
@@ -131,13 +152,21 @@ function createStreamPump(thesisId: string, live: () => boolean): StreamPump {
 export async function sendMessageToAI(
   thesisId: string,
   userMessage: string,
-  opts?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[] }
+  opts?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; images?: StagedImage[] }
 ): Promise<void> {
   // Add user message immediately (optimistic). Marked pending until reconciled.
   // addMessage returns the EXISTING id when this repeats a just-sent message, so
   // a student tapping send on an apparently-frozen turn doesn't stack bubbles.
   const store = useChatStore.getState();
-  const userId = store.addMessage(thesisId, "user", userMessage, { chapterId: opts?.chapterId, pending: true });
+  // The optimistic row keeps only the LOCAL file reference, never the bytes: the
+  // thumbnail renders from it straight away, and the base64 (megabytes of string)
+  // would otherwise sit in the store for the life of the session. The server row
+  // that replaces it carries the stored URL in a [[MODK_IMG]] frame.
+  const userId = store.addMessage(thesisId, "user", userMessage, {
+    chapterId: opts?.chapterId,
+    pending: true,
+    images: opts?.images?.map(toChatImage),
+  });
   // A retry of a failed send starts clean: clear the marker, and let the turn
   // below set it again if this attempt fails too.
   store.setMessageFailed(thesisId, userId, false);
@@ -158,10 +187,18 @@ export async function retryFailedMessage(thesisId: string, messageId: string): P
   const msg = store.getMessages(thesisId).find((m) => m.id === messageId);
   if (!msg || msg.role !== "user") return;
   store.setMessageFailed(thesisId, messageId, false);
-  await runAssistantTurn(thesisId, msg.content, {
+  // A failed send never reached storage, so its images have to go up again — the
+  // bytes are re-read from the local files the staged copies left behind. One the
+  // OS has already reclaimed simply drops out: answering the question without a
+  // picture beats refusing to retry at all.
+  const images = (await Promise.all((msg.images ?? []).map(restageImage))).filter(
+    (i): i is StagedImage => i !== null,
+  );
+  await runAssistantTurn(thesisId, displayText(msg), {
     chapterId: msg.chapterId,
     sectionId: msg.sectionId,
     userMessageId: messageId,
+    images,
   });
 }
 
@@ -186,8 +223,18 @@ export async function regenerateLastResponse(thesisId: string): Promise<void> {
   // new one streams into a fresh bubble.
   store.setMessages(thesisId, msgs.slice(0, i + 1));
   // `regenerate` tells the server this question is already in its history: don't
-  // save it twice, and drop the reply being replaced.
-  await runAssistantTurn(thesisId, userMsg.content, { chapterId: userMsg.chapterId, sectionId: userMsg.sectionId, regenerate: true });
+  // save it twice, and drop the reply being replaced. It sends the PROSE only —
+  // the stored row already holds the image frames, so the re-run sees the same
+  // pictures without re-uploading them, and the server's "is this the same
+  // question?" check compares against frame-stripped content.
+  await runAssistantTurn(thesisId, displayText(userMsg), { chapterId: userMsg.chapterId, sectionId: userMsg.sectionId, regenerate: true });
+}
+
+// What the student actually typed. A synced user row carries its attached images
+// as [[MODK_IMG]] frames inside `content`; those are payload, and re-sending them
+// as if they were the question is how a frame ends up quoted back at them.
+function displayText(m: ChatMessage): string {
+  return m.content.includes(IMG_FRAME_OPEN) ? splitImageFrames(m.content).text : m.content;
 }
 
 // Streams one assistant turn for an already-present user message: opens the
@@ -200,6 +247,9 @@ async function runAssistantTurn(
   opts?: {
     chapterId?: string; sectionId?: string; selection?: string;
     docBlockIndex?: number | null; docBlockIndices?: number[]; regenerate?: boolean;
+    /** Images to upload with this turn. Empty on a regenerate — those are already
+     *  stored on the message the server is re-answering. */
+    images?: StagedImage[];
     /** The user row this turn answers. Marked failed if the turn never lands, so
      *  the student sees an undelivered message as undelivered. */
     userMessageId?: string;
@@ -333,7 +383,7 @@ async function runAssistantTurn(
           useChatStore.getState().pushToolTrace(tool);
         },
       },
-      { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, signal: controller.signal }
+      { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, attachments: opts?.images?.map(toAttachment), signal: controller.signal }
     );
 
     // Everything still queued belongs to this turn — land it before the checks
@@ -365,7 +415,7 @@ async function runAssistantTurn(
     if (!assistantId && (error?.status === 404 || error?.status === 405)) {
       try {
         store.setGeneratingPhase("thinking");
-        const result = await chatSend(thesisId, userMessage, { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate });
+        const result = await chatSend(thesisId, userMessage, { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, attachments: opts?.images?.map(toAttachment) });
         // The buffered endpoint takes no signal, so Stop can't cut it short —
         // it can only be ignored. Drop the whole reply rather than dumping it
         // into a chat the student already walked away from.
@@ -375,7 +425,10 @@ async function runAssistantTurn(
         result.files?.forEach((f) => store.addFileToMessage(thesisId, id, f));
         if (result.ask) store.setPendingAsk(result.ask);
         if (result.confirmAction) store.setPendingConfirm(result.confirmAction);
-        if (result.docChanges) store.setDocChanges(thesisId, result.docChanges);
+        // Mark the turn as having edited the .docx, exactly as the streaming
+        // path's onDocChanges does — the outer finally reads this to decide
+        // whether the outline needs re-syncing.
+        if (result.docChanges) { docChanged = true; store.setDocChanges(thesisId, result.docChanges); }
         return;
       } catch (fallbackError: any) {
         error = fallbackError;
@@ -405,6 +458,9 @@ async function runAssistantTurn(
     // Ownership-checked: a turn the user stopped may only unwind here long after
     // the next one started, and must not idle THAT one's chat.
     store.endTurn(turnId);
+    // The turn's tools may have added or promoted headings — refresh the outline
+    // wherever the student is, not only in the workspace screen.
+    syncOutlineAfterTurn(thesisId, docChanged);
     // Persist the new turn to the device so it survives restarts and shows
     // instantly next time. Server-id reconciliation happens on the next open.
     await persistCache(thesisId);
@@ -617,6 +673,10 @@ async function runActionContinuation(
     const s = useChatStore.getState();
     if (assistantId) s.markThinkingEnded(thesisId, assistantId);
     s.endTurn(turnId);
+    // An approved destructive action (deleting a hand-typed table of contents,
+    // say) runs in THIS continuation, not the original turn — so the outline has
+    // to be re-synced here too.
+    syncOutlineAfterTurn(thesisId, docChanged);
     await persistCache(thesisId);
   }
 }

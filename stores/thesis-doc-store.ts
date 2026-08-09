@@ -192,6 +192,12 @@ interface ThesisDocState {
   // are pending (positional-index correctness). Used by the table bubble tools and
   // in-cell editing.
   applyTableOpSilent: (thesisId: string, op: ThesisOp) => Promise<void>;
+  // Swap ONE native chart block's rendered SVG locally, so approving a chart
+  // proposal repaints INSTANTLY instead of after the round trip. Not a guess: the
+  // SVG is the one the server already rendered for that proposal's preview, from
+  // the same patch the approve is about to send — so the echo brings back the same
+  // bytes. POSITIONAL-SAFE, so no index can shift under the selection.
+  applyChartSvgLocal: (thesisId: string, index: number, svg: string) => void;
   setHistoryState: (thesisId: string, h: { canUndo: boolean; canRedo: boolean }) => void;
   refreshHistoryState: (thesisId: string) => Promise<void>;
   // Replace the doc after a server-side restore (undo/redo/history sheet): full
@@ -535,6 +541,19 @@ export const useThesisDocStore = create<ThesisDocState>((set, get) => {
       } catch {
         void get().revalidate(thesisId);
       }
+    },
+
+    applyChartSvgLocal: (thesisId, index, svg) => {
+      const cur = get().byId[thesisId];
+      if (!cur?.available) return;
+      const block = cur.blocks[index];
+      // A chart is an image block carrying `svg`; anything else means the document
+      // moved under us (a reindex mid-approve) — paint nothing rather than the
+      // wrong block, and let the server echo be the truth.
+      if (!block || block.kind !== "image" || !block.svg) return;
+      const blocks = cur.blocks.slice();
+      blocks[index] = { ...block, svg };
+      get().setDoc(thesisId, { ...cur, blocks });
     },
 
     applyRestoredDoc: (thesisId, doc, h) => {

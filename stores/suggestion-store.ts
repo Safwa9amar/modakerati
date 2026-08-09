@@ -7,7 +7,15 @@ import {
   parseFillReply,
   type SuggestAction,
 } from "@/lib/thesis-suggest";
-import { chromeOp, generateChromeModel, fetchThesisSourceImage, type HfPreview } from "@/lib/api";
+import {
+  chromeOp,
+  generateChromeModel,
+  fetchThesisSourceImage,
+  suggestThesisChart,
+  updateThesisChart,
+  type HfPreview,
+  type ThesisChartPatch,
+} from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { type ThesisOp } from "@/lib/thesis-ops";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
@@ -15,7 +23,7 @@ import i18n from "@/lib/i18n";
 
 // The block kind the caller asks a suggestion for — decides the initial action
 // (image → caption, else rewrite); the server's [[MODK_ACTION]] header confirms it.
-type SuggestKind = "paragraph" | "image";
+type SuggestKind = "paragraph" | "image" | "chart";
 
 // Localised label shown at the top of the inline card so the student sees WHAT the
 // approval will do ("Rewrite" vs "Add caption").
@@ -23,6 +31,7 @@ function actionLabel(action: SuggestAction): string {
   if (action === "setCaption") return i18n.t("suggestion.actionCaption", { defaultValue: "Add caption" });
   if (action === "insertTable") return i18n.t("suggestion.actionInsertTable", { defaultValue: "Insert table" });
   if (action === "insertSourceImage") return i18n.t("suggestion.actionInsertImage", { defaultValue: "Insert image" });
+  if (action === "setChart") return i18n.t("suggestion.actionEditChart", { defaultValue: "Edit chart" });
   return i18n.t("suggestion.actionRewrite", { defaultValue: "Rewrite" });
 }
 
@@ -71,6 +80,18 @@ export interface PendingSuggestion {
     height?: number;
     /** Self-contained preview URI for the card (same bytes as `data`). */
     dataUri: string;
+  };
+  // action "setChart": a NATIVE Word chart edit. `patch` is the exact change the
+  // server rendered `svg` from, so approving applies precisely what was previewed;
+  // `svg` is the PROPOSED chart (the current one keeps rendering underneath as the
+  // peek). Applied through the chart endpoint, not the op queue — a chart edit is
+  // POSITIONAL-SAFE and its result is server-rendered, so there is nothing to
+  // reconcile optimistically.
+  chart?: {
+    patch: ThesisChartPatch;
+    svg: string;
+    /** The chart's own SVG before the change — the "peek at the original" side. */
+    originalSvg?: string;
   };
   // A ready-but-unfulfillable ask (the model's kind "none", e.g. "no image in your
   // attached files matches that"): shown on the error card INSTEAD of the generic
@@ -151,6 +172,10 @@ interface SuggestionState {
   // this produces EITHER a text proposal (action "rewrite") or a table proposal
   // (action "insertTable", carrying proposedRows). Shown in the same inline card.
   requestFill: (thesisId: string, index: number, instruction: string) => Promise<void>;
+  // Propose an edit to the NATIVE Word chart at `index`. The server renders the
+  // preview from a COPY of the chart part, so the document is untouched until
+  // approve. Produces action "setChart".
+  requestChart: (thesisId: string, index: number, instruction: string) => Promise<void>;
   // Apply a ready suggestion via the doc op queue, dispatching by action
   // (rewrite → editText, setCaption → setCaption), then drop it.
   approve: (thesisId: string, index: number) => void;
@@ -210,6 +235,9 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
   justApplied: null,
 
   request: async (thesisId, index, original, instruction, kind = "paragraph") => {
+    // A chart has its own proposal flow (a JSON patch + a rendered preview), not a
+    // text rewrite — hand off rather than ask the paragraph endpoint for prose.
+    if (kind === "chart") return get().requestChart(thesisId, index, instruction);
     const initialAction: SuggestAction = kind === "image" ? "setCaption" : "rewrite";
     set((s) => ({
       byIndex: {
@@ -379,6 +407,62 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
     }
   },
 
+  requestChart: async (thesisId, index, instruction) => {
+    // The chart currently on the block — kept so the card can peek at the original
+    // and so a reject leaves nothing behind.
+    const doc = useThesisDocStore.getState().byId[thesisId];
+    const block = doc?.available ? doc.blocks[index] : undefined;
+    const originalSvg = block?.kind === "image" ? block.svg : undefined;
+    set((s) => ({
+      byIndex: {
+        ...s.byIndex,
+        [index]: {
+          index, original: "", instruction, proposed: "", status: "loading", reasoning: "",
+          action: "setChart", label: actionLabel("setChart"),
+        },
+      },
+    }));
+    try {
+      const res = await suggestThesisChart(thesisId, index, instruction);
+      set((s) => {
+        const cur = s.byIndex[index];
+        if (!cur) return s; // rejected while in flight
+        // Nothing to change is a RESULT, not a failure: show the model's reason on
+        // the error card instead of a proposal identical to what is already there.
+        if (res.nothingToDo || !res.patch || !res.svg) {
+          return {
+            byIndex: {
+              ...s.byIndex,
+              [index]: {
+                ...cur,
+                status: "error",
+                errorText: res.summary || i18n.t("suggestion.chartNoChange", { defaultValue: "Nothing to change on this chart." }),
+              },
+            },
+          };
+        }
+        return {
+          byIndex: {
+            ...s.byIndex,
+            [index]: {
+              ...cur,
+              status: "ready",
+              proposed: res.summary ?? "",
+              chart: { patch: res.patch, svg: res.svg, ...(originalSvg ? { originalSvg } : null) },
+            },
+          },
+        };
+      });
+    } catch (e: any) {
+      set((s) => {
+        const cur = s.byIndex[index];
+        return cur
+          ? { byIndex: { ...s.byIndex, [index]: { ...cur, status: "error", errorText: e?.message } } }
+          : s;
+      });
+    }
+  },
+
   approve: (thesisId, index) => {
     const cur = get().byIndex[index];
     if (!cur || cur.status !== "ready") return;
@@ -388,6 +472,31 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
     // student's source, `afterIndex` = the block before so it lands ON this line and
     // the empty paragraph stays as the trailing spacer). All flow through the durable
     // op queue so they flush / reconcile like any other manual edit.
+    // A chart edit is not an op: it is POSITIONAL-SAFE and its result is rendered
+    // server-side, so it applies through the chart endpoint and the echoed document
+    // is the truth. The patch applied is the one the preview was rendered from.
+    if (cur.action === "setChart" && cur.chart) {
+      const { patch, svg } = cur.chart;
+      // LOCAL-FIRST, like every other edit here: paint the approved chart NOW from
+      // the SVG the preview was rendered from, then send. Waiting for the round trip
+      // left the OLD chart on screen for the whole request, which read as a failed
+      // approve. There is nothing to guess — the server re-renders the same patch
+      // with the same renderer, so the echo reconciles to identical bytes.
+      useThesisDocStore.getState().applyChartSvgLocal(thesisId, index, svg);
+      set((s) => ({ byIndex: without(s.byIndex, index), justApplied: index }));
+      void (async () => {
+        try {
+          const res = await updateThesisChart(thesisId, index, patch);
+          if (res.document) useThesisDocStore.getState().setDoc(thesisId, res.document);
+          else await useThesisDocStore.getState().revalidate(thesisId);
+        } catch {
+          // The document never changed server-side, so the optimistic paint is now a
+          // lie — revalidate puts the real chart back rather than leaving it.
+          void useThesisDocStore.getState().revalidate(thesisId);
+        }
+      })();
+      return;
+    }
     let op: ThesisOp;
     if (cur.action === "setCaption") op = { type: "setCaption", index, caption: cur.proposed } as const;
     else if (cur.action === "insertTable" && cur.proposedRows?.length)
@@ -416,6 +525,10 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
     // image; else rewrite.
     if (cur.action === "insertTable" || cur.action === "insertSourceImage" || !cur.original.trim()) {
       await get().requestFill(thesisId, index, cur.instruction);
+      return;
+    }
+    if (cur.action === "setChart") {
+      await get().requestChart(thesisId, index, cur.instruction);
       return;
     }
     const kind: SuggestKind = cur.action === "setCaption" ? "image" : "paragraph";

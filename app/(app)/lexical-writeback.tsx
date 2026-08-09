@@ -43,7 +43,7 @@ const uiAlign = (a: ParagraphDTO["alignment"]) => (a === "both" ? "justify" : a 
 function tsig(b: DocBlockDTO): string {
   if (b.kind === "paragraph") return "p|" + b.text;
   if (b.kind === "table") return "t|" + JSON.stringify(b.rows);
-  if (b.kind === "image") return "i|" + (b.dataUri ?? "") + "|" + (b.caption ?? "") + "|" + (b.hasMedia ? 1 : 0);
+  if (b.kind === "image") return "i|" + (b.dataUri ?? "") + "|" + (b.caption ?? "") + "|" + (b.hasMedia ? 1 : 0) + "|" + (b.ornament ? 1 : 0);
   if (b.kind === "textbox") return "x|" + b.text + "|" + b.lines.map((l) => l.text).join("");
   return "o|" + b.tag;
 }

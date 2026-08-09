@@ -14,6 +14,7 @@ export type ToolbarKind = BubbleKind;
 export type ToolbarCategory =
   | "style" | "align" | "direction" | "list" | "color"
   | "tblRows" | "tblCols" | "tblLayout" | "tblShade" | "tblBorders"
+  | "chartType" | "chartLegend" | "chartLabels" | "chartColor"
   | "hfLink";
 
 export type BorderStyleKey = "single" | "double" | "dashed" | "dotted" | "thick";
@@ -54,6 +55,11 @@ export function ownsCategory(kind: ToolbarKind, category: ToolbarCategory): bool
     case "tblShade":
     case "tblBorders":
       return kind === "table";
+    case "chartType":
+    case "chartLegend":
+    case "chartLabels":
+    case "chartColor":
+      return kind === "chart";
     case "hfLink":
       return kind === "hfSection";
   }

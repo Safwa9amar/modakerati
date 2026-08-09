@@ -134,7 +134,9 @@ export default function CombineArrangeScreen() {
   const readDone = useCombineStore((s) => s.readDone);
   const readTotal = useCombineStore((s) => s.readTotal);
   const totalBytes = useCombineStore((s) => s.totalBytes);
+  const uploadProgress = useCombineStore((s) => s.uploadProgress);
   const classifiedBy = useCombineStore((s) => s.classifiedBy);
+  const classifyReason = useCombineStore((s) => s.classifyReason);
   const fullSetup = useCombineStore((s) => s.fullSetup);
   const errorMessage = useCombineStore((s) => s.errorMessage);
   const normProfiles = useThesisStore((s) => s.normProfiles);
@@ -158,6 +160,9 @@ export default function CombineArrangeScreen() {
   // Classification failed before any part landed — the arrange list would be an
   // empty page with a Combine button, so say what happened instead.
   const failedEmpty = status === "error" && parts.length === 0;
+  // The model didn't produce the names. They decide the chapter headings, the
+  // divider pages and the running headers, so the flow waits here.
+  const aiFailed = !isBusy && !failedEmpty && classifiedBy === "heuristic" && parts.length > 0;
 
   // A job that writes a thesis server-side can't be taken back by leaving the
   // screen, so Android's hardware back is swallowed for as long as one runs.
@@ -193,6 +198,15 @@ export default function CombineArrangeScreen() {
   // The merge is ONE server call with no progress frames, so these rows describe
   // the work rather than claiming to tick through it (mode="list").
   const combineSteps: ProcessingStep[] = [
+    {
+      // Measured: the request's own progress events. Everything after it is the
+      // server working, which the client cannot see into.
+      key: "send",
+      label: t("combine.stepSend"),
+      status: uploadProgress >= 1 ? "done" : "active",
+      detail: uploadProgress > 0 && uploadProgress < 1 ? `${Math.round(uploadProgress * 100)}%` : undefined,
+      progress: uploadProgress > 0 ? uploadProgress : undefined,
+    },
     { key: "merge", label: t("combine.stepMerge"), status: "active" },
     // Only the full setup restyles and decorates; plain mode just joins.
     ...(fullSetup
@@ -304,7 +318,7 @@ export default function CombineArrangeScreen() {
                 .join(" · ")}
               steps={combineSteps}
               note={t("combine.keepOpen")}
-              liveness={status}
+              liveness={`${status}:${Math.round(uploadProgress * 100)}`}
             />
           ) : (
             <ProcessingSteps
@@ -320,6 +334,40 @@ export default function CombineArrangeScreen() {
               liveness={`${status}:${readDone}`}
             />
           )}
+        </ScrollView>
+      ) : aiFailed ? (
+        // The AI did not name these parts, and the names decide the chapter
+        // headings, the divider pages and the running headers. Stop here and let
+        // the student choose, rather than quietly shipping a guess.
+        <ScrollView contentContainerStyle={styles.busyContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.aiFailWrap}>
+            <View style={[styles.iconCircle, { backgroundColor: colors.bgSurface }]}>
+              <Sparkles size={26} color={colors.textSecondary} />
+            </View>
+            <Text style={[styles.errorTitle, { color: colors.textPrimary }]}>
+              {t("combine.aiFailedTitle")}
+            </Text>
+            <Text style={[styles.subtle, { color: colors.textSecondary, textAlign: "center" }]}>
+              {t(`combine.aiFailed_${classifyReason ?? "error"}`, {
+                defaultValue: t("combine.heuristicNotice"),
+              })}
+            </Text>
+
+            <Pressable
+              onPress={() => useCombineStore.getState().reclassify()}
+              style={[styles.retry, { backgroundColor: colors.brandPrimary }]}
+            >
+              <Text style={styles.ctaText}>{t("combine.tryAiAgain")}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => useCombineStore.getState().acceptHeuristicNames()}
+              style={styles.secondaryBtn}
+            >
+              <Text style={[styles.secondaryText, { color: colors.textSecondary }]}>
+                {t("combine.continueWithoutAi")}
+              </Text>
+            </Pressable>
+          </View>
         </ScrollView>
       ) : failedEmpty ? (
         <View style={styles.center}>
@@ -363,22 +411,6 @@ export default function CombineArrangeScreen() {
                 <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
                   {t("combine.arrangeSubtitle")}
                 </Text>
-                {/* The server couldn't reach the model and read the parts itself.
-                    Say so — the titles below are a guess from each file's own
-                    text, and the student is the one who can correct them. */}
-                {classifiedBy === "heuristic" && (
-                  <View
-                    style={[
-                      styles.notice,
-                      { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle },
-                    ]}
-                  >
-                    <Sparkles size={16} color={colors.textSecondary} />
-                    <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
-                      {t("combine.heuristicNotice")}
-                    </Text>
-                  </View>
-                )}
               </View>
             }
             ListFooterComponent={Footer}
@@ -404,6 +436,10 @@ const styles = StyleSheet.create({
   subtle: { fontSize: 14 },
   errorTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold", textAlign: "center" },
   retry: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 28, marginTop: 8 },
+  aiFailWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 32 },
+  iconCircle: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  secondaryBtn: { paddingVertical: 12, paddingHorizontal: 20 },
+  secondaryText: { fontSize: 14, fontFamily: "Inter_500Medium", textDecorationLine: "underline" },
   subtitle: { fontSize: 14, marginBottom: 16 },
   notice: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 16 },
   noticeText: { flex: 1, fontSize: 12, lineHeight: 17 },

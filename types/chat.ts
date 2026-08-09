@@ -27,6 +27,24 @@ export interface ChatMessage {
   // rendered as file cards. Carried live via the stream's [[MODK_FILE]] frame;
   // on history reload they're re-parsed from the frame embedded in `content`.
   files?: FilePayload[];
+  // Images the STUDENT attached to this message. Set optimistically at send time
+  // (pointing at the local file, so the thumbnail is there before the upload
+  // finishes); once the server row syncs back they are re-parsed from the
+  // [[MODK_IMG]] frames in `content` and point at the stored URL instead.
+  images?: ChatImage[];
+}
+
+// One image on a user message. Exactly one of `url` / `uri` is meaningful at a
+// time: `uri` while the send is still optimistic, `url` once it's stored.
+export interface ChatImage {
+  kind: "image";
+  /** Public URL of the stored object — present on anything the server has seen. */
+  url?: string;
+  /** Local file, used for the thumbnail before the upload lands and on retry. */
+  uri?: string;
+  mime: string;
+  width?: number;
+  height?: number;
 }
 
 // A downloadable file produced by the assistant (e.g. a thesis export). Sent by

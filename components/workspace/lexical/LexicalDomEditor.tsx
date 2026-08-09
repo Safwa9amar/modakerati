@@ -159,6 +159,10 @@ export type SuggestionInput = {
   // bytes via the insertImage op (they never enter the WebView). `hasImage` stays true
   // when the bytes were too big to send across the bridge for preview.
   hasImage?: boolean;
+  // action "setChart": the PROPOSED chart as SVG source, plus the chart it would
+  // replace (the card's peek). Both are a few KB of text across the bridge.
+  chartSvg?: string;
+  chartOriginalSvg?: string;
   imageDataUri?: string;
   imageWidth?: number;
   imageHeight?: number;
@@ -1461,6 +1465,15 @@ function SuggestionPlugin({
         if (existing) {
           const applied = lastActionRef.current === "approve";
           const sug = existing.__sug;
+          if (sug.action === "setChart") {
+            // A chart card never REPLACED its block — it sits beside the chart, which
+            // is still in the tree. So there is nothing to rebuild: drop the card and
+            // let the server echo repaint the chart with its new SVG.
+            existing.remove();
+            $setSelection(null);
+            lastActionRef.current = "";
+            return;
+          }
           if (applied && sug.action === "insertTable" && sug.proposedRows?.length) {
             // Settle a table proposal IN PLACE (instant, no full reseed): insert the
             // real table node BEFORE the node, then leave the original (empty) paragraph
@@ -1518,9 +1531,30 @@ function SuggestionPlugin({
         imageDataUri: suggestion.imageDataUri,
         imageWidth: suggestion.imageWidth,
         imageHeight: suggestion.imageHeight,
+        // action "setChart": without these the card has no preview to render and
+        // falls through to the plain-text branch, which shows an empty proposal.
+        chartSvg: suggestion.chartSvg,
+        chartOriginalSvg: suggestion.chartOriginalSvg,
         errorText: suggestion.errorText,
       };
       if (existing) { existing.getWritable().__sug = data; return; } // stream in place
+      if (suggestion.action === "setChart") {
+        // ⚠️ A chart is a structural BlockDataNode, so two things differ from a
+        // paragraph rewrite:
+        //   • $nodeAtBlockIndex only yields paragraph/heading/list-item nodes — it
+        //     returns null here, which is why the card never appeared at all.
+        //   • REPLACING it would be data loss: $lexicalToBlocks serializes a
+        //     SuggestionNode as a paragraph of `sug.original` (empty for a chart),
+        //     so a flush mid-review would delete the chart from the .docx.
+        // So the card goes in AFTER the chart and the chart node stays put — the
+        // same shape the native surface uses (figure visible, card beneath it).
+        const chartNode = $anyNodeAtBlockIndex(suggestion.index);
+        if (chartNode) {
+          $setSelection(null);
+          chartNode.insertAfter($createSuggestionNode(data, "paragraph"));
+        }
+        return;
+      }
       const target = $nodeAtBlockIndex(suggestion.index);
       if (target) {
         const origType = $isHeadingNode(target)

@@ -31,7 +31,12 @@ const SAMPLE_BLOCKS: DocBlockDTO[] = [
   } as unknown as DocBlockDTO,
   { index: 3, kind: "table", rows: [["Variable", "Value"], ["N", "120"]] },
   { index: 4, kind: "image", hasMedia: true, width: 640, height: 360, caption: "الشكل 1: توزيع البيانات" },
-  { index: 5, kind: "other", tag: "sdt" },
+  // A page-ornament frame: it DRAWS nothing in the editor (page decoration Word
+  // paints behind the page) but must still come back out of the serializer — a
+  // block that vanishes here is a block the write-back diff would delete from the
+  // .docx, taking the student's ornament with it.
+  { index: 5, kind: "image", hasMedia: true, ornament: true, width: 1512, height: 2143 },
+  { index: 6, kind: "other", tag: "sdt" },
 ];
 
 const CAP = 120; // don't push an entire 700-page thesis across the DOM bridge
@@ -56,7 +61,7 @@ function signature(b: DocBlockDTO): unknown {
     return { k: "paragraph", text: b.text, level: b.level, align: b.alignment, dir: b.direction ?? detectDir(b.text, false), marks: normMarks(runs) };
   }
   if (b.kind === "table") return { k: "table", rows: b.rows };
-  if (b.kind === "image") return { k: "image", dataUri: b.dataUri ?? null, hasMedia: !!b.hasMedia, width: b.width ?? null, height: b.height ?? null, caption: b.caption ?? null };
+  if (b.kind === "image") return { k: "image", dataUri: b.dataUri ?? null, hasMedia: !!b.hasMedia, ornament: !!b.ornament, width: b.width ?? null, height: b.height ?? null, caption: b.caption ?? null };
   if (b.kind === "textbox") return { k: "textbox", text: b.text, lines: b.lines.map((l) => l.text), shape: b.shape };
   return { k: "other", tag: b.tag };
 }

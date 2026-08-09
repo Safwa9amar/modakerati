@@ -4,6 +4,7 @@ import { HeadingTools, ParagraphTools } from "./ParagraphToolbar";
 import { FormatPanel } from "./FormatPanel";
 import { ListTools } from "./ListToolbar";
 import { ImageTools, MinimalTools } from "./ImageToolbar";
+import { ChartPanel, ChartTools } from "./ChartToolbar";
 import { TablePanel, TableTools } from "./TableToolbar";
 import { HeaderFooterTools } from "./HeaderFooterToolbar";
 import { SectionPanel, SectionTools } from "./SectionToolbar";
@@ -42,7 +43,9 @@ export const TOOLBARS: Record<ToolbarKind, ToolbarModule> = {
   heading: { Tools: HeadingTools, Panel: FormatPanel },
   list: { Tools: ListTools, Panel: FormatPanel },
   image: { Tools: ImageTools },
-  chart: { Tools: MinimalTools },
+  // A NATIVE Word chart is genuinely editable (type/legend/labels/colours), unlike
+  // the line-art drawings that now fall to "other".
+  chart: { Tools: ChartTools, Panel: ChartPanel },
   other: { Tools: MinimalTools },
   table: { Tools: TableTools, Panel: TablePanel },
   // No Panel: the header/footer flow lives in components/HeaderFooterSheet.

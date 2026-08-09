@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ChatMessage, AskPayload, FilePayload, ConfirmPayload, DocChangesPayload, ToolTracePayload } from "@/types/chat";
+import type { ChatMessage, AskPayload, ChatImage, FilePayload, ConfirmPayload, DocChangesPayload, ToolTracePayload } from "@/types/chat";
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15);
@@ -99,7 +99,7 @@ interface ChatState {
   setHasMoreOlder: (thesisId: string, value: boolean) => void;
   getLoadingOlder: (thesisId: string) => boolean;
   setLoadingOlder: (thesisId: string, value: boolean) => void;
-  addMessage: (thesisId: string, role: "user" | "assistant", content: string, opts?: { chapterId?: string; pending?: boolean }) => string;
+  addMessage: (thesisId: string, role: "user" | "assistant", content: string, opts?: { chapterId?: string; pending?: boolean; images?: ChatImage[] }) => string;
   /** Mark (or clear) a message as a send whose turn never completed. */
   setMessageFailed: (thesisId: string, id: string, failed: boolean) => void;
   /** The most recent user message, for the failed-send retry. */
@@ -181,10 +181,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Guarded HERE rather than at the call sites because there are eight of
     // them, and the next one added would forget. Empty content is exempt:
     // streaming assistant bubbles all start as "" and must stay distinct.
+    // Attached images are exempt: sending the same photo again with the same
+    // caption ("and this one?") is a deliberate second message, not the
+    // frozen-turn double-tap this guard exists for.
     const existing = get().messages[thesisId] ?? [];
-    if (content) {
+    if (content && !opts?.images?.length) {
       const last = existing[existing.length - 1];
-      if (last && last.role === role && last.content === content) {
+      if (last && last.role === role && last.content === content && !last.images?.length) {
         const age = Date.now() - Date.parse(last.createdAt);
         if (Number.isFinite(age) && age >= 0 && age < DUPLICATE_WINDOW_MS) return last.id;
       }
@@ -195,7 +198,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...s.messages,
         [thesisId]: [
           ...(s.messages[thesisId] ?? []),
-          { id, thesisId, role, content, chapterId: opts?.chapterId, pending: opts?.pending, createdAt: new Date().toISOString() },
+          { id, thesisId, role, content, chapterId: opts?.chapterId, pending: opts?.pending, images: opts?.images, createdAt: new Date().toISOString() },
         ],
       },
     }));

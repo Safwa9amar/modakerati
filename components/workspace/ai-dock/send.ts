@@ -66,6 +66,15 @@ export function sendFromDock({
       collapse();
       return;
 
+    case "chart":
+      // A native Word chart. The proposal is a structured PATCH plus a rendered
+      // preview, so it comes back as an inline card with Approve / Reject exactly
+      // like a paragraph rewrite — nothing is written until the student approves.
+      if (!selectedBlock || selectedBlock.kind !== "image" || !selectedBlock.svg) return;
+      void useSuggestionStore.getState().requestChart(thesisId, selectedBlock.index, prompt);
+      collapse();
+      return;
+
     case "image":
       if (!selectedBlock || selectedBlock.kind !== "image") return;
       void useSuggestionStore

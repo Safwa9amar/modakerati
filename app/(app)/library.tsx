@@ -14,6 +14,7 @@ import { useSourceStore } from "@/stores/source-store";
 import { BackButton } from "@/components/BackButton";
 import { LibraryGridSkeleton } from "@/components/skeletons/LibraryGridSkeleton";
 import { thesisBlockImageUrl, type DocBlockDTO } from "@/lib/api";
+import { isFigureBlock } from "@/lib/doc-ornament";
 
 // -----------------------------------------------------------------------------
 // Everything the thesis is made of, in one grid: the figures and tables living in
@@ -84,7 +85,9 @@ export default function LibraryScreen() {
     let tableNo = 0;
 
     blocks.forEach((b, i) => {
-      if (b.kind === "image") {
+      // Page ornaments (dedication/thanks frames) are page decoration, not the
+      // student's figures — they never belong in the media library.
+      if (isFigureBlock(b)) {
         figureNo += 1;
         out.push({
           kind: "figure",

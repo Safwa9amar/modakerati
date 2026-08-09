@@ -22,7 +22,12 @@ export function resolveBubbleKind(block: DocBlockDTO | null | undefined, listTyp
     case "paragraph":
       return block.level >= 1 ? "heading" : "text";
     case "image":
-      return block.dataUri || block.hasMedia ? "image" : "chart";
+      // `svg` = a NATIVE Word chart, which is genuinely editable (data, type,
+      // legend, colours) and gets the chart toolset. Bytes = a real picture. A
+      // drawing with neither is line art we can only move or delete — it used to
+      // land on "chart" too, which offered chart tools for something that is not
+      // a chart.
+      return block.svg ? "chart" : block.dataUri || block.hasMedia ? "image" : "other";
     case "table":
       return "table";
     case "other":

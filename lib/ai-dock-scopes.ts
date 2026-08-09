@@ -23,6 +23,7 @@ export type DockScopeKind =
   | "memoir"
   | "table"
   | "image"
+  | "chart"
   | "heading"
   | "emptyParagraph"
   | "paragraph"
@@ -286,6 +287,43 @@ const IMAGE_ACTIONS: DockAction[] = [
   },
 ];
 
+/**
+ * A NATIVE Word chart. Every chip here is a CHART EDIT: the ask goes to the chart
+ * suggest endpoint, which answers with a structured patch plus a rendered preview
+ * shown inline for Approve / Reject. Captioning a chart is not here — that is the
+ * caption chip on the chart toolbar, which opens the real Word caption flow.
+ */
+const CHART_ACTIONS: DockAction[] = [
+  {
+    key: "chart-percent",
+    Icon: WandSparkles,
+    labelKey: "aiDock.chartPercent",
+    labelFallback: "Show percentages",
+    prompt: "Label each slice with its percentage of the total, and stop showing raw values.",
+  },
+  {
+    key: "chart-tobar",
+    Icon: Rows3,
+    labelKey: "aiDock.chartToBar",
+    labelFallback: "Make it columns",
+    prompt: "Turn this into a vertical column chart, keeping the same data and colours.",
+  },
+  {
+    key: "chart-recolour",
+    Icon: LayoutPanelTop,
+    labelKey: "aiDock.chartRecolour",
+    labelFallback: "Recolour",
+    prompt: "Recolour this chart with a clean, readable palette that still distinguishes every category.",
+  },
+  {
+    key: "chart-title",
+    Icon: Type,
+    labelKey: "aiDock.chartTitle",
+    labelFallback: "Add a title",
+    prompt: "Give this chart a short title that describes what it shows, in the document's language.",
+  },
+];
+
 const RANGE_ACTIONS: DockAction[] = [
   {
     key: "rewrite-one",
@@ -372,6 +410,25 @@ export function resolveDockScope(input: ResolveInput): DockScope {
         outcomeFallback: "you'll review the change",
         placeholderKey: "aiDock.ask.table",
         placeholderFallback: "Ask about this table…",
+        canSelectGaps: false,
+      };
+    }
+    // A native Word chart FIRST: it is an image block, but a genuinely editable
+    // one, so it gets its own scope and its own chips (see CHART_ACTIONS).
+    if (selectedBlock.kind === "image" && selectedBlock.svg) {
+      return {
+        kind: "chart",
+        // REVIEW, not direct: a chart edit comes back as an inline proposal the
+        // student approves or rejects on the chart itself — the same contract as a
+        // paragraph rewrite, and the reason the ✦ never silently rewrites data.
+        outcome: "review",
+        actions: CHART_ACTIONS,
+        headerKey: "aiDock.header.chart",
+        headerFallback: "This chart",
+        outcomeKey: "aiDock.outcome.review",
+        outcomeFallback: "you'll review the change",
+        placeholderKey: "aiDock.ask.chart",
+        placeholderFallback: "Ask about this chart…",
         canSelectGaps: false,
       };
     }

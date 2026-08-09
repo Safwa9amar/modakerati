@@ -18,8 +18,22 @@ interface ImportState {
   normProfileId: string | null;
   errorMessage: string | null;
 
+  /** Name and size of the file being imported — the processing screen's subtitle. */
+  fileName: string | null;
+  totalBytes: number;
+  /** How much of the body has reached the server, 0..1 — a real measurement. */
+  uploadProgress: number;
+
   setNormProfileId: (id: string | null) => void;
-  pickAndImport: () => Promise<"ok" | "canceled" | "error">;
+  /**
+   * `onPicked` fires the moment the picker hands back a valid .docx — BEFORE the
+   * read and the server round trip, which together run for tens of seconds on a
+   * real thesis. The caller uses it to put the processing screen on screen;
+   * without it the app sits on the previous page looking dead for the whole job.
+   */
+  pickAndImport: (opts?: { onPicked?: (fileName: string) => void }) => Promise<
+    "ok" | "canceled" | "error"
+  >;
   toggleSuggestion: (id: string) => void;
   acceptAll: () => void;
   applyAccepted: () => Promise<void>;
@@ -34,6 +48,9 @@ const INITIAL = {
   rejectedIds: [] as string[],
   normProfileId: null as string | null,
   errorMessage: null as string | null,
+  fileName: null as string | null,
+  totalBytes: 0,
+  uploadProgress: 0,
 };
 
 export const useImportStore = create<ImportState>((set, get) => ({
@@ -41,8 +58,8 @@ export const useImportStore = create<ImportState>((set, get) => ({
 
   setNormProfileId: (id) => set({ normProfileId: id }),
 
-  pickAndImport: async () => {
-    set({ status: "picking", errorMessage: null });
+  pickAndImport: async (opts) => {
+    set({ status: "picking", errorMessage: null, fileName: null, totalBytes: 0 });
 
     let picked: DocumentPicker.DocumentPickerResult;
     try {
@@ -66,18 +83,34 @@ export const useImportStore = create<ImportState>((set, get) => ({
       return "error";
     }
 
-    set({ status: "uploading" });
+    set({
+      status: "uploading",
+      fileName: asset.name ?? "document.docx",
+      totalBytes: asset.size ?? 0,
+      uploadProgress: 0,
+    });
+    // The picker is closed and the file is valid: show the work now, because
+    // everything below this line is the slow part.
+    opts?.onPicked?.(asset.name ?? "document.docx");
+
     try {
       const base64 = await FileSystem.readAsStringAsync(asset.uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
-      set({ status: "analyzing" });
-      const { thesis, analysisReport } = await importThesis({
-        base64,
-        filename: asset.name ?? "document.docx",
-        normProfileId: get().normProfileId || undefined,
-      });
+      const { thesis, analysisReport } = await importThesis(
+        {
+          base64,
+          filename: asset.name ?? "document.docx",
+          normProfileId: get().normProfileId || undefined,
+        },
+        {
+          onUploadProgress: (fraction) => {
+            // The body is up; everything after this is the server working.
+            set(fraction >= 1 ? { status: "analyzing", uploadProgress: 1 } : { uploadProgress: fraction });
+          },
+        },
+      );
 
       const allIds = [
         ...(analysisReport?.structure ?? []),

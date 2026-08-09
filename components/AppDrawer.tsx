@@ -149,12 +149,24 @@ function AppIndex() {
     closeDrawer();
     const store = useImportStore.getState();
     store.reset();
-    const result = await store.pickAndImport();
+    // Reading a thesis to base64 and analysing it server-side takes tens of
+    // seconds. Push the analysis screen the moment the picker closes so that
+    // work happens on ITS processing view — waiting on the previous page with
+    // nothing moving is what read as a hang.
+    let navigated = false;
+    const result = await store.pickAndImport({
+      onPicked: () => {
+        navigated = true;
+        router.push("/(app)/import-analysis" as any);
+      },
+    });
     if (result === "ok") {
       const thesis = useImportStore.getState().thesis;
       if (thesis) useThesisStore.getState().upsertThesis(thesis);
-      router.push("/(app)/import-analysis" as any);
-    } else if (result === "error") {
+      if (!navigated) router.push("/(app)/import-analysis" as any);
+    } else if (result === "error" && !navigated) {
+      // Failures after the push are the analysis screen's to show (it has a
+      // retry); only a failure before it — a dead picker, a non-.docx — alerts.
       Alert.alert(t("import.title"), useImportStore.getState().errorMessage || t("thesis.genericError"));
     }
   }, [closeDrawer, router, t]);

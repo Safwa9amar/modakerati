@@ -9,7 +9,9 @@ import type { DocumentDTO, HistoryStateDTO } from "@/lib/api";
 // "insertTable" / "insertSourceImage" are APP-ONLY — they come from the /fill JSON
 // ({"kind":"table"} / {"kind":"image"}), never an action header — and dispatch the
 // insertTable / insertImage op on approve.
-export type SuggestAction = "rewrite" | "setCaption" | "insertTable" | "insertSourceImage";
+// "setChart" edits a NATIVE Word chart in place: the proposal carries the exact
+// patch the preview was rendered from, so approving applies what was shown.
+export type SuggestAction = "rewrite" | "setCaption" | "insertTable" | "insertSourceImage" | "setChart";
 
 // Ask the server to REWRITE a single paragraph per an instruction and return the
 // proposed text WITHOUT applying it. The caller (suggestion-store) surfaces the

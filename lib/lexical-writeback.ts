@@ -30,12 +30,30 @@ function normMarks(runs: ParaRun[]): string {
 }
 const uiAlign = (a: ParagraphDTO["alignment"]) => (a === "both" ? "justify" : a === "left" || a === "center" || a === "right" ? a : undefined);
 
+// Cheap non-cryptographic digest, used only to fold long invariant content into a
+// comparable signature token.
+function djb2(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
 // Content identity used to ALIGN blocks (structure). Text-only for paragraphs so a
 // format-only change stays "the same block" and is handled by the format pass.
 export function tsig(b: DocBlockDTO): string {
   if (b.kind === "paragraph") return "p|" + b.text;
   if (b.kind === "table") return "t|" + JSON.stringify(b.rows);
-  if (b.kind === "image") return "i|" + (b.dataUri ?? "") + "|" + (b.caption ?? "") + "|" + (b.hasMedia ? 1 : 0);
+  // The ornament flag is part of an image's identity: an ornament frame and a large
+  // uncaptioned figure otherwise share a signature, and the LCS could pair them.
+  // A native Word chart carries no bytes and usually no caption, so every chart in
+  // a document would otherwise hash to the same "i||||0" — a real import has 27 of
+  // them, all indistinguishable to the LCS. Its vector source is what makes it
+  // itself, folded to a short digest to keep signatures cheap to compare.
+  if (b.kind === "image")
+    return (
+      "i|" + (b.dataUri ?? "") + "|" + (b.caption ?? "") + "|" + (b.hasMedia ? 1 : 0) + "|" + (b.ornament ? 1 : 0) +
+      (b.svg ? "|" + djb2(b.svg) : "")
+    );
   // A shape's text box is identified by its own text plus the host paragraph's —
   // editing either is a structural change, not a format-only one.
   if (b.kind === "textbox") return "x|" + b.text + "|" + b.lines.map((l) => l.text).join("");

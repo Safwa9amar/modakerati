@@ -11,7 +11,7 @@ import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import { sendMessageToAI, loadInitialMessages, loadOlderMessages, regenerateLastResponse, retryFailedMessage, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { ComposerConfirm } from "@/components/workspace/ComposerConfirm";
-import { Send, Plus, Menu, List, Paperclip, Image as ImageIcon, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw, Volume2, AlertCircle } from "lucide-react-native";
+import { Send, Plus, Menu, List, Paperclip, Image as ImageIcon, Camera, ClipboardPaste, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw, Volume2, AlertCircle } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
@@ -31,19 +31,20 @@ import { ThinkingTrace } from "@/components/ThinkingTrace";
 import { AiWorkingNote } from "@/components/AiWorkingNote";
 import { deriveThinkingMs } from "@/lib/thinking";
 import * as DocumentPicker from "expo-document-picker";
-import * as ImagePicker from "expo-image-picker";
 import { Alert } from "react-native";
-import type { ChatMessage, FilePayload } from "@/types/chat";
+import { ChatImageGrid, ChatImageViewer } from "@/components/ChatImages";
+import { splitImageFrames, pickChatImages, captureChatImage, pasteChatImage, MAX_CHAT_IMAGES, type StagedImage } from "@/lib/chat-images";
+import type { ChatMessage, ChatImage, FilePayload } from "@/types/chat";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const LOGO = require("../../assets/icon.png");
 
-// A picked-but-not-yet-sent image or document. Staged in the composer so the
-// user can add a prompt (or remove it) before it goes to the AI.
-type Attachment =
-  | { type: "image"; uri: string; width?: number; height?: number }
-  | { type: "file"; uri: string; name: string; size?: number };
+// A picked-but-not-yet-sent document. Staged in the composer so the user can add
+// a prompt (or remove it) before it goes to the AI. Images are staged separately
+// (see `images` below) because several can ride on one message and, unlike this,
+// their bytes actually travel — see lib/chat-images.ts.
+type Attachment = { type: "file"; uri: string; name: string; size?: number };
 
 // Above this length, an assistant answer is collapsed to a clipped preview with
 // "View more" (expand inline) / "View full" (open the full-screen viewer)
@@ -77,18 +78,20 @@ function FadeOverlay({ color }: { color: string }) {
   );
 }
 
-const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, isUnanswered, isSpeaking, onExpand, onPreviewFile, onRegenerate, onRetryMessage, onSpeak }: { item: ChatMessage; colors: any; isStreaming?: boolean; isLiveTurn?: boolean; isLastAssistant?: boolean; isUnanswered?: boolean; isSpeaking?: boolean; onExpand?: (content: string) => void; onPreviewFile?: (file: FilePayload) => void; onRegenerate?: () => void; onRetryMessage?: (id: string) => void; onSpeak?: (id: string, text: string) => void }) => {
+const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, isUnanswered, isSpeaking, onExpand, onPreviewFile, onRegenerate, onRetryMessage, onSpeak, onViewImage }: { item: ChatMessage; colors: any; isStreaming?: boolean; isLiveTurn?: boolean; isLastAssistant?: boolean; isUnanswered?: boolean; isSpeaking?: boolean; onExpand?: (content: string) => void; onPreviewFile?: (file: FilePayload) => void; onRegenerate?: () => void; onRetryMessage?: (id: string) => void; onSpeak?: (id: string, text: string) => void; onViewImage?: (image: ChatImage) => void }) => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const isUser = item.role === "user";
-  // Assistant content may carry [[MODK_FILE]] frames (e.g. an export). Strip them
-  // for display and render file cards instead. Live-streamed files arrive on
-  // item.files (frame already stripped); history messages still hold the frame in
-  // content, so parse it here too — prefer item.files when present.
-  const { text: bodyText, files: framedFiles } = isUser
-    ? { text: item.content, files: [] as FilePayload[] }
-    : splitFileFrames(item.content);
+  // Both roles can carry frames in `content`, and neither may ever render one as
+  // text. Assistant: [[MODK_FILE]] artifacts (an export) → file cards. User:
+  // [[MODK_IMG]] attachments → thumbnails. Live sends arrive on item.files /
+  // item.images with the frame already handled; a message reloaded from history
+  // still holds it, so parse here too and prefer the live copy when there is one.
+  const { text: bodyText, files: framedFiles, images: framedImages } = isUser
+    ? { ...splitImageFrames(item.content), files: [] as FilePayload[] }
+    : { ...splitFileFrames(item.content), images: [] as ChatImage[] };
   const files = item.files?.length ? item.files : framedFiles;
+  const images = item.images?.length ? item.images : framedImages;
   // Whether there's answer text below the thinking block. While the model is
   // still reasoning, content is empty — so the thinking wrapper must not draw
   // its separator/spacing or it renders as an empty framed box.
@@ -138,8 +141,18 @@ const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, i
             surfaceColor={colors.chatAiBubble}
           />
         ) : null}
+        {/* Attachments sit ABOVE the caption, the way every messaging app puts
+            them — the picture is the subject, the text is what's being asked
+            about it. */}
+        {isUser && images.length > 0 && (
+          <View style={hasContent ? styles.bubbleImagesSpaced : undefined}>
+            <ChatImageGrid images={images} onPress={onViewImage} />
+          </View>
+        )}
         {isUser ? (
-          <Text selectable style={[styles.messageText, { color: colors.chatUserText }, textDirStyle]}>{item.content}</Text>
+          hasContent ? (
+            <Text selectable style={[styles.messageText, { color: colors.chatUserText }, textDirStyle]}>{bodyText}</Text>
+          ) : null
         ) : hasContent ? (
           // Markdown renders live while streaming too — <Markdown streaming> re-parses
           // on a timer instead of per token, so headings/tables/lists appear as they
@@ -273,6 +286,12 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [viewerContent, setViewerContent] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
+  // Images picked / snapped / pasted but not yet sent. An array because a
+  // student comparing two figures shouldn't have to send them one at a time.
+  const [staged, setStaged] = useState<StagedImage[]>([]);
+  // The attachment the reader tapped open, full screen. One viewer for the whole
+  // list rather than one per bubble.
+  const [viewerImage, setViewerImage] = useState<ChatImage | null>(null);
   // Room under the composer for whatever the phone puts there — a three-button
   // navigation bar, a gesture pill, or nothing — and none of it while the
   // keyboard is up. See hooks/useBottomInset.
@@ -415,24 +434,32 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
     void retryFailedMessage(thesisId, messageId);
   }, [thesisId, stopSpeaking]);
 
-  // Folds a staged attachment into the outgoing text. The `[Attached …]` marker
-  // is what the assistant sees; a typed prompt overrides the generic default.
-  function composeMessage(text: string, att: Attachment | null): string {
-    if (!att) return text;
-    if (att.type === "image") {
-      const prompt = text || t("chat.describeImage", { defaultValue: "Please describe what you see and how it relates to my thesis." });
-      return `[Attached image] ${prompt}`;
+  // Builds the outgoing text.
+  //
+  // Images no longer appear here: their bytes travel with the message and the
+  // server records them on the row, so a `[Attached image]` marker would be a
+  // second, less accurate account of the same thing. An UNCAPTIONED image still
+  // needs an instruction, though — the model is being handed a picture and no
+  // question — so it gets the localised default. Documents keep the marker,
+  // because their contents genuinely don't travel yet.
+  function composeMessage(text: string, att: Attachment | null, imageCount: number): string {
+    if (att) {
+      const prompt = text || t("chat.analyzeFile", { defaultValue: "Please analyze this document." });
+      return `[Attached file: ${att.name}] ${prompt}`;
     }
-    const prompt = text || t("chat.analyzeFile", { defaultValue: "Please analyze this document." });
-    return `[Attached file: ${att.name}] ${prompt}`;
+    if (imageCount > 0 && !text) {
+      return t("chat.describeImage", { defaultValue: "Please describe what you see and how it relates to my thesis." });
+    }
+    return text;
   }
 
   async function handleSend() {
     if (isGenerating) return;
     const text = inputText.trim();
     // Send when there's text, an attachment, or both — but never an empty turn.
-    if (!text && !attachment) return;
-    const message = composeMessage(text, attachment);
+    if (!text && !attachment && staged.length === 0) return;
+    const message = composeMessage(text, attachment, staged.length);
+    const outgoing = staged;
     // A new turn takes the floor — don't keep reading the previous answer over it.
     stopSpeaking();
     setInputText("");
@@ -442,11 +469,24 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
     inputRef.current?.clear();
     setInputHeight(undefined); // collapse back to one line after sending
     setAttachment(null);
+    setStaged([]);
     Keyboard.dismiss();
     // Sending your own message always jumps to the latest, even if scrolled up.
     isNearBottomRef.current = true;
     setShowScrollDown(false);
-    await sendMessageToAI(thesisId, message);
+    await sendMessageToAI(thesisId, message, { images: outgoing.length ? outgoing : undefined });
+  }
+
+  // Add newly staged images, never past the cap. Say so when the cap is what
+  // stopped them, rather than silently dropping the ones that didn't fit.
+  // The alert stays OUT of the updater — a state updater has to be pure, or
+  // React's double-invoke fires the dialog twice.
+  function stageImages(picked: StagedImage[]) {
+    if (!picked.length) return;
+    const room = MAX_CHAT_IMAGES - staged.length;
+    if (room <= 0) return void alertFull();
+    if (picked.length > room) alertFull();
+    setStaged((prev) => [...prev, ...picked.slice(0, Math.max(0, MAX_CHAT_IMAGES - prev.length))]);
   }
 
   function toggleTools() {
@@ -475,26 +515,34 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
           }
         } catch {}
         break;
-      case "image":
-        try {
-          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          if (status !== "granted") {
-            Alert.alert("Permission needed", "Please allow access to your photo library.");
-            return;
-          }
-          const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ["images"],
-            quality: 0.8,
-            allowsEditing: true,
-          });
-          if (!result.canceled && result.assets?.[0]) {
-            const image = result.assets[0];
-            // Stage it in the composer; it's sent with the next message, not now.
-            setAttachment({ type: "image", uri: image.uri, width: image.width, height: image.height });
-          }
-        } catch {}
+      // The three image routes all end the same way: normalised bytes staged in
+      // the composer, sent with the next message rather than on their own.
+      // Checking the cap BEFORE opening a picker (or a clipboard prompt) is the
+      // difference between "you can attach up to four" and a dialog that seems
+      // to do nothing.
+      case "image": {
+        const room = MAX_CHAT_IMAGES - staged.length;
+        if (room <= 0) return void alertFull();
+        stageImages(await pickChatImages(room));
         break;
+      }
+      case "camera": {
+        if (staged.length >= MAX_CHAT_IMAGES) return void alertFull();
+        const shot = await captureChatImage();
+        if (shot) stageImages([shot]);
+        break;
+      }
+      case "paste": {
+        if (staged.length >= MAX_CHAT_IMAGES) return void alertFull();
+        const pasted = await pasteChatImage();
+        if (pasted) stageImages([pasted]);
+        break;
+      }
     }
+  }
+
+  function alertFull() {
+    Alert.alert(t("chat.maxImages", { defaultValue: `You can attach up to ${MAX_CHAT_IMAGES} images.`, count: MAX_CHAT_IMAGES }));
   }
 
   const plusStyle = useAnimatedStyle(() => ({
@@ -504,12 +552,14 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   const hasText = inputText.trim().length > 0;
   // The send button appears whenever there's something to send — text or a
   // staged attachment (so an image can be sent with no caption).
-  const canSend = hasText || attachment !== null;
+  const canSend = hasText || attachment !== null || staged.length > 0;
 
   const tools = [
-    { key: "structure", icon: List, label: "Structure", color: colors.brandAccent },
-    { key: "file", icon: Paperclip, label: "Attach", color: colors.semanticWarning },
-    { key: "image", icon: ImageIcon, label: "Image", color: "#9959FF" },
+    { key: "structure", icon: List, label: t("chat.toolStructure", { defaultValue: "Structure" }), color: colors.brandAccent },
+    { key: "file", icon: Paperclip, label: t("chat.toolAttach", { defaultValue: "Attach" }), color: colors.semanticWarning },
+    { key: "image", icon: ImageIcon, label: t("chat.toolPhoto", { defaultValue: "Photo" }), color: "#9959FF" },
+    { key: "camera", icon: Camera, label: t("chat.toolCamera", { defaultValue: "Camera" }), color: "#0EA5E9" },
+    { key: "paste", icon: ClipboardPaste, label: t("chat.toolPaste", { defaultValue: "Paste" }), color: "#10B981" },
   ];
 
   return (
@@ -543,7 +593,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
           <FlatList
             ref={flatListRef}
             data={messages}
-            renderItem={({ item, index }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} isLiveTurn={item.id === liveTurnId} isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1} isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating} isSpeaking={item.id === speakingId} onExpand={setViewerContent} onPreviewFile={handlePreviewFile} onRegenerate={handleRegenerate} onRetryMessage={handleRetryMessage} onSpeak={toggleSpeak} />}
+            renderItem={({ item, index }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} isLiveTurn={item.id === liveTurnId} isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1} isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating} isSpeaking={item.id === speakingId} onExpand={setViewerContent} onPreviewFile={handlePreviewFile} onRegenerate={handleRegenerate} onRetryMessage={handleRetryMessage} onSpeak={toggleSpeak} onViewImage={setViewerImage} />}
             keyExtractor={(item) => item.id}
             // The live-turn flag lives outside `data`, so tell the list about it —
             // otherwise the last bubble can keep its working note after the turn ends.
@@ -651,28 +701,42 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
             </View>
           )}
 
-          {/* Staged attachment — shown until the user sends or removes it */}
+          {/* Staged images — thumbnails in a row, each removable, shown until the
+              message is sent. A row rather than the file chip's layout because
+              there can be several and the picture is its own label. */}
+          {staged.length > 0 && (
+            <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={styles.stagedRow}>
+              {staged.map((img, i) => (
+                <View key={img.uri + i} style={styles.stagedItem}>
+                  <Image source={{ uri: img.uri }} style={[styles.stagedThumb, { borderColor: colors.borderDefault }]} />
+                  <Pressable
+                    onPress={() => setStaged((prev) => prev.filter((_, at) => at !== i))}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("chat.removeAttachment", { defaultValue: "Remove attachment" })}
+                    style={[styles.stagedRemove, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
+                  >
+                    <X size={13} color={colors.textSecondary} strokeWidth={2.4} />
+                  </Pressable>
+                </View>
+              ))}
+            </Animated.View>
+          )}
+
+          {/* Staged document — shown until the user sends or removes it */}
           {attachment && (
             <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.attachmentChip, { backgroundColor: colors.bgSurface, borderColor: colors.borderDefault }]}>
-              {attachment.type === "image" ? (
-                <Image source={{ uri: attachment.uri }} style={styles.attachmentThumb} />
-              ) : (
-                <View style={[styles.attachmentFileIcon, { backgroundColor: colors.brandPrimary + "22" }]}>
-                  <FileText size={20} color={colors.brandPrimary} strokeWidth={1.8} />
-                </View>
-              )}
+              <View style={[styles.attachmentFileIcon, { backgroundColor: colors.brandPrimary + "22" }]}>
+                <FileText size={20} color={colors.brandPrimary} strokeWidth={1.8} />
+              </View>
               <View style={styles.attachmentInfo}>
                 <Text style={[styles.attachmentName, { color: colors.textPrimary }]} numberOfLines={1}>
-                  {attachment.type === "image" ? t("chat.image", { defaultValue: "Image" }) : attachment.name}
+                  {attachment.name}
                 </Text>
                 <Text style={[styles.attachmentMeta, { color: colors.textSecondary }]} numberOfLines={1}>
-                  {attachment.type === "image"
-                    ? attachment.width && attachment.height
-                      ? `${attachment.width} × ${attachment.height}`
-                      : t("chat.attachedImage", { defaultValue: "Attached image" })
-                    : attachment.size != null
-                      ? `${(attachment.size / 1024).toFixed(1)} KB`
-                      : t("chat.attachedFile", { defaultValue: "Attached file" })}
+                  {attachment.size != null
+                    ? `${(attachment.size / 1024).toFixed(1)} KB`
+                    : t("chat.attachedFile", { defaultValue: "Attached file" })}
                 </Text>
               </View>
               <Pressable
@@ -810,6 +874,9 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
         content={viewerContent}
         onClose={() => setViewerContent(null)}
       />
+
+      {/* Full-screen view of a tapped attachment. */}
+      <ChatImageViewer image={viewerImage} onClose={() => setViewerImage(null)} />
     </View>
   );
 }
@@ -891,7 +958,23 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  attachmentThumb: { width: 44, height: 44, borderRadius: 8 },
+  bubbleImagesSpaced: { marginBottom: 8 },
+  stagedRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10, marginHorizontal: 2 },
+  // Padded on the top/right so the remove button, which overhangs the thumbnail,
+  // isn't clipped by the row.
+  stagedItem: { paddingTop: 6, paddingRight: 6 },
+  stagedThumb: { width: 62, height: 62, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
+  stagedRemove: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   attachmentFileIcon: { width: 44, height: 44, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   attachmentInfo: { flex: 1, gap: 2 },
   attachmentName: { fontSize: 13, fontFamily: "Inter_600SemiBold" },

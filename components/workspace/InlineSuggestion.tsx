@@ -30,6 +30,7 @@ import Animated, {
 import { LinearGradient } from "expo-linear-gradient";
 import { useTranslation } from "react-i18next";
 import { Sparkles, Check, Pencil, X, RotateCw } from "lucide-react-native";
+import { SvgXml } from "react-native-svg";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
 import { AiWorkingNote } from "@/components/AiWorkingNote";
@@ -95,6 +96,9 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
   // Stable-ref selector (never a fresh object) — zustand Object.is rule.
   const sug = useSuggestionStore((s) => s.byIndex[block.index]);
   const [peekOpen, setPeekOpen] = useState(false);
+  // Separate from `peekOpen`: a chart peek swaps the whole preview rather than
+  // unfolding a text diff, so the two must not share a toggle.
+  const [chartPeek, setChartPeek] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -466,12 +470,34 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
         </View>
       )}
 
+      {/* A CHART proposal renders the proposed chart itself: the change is a
+          structured patch, not words, so there is nothing to diff. Tapping it
+          swaps to the chart being replaced. Approve applies the exact patch this
+          preview was rendered from. */}
+      {sug.action === "setChart" && sug.chart ? (
+        <Pressable
+          onPress={() => sug.chart?.originalSvg && setChartPeek((v) => !v)}
+          style={styles.paraWrap}
+        >
+          <View style={{ width: "100%", aspectRatio: 491 / 288 }}>
+            <SvgXml
+              xml={chartPeek && sug.chart.originalSvg ? sug.chart.originalSvg : sug.chart.svg}
+              width="100%"
+              height="100%"
+            />
+          </View>
+          {!!sug.proposed.trim() && (
+            <Text style={[baseTextStyle, contentTextStyle]}>{sug.proposed}</Text>
+          )}
+        </Pressable>
+      ) : null}
+
       {/* The proposed rewrite IS the paragraph (image → the proposed caption).
           Added words tint green while the compare view is open (brief brighter
           flash on expand). When the diff carries no common words — the >400-token
           perf cap, or a total rewrite — word marks are noise (they'd tint/strike
           ENTIRE paragraphs), so both sides render as plain text instead. */}
-      <View style={[styles.paraWrap, edgeSide]}>
+      <View style={[styles.paraWrap, edgeSide, sug.action === "setChart" && { display: "none" }]}>
         <Text style={[baseTextStyle, contentTextStyle]}>
           {!isImage && hasMarks
             ? segs

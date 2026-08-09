@@ -74,7 +74,8 @@ const Row = memo(function Row({
   const hasSuggestion = useSuggestionStore(
     (s) => block.kind === "paragraph" && s.byIndex[block.index]?.original === block.text,
   );
-  // A pending suggestion on an IMAGE block is a figure-caption action: unlike a
+  // A pending suggestion on an IMAGE block is a figure-caption action, or — on a
+  // native Word chart — a chart edit: unlike a
   // paragraph rewrite it does NOT replace the block — the figure stays visible and
   // the caption card renders BENEATH it. Presence-only gate (boolean primitive →
   // no zustand Object.is loop); the caption's "original" is the old caption, so

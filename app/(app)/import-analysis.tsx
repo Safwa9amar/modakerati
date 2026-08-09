@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable, ActivityIndicator, StyleSheet } from "react-native";
+import { View, Text, ScrollView, Pressable, ActivityIndicator, BackHandler, StyleSheet } from "react-native";
 // react-native's own SafeAreaView is iOS-only — on Android it padded nothing,
 // so this screen's header sat under the status bar. Every other screen uses the
 // safe-area-context one.
@@ -10,8 +10,9 @@ import { useBottomInset } from "@/hooks/useBottomInset";
 import { useImportStore } from "@/stores/import-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { BackButton } from "@/components/BackButton";
+import { ProcessingSteps, type ProcessingStep } from "@/components/ProcessingSteps";
 import { CheckCircle, XCircle, AlertTriangle, AlertCircle, Info } from "lucide-react-native";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import type { AnalysisSuggestion } from "@/lib/api";
 
 const SEVERITY_COLORS = {
@@ -90,6 +91,10 @@ export default function ImportAnalysisScreen() {
   const acceptedIds = useImportStore((s) => s.acceptedIds);
   const thesis = useImportStore((s) => s.thesis);
   const status = useImportStore((s) => s.status);
+  const fileName = useImportStore((s) => s.fileName);
+  const totalBytes = useImportStore((s) => s.totalBytes);
+  const uploadProgress = useImportStore((s) => s.uploadProgress);
+  const errorMessage = useImportStore((s) => s.errorMessage);
 
   const handleToggle = useCallback((id: string) => {
     useImportStore.getState().toggleSuggestion(id);
@@ -121,6 +126,94 @@ export default function ImportAnalysisScreen() {
       analysisReport.content.length === 0);
 
   const isApplying = status === "applying";
+  // We land here the moment the file is picked, so the read and the server's
+  // analysis happen ON this screen instead of behind a dead previous page.
+  const isImporting = status === "picking" || status === "uploading" || status === "analyzing";
+  const importFailed = status === "error" && !analysisReport;
+
+  // The import is writing a thesis server-side; leaving can't take it back.
+  useEffect(() => {
+    if (!isImporting) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => sub.remove();
+  }, [isImporting]);
+
+  const megabytes = totalBytes > 0 ? (totalBytes / (1024 * 1024)).toFixed(1) : null;
+  const uploading = status === "uploading";
+  const importSteps: ProcessingStep[] = [
+    {
+      key: "read",
+      label: t("import.stepRead", { defaultValue: "Reading your document" }),
+      status: uploadProgress > 0 || status === "analyzing" ? "done" : "active",
+    },
+    {
+      // The only stage of an import the client can truly measure: bytes on the
+      // wire, straight from the request's own progress events.
+      key: "upload",
+      label: t("import.stepUpload", { defaultValue: "Uploading it" }),
+      status: status === "analyzing" ? "done" : uploading && uploadProgress > 0 ? "active" : "pending",
+      detail: uploadProgress > 0 && uploadProgress < 1 ? `${Math.round(uploadProgress * 100)}%` : undefined,
+      progress: uploadProgress > 0 ? uploadProgress : undefined,
+    },
+    {
+      key: "analyze",
+      label: t("import.stepAnalyze", { defaultValue: "Checking it against the standard" }),
+      status: status === "analyzing" ? "active" : "pending",
+    },
+  ];
+
+  if (isImporting) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
+        <View style={styles.header}>
+          <View style={styles.headerSpacer} />
+          <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
+            {t("import.title", { defaultValue: "Import document" })}
+          </Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <ScrollView contentContainerStyle={styles.importingContent} showsVerticalScrollIndicator={false}>
+          <ProcessingSteps
+            title={t("import.preparingTitle", { defaultValue: "Importing your document" })}
+            subtitle={
+              fileName ? (megabytes ? `${fileName} · ${megabytes} MB` : fileName) : null
+            }
+            steps={importSteps}
+            note={t("combine.keepOpen")}
+            liveness={`${status}:${Math.round(uploadProgress * 100)}`}
+          />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (importFailed) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
+        <View style={styles.header}>
+          <BackButton />
+          <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
+            {t("import.title", { defaultValue: "Import document" })}
+          </Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.importFailed}>
+          <Text style={[styles.importFailedTitle, { color: colors.textPrimary }]}>
+            {t("import.failedTitle", { defaultValue: "Couldn't import your document" })}
+          </Text>
+          <Text style={[styles.importFailedBody, { color: colors.textSecondary }]}>
+            {errorMessage || t("thesis.genericError")}
+          </Text>
+          <Pressable
+            onPress={() => useImportStore.getState().pickAndImport()}
+            style={[styles.importRetry, { backgroundColor: colors.brandPrimary }]}
+          >
+            <Text style={styles.importRetryText}>{t("common.retry")}</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
@@ -221,6 +314,12 @@ export default function ImportAnalysisScreen() {
 }
 
 const styles = StyleSheet.create({
+  importingContent: { flexGrow: 1 },
+  importFailed: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 32 },
+  importFailedTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  importFailedBody: { fontSize: 14, textAlign: "center" },
+  importRetry: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 28, marginTop: 8 },
+  importRetryText: { color: "#fff", fontSize: 16, fontFamily: "Inter_600SemiBold" },
   container: {
     flex: 1,
   },

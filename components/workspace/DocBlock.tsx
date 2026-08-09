@@ -19,6 +19,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+import { SvgXml } from "react-native-svg";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthHeader } from "@/hooks/useAuthHeader";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -30,6 +31,7 @@ import { useSearchStore } from "@/stores/search-store";
 import { useEquationSheetStore } from "@/stores/equation-sheet-store";
 import { thesisBlockImageUrl, type DocBlockDTO, type InlineMathDTO } from "@/lib/api";
 import { hSelection, hMedium } from "@/lib/haptics";
+import { isOrnamentBlock } from "@/lib/doc-ornament";
 
 // Dark ink / muted ink for text rendered on the always-white PaperPage.
 const INK = "#1A1A1A";
@@ -219,6 +221,10 @@ function DocBlockInner({
   }
 
   if (block.kind === "image") {
+    // A page-ornament frame is painted BEHIND the page by Word — it is decoration,
+    // not content, so the editing surfaces draw nothing for it (inline it read as a
+    // big empty box above the dedication). The block itself stays in the list.
+    if (isOrnamentBlock(block)) return null;
     // Caption sits under the image/placeholder; it aligns to the text edge in RTL.
     const caption = block.caption?.trim();
     const captionNode = caption ? (
@@ -243,6 +249,23 @@ function DocBlockInner({
     // reports real bytes exist (`hasMedia`), load them on demand from the media
     // endpoint so large figures render here too — matching the docx/OnlyOffice
     // views. Only a genuine no-image drawing falls through to the placeholder.
+    // A NATIVE Word chart arrives as vector source, not bytes — Word stores no
+    // image for it, which is why these drew an empty placeholder before. Drawn
+    // first because such a block has neither `dataUri` nor `hasMedia`.
+    if (block.svg) {
+      return (
+        <FigureChart
+          svg={block.svg}
+          ratio={ratio}
+          isSelected={isSelected}
+          hi={hi}
+          onSelect={onSelect}
+          onLong={onLong}
+          captionNode={captionNode}
+        />
+      );
+    }
+
     const uri =
       block.dataUri ??
       (block.hasMedia ? thesisBlockImageUrl(thesisId, block.index, version) : undefined);
@@ -774,6 +797,51 @@ function FigureImage({
           ratio ? { aspectRatio: ratio, maxHeight: MAX_IMAGE_HEIGHT } : { height: MAX_IMAGE_HEIGHT },
         ]}
       />
+      {captionNode}
+    </Pressable>
+  );
+}
+
+// A native Word chart, drawn from the vector source the server rebuilt out of the
+// chart part's cached data. Same frame as FigureImage so a chart and a photo sit
+// identically in the flow and select the same way.
+function FigureChart({
+  svg,
+  ratio,
+  isSelected,
+  hi,
+  onSelect,
+  onLong,
+  captionNode,
+}: {
+  svg: string;
+  ratio?: number;
+  isSelected: boolean;
+  hi: string;
+  onSelect: (e: GestureResponderEvent) => void;
+  onLong: () => void;
+  captionNode: React.ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onSelect}
+      onLongPress={onLong}
+      style={[
+        styles.imageWrap,
+        { borderColor: isSelected ? hi : "transparent" },
+        isSelected && { backgroundColor: hi + "18" },
+      ]}
+    >
+      {/* SvgXml sizes to its container, and a container with no explicit height
+          collapses to 0 — so the aspect ratio Word gave the drawing sets it. */}
+      <View
+        style={[
+          styles.image,
+          ratio ? { aspectRatio: ratio, maxHeight: MAX_IMAGE_HEIGHT } : { height: MAX_IMAGE_HEIGHT },
+        ]}
+      >
+        <SvgXml xml={svg} width="100%" height="100%" />
+      </View>
       {captionNode}
     </Pressable>
   );

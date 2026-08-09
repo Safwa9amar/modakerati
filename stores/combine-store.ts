@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { classifyCombineParts, combineThesis, type PartRole } from "@/lib/api";
+import { classifyCombineParts, combineThesis, type PartRole, type ClassifyFailure } from "@/lib/api";
 import type { Thesis } from "@/types/thesis";
 import type { AnalysisReport } from "@/lib/api";
 
@@ -49,8 +49,12 @@ interface CombineState {
   readTotal: number;
   /** Total bytes picked — the "6 files · 2.1 MB" line while we work. */
   totalBytes: number;
+  /** How much of the request body has reached the server, 0..1. */
+  uploadProgress: number;
   /** Whether the server's part labels came from the model or its content fallback. */
   classifiedBy: "ai" | "heuristic" | null;
+  /** Why the model call failed, when it did — decides which notice is shown. */
+  classifyReason: ClassifyFailure | null;
   /**
    * true  — the full setup: chapter headings, numbering, divider pages and one
    *         font from the chosen standard.
@@ -75,6 +79,13 @@ interface CombineState {
   pickAndClassify: (opts?: { onPicked?: (fileCount: number) => void }) => Promise<
     "ok" | "canceled" | "error"
   >;
+  /**
+   * Ask the model again with the files already in memory. The student never
+   * re-picks: the base64 is still here, only the classify call is repeated.
+   */
+  reclassify: () => Promise<"ok" | "error">;
+  /** Keep the names the content rules produced and move on to arranging. */
+  acceptHeuristicNames: () => void;
   combine: () => Promise<"ok" | "error">;
   reset: () => void;
 }
@@ -90,7 +101,9 @@ const INITIAL = {
   readDone: 0,
   readTotal: 0,
   totalBytes: 0,
+  uploadProgress: 0,
   classifiedBy: null as "ai" | "heuristic" | null,
+  classifyReason: null as ClassifyFailure | null,
   fullSetup: true,
 };
 
@@ -120,6 +133,47 @@ function markContinuations(parts: CombinePart[]): CombinePart[] {
     const prev = parts[i - 1];
     const sameTitle = titleKey(p.title) === titleKey(prev.title);
     return { ...p, continuesPrevious: sameTitle && p.role === prev.role };
+  });
+}
+
+/** The classify round trip, shared by the first pass and every retry. */
+async function runClassify(
+  set: (partial: Partial<CombineState>) => void,
+  files: { id: string; filename: string; base64: string }[],
+): Promise<void> {
+  const { parts: classified, suggestedOrder, classifiedBy, classifyReason } =
+    await classifyCombineParts(
+      files.map((f) => ({ filename: f.filename, base64: f.base64 })),
+      { onUploadProgress: (uploadProgress) => set({ uploadProgress }) },
+    );
+  const byName = new Map(classified.map((c) => [c.filename, c]));
+
+  const order = suggestedOrder.length ? suggestedOrder : files.map((f) => f.filename);
+  const parts: CombinePart[] = order
+    .map((fn) => {
+      const f = files.find((x) => x.filename === fn);
+      const c = byName.get(fn);
+      if (!f || !c) return null;
+      return {
+        id: f.id,
+        continuesPrevious: false,
+        filename: fn,
+        base64: f.base64,
+        suggestedTitle: c.suggestedTitle,
+        title: c.suggestedTitle,
+        role: c.role,
+        order: 0,
+        wordCount: c.wordCount,
+        pageCount: c.pageCount,
+      } as CombinePart;
+    })
+    .filter((p): p is CombinePart => p !== null);
+
+  set({
+    status: "arranging",
+    parts: renumber(markContinuations(parts)),
+    classifiedBy: classifiedBy ?? null,
+    classifyReason: classifyReason ?? null,
   });
 }
 
@@ -203,34 +257,7 @@ export const useCombineStore = create<CombineState>((set, get) => ({
       );
 
       set({ status: "classifying" });
-      const { parts: classified, suggestedOrder, classifiedBy } = await classifyCombineParts(
-        raw.map((r) => ({ filename: r.filename, base64: r.base64 }))
-      );
-      set({ classifiedBy: classifiedBy ?? null });
-      const byName = new Map(classified.map((c) => [c.filename, c]));
-
-      const order = suggestedOrder.length ? suggestedOrder : raw.map((r) => r.filename);
-      const parts: CombinePart[] = order
-        .map((fn) => {
-          const r = raw.find((x) => x.filename === fn);
-          const c = byName.get(fn);
-          if (!r || !c) return null;
-          return {
-            id: r.id,
-            continuesPrevious: false,
-            filename: fn,
-            base64: r.base64,
-            suggestedTitle: c.suggestedTitle,
-            title: c.suggestedTitle,
-            role: c.role,
-            order: 0,
-            wordCount: c.wordCount,
-            pageCount: c.pageCount,
-          } as CombinePart;
-        })
-        .filter((p): p is CombinePart => p !== null);
-
-      set({ status: "arranging", parts: renumber(markContinuations(parts)) });
+      await runClassify(set, raw);
       return "ok";
     } catch (err) {
       const message = err instanceof Error ? err.message : "Classification failed";
@@ -239,13 +266,31 @@ export const useCombineStore = create<CombineState>((set, get) => ({
     }
   },
 
+  reclassify: async () => {
+    const files = get().parts.map((p) => ({ id: p.id, filename: p.filename, base64: p.base64 }));
+    if (files.length === 0) return "error";
+    set({ status: "classifying", errorMessage: null });
+    try {
+      await runClassify(set, files);
+      return "ok";
+    } catch (err) {
+      set({
+        status: "error",
+        errorMessage: err instanceof Error ? err.message : "Classification failed",
+      });
+      return "error";
+    }
+  },
+
+  acceptHeuristicNames: () => set({ classifiedBy: null, classifyReason: null }),
+
   combine: async () => {
     const { parts, normProfileId, title, fullSetup } = get();
     if (parts.length < 2) {
       set({ status: "error", errorMessage: "Need at least 2 parts" });
       return "error";
     }
-    set({ status: "combining", errorMessage: null });
+    set({ status: "combining", errorMessage: null, uploadProgress: 0 });
     try {
       const { thesis, analysisReport } = await combineThesis({
         title: title.trim() || parts[0].title || "Combined thesis",
@@ -261,7 +306,7 @@ export const useCombineStore = create<CombineState>((set, get) => ({
             role: p.role,
             continuesPrevious: p.continuesPrevious,
           })),
-      });
+      }, { onUploadProgress: (uploadProgress) => set({ uploadProgress }) });
       set({ status: "done", thesis, analysisReport });
       return "ok";
     } catch (err) {

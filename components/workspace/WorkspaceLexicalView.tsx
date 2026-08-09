@@ -326,6 +326,11 @@ export function WorkspaceLexicalView({
         p.image && p.image.dataUri.length <= SUG_IMAGE_PREVIEW_BUDGET ? p.image.dataUri : undefined,
       imageWidth: p.image?.width,
       imageHeight: p.image?.height,
+      // action "setChart" → the PROPOSED chart, rendered server-side as vector
+      // source. Both SVGs cross the bridge as text (a few KB each), so the card can
+      // show the new chart and peek at the one it replaces.
+      chartSvg: p.chart?.svg,
+      chartOriginalSvg: p.chart?.originalSvg,
       // A specific reason the ask couldn't be met (kind "none" / a failed image read),
       // shown on the error card in place of the generic line.
       errorText: p.errorText,
@@ -414,7 +419,14 @@ export function WorkspaceLexicalView({
       // proposed text, or inserts the real table node + keeps the empty paragraph.
       // The op (editText / insertTable) syncs in the background; skipReseed updates
       // the save baseline to the optimistic doc so no spurious diff is sent.
-      useLexicalEditorStore.getState().requestSkipReseed();
+      // ⚠️ NOT for a chart: text/table proposals settle the node in place, so the
+      // editor already shows the applied result and a reseed would only churn. A
+      // chart's new rendering exists only on the server (the SVG is produced there),
+      // so it arrives via setDoc — skipping the reseed would leave the OLD chart on
+      // screen after approving.
+      if (store.byIndex[idx]?.action !== "setChart") {
+        useLexicalEditorStore.getState().requestSkipReseed();
+      }
       store.approve(thesisId, idx);
     }
     else if (action === "again") void store.again(thesisId, idx);

@@ -148,7 +148,7 @@ export default function AiKeyScreen() {
                 style={[styles.input, { color: colors.textPrimary, textAlign }]}
                 value={draftModel}
                 onChangeText={setDraftModel}
-                placeholder="nvidia/nemotron-3-ultra-550b-a55b:free"
+                placeholder="openrouter/free"
                 placeholderTextColor={colors.textSecondary}
                 autoCapitalize="none"
                 autoCorrect={false}

@@ -171,6 +171,69 @@ export async function fetchOrnamentPreview(previewUrl: string): Promise<Ornament
   throw new Error(`Unsupported preview type: ${type || "unknown"}`);
 }
 
+/** Long jobs get minutes, not iOS's 60-second default. */
+const LONG_JOB_TIMEOUT_MS = 10 * 60 * 1000;
+
+export interface LongPostOptions {
+  /** Fraction of the body that has reached the server, 0..1. */
+  onUploadProgress?: (fraction: number) => void;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * POST for the jobs that take minutes: importing a thesis, combining several.
+ *
+ * `fetch` cannot outlive iOS's NSURLSession default of 60 seconds and offers no
+ * way to raise it, so a real thesis died with "fetch failed: The request timed
+ * out" while the server was still working on it. XHR takes an explicit timeout —
+ * and, unlike fetch in React Native, reports how much of the body has actually
+ * gone up, which is the one part of these jobs the client can honestly measure.
+ */
+async function apiPostLong<T>(path: string, body: any, opts: LongPostOptions = {}): Promise<T> {
+  const headers = await getAuthHeaders();
+  const payload = JSON.stringify(body);
+
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}${path}`);
+    xhr.timeout = opts.timeoutMs ?? LONG_JOB_TIMEOUT_MS;
+    // Headers only after open(), or React Native drops them.
+    for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) opts.onUploadProgress?.(e.loaded / e.total);
+    };
+    // Guarantees the 100% tick. Without it a platform that reports no progress
+    // events (or stops short of `total`) would leave the caller's UI showing
+    // "uploading" for the whole server-side job.
+    xhr.upload.onload = () => opts.onUploadProgress?.(1);
+
+    xhr.onload = () => {
+      let parsed: any;
+      try {
+        parsed = JSON.parse(xhr.responseText || "{}");
+      } catch {
+        parsed = { error: xhr.statusText || `API Error: ${xhr.status}` };
+      }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(parsed as T);
+      // Same BYOK bookkeeping the fetch path does, so the settings screen still
+      // learns that the student's own key was the thing that failed.
+      if (parsed?.byok && isByokErrorCode(parsed.error)) {
+        useByokStore.getState().setLastError(parsed.error);
+      }
+      reject(new Error(parsed?.error || `API Error: ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error("Network request failed"));
+    xhr.ontimeout = () =>
+      reject(new Error(`The server took longer than ${Math.round(xhr.timeout / 60000)} minutes`));
+    xhr.onabort = () => reject(new Error("Canceled"));
+    opts.signal?.addEventListener("abort", () => xhr.abort());
+
+    xhr.send(payload);
+  });
+}
+
 async function apiPost<T>(path: string, body: any, signal?: AbortSignal): Promise<T> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${path}`, {
@@ -189,6 +252,19 @@ async function apiPut<T>(path: string, body: any): Promise<T> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${path}`, {
     method: "PUT",
+    headers,
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    await raiseApiError(response);
+  }
+  return response.json();
+}
+
+async function apiPatch<T>(path: string, body: any): Promise<T> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "PATCH",
     headers,
     body: JSON.stringify(body),
   });
@@ -238,10 +314,19 @@ export interface ChatSendResponse {
   docChanges?: DocChangesPayload;
 }
 
+/** One image on its way up with a chat message. Base64 because RN mangles
+ *  multipart bodies — the same reason avatars and source documents go this way. */
+export interface ChatAttachmentUpload {
+  base64: string;
+  mime: string;
+  width?: number;
+  height?: number;
+}
+
 export async function chatSend(
   thesisId: string,
   message: string,
-  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; regenerate?: boolean }
+  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; regenerate?: boolean; attachments?: ChatAttachmentUpload[] }
 ): Promise<ChatSendResponse> {
   return apiPost("/api/chat/send", {
     thesisId,
@@ -251,6 +336,7 @@ export async function chatSend(
     selection: options?.selection,
     // See chatSendStream: a re-ask of a question already saved server-side.
     regenerate: options?.regenerate ?? false,
+    attachments: options?.attachments,
     // Live-.docx (L2): the engine block index the student selected, so the AI
     // edits that exact paragraph. `null` when nothing block-specific is focused.
     docBlockIndex: options?.docBlockIndex ?? null,
@@ -558,7 +644,7 @@ export async function chatSendStream(
   thesisId: string,
   message: string,
   handlers: ChatStreamHandlers,
-  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; regenerate?: boolean; signal?: AbortSignal }
+  options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; regenerate?: boolean; attachments?: ChatAttachmentUpload[]; signal?: AbortSignal }
 ): Promise<void> {
   // `docBlockIndex` (live-.docx, L2): the selected engine block index → the AI
   // edits that paragraph. `docBlockIndices` carries a multi-select set so the AI
@@ -575,6 +661,12 @@ export async function chatSendStream(
     docBlockIndex: options?.docBlockIndex ?? null,
     docBlockIndices: options?.docBlockIndices,
     regenerate: options?.regenerate ?? false,
+    // Images the student attached, as base64 (binary/multipart bodies are
+    // unreliable from RN — same convention as every other upload here). The
+    // server stores them and writes a [[MODK_IMG]] frame onto the saved message,
+    // so a regenerate re-answers the question WITH its pictures and never
+    // re-uploads them.
+    attachments: options?.attachments,
   };
   return postChatStream("/api/chat/stream", body, handlers, options?.signal);
 }
@@ -814,13 +906,13 @@ export interface AnalysisReport {
   content: AnalysisSuggestion[];
 }
 
-export async function importThesis(input: {
-  base64: string;
-  filename: string;
-  language?: string;
-  normProfileId?: string;
-}): Promise<{ thesis: Thesis; analysisReport: AnalysisReport | null }> {
-  return apiPost("/api/thesis/import", input);
+export async function importThesis(
+  input: { base64: string; filename: string; language?: string; normProfileId?: string },
+  opts?: LongPostOptions,
+): Promise<{ thesis: Thesis; analysisReport: AnalysisReport | null }> {
+  // Minutes, not seconds: a real thesis is megabytes of base64 and the server
+  // uploads, parses and analyses it before answering.
+  return apiPostLong("/api/thesis/import", input, opts);
 }
 
 export async function getThesisAnalysis(thesisId: string): Promise<AnalysisReport> {
@@ -856,6 +948,16 @@ export type PartRole =
   | "annexe"
   | "autre";
 
+export type ClassifyFailure =
+  | "key_rejected"
+  | "no_credit"
+  | "rate_limited"
+  | "model_denied"
+  | "model_missing"
+  | "unreachable"
+  | "bad_reply"
+  | "error";
+
 export interface ClassifiedPartDTO {
   filename: string;
   suggestedTitle: string;
@@ -866,7 +968,8 @@ export interface ClassifiedPartDTO {
 
 // Classify uploaded parts (read content → role + suggested title + default order).
 export async function classifyCombineParts(
-  parts: { filename: string; base64: string }[]
+  parts: { filename: string; base64: string }[],
+  opts?: LongPostOptions,
 ): Promise<{
   parts: ClassifiedPartDTO[];
   suggestedOrder: string[];
@@ -874,8 +977,13 @@ export async function classifyCombineParts(
    *  the roles/titles come from the parts' own text. The arrange screen says so
    *  rather than passing a guess off as the AI's reading. */
   classifiedBy?: "ai" | "heuristic";
+  /** Why the model call failed, when it did. A revoked key and a network blip
+   *  need different words — and different fixes. */
+  classifyReason?: ClassifyFailure;
 }> {
-  return apiPost("/api/thesis/combine/classify", { parts });
+  // The model call inside can retry up to three times; the client must not give
+  // up before the server has.
+  return apiPostLong("/api/thesis/combine/classify", { parts }, opts);
 }
 
 // Combine ordered parts into one new live-docx thesis (returns the import shape).
@@ -902,8 +1010,10 @@ export async function combineThesis(input: {
     role?: PartRole;
     continuesPrevious?: boolean;
   }[];
-}): Promise<{ thesis: Thesis; analysisReport: AnalysisReport | null }> {
-  return apiPost("/api/thesis/combine", input);
+}, opts?: LongPostOptions): Promise<{ thesis: Thesis; analysisReport: AnalysisReport | null }> {
+  // The longest job in the product: merge, structure passes, an AI call, the
+  // doctor, then the upload and the analysis.
+  return apiPostLong("/api/thesis/combine", input, opts);
 }
 
 // ============================================================
@@ -995,9 +1105,22 @@ export type DocBlockDTO =
       // (figure too large to inline), the app lazily loads the bytes from
       // `thesisBlockImageUrl(id, index)`. Absent → render the "figure" placeholder.
       hasMedia?: boolean;
+      // A NATIVE Word chart (word/charts/chartN.xml), rebuilt server-side as vector
+      // source from the data the chart part caches about itself. A chart is not a
+      // picture — Word stores no image bytes for it, so `dataUri`/`hasMedia` are
+      // both absent and these blocks used to draw the empty figure placeholder.
+      // Rendered with <SvgXml>, the same path as an equation.
+      svg?: string;
       width?: number;
       height?: number;
       caption?: string;
+      // A PAGE ORNAMENT frame (add_page_ornament): full-page artwork Word paints
+      // BEHIND the page, sitting in a carrier paragraph of its own. It is page
+      // decoration, not a figure in the flow — rendering it inline drew a huge empty
+      // box above الإهداء / شكر وتقدير — so the writer and the figure lists skip it.
+      // It still travels in the DTO: dropping the block would make the Lexical
+      // write-back diff delete the ornament from the .docx.
+      ornament?: boolean;
     }
   | { index: number; kind: "other"; tag: string };
 
@@ -1604,6 +1727,108 @@ export async function updateThesisEquation(
   latex: string,
 ): Promise<{ ok: true; index: number; latex: string; document?: DocumentDTO; history?: HistoryStateDTO }> {
   return apiPut(`/api/thesis/${thesisId}/equations/${index}`, { latex });
+}
+
+/* ── native Word charts ────────────────────────────────────────────────────── */
+
+/** The writable chart kinds. "bar" is vertical columns, "barH" horizontal bars. */
+export type ChartKind = "pie" | "pie3D" | "doughnut" | "bar" | "barH" | "line" | "area";
+
+/**
+ * One NATIVE Word chart (`word/charts/chartN.xml`) — a real chart object, not the
+ * flat picture the AI's insert_chart embeds. The block renders from `svg`; this is
+ * what the chart bubble edits.
+ */
+export type ThesisChartDTO = {
+  /** Engine block index — the same index every other block API uses. */
+  index: number;
+  /** "other" for a plot we can read but not write (radar, scatter, surface…). */
+  kind: ChartKind | "other";
+  plotTag: string;
+  title?: string;
+  labels: string[];
+  values: number[];
+  series: { name?: string; values: number[]; color?: string }[];
+  /** Slice colours on a pie, series colours otherwise — resolved through the theme. */
+  colors: (string | undefined)[];
+  legend: "r" | "l" | "t" | "b" | "none";
+  showPercent: boolean;
+  showValues: boolean;
+};
+
+/** What a chart edit can change. Every field is optional; omitted = left alone. */
+export type ThesisChartPatch = {
+  labels?: string[];
+  values?: number[];
+  seriesValues?: number[][];
+  /** "" or null removes the chart's own title (not the Figure caption). */
+  title?: string | null;
+  legend?: "r" | "l" | "t" | "b" | "none";
+  showPercent?: boolean;
+  showValues?: boolean;
+  showCategories?: boolean;
+  colors?: (string | null)[];
+  type?: ChartKind;
+  holeSize?: number;
+};
+
+/** Every native chart in the document, in document order. */
+export async function getThesisCharts(thesisId: string): Promise<{ charts: ThesisChartDTO[] }> {
+  return apiGet(`/api/thesis/${thesisId}/charts`);
+}
+
+/** One chart in full — what the chart editor sheet opens with. */
+export async function getThesisChart(thesisId: string, index: number): Promise<{ chart: ThesisChartDTO }> {
+  return apiGet(`/api/thesis/${thesisId}/charts/${index}`);
+}
+
+/**
+ * Edit a chart in place. POSITIONAL-SAFE — no block is added or removed, so indices
+ * never shift and the response's `document` can be applied straight to the store.
+ *
+ * `workbookSynced` is always false: Word draws the new values, but its "Edit Data"
+ * button still opens the chart's original embedded workbook.
+ */
+export async function updateThesisChart(
+  thesisId: string,
+  index: number,
+  patch: ThesisChartPatch,
+): Promise<{
+  ok: true;
+  index: number;
+  changed?: string[];
+  unchanged?: boolean;
+  chart: ThesisChartDTO;
+  workbookSynced?: false;
+  document?: DocumentDTO;
+  history?: HistoryStateDTO;
+}> {
+  return apiPatch(`/api/thesis/${thesisId}/charts/${index}`, patch);
+}
+
+/**
+ * PROPOSE a chart edit without applying it — the chart counterpart to the
+ * paragraph/table inline suggestions. The server renders the preview by patching a
+ * COPY of the chart part, so nothing is written until the student approves.
+ *
+ * `patch` is the exact change the preview shows; approving replays it through
+ * `updateThesisChart`, so what is approved is what was seen.
+ * `nothingToDo` = the model understood but had nothing to change.
+ */
+export async function suggestThesisChart(
+  thesisId: string,
+  index: number,
+  instruction: string,
+): Promise<{
+  ok: true;
+  index?: number;
+  patch?: ThesisChartPatch;
+  summary?: string;
+  svg?: string;
+  chart: ThesisChartDTO;
+  nothingToDo?: boolean;
+}> {
+  return apiPost(`/api/thesis/${thesisId}/charts/${index}/suggest`, { instruction });
 }
 
 /** Delete a caption and renumber the rest of its sequence. */
