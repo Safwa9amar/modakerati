@@ -34,7 +34,8 @@ Nothing in this plan changes what a student sees. That is the point: it deploys 
 
 | File | Responsibility |
 | --- | --- |
-| `src/lib/chat-threads.ts` **(new)** | Pure logic only. No imports from `../db`. Search-text extraction, title fallback, sort order, patch validation, shim resolution, search-query folding. |
+| `src/lib/ai/control-frames.ts` **(new)** | Frame stripping, extracted from `tool-loop.ts` as a leaf with no db-touching imports so pure modules can use it. |
+| `src/lib/chat-threads.ts` **(new)** | Pure logic only. No imports from `../db`, and no *transitive* reach into it either — verified by importing it with an empty environment. Search-text extraction, title fallback, sort order, patch validation, shim resolution, search-query folding. |
 | `src/lib/chat-threads-db.ts` **(new)** | Every query that touches `chat_threads`. Always filters by `userId`. |
 | `src/routes/chat-threads.ts` **(new)** | The `/api/threads` Hono handlers. Thin — parse, delegate, respond. |
 | `src/__tests__/chat-threads.test.ts` **(new)** | Unit tests for `chat-threads.ts`. |
@@ -60,16 +61,48 @@ Image frames have their own stripper (`stripImageFrames`) and file frames have
 none. `buildSearchText` must handle all three groups or picture URLs end up in
 the index.
 
+**A second trap, found in review:** `stripControlFrames` lives in
+`src/lib/ai/tool-loop.ts`, which transitively imports `../../db` (constructing a
+live `pg.Pool`) and `src/lib/supabase.ts`, which calls `createClient()` at module
+scope. Importing it from a "pure logic" module makes that module throw
+`supabaseUrl is required` in any environment without a populated `.env` — so
+every pure unit test in this file would silently depend on Supabase config. The
+frame strippers must be extracted to a leaf module first.
+
 **Files:**
+- Create: `src/lib/ai/control-frames.ts` (leaf — no db-touching imports)
+- Modify: `src/lib/ai/tool-loop.ts` (move the strippers out, re-export)
 - Create: `src/lib/chat-threads.ts`
 - Test: `src/__tests__/chat-threads.test.ts`
 
+- [ ] **Step 0: Extract the frame strippers to a leaf module**
+
+Move `stripOwnFrames` and `stripControlFrames` verbatim out of
+`src/lib/ai/tool-loop.ts` into a new `src/lib/ai/control-frames.ts`. It may
+import `stripLeakedReasoning` from `./cot-leak` — confirm `cot-leak.ts` is itself
+db-free before relying on that.
+
+Re-export `stripControlFrames` from `tool-loop.ts` so every existing importer
+keeps working untouched:
+
+```bash
+grep -rn "stripControlFrames" src/ --include=*.ts
+```
+
+Prove the leaf is genuinely importable with no environment at all:
+
+```bash
+env -i PATH="$PATH" npx tsx -e 'import("./src/lib/chat-threads.ts").then(m => console.log(m.buildSearchText("test")))'
+```
+
+Expected: prints `test`. If it throws, the extraction is incomplete.
+
 - [ ] **Step 1: Write the failing test**
 
-Create `src/__tests__/chat-threads.test.ts`:
+Create `src/__tests__/chat-threads.test.ts`. Note there is deliberately **no**
+`import "dotenv/config"` — needing one would mean Step 0 didn't work:
 
 ```ts
-import "dotenv/config"; // chat-threads.ts pulls in tool-loop, which reads env at module load
 import { describe, it, expect } from "vitest";
 import { buildSearchText } from "../lib/chat-threads";
 
@@ -114,6 +147,25 @@ describe("buildSearchText", () => {
   it("returns an empty string for a message that was nothing but frames", () => {
     expect(buildSearchText("[[MODK_IMG]]{}[[/MODK_IMG]]")).toBe("");
   });
+
+  it("keeps prose after a BARE frame token — a student quoting the marker must not lose their question", () => {
+    const raw = "Le format est [[MODK_IMG]] puis du texte.\nMa vraie question : comment citer une source APA ?";
+    expect(buildSearchText(raw)).toContain("comment citer une source apa");
+  });
+
+  it("drops an unclosed FILE frame the same way as an image one", () => {
+    const raw = 'Ton export\n[[MODK_FILE]]{"kind":"file","url":"https://x/t.docx"';
+    expect(buildSearchText(raw)).toBe("ton export");
+  });
+
+  it("drops two adjacent frames — a multi-image message indexes as its caption alone", () => {
+    const raw = 'Regarde\n[[MODK_IMG]]{"url":"https://x/1.jpg"}[[/MODK_IMG]]\n[[MODK_IMG]]{"url":"https://x/2.jpg"}[[/MODK_IMG]]\nmerci';
+    expect(buildSearchText(raw)).toBe("regarde merci");
+  });
+
+  it("returns an empty string for whitespace-only content", () => {
+    expect(buildSearchText("   \n\t ")).toBe("");
+  });
 });
 ```
 
@@ -133,15 +185,23 @@ Create `src/lib/chat-threads.ts`:
 // Pure logic for chat threads. NO I/O and NO imports from ../db — everything
 // here is unit-tested without a database, which is why the route handlers and
 // the db layer stay as thin as they do.
-import { stripControlFrames } from "./ai/tool-loop";
+// control-frames, NOT tool-loop: tool-loop reaches the db pool and builds the
+// Supabase client at module scope, which would make this "pure" module throw on
+// import wherever there is no .env — CI included.
+import { stripControlFrames } from "./ai/control-frames";
 import { foldText } from "./rag/text";
 
-// Image and file frames, closed or left open by a stream that died mid-frame.
-// These are NOT covered by stripControlFrames — it handles THINK / ASK /
-// DOCCHANGES / CONFIRM / TOOL only. Leaving them in would put storage URLs and
-// base64-adjacent payload metadata straight into the search index.
-const IMG_FRAME_RE = /\[\[MODK_IMG\]\][\s\S]*?(?:\[\[\/MODK_IMG\]\]|$)/g;
-const FILE_FRAME_RE = /\[\[MODK_FILE\]\][\s\S]*?(?:\[\[\/MODK_FILE\]\]|$)/g;
+// Image and file frames. NOT covered by stripControlFrames — it handles THINK /
+// ASK / DOCCHANGES / CONFIRM / TOOL only. Leaving them in would put storage URLs
+// and payload metadata straight into the search index.
+//
+// The second alternative catches a frame left open by a stream that died
+// mid-write. The `\s*\{` guard is what makes it safe: a real payload is JSON, so
+// requiring one distinguishes a truncated frame from a bare [[MODK_IMG]] token a
+// student typed or pasted. Without it, quoting the marker mid-sentence silently
+// erased every word after it from the index.
+const IMG_FRAME_RE = /\[\[MODK_IMG\]\](?:[\s\S]*?\[\[\/MODK_IMG\]\]|\s*\{[\s\S]*$)/g;
+const FILE_FRAME_RE = /\[\[MODK_FILE\]\](?:[\s\S]*?\[\[\/MODK_FILE\]\]|\s*\{[\s\S]*$)/g;
 
 /**
  * The text a chat message is SEARCHED by: its prose, with every control frame
@@ -164,7 +224,7 @@ export function buildSearchText(content: string): string {
 npm test -- chat-threads
 ```
 
-Expected: PASS, 9 tests.
+Expected: PASS, 13 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -333,7 +393,7 @@ function recencyOf(t: SortableThread): number {
 npm test -- chat-threads
 ```
 
-Expected: PASS, 19 tests total.
+Expected: PASS, 23 tests total.
 
 - [ ] **Step 5: Commit**
 
@@ -528,7 +588,7 @@ export function resolveThreadRequest(body: { threadId?: unknown; thesisId?: unkn
 npm test -- chat-threads
 ```
 
-Expected: PASS, 32 tests total.
+Expected: PASS, 36 tests total.
 
 - [ ] **Step 5: Commit**
 
@@ -655,7 +715,7 @@ export function searchSnippet(searchText: string, folded: string, radius = 80): 
 npm test -- chat-threads
 ```
 
-Expected: PASS, 39 tests total.
+Expected: PASS, 43 tests total.
 
 - [ ] **Step 5: Commit**
 
@@ -1431,7 +1491,7 @@ export function backfillThreadRow(g: BackfillGroup): BackfillThreadRow {
 npm test -- chat-threads
 ```
 
-Expected: PASS, 44 tests total.
+Expected: PASS, 48 tests total.
 
 - [ ] **Step 5: Write the backfill script**
 
@@ -1922,7 +1982,7 @@ conversation lands in the wrong place.
 
 ## Done when
 
-- `npm test` passes, including 44 new tests in `chat-threads.test.ts`.
+- `npm test` passes, including 48 new tests in `chat-threads.test.ts`.
 - `npx tsc --noEmit` is clean.
 - `scripts/probe-chat-threads.ts` reports `ALL CHECKS PASSED`.
 - The backfill is idempotent — a second run reports zero work.
