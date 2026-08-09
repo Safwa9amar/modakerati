@@ -393,7 +393,7 @@ function recencyOf(t: SortableThread): number {
 npm test -- chat-threads
 ```
 
-Expected: PASS, 23 tests total.
+Expected: PASS, 22 tests total.
 
 - [ ] **Step 5: Commit**
 
@@ -588,7 +588,7 @@ export function resolveThreadRequest(body: { threadId?: unknown; thesisId?: unkn
 npm test -- chat-threads
 ```
 
-Expected: PASS, 36 tests total.
+Expected: PASS, 35 tests total.
 
 - [ ] **Step 5: Commit**
 
@@ -715,7 +715,7 @@ export function searchSnippet(searchText: string, folded: string, radius = 80): 
 npm test -- chat-threads
 ```
 
-Expected: PASS, 43 tests total.
+Expected: PASS, 42 tests total.
 
 - [ ] **Step 5: Commit**
 
@@ -724,6 +724,171 @@ git add src/lib/chat-threads.ts src/__tests__/chat-threads.test.ts
 git commit -m "feat(chat): search query folding + snippet extraction
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 4b: Post-review hardening of the pure layer
+
+Code review of Tasks 2–4 found three real defects, each reproduced with concrete
+input. Apply all five changes below to `src/lib/chat-threads.ts`, keeping the
+existing 42 tests byte-identical.
+
+**1. Truncation split emoji, producing invalid UTF-8.** `fallbackTitle` and
+`sanitizeThreadPatch`'s title cap both sliced on UTF-16 code units, so a cut
+inside a surrogate pair left a lone high surrogate — U+FFFD on any UTF-8 encode,
+and `encodeURIComponent` throws outright. Titles are auto-derived from arbitrary
+student messages, so this is a volume question, not an exotic one.
+
+```ts
+/**
+ * Truncate to `max` CODE POINTS. Array.from iterates code points, so an emoji
+ * counts as one and can never be cut in half. A lone surrogate is not valid
+ * UTF-8 — it becomes U+FFFD as soon as it reaches Postgres or a JSON response
+ * body, and makes encodeURIComponent throw outright.
+ */
+function truncateCodePoints(s: string, max: number): string {
+  const cps = Array.from(s);
+  return cps.length <= max ? s : cps.slice(0, max).join("");
+}
+```
+
+`fallbackTitle`'s tail becomes:
+
+```ts
+  const cps = Array.from(prose);
+  if (cps.length <= FALLBACK_TITLE_MAX) return prose;
+  return truncateCodePoints(prose, FALLBACK_TITLE_MAX - 1).trimEnd() + "…";
+```
+
+and `sanitizeThreadPatch` uses `truncateCodePoints(trimmed, TITLE_MAX)`.
+
+**2. One invalid Date scrambled the whole list.** `recencyOf` returned `NaN`,
+violating the sort contract — observed leaving two *unrelated valid* rows in the
+wrong order, not merely misplacing the bad one.
+
+```ts
+function recencyOf(t: SortableThread): number {
+  const at = (t.lastMessageAt ?? t.createdAt)?.getTime();
+  // An invalid date must not poison the comparator: NaN makes the whole sort
+  // undefined, and it was observed reordering two perfectly good rows. Sinking
+  // the bad row is wrong-but-deterministic, which is strictly better.
+  return Number.isFinite(at) ? (at as number) : -Infinity;
+}
+```
+
+**3. A malformed `threadId` silently reattached the turn.** Any non-UUID
+`threadId` fell through to the `thesisId` branch — indistinguishable from a
+pre-threads client. Since Task 12 wires this into `/send` and `/stream`, and
+`newestForThesis` *creates a thread on demand*, a client bug would have landed
+the message in a conversation the student wasn't looking at, invisibly.
+
+```ts
+export function resolveThreadRequest(body: { threadId?: unknown; thesisId?: unknown }): ThreadResolution {
+  if (isUuid(body.threadId)) return { kind: "thread", threadId: body.threadId };
+  // A threadId that was SENT but is malformed is a client bug, not an old
+  // client. Falling through to newestForThesis would hand the turn to a
+  // different conversation — and create one on demand — so the fault would
+  // never surface. Absent (or explicitly null) is the only "pre-threads app"
+  // signal we honour.
+  if (body.threadId !== undefined && body.threadId !== null) return { kind: "invalid" };
+  if (isUuid(body.thesisId)) return { kind: "newestForThesis", thesisId: body.thesisId };
+  return { kind: "invalid" };
+}
+```
+
+**4. The query-length floor was measured after folding.** "بِ" is two keystrokes
+but folds to one character, so it was rejected as "too short".
+
+```ts
+export function foldSearchQuery(q: unknown): string | null {
+  if (typeof q !== "string") return null;
+  const folded = foldText(q).replace(/\s+/g, " ").trim();
+  if (!folded) return null;
+  // Measure the floor against what the STUDENT typed, not what folding left
+  // behind: Arabic tashkeel can halve the length of a perfectly ordinary word.
+  return Array.from(q.trim()).length >= MIN_QUERY_CHARS ? folded : null;
+}
+```
+
+**5. Snippets cut words in half.** Both edges now snap to a word boundary,
+never past the match, sharing a `snapToWord` helper with the not-found path.
+
+```ts
+export function searchSnippet(searchText: string, folded: string, radius = 80): string {
+  if (!searchText) return "";
+  const at = folded ? searchText.indexOf(folded) : -1;
+  if (at === -1) {
+    if (searchText.length <= radius * 2) return searchText;
+    return snapToWord(searchText, radius * 2) + "…";
+  }
+  let start = Math.max(0, at - radius);
+  let end = Math.min(searchText.length, at + folded.length + radius);
+  // Don't hand the UI half a word at either edge — but never clip the match.
+  if (start > 0) {
+    const sp = searchText.indexOf(" ", start);
+    if (sp !== -1 && sp < at) start = sp + 1;
+  }
+  if (end < searchText.length) {
+    const sp = searchText.lastIndexOf(" ", end);
+    if (sp > at + folded.length) end = sp;
+  }
+  const body = searchText.slice(start, end).trim();
+  return `${start > 0 ? "…" : ""}${body}${end < searchText.length ? "…" : ""}`;
+}
+
+/** Head of `s` up to `max`, backed off to the last word boundary when that
+ *  doesn't throw away more than half the window. */
+function snapToWord(s: string, max: number): string {
+  const cut = s.slice(0, max);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > max / 2 ? cut.slice(0, sp) : cut).trimEnd();
+}
+```
+
+Add five tests — one per defect — to the matching `describe` blocks:
+
+```ts
+  it("does not split an emoji when truncating — a lone surrogate is not valid UTF-8", () => {
+    const out = fallbackTitle("a".repeat(58) + "😀" + "b".repeat(20));
+    expect(Buffer.from(out, "utf8").toString("utf8")).toBe(out);
+    expect(() => encodeURIComponent(out)).not.toThrow();
+  });
+
+  it("caps a title at 200 code points without splitting an emoji", () => {
+    const out = sanitizeThreadPatch({ title: "x".repeat(199) + "😀" + "y".repeat(50) }, new Date());
+    expect(Buffer.from(out!.title!, "utf8").toString("utf8")).toBe(out!.title);
+  });
+
+  it("keeps ordering deterministic when a date is invalid", () => {
+    const rows = [
+      { id: "valid-old", pinned: false, lastMessageAt: new Date("2026-08-01T10:00:00Z"), createdAt: new Date("2026-08-01T09:00:00Z") },
+      { id: "bad", pinned: false, lastMessageAt: new Date("nonsense"), createdAt: new Date("2026-08-05T09:00:00Z") },
+      { id: "valid-newer", pinned: false, lastMessageAt: new Date("2026-08-09T10:00:00Z"), createdAt: new Date("2026-08-09T09:00:00Z") },
+    ];
+    // The two GOOD rows must still be ordered correctly relative to each other.
+    const ids = sortThreads(rows).map((r) => r.id);
+    expect(ids.indexOf("valid-newer")).toBeLessThan(ids.indexOf("valid-old"));
+    expect(ids[ids.length - 1]).toBe("bad");
+  });
+
+  it("REJECTS a malformed threadId instead of silently falling back to the thesis", () => {
+    expect(resolveThreadRequest({ threadId: "not-a-uuid", thesisId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }))
+      .toEqual({ kind: "invalid" });
+  });
+
+  it("accepts a two-character Arabic query that folds down to one", () => {
+    expect(foldSearchQuery("بِ")).toBe("ب");
+  });
+```
+
+- [ ] **Verify and commit**
+
+`npm test -- chat-threads` → 47 passing. `npm test` → 955 / 84 files.
+`npx tsc --noEmit` → exit 0. And the purity check must still hold:
+
+```bash
+env -i PATH="$PATH" HOME="$HOME" npx tsx -e 'import("./src/lib/chat-threads.ts").then(()=>console.log("OK"))'
 ```
 
 ---
@@ -1491,7 +1656,7 @@ export function backfillThreadRow(g: BackfillGroup): BackfillThreadRow {
 npm test -- chat-threads
 ```
 
-Expected: PASS, 48 tests total.
+Expected: PASS, 52 tests total.
 
 - [ ] **Step 5: Write the backfill script**
 
@@ -1982,7 +2147,7 @@ conversation lands in the wrong place.
 
 ## Done when
 
-- `npm test` passes, including 48 new tests in `chat-threads.test.ts`.
+- `npm test` passes, including 52 new tests in `chat-threads.test.ts`.
 - `npx tsc --noEmit` is clean.
 - `scripts/probe-chat-threads.ts` reports `ALL CHECKS PASSED`.
 - The backfill is idempotent — a second run reports zero work.
