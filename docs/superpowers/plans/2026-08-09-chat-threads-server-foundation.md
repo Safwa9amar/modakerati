@@ -1040,80 +1040,91 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 7: Generate the migration, add the GIN index by hand, apply locally
+## Task 7: Hand-write the migration and apply it
 
-⚠️ **`ensureSchema` is dead on prod** — `templates` hit Postgres's 1600-column
-ceiling, so `ensureSchema` aborts on every boot and nothing inside it runs. None
-of this DDL may go there. Drizzle owns it.
+⚠️ **Do not use `drizzle-kit` on this database.** This was tried and the output
+was unusable. `drizzle-kit generate` diffs against `drizzle/meta`, and that
+snapshot is a long way behind reality: `ai_turn_trace`, `ai_turn_outcome`,
+`ai_missing_tool_log` and `divider_templates` were all created by `ensureSchema`'s
+raw SQL, never by a migration. So `generate` emits `CREATE TABLE` for four tables
+that already exist, plus `ADD COLUMN` for `profiles.staff_role` and
+`pending_tool_actions.turn_id` which also already exist. It fails on the first
+statement. `push` is worse — it would try to reconcile the entire drift.
 
-- [ ] **Step 1: Generate the migration**
-
-```bash
-npx drizzle-kit generate
-```
-
-Expected: a new file under `drizzle/`, e.g. `0001_<name>.sql`, containing
-`CREATE TABLE "chat_threads"`, the `ALTER TABLE "chat_messages"` statements, the
-`chat_summaries` changes, and the three `CREATE INDEX` statements.
-
-- [ ] **Step 2: Read the generated SQL and check three things**
-
-```bash
-cat drizzle/0001_*.sql
-```
-
-Confirm, and stop to fix if any is wrong:
-1. It does **not** touch `templates`. That table sits on Postgres's column ceiling
-   and any ALTER against it can fail the whole migration.
-2. `chat_messages.thesis_id` is altered to **DROP NOT NULL**, not dropped.
-3. `chat_summaries` loses its UNIQUE on `thesis_id`. If drizzle didn't emit that,
-   add it by hand — the constraint name is Postgres's default for a column-level
-   UNIQUE but the table was created by `ensureSchema`, so verify it:
-   ```bash
-   psql "$DATABASE_URL" -c "\d chat_summaries"
-   ```
-
-- [ ] **Step 3: Append the statements Drizzle cannot express**
-
-Add to the end of `drizzle/0001_*.sql`:
+⚠️ **`ensureSchema` is dead on prod, and this is why.** `templates` has 16 live
+columns but sits at **attnum 1600/1600** — Postgres's hard per-table ceiling,
+which counts dropped columns. One more `ADD COLUMN` there breaks the boot path
+again. Verify before touching anything:
 
 ```sql
---> statement-breakpoint
--- Full-text index for chat search. 'simple' rather than a language config: the
--- corpus is trilingual (en/fr/ar) and no single stemmer serves all three, so we
--- tokenize without stemming and rely on buildSearchText's folding instead.
--- Indexed over search_text, NEVER content — content carries [[MODK_IMG]] and
--- [[MODK_FILE]] frames whose payloads would bloat the index and match nothing
--- a student would ever type.
-CREATE INDEX IF NOT EXISTS idx_chat_messages_search
-  ON chat_messages USING GIN (to_tsvector('simple', coalesce(search_text, '')));
---> statement-breakpoint
--- Declared here rather than in norm-profiles.ts: that file does not import
--- schema.ts, and adding the import to express this FK would create a cycle.
-ALTER TABLE chat_summaries
-  ADD CONSTRAINT chat_summaries_thread_id_fk
-  FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE;
+SELECT count(*) FILTER (WHERE NOT attisdropped) AS live, max(attnum)
+FROM pg_attribute WHERE attrelid = 'templates'::regclass AND attnum > 0;
 ```
 
-- [ ] **Step 4: Apply against the LOCAL database and verify**
+- [ ] **Step 1: Introspect the live database first**
+
+Never guess a constraint name. Confirm what is actually there:
+
+```sql
+SELECT table_name FROM information_schema.tables
+ WHERE table_schema='public'
+   AND table_name IN ('chat_threads','ai_turn_trace','divider_templates');
+SELECT conname FROM pg_constraint WHERE conrelid='chat_summaries'::regclass;
+SELECT column_name FROM information_schema.columns WHERE table_name='chat_messages';
+```
+
+- [ ] **Step 2: Write `sql/2026-08-09-chat-threads.sql`**
+
+Hand-written, chat-threads only, wrapped in `BEGIN`/`COMMIT` so it is
+all-or-nothing. Every statement guarded (`IF NOT EXISTS`, or a `DO $$` block
+checking `pg_constraint`) so a re-run is a no-op. Constraint and index names
+follow drizzle's own convention (`chat_messages_thread_id_chat_threads_id_fk`,
+`chat_summaries_thread_id_unique`) so a future `generate` reads them as present
+rather than as more drift.
+
+The file is committed in the repo — read it there rather than reproducing it
+here. It creates `chat_threads` with its two indexes, adds `thread_id` and
+`search_text` to `chat_messages` and drops that table's `thesis_id` NOT NULL,
+adds the thread FK and the `(thread_id, created_at)` index, creates the GIN
+index over `to_tsvector('simple', coalesce(search_text,''))`, and moves
+`chat_summaries` onto `thread_id` with a UNIQUE and a cascading FK.
+
+- [ ] **Step 3: Apply it**
 
 ```bash
-npx drizzle-kit push
-psql "$DATABASE_URL" -c "\d chat_threads"
-psql "$DATABASE_URL" -c "\d chat_messages"
+node -e "
+require('dotenv').config();
+const fs=require('fs'), pg=require('pg');
+const c=new pg.Client({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});
+(async()=>{ await c.connect();
+  try{ await c.query(fs.readFileSync('sql/2026-08-09-chat-threads.sql','utf8')); console.log('APPLIED OK'); }
+  catch(e){ console.log('FAILED:', e.message); process.exitCode=1; }
+  await c.end(); })();
+"
 ```
 
-Expected: `chat_threads` exists with all nine columns; `chat_messages` shows
-`thread_id`, `search_text`, and `thesis_id` **without** `not null`.
+This is safe to run against production **before** the new server code ships: it
+is purely additive — one new table, two nullable columns, three constraint
+relaxations — and the currently deployed code neither reads nor writes any of it.
+
+- [ ] **Step 4: Verify what actually landed**
+
+Confirm `chat_threads` has all nine columns; `chat_messages` has `thread_id` and
+`search_text` with `thesis_id` now nullable; `chat_summaries` carries
+`chat_summaries_thread_id_unique` and `chat_summaries_thread_id_fk` and no longer
+`chat_summaries_thesis_id_unique`; `idx_chat_messages_search` exists; **`templates`
+max attnum is still 1600**; and the message count is unchanged.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add drizzle/
-git commit -m "feat(db): migration for chat_threads + search index
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+git add sql/2026-08-09-chat-threads.sql
+git commit -m "feat(db): hand-written chat-threads migration, applied"
 ```
+
+Leave `drizzle/meta` alone. The snapshot stays stale by choice — reconciling it
+would mean teaching drizzle about years of `ensureSchema` drift, which is a
+separate job and not one to do underneath a feature branch.
 
 ---
 

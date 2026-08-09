@@ -138,9 +138,18 @@ The path is:
 
 1. `chat_threads` added to `src/db/schema.ts`; the `chat_summaries` changes to
    `src/db/norm-profiles.ts` — both are already in `drizzle.config.ts`'s schema list.
-2. `drizzle-kit push`. **Review the generated plan before applying to prod.**
-   Push diffs the whole schema and `templates` is the table sitting on the column
-   ceiling; if the plan touches it, hand-write the SQL instead.
+2. A **hand-written** `sql/2026-08-09-chat-threads.sql`, not `drizzle-kit`.
+   This was tried and the output was unusable: drizzle's snapshot is years behind
+   the live database, because `ai_turn_trace`, `ai_turn_outcome`,
+   `ai_missing_tool_log` and `divider_templates` were all created by
+   `ensureSchema`'s raw SQL rather than by migrations. `generate` therefore emits
+   `CREATE TABLE` for four tables that already exist and `ADD COLUMN` for two
+   columns that already exist, and fails on its first statement; `push` would try
+   to reconcile the entire drift. The hand-written file touches chat threads
+   only, is wrapped in a transaction, and guards every statement so a re-run is a
+   no-op. Confirmed while doing this: `templates` has 16 live columns but sits at
+   **attnum 1600/1600**, the hard ceiling — which is precisely why `ensureSchema`
+   aborts, and why nothing may touch that table.
 3. `scripts/backfill-chat-threads.ts`, following the existing `backfill-*.ts`
    convention.
 
