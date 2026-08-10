@@ -29,7 +29,32 @@ Plans 1–2 are done and live: threads, the history panel, auto-titling, search/
 
 "Which tools work without a document?" could be a hand-maintained deny-list. It should not be: every new doc tool would have to remember to join it, and the one that forgets leaks a crash into unattached chat.
 
-The tools already declare what they need. `connectMcpToolset` builds `injectsFor` — a map of which tools declare each injected parameter, including `thesisId`. **A tool that declares `thesisId` needs a thesis.** That is the rule, it maintains itself, and a new doc tool is covered the day it is written.
+The tools already declare what they need, in their own schemas. **A tool that
+declares a thesis-scoped parameter needs a thesis.** That rule maintains itself,
+and a doc tool written tomorrow is covered the day it lands.
+
+⚠️ **`thesisId` alone is not enough** — found by dumping the real tool list.
+Checking only for a declared `thesisId` still left an unattached chat holding
+`delete_chapter`, `delete_section`, `update_chapter_content`, `delete_reference`
+and the source readers, because those are scoped by `sectionId` / `chapterId` /
+`referenceId` / `sourceId` instead. Not a security hole — the handlers verify
+ownership — but it made the whole premise of this plan untrue.
+
+So the maintained thing is a short list of **parameter names**:
+
+```ts
+export const THESIS_SCOPED_PARAMS = ["thesisId", "sectionId", "chapterId", "referenceId", "sourceId"] as const;
+```
+
+That is still schema-derived, and it is a very different maintenance burden from
+a list of tool names: the catalogue grows constantly, this vocabulary barely
+moves. `templateId` is deliberately excluded — templates are a shared catalogue,
+not one student's document, so `get_template` and `list_templates` are useful in
+a plain chat.
+
+The nine tools that should survive in an unattached chat: `list_theses`,
+`create_thesis`, `ask_user`, `ask_user_with_previews`, `notify_user`,
+`list_templates`, `get_template`, `get_user_profile`, `update_user_profile`.
 
 ---
 
@@ -125,7 +150,7 @@ Replace the inline `isVisible` with a call to `isToolVisible`. The bridge alread
 
 - [ ] **Step 5: Verify + commit**
 
-`npm test` → 976 / 86 files. `npx tsc --noEmit` clean.
+`npm test` → 979 / 86 files. `npx tsc --noEmit` clean.
 
 ```bash
 git add src/lib/ai/tool-visibility.ts src/lib/ai/mcp-tool-sets.ts src/lib/ai/mcp-bridge.ts src/__tests__/tool-visibility.test.ts
