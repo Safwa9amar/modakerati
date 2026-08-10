@@ -96,10 +96,6 @@ function getDb(): Promise<SQLite.SQLiteDatabase> {
 function rowToMessage(r: MessageRow): ChatMessage {
   return {
     id: r.id,
-    // `ChatMessage.thesisId` hasn't been renamed to `threadId` yet — that lands
-    // with the rest of the app's thread plumbing. This cast is temporary; once
-    // that rename lands the object below matches `ChatMessage` structurally and
-    // the cast comes out.
     threadId: r.thread_id,
     role: r.role as ChatMessage["role"],
     content: r.content,
@@ -108,7 +104,7 @@ function rowToMessage(r: MessageRow): ChatMessage {
     pending: r.pending === 1 ? true : undefined,
     failed: r.failed === 1 ? true : undefined,
     createdAt: r.created_at,
-  } as unknown as ChatMessage;
+  };
 }
 
 // A paginated read result: the page in chronological (oldest→newest) order, plus

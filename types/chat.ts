@@ -1,6 +1,6 @@
 export interface ChatMessage {
   id: string;
-  thesisId: string;
+  threadId: string;
   role: "user" | "assistant";
   content: string;
   chapterId?: string;

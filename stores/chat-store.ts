@@ -23,19 +23,19 @@ const IDLE_TURN = {
 const EMPTY_TOOL_TRACE: ToolTracePayload[] = [];
 
 // Stamp the end of reasoning on `id` wherever it lives. Stop is a global control
-// with no thesis in hand, so the bubble is found by id across the loaded
+// with no thread in hand, so the bubble is found by id across the loaded
 // windows; one whose clock never started or already stopped is left alone.
 function stampThinkingEnded(
   messages: Record<string, ChatMessage[]>,
   id: string,
 ): Record<string, ChatMessage[]> {
-  for (const [thesisId, list] of Object.entries(messages)) {
+  for (const [threadId, list] of Object.entries(messages)) {
     const target = list.find((m) => m.id === id);
     if (!target) continue;
     if (!target.thinkingStartedAt || target.thinkingEndedAt) return messages;
     return {
       ...messages,
-      [thesisId]: list.map((m) => (m.id === id ? { ...m, thinkingEndedAt: new Date().toISOString() } : m)),
+      [threadId]: list.map((m) => (m.id === id ? { ...m, thinkingEndedAt: new Date().toISOString() } : m)),
     };
   }
   return messages;
@@ -59,9 +59,9 @@ const DUPLICATE_WINDOW_MS = 60_000;
 export type GeneratingPhase = "idle" | "thinking" | "writing";
 
 interface ChatState {
-  messages: Record<string, ChatMessage[]>; // keyed by thesisId — the loaded window, oldest→newest
+  messages: Record<string, ChatMessage[]>; // keyed by threadId — the loaded window, oldest→newest
   // Infinite scroll: whether earlier messages exist before the loaded window, and
-  // whether an older page is currently being fetched. Both keyed by thesisId.
+  // whether an older page is currently being fetched. Both keyed by threadId.
   hasMoreOlder: Record<string, boolean>;
   loadingOlder: Record<string, boolean>;
   isGenerating: boolean;
@@ -89,25 +89,28 @@ interface ChatState {
   // the UI reading it renders nothing at all rather than a translated fallback.
   toolTrace: ToolTracePayload[];
   // Last AI turn's doc changes per thesis → drives the "Undo AI changes" chip.
+  // Deliberately keyed by thesisId, not threadId: the checkpoint belongs to
+  // the DOCUMENT, and two threads editing the same thesis must share it. Do not
+  // "fix" this to match the rest of the store.
   docChanges: Record<string, DocChangesPayload | null>;
 
-  getMessages: (thesisId: string) => ChatMessage[];
-  setMessages: (thesisId: string, messages: ChatMessage[]) => void;
+  getMessages: (threadId: string) => ChatMessage[];
+  setMessages: (threadId: string, messages: ChatMessage[]) => void;
   // Insert an older page at the FRONT of the loaded window (deduped by id).
-  prependMessages: (thesisId: string, older: ChatMessage[]) => void;
-  getHasMoreOlder: (thesisId: string) => boolean;
-  setHasMoreOlder: (thesisId: string, value: boolean) => void;
-  getLoadingOlder: (thesisId: string) => boolean;
-  setLoadingOlder: (thesisId: string, value: boolean) => void;
-  addMessage: (thesisId: string, role: "user" | "assistant", content: string, opts?: { chapterId?: string; pending?: boolean; images?: ChatImage[] }) => string;
+  prependMessages: (threadId: string, older: ChatMessage[]) => void;
+  getHasMoreOlder: (threadId: string) => boolean;
+  setHasMoreOlder: (threadId: string, value: boolean) => void;
+  getLoadingOlder: (threadId: string) => boolean;
+  setLoadingOlder: (threadId: string, value: boolean) => void;
+  addMessage: (threadId: string, role: "user" | "assistant", content: string, opts?: { chapterId?: string; pending?: boolean; images?: ChatImage[] }) => string;
   /** Mark (or clear) a message as a send whose turn never completed. */
-  setMessageFailed: (thesisId: string, id: string, failed: boolean) => void;
+  setMessageFailed: (threadId: string, id: string, failed: boolean) => void;
   /** The most recent user message, for the failed-send retry. */
-  getLastUserMessage: (thesisId: string) => ChatMessage | undefined;
-  appendToMessage: (thesisId: string, id: string, chunk: string) => void;
-  appendToThinking: (thesisId: string, id: string, chunk: string) => void;
-  markThinkingEnded: (thesisId: string, id: string) => void;
-  addFileToMessage: (thesisId: string, id: string, file: FilePayload) => void;
+  getLastUserMessage: (threadId: string) => ChatMessage | undefined;
+  appendToMessage: (threadId: string, id: string, chunk: string) => void;
+  appendToThinking: (threadId: string, id: string, chunk: string) => void;
+  markThinkingEnded: (threadId: string, id: string) => void;
+  addFileToMessage: (threadId: string, id: string, file: FilePayload) => void;
   setGenerating: (generating: boolean) => void;
   // Turn ownership. `beginTurn` claims the generating state and returns the
   // token the caller must carry; `isTurnActive` gates every write the turn makes;
@@ -124,9 +127,10 @@ interface ChatState {
   /** Record a tool frame: a "running" row is appended, its terminal frame updates
    *  that same row in place (matched on id). */
   pushToolTrace: (tool: ToolTracePayload) => void;
+  /** thesisId, not threadId — see the `docChanges` field comment. */
   setDocChanges: (thesisId: string, changes: DocChangesPayload | null) => void;
   stopGenerating: () => void;
-  clearMessages: (thesisId: string) => void;
+  clearMessages: (threadId: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -146,31 +150,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
   toolTrace: EMPTY_TOOL_TRACE,
   docChanges: {},
 
-  getMessages: (thesisId) => get().messages[thesisId] ?? EMPTY_MESSAGES,
+  getMessages: (threadId) => get().messages[threadId] ?? EMPTY_MESSAGES,
 
-  setMessages: (thesisId, messages) =>
-    set((s) => ({ messages: { ...s.messages, [thesisId]: messages } })),
+  setMessages: (threadId, messages) =>
+    set((s) => ({ messages: { ...s.messages, [threadId]: messages } })),
 
   // Prepend an older page, skipping any ids already loaded. `older` is
   // chronological and strictly older than the current window, so front-concat
   // keeps the whole list ordered oldest→newest.
-  prependMessages: (thesisId, older) =>
+  prependMessages: (threadId, older) =>
     set((s) => {
-      const existing = s.messages[thesisId] ?? [];
+      const existing = s.messages[threadId] ?? [];
       const have = new Set(existing.map((m) => m.id));
       const fresh = older.filter((m) => !have.has(m.id));
       if (fresh.length === 0) return s;
-      return { messages: { ...s.messages, [thesisId]: [...fresh, ...existing] } };
+      return { messages: { ...s.messages, [threadId]: [...fresh, ...existing] } };
     }),
 
-  getHasMoreOlder: (thesisId) => get().hasMoreOlder[thesisId] ?? false,
-  setHasMoreOlder: (thesisId, value) =>
-    set((s) => (s.hasMoreOlder[thesisId] === value ? s : { hasMoreOlder: { ...s.hasMoreOlder, [thesisId]: value } })),
-  getLoadingOlder: (thesisId) => get().loadingOlder[thesisId] ?? false,
-  setLoadingOlder: (thesisId, value) =>
-    set((s) => (s.loadingOlder[thesisId] === value ? s : { loadingOlder: { ...s.loadingOlder, [thesisId]: value } })),
+  getHasMoreOlder: (threadId) => get().hasMoreOlder[threadId] ?? false,
+  setHasMoreOlder: (threadId, value) =>
+    set((s) => (s.hasMoreOlder[threadId] === value ? s : { hasMoreOlder: { ...s.hasMoreOlder, [threadId]: value } })),
+  getLoadingOlder: (threadId) => get().loadingOlder[threadId] ?? false,
+  setLoadingOlder: (threadId, value) =>
+    set((s) => (s.loadingOlder[threadId] === value ? s : { loadingOlder: { ...s.loadingOlder, [threadId]: value } })),
 
-  addMessage: (thesisId, role, content, opts) => {
+  addMessage: (threadId, role, content, opts) => {
     // Re-sending the same question must not stack up another bubble.
     //
     // A student whose turn dies silently types the same thing again — three
@@ -184,7 +188,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Attached images are exempt: sending the same photo again with the same
     // caption ("and this one?") is a deliberate second message, not the
     // frozen-turn double-tap this guard exists for.
-    const existing = get().messages[thesisId] ?? [];
+    const existing = get().messages[threadId] ?? [];
     if (content && !opts?.images?.length) {
       const last = existing[existing.length - 1];
       if (last && last.role === role && last.content === content && !last.images?.length) {
@@ -196,58 +200,58 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({
       messages: {
         ...s.messages,
-        [thesisId]: [
-          ...(s.messages[thesisId] ?? []),
-          { id, thesisId, role, content, chapterId: opts?.chapterId, pending: opts?.pending, images: opts?.images, createdAt: new Date().toISOString() },
+        [threadId]: [
+          ...(s.messages[threadId] ?? []),
+          { id, threadId, role, content, chapterId: opts?.chapterId, pending: opts?.pending, images: opts?.images, createdAt: new Date().toISOString() },
         ],
       },
     }));
     return id;
   },
 
-  setMessageFailed: (thesisId, id, failed) =>
+  setMessageFailed: (threadId, id, failed) =>
     set((s) => {
-      const list = s.messages[thesisId];
+      const list = s.messages[threadId];
       if (!list) return s;
       return {
         messages: {
           ...s.messages,
           // New object for the target so the memoized bubble re-renders into
           // (or out of) its failed state.
-          [thesisId]: list.map((m) => (m.id === id ? { ...m, failed } : m)),
+          [threadId]: list.map((m) => (m.id === id ? { ...m, failed } : m)),
         },
       };
     }),
 
-  getLastUserMessage: (thesisId) => {
-    const list = get().messages[thesisId] ?? [];
+  getLastUserMessage: (threadId) => {
+    const list = get().messages[threadId] ?? [];
     for (let i = list.length - 1; i >= 0; i--) if (list[i].role === "user") return list[i];
     return undefined;
   },
 
-  appendToMessage: (thesisId, id, chunk) =>
+  appendToMessage: (threadId, id, chunk) =>
     set((s) => {
-      const list = s.messages[thesisId];
+      const list = s.messages[threadId];
       if (!list) return s;
       return {
         lastEventAt: Date.now(),
         messages: {
           ...s.messages,
           // New object for the target message so memoized bubbles re-render.
-          [thesisId]: list.map((m) => (m.id === id ? { ...m, content: m.content + chunk } : m)),
+          [threadId]: list.map((m) => (m.id === id ? { ...m, content: m.content + chunk } : m)),
         },
       };
     }),
 
-  appendToThinking: (thesisId, id, chunk) =>
+  appendToThinking: (threadId, id, chunk) =>
     set((s) => {
-      const list = s.messages[thesisId];
+      const list = s.messages[threadId];
       if (!list) return s;
       return {
         lastEventAt: Date.now(),
         messages: {
           ...s.messages,
-          [thesisId]: list.map((m) =>
+          [threadId]: list.map((m) =>
             m.id === id
               ? {
                   ...m,
@@ -261,15 +265,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
-  addFileToMessage: (thesisId, id, file) =>
+  addFileToMessage: (threadId, id, file) =>
     set((s) => {
-      const list = s.messages[thesisId];
+      const list = s.messages[threadId];
       if (!list) return s;
       return {
         lastEventAt: Date.now(),
         messages: {
           ...s.messages,
-          [thesisId]: list.map((m) => {
+          [threadId]: list.map((m) => {
             if (m.id !== id) return m;
             // Dedupe by url so a re-export / replayed frame doesn't double the card.
             if (m.files?.some((f) => f.url === file.url)) return m;
@@ -341,14 +345,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       next[at] = { ...next[at], ...tool };
       return { toolTrace: next, lastEventAt };
     }),
+  // thesisId, not threadId — see the `docChanges` field comment above.
   setDocChanges: (thesisId, changes) =>
     set((s) => ({ docChanges: { ...s.docChanges, [thesisId]: changes } })),
   // Stamp when reasoning ended. Idempotent: only stamps if thinking actually
   // started and the end isn't already set. Called at the first answer token and
   // again in ai-service's finally (covers tool-only turns and aborts).
-  markThinkingEnded: (thesisId, id) =>
+  markThinkingEnded: (threadId, id) =>
     set((s) => {
-      const list = s.messages[thesisId];
+      const list = s.messages[threadId];
       if (!list) return s;
       let changed = false;
       const next = list.map((m) => {
@@ -356,7 +361,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         changed = true;
         return { ...m, thinkingEndedAt: new Date().toISOString() };
       });
-      return changed ? { messages: { ...s.messages, [thesisId]: next } } : s;
+      return changed ? { messages: { ...s.messages, [threadId]: next } } : s;
     }),
   // Cancel the in-flight AI turn. Stop is the user's escape hatch, so it must be
   // unconditional: the chat goes idle HERE, in the same tick as the tap, and the
@@ -379,10 +384,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: streamingId ? stampThinkingEnded(s.messages, streamingId) : s.messages,
     }));
   },
-  clearMessages: (thesisId) =>
+  clearMessages: (threadId) =>
     set((s) => {
       const msgs = { ...s.messages };
-      delete msgs[thesisId];
+      delete msgs[threadId];
       return { messages: msgs };
     }),
 }));

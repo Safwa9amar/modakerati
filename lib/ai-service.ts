@@ -1,4 +1,5 @@
 import { useChatStore } from "@/stores/chat-store";
+import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useOutlineStore } from "@/stores/outline-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
@@ -14,10 +15,10 @@ const INITIAL_PAGE_SIZE = 5;
 const OLDER_PAGE_SIZE = 20;
 
 // Map a raw server chat row into the app's ChatMessage shape.
-function mapServerMessages(rows: any[], thesisId: string): ChatMessage[] {
+function mapServerMessages(rows: any[], threadId: string): ChatMessage[] {
   return (rows ?? []).map((m: any) => ({
     id: m.id,
-    thesisId,
+    threadId,
     role: m.role,
     content: m.content,
     chapterId: m.chapterId ?? undefined,
@@ -97,7 +98,7 @@ interface StreamPump {
  * exactly like the direct ones were, so a stopped turn's tail is discarded
  * rather than typed into the chat the student already moved on from.
  */
-function createStreamPump(thesisId: string, live: () => boolean): StreamPump {
+function createStreamPump(threadId: string, live: () => boolean): StreamPump {
   let target: string | null = null; // the bubble the buffers belong to
   let content = "";
   let think = "";
@@ -119,8 +120,8 @@ function createStreamPump(thesisId: string, live: () => boolean): StreamPump {
     content = "";
     if (!id || (!reasoning && !answer) || !live()) return;
     const s = useChatStore.getState();
-    if (reasoning) s.appendToThinking(thesisId, id, reasoning);
-    if (answer) s.appendToMessage(thesisId, id, answer);
+    if (reasoning) s.appendToThinking(threadId, id, reasoning);
+    if (answer) s.appendToMessage(threadId, id, answer);
   };
 
   const arm = (id: string) => {
@@ -150,7 +151,7 @@ function createStreamPump(thesisId: string, live: () => boolean): StreamPump {
 }
 
 export async function sendMessageToAI(
-  thesisId: string,
+  threadId: string,
   userMessage: string,
   opts?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; images?: StagedImage[] }
 ): Promise<void> {
@@ -162,15 +163,15 @@ export async function sendMessageToAI(
   // thumbnail renders from it straight away, and the base64 (megabytes of string)
   // would otherwise sit in the store for the life of the session. The server row
   // that replaces it carries the stored URL in a [[MODK_IMG]] frame.
-  const userId = store.addMessage(thesisId, "user", userMessage, {
+  const userId = store.addMessage(threadId, "user", userMessage, {
     chapterId: opts?.chapterId,
     pending: true,
     images: opts?.images?.map(toChatImage),
   });
   // A retry of a failed send starts clean: clear the marker, and let the turn
   // below set it again if this attempt fails too.
-  store.setMessageFailed(thesisId, userId, false);
-  await runAssistantTurn(thesisId, userMessage, { ...opts, userMessageId: userId });
+  store.setMessageFailed(threadId, userId, false);
+  await runAssistantTurn(threadId, userMessage, { ...opts, userMessageId: userId });
 }
 
 /**
@@ -181,12 +182,12 @@ export async function sendMessageToAI(
  * the repeated bubbles in the first place, so the affordance that replaces it
  * must not do the same thing.
  */
-export async function retryFailedMessage(thesisId: string, messageId: string): Promise<void> {
+export async function retryFailedMessage(threadId: string, messageId: string): Promise<void> {
   const store = useChatStore.getState();
   if (store.isGenerating) return;
-  const msg = store.getMessages(thesisId).find((m) => m.id === messageId);
+  const msg = store.getMessages(threadId).find((m) => m.id === messageId);
   if (!msg || msg.role !== "user") return;
-  store.setMessageFailed(thesisId, messageId, false);
+  store.setMessageFailed(threadId, messageId, false);
   // A failed send never reached storage, so its images have to go up again — the
   // bytes are re-read from the local files the staged copies left behind. One the
   // OS has already reclaimed simply drops out: answering the question without a
@@ -194,7 +195,7 @@ export async function retryFailedMessage(thesisId: string, messageId: string): P
   const images = (await Promise.all((msg.images ?? []).map(restageImage))).filter(
     (i): i is StagedImage => i !== null,
   );
-  await runAssistantTurn(thesisId, displayText(msg), {
+  await runAssistantTurn(threadId, displayText(msg), {
     chapterId: msg.chapterId,
     sectionId: msg.sectionId,
     userMessageId: messageId,
@@ -209,11 +210,11 @@ export async function retryFailedMessage(thesisId: string, messageId: string): P
  * prompt; the user's own message is left in place. No-op while a turn is already
  * generating, or when there's no user message to answer.
  */
-export async function regenerateLastResponse(thesisId: string): Promise<void> {
+export async function regenerateLastResponse(threadId: string): Promise<void> {
   const store = useChatStore.getState();
   if (store.isGenerating) return;
 
-  const msgs = store.getMessages(thesisId);
+  const msgs = store.getMessages(threadId);
   let i = msgs.length - 1;
   while (i >= 0 && msgs[i].role !== "user") i--;
   if (i < 0) return; // nothing the user asked — nothing to regenerate
@@ -221,13 +222,13 @@ export async function regenerateLastResponse(thesisId: string): Promise<void> {
   const userMsg = msgs[i];
   // Keep up to and including the user message; discard the stale reply so the
   // new one streams into a fresh bubble.
-  store.setMessages(thesisId, msgs.slice(0, i + 1));
+  store.setMessages(threadId, msgs.slice(0, i + 1));
   // `regenerate` tells the server this question is already in its history: don't
   // save it twice, and drop the reply being replaced. It sends the PROSE only —
   // the stored row already holds the image frames, so the re-run sees the same
   // pictures without re-uploading them, and the server's "is this the same
   // question?" check compares against frame-stripped content.
-  await runAssistantTurn(thesisId, displayText(userMsg), { chapterId: userMsg.chapterId, sectionId: userMsg.sectionId, regenerate: true });
+  await runAssistantTurn(threadId, displayText(userMsg), { chapterId: userMsg.chapterId, sectionId: userMsg.sectionId, regenerate: true });
 }
 
 // What the student actually typed. A synced user row carries its attached images
@@ -242,7 +243,7 @@ function displayText(m: ChatMessage): string {
 // abort + the buffered-endpoint fallback. Shared by the initial send and
 // regenerate so both behave identically once the user turn exists.
 async function runAssistantTurn(
-  thesisId: string,
+  threadId: string,
   userMessage: string,
   opts?: {
     chapterId?: string; sectionId?: string; selection?: string;
@@ -257,6 +258,16 @@ async function runAssistantTurn(
 ): Promise<void> {
   const store = useChatStore.getState();
   store.setPendingConfirm(null);
+
+  // flushOps / the outline sync / docChanges all need the real THESIS id, not
+  // the thread id — the doc history checkpoint and the outline are per-document,
+  // shared by every thread on it (see chat-store's `docChanges` comment). Every
+  // caller of sendMessageToAI still passes a thesisId into this single
+  // parameter today (only the chat screen resolves a real threadId first) — so
+  // reusing it here is correct now, and will need a genuine second parameter
+  // once the remaining callers (BlockComposer, WorkspaceComposerSheet,
+  // block-editor, ai-dock/send.ts) are migrated to pass a resolved thread id.
+  const thesisId = threadId;
   store.setDocChanges(thesisId, null);
 
   // Lets the user cancel this turn from the UI (chat-store.stopGenerating).
@@ -305,18 +316,18 @@ async function runAssistantTurn(
   let docChanged = false;
   // Streamed text is batched through this rather than written per chunk, so the
   // JS thread stays responsive for the length of the turn (see createStreamPump).
-  const pump = createStreamPump(thesisId, live);
+  const pump = createStreamPump(threadId, live);
 
   try {
     await chatSendStream(
-      thesisId,
+      threadId,
       userMessage,
       {
         onDelta: (chunk) => {
           if (!live()) return;
           const s = useChatStore.getState();
           if (!assistantId) {
-            assistantId = s.addMessage(thesisId, "assistant", "", { pending: true });
+            assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
             s.setStreamingId(assistantId);
           }
           producedOutput = true;
@@ -325,7 +336,7 @@ async function runAssistantTurn(
             // First answer token → reasoning is over. Land the queued reasoning
             // BEFORE stamping its end, so the clock covers all of it.
             pump.flush();
-            s.markThinkingEnded(thesisId, assistantId);
+            s.markThinkingEnded(threadId, assistantId);
             s.setGeneratingPhase("writing");
           }
           pump.delta(assistantId, chunk);
@@ -348,6 +359,7 @@ async function runAssistantTurn(
           // for a stopped turn: the .docx edits already happened server-side, so
           // the student still needs the "Undo AI changes" chip for them.
           docChanged = true;
+          // thesisId, not threadId — see the alias comment above.
           useChatStore.getState().setDocChanges(thesisId, changes);
         },
         onThinking: (chunk) => {
@@ -355,7 +367,7 @@ async function runAssistantTurn(
           const s = useChatStore.getState();
           // Reasoning can arrive before any answer token — make the bubble now.
           if (!assistantId) {
-            assistantId = s.addMessage(thesisId, "assistant", "", { pending: true });
+            assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
             s.setStreamingId(assistantId);
           }
           // Only on a real change: this fires per chunk, and an unconditional set
@@ -369,18 +381,22 @@ async function runAssistantTurn(
           // A file (e.g. an export) can arrive before any answer text — ensure the
           // assistant bubble exists, then attach the card to it.
           if (!assistantId) {
-            assistantId = s.addMessage(thesisId, "assistant", "", { pending: true });
+            assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
             s.setStreamingId(assistantId);
           }
           producedOutput = true; // a file card alone is a valid answer (e.g. an export)
           pump.flush(); // the card belongs under the text that announced it
-          s.addFileToMessage(thesisId, assistantId, file);
+          s.addFileToMessage(threadId, assistantId, file);
         },
         // Developer trace only (server-side AI_SHOW_TOOLS): NOT producedOutput —
         // running tools is not an answer to the student.
         onTool: (tool) => {
           if (!live()) return;
           useChatStore.getState().pushToolTrace(tool);
+        },
+        // Fires at most once, when this thread gets its first generated title.
+        onTitle: ({ threadId: titledId, title }) => {
+          useChatThreadsStore.getState().applyTitle(titledId, title);
         },
       },
       { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, attachments: opts?.images?.map(toAttachment), signal: controller.signal }
@@ -396,8 +412,8 @@ async function runAssistantTurn(
     // chat's Regenerate affordance keys off.
     if (!producedOutput && live()) {
       const note = emptyTurnNote(docChanged);
-      if (assistantId) store.appendToMessage(thesisId, assistantId, note);
-      else store.addMessage(thesisId, "assistant", note, { pending: true });
+      if (assistantId) store.appendToMessage(threadId, assistantId, note);
+      else store.addMessage(threadId, "assistant", note, { pending: true });
     }
   } catch (error: any) {
     // User tapped Stop (or a newer turn took over) — keep whatever streamed so
@@ -415,19 +431,20 @@ async function runAssistantTurn(
     if (!assistantId && (error?.status === 404 || error?.status === 405)) {
       try {
         store.setGeneratingPhase("thinking");
-        const result = await chatSend(thesisId, userMessage, { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, attachments: opts?.images?.map(toAttachment) });
+        const result = await chatSend(threadId, userMessage, { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, attachments: opts?.images?.map(toAttachment) });
         // The buffered endpoint takes no signal, so Stop can't cut it short —
         // it can only be ignored. Drop the whole reply rather than dumping it
         // into a chat the student already walked away from.
         if (!live()) return;
-        const id = store.addMessage(thesisId, "assistant", result.response || emptyTurnNote(!!result.docChanges), { pending: true });
+        const id = store.addMessage(threadId, "assistant", result.response || emptyTurnNote(!!result.docChanges), { pending: true });
         // Mirror the streaming path: surface any file cards and open the ask sheet.
-        result.files?.forEach((f) => store.addFileToMessage(thesisId, id, f));
+        result.files?.forEach((f) => store.addFileToMessage(threadId, id, f));
         if (result.ask) store.setPendingAsk(result.ask);
         if (result.confirmAction) store.setPendingConfirm(result.confirmAction);
         // Mark the turn as having edited the .docx, exactly as the streaming
         // path's onDocChanges does — the outer finally reads this to decide
-        // whether the outline needs re-syncing.
+        // whether the outline needs re-syncing. thesisId, not threadId — see
+        // the alias comment above.
         if (result.docChanges) { docChanged = true; store.setDocChanges(thesisId, result.docChanges); }
         return;
       } catch (fallbackError: any) {
@@ -439,13 +456,13 @@ async function runAssistantTurn(
     // answer: a user bubble that looks identical to a delivered one is what
     // makes a student type the same request again — three times, in the case
     // this was written for. The Retry on that bubble re-runs THIS row.
-    if (opts?.userMessageId) store.setMessageFailed(thesisId, opts.userMessageId, true);
+    if (opts?.userMessageId) store.setMessageFailed(threadId, opts.userMessageId, true);
 
     const note = `Sorry, I couldn't process your message. ${error.message || "Please try again."}`;
     if (assistantId) {
-      store.appendToMessage(thesisId, assistantId, `\n\n_${note}_`);
+      store.appendToMessage(threadId, assistantId, `\n\n_${note}_`);
     } else {
-      store.addMessage(thesisId, "assistant", note, { pending: true });
+      store.addMessage(threadId, "assistant", note, { pending: true });
     }
   } finally {
     // Nothing may write into the chat after the turn ends: every path above has
@@ -454,16 +471,17 @@ async function runAssistantTurn(
     pump.cancel();
     // Covers turns that end with no answer text (tool-only actions) or a mid-think
     // abort — markThinkingEnded is a no-op if reasoning never started or already ended.
-    if (assistantId) store.markThinkingEnded(thesisId, assistantId);
+    if (assistantId) store.markThinkingEnded(threadId, assistantId);
     // Ownership-checked: a turn the user stopped may only unwind here long after
     // the next one started, and must not idle THAT one's chat.
     store.endTurn(turnId);
     // The turn's tools may have added or promoted headings — refresh the outline
-    // wherever the student is, not only in the workspace screen.
+    // wherever the student is, not only in the workspace screen. thesisId, not
+    // threadId — see the alias comment above.
     syncOutlineAfterTurn(thesisId, docChanged);
     // Persist the new turn to the device so it survives restarts and shows
     // instantly next time. Server-id reconciliation happens on the next open.
-    await persistCache(thesisId);
+    await persistCache(threadId);
   }
 }
 
@@ -473,33 +491,33 @@ async function runAssistantTurn(
 // never shown as if it had been sent.
 const STALE_PENDING_MS = 10 * 60 * 1000;
 
-export async function loadInitialMessages(thesisId: string) {
+export async function loadInitialMessages(threadId: string) {
   const store = useChatStore.getState();
   // Already loaded in memory this session — nothing to do.
-  if (store.getMessages(thesisId).length > 0) return;
+  if (store.getMessages(threadId).length > 0) return;
 
   // A pending row that survived a restart is a send that failed — its turn died
   // long ago. Reap before reading, so the cache can't resurrect it into the list.
-  await deleteStalePending(thesisId, STALE_PENDING_MS);
+  await deleteStalePending(threadId, STALE_PENDING_MS);
 
   // 1. Instant: show the latest page from the device cache (also works offline).
-  const cached = await getLatestMessages(thesisId, INITIAL_PAGE_SIZE);
+  const cached = await getLatestMessages(threadId, INITIAL_PAGE_SIZE);
   if (cached.messages.length) {
-    store.setMessages(thesisId, cached.messages);
-    store.setHasMoreOlder(thesisId, cached.hasMore);
+    store.setMessages(threadId, cached.messages);
+    store.setHasMoreOlder(threadId, cached.hasMore);
   }
 
   // 2. Reconcile the newest messages with the server (latest page on first sync,
   //    delta after). On failure the cached messages simply remain visible.
   try {
-    await syncLatestFromServer(thesisId);
+    await syncLatestFromServer(threadId);
   } catch {
     // offline / backend unavailable
   }
 
   // 3. Nothing locally or on the server → show the welcome placeholder.
-  if (store.getMessages(thesisId).length === 0) {
-    store.addMessage(thesisId, "assistant", WELCOME, { pending: true });
+  if (store.getMessages(threadId).length === 0) {
+    store.addMessage(threadId, "assistant", WELCOME, { pending: true });
   }
 }
 
@@ -507,104 +525,109 @@ export async function loadInitialMessages(thesisId: string) {
 // the latest page and marks whether older history exists; afterwards it pulls only
 // the delta created since. Older history already paged in is never touched here —
 // that grows through loadOlderMessages.
-async function syncLatestFromServer(thesisId: string): Promise<void> {
+async function syncLatestFromServer(threadId: string): Promise<void> {
   const store = useChatStore.getState();
-  const lastSyncedAt = await getLastSyncedAt(thesisId);
+  const lastSyncedAt = await getLastSyncedAt(threadId);
 
   if (!lastSyncedAt) {
     // First sync: the server's latest page is authoritative for the tail.
-    const server = await getChatHistoryPage(thesisId, { limit: INITIAL_PAGE_SIZE }); // throws when offline
-    const fromServer = mapServerMessages(server, thesisId);
-    // Empty server → keep whatever is local (e.g. a brand-new thesis just started).
+    const server = await getChatHistoryPage(threadId, { limit: INITIAL_PAGE_SIZE }); // throws when offline
+    const fromServer = mapServerMessages(server, threadId);
+    // Empty server → keep whatever is local (e.g. a brand-new conversation just started).
     if (fromServer.length === 0) return;
-    await upsertMessages(thesisId, fromServer);
-    await deletePending(thesisId); // clear stale optimistic rows now superseded
-    store.setMessages(thesisId, fromServer);
-    store.setHasMoreOlder(thesisId, server.length >= INITIAL_PAGE_SIZE);
-    await setLastSyncedAt(thesisId, fromServer[fromServer.length - 1].createdAt);
+    await upsertMessages(threadId, fromServer);
+    await deletePending(threadId); // clear stale optimistic rows now superseded
+    store.setMessages(threadId, fromServer);
+    store.setHasMoreOlder(threadId, server.length >= INITIAL_PAGE_SIZE);
+    await setLastSyncedAt(threadId, fromServer[fromServer.length - 1].createdAt);
     return;
   }
 
   // Incremental: fetch messages created after the last confirmed timestamp,
   // replace optimistic copies with their server-id versions, append new ones.
-  const server = await getChatHistory(thesisId, lastSyncedAt);
-  const additions = mapServerMessages(server, thesisId);
+  const server = await getChatHistory(threadId, lastSyncedAt);
+  const additions = mapServerMessages(server, threadId);
   // Reap FIRST, and unconditionally. This used to sit after the early return
   // below, so it only ran when the server happened to have something new — and a
   // pending row whose send had failed was therefore never cleared. Reaching this
   // line means the server answered, so it is authoritative: anything still
   // marked pending is a send that never landed.
-  await deletePending(thesisId);
+  await deletePending(threadId);
   if (additions.length === 0) {
     // Nothing new upstream, but the reap above may have removed rows the store
     // is still showing — drop them from memory too, or they linger until reload.
-    const live = store.getMessages(thesisId).filter((m) => !m.pending);
-    if (live.length !== store.getMessages(thesisId).length) store.setMessages(thesisId, live);
+    const live = store.getMessages(threadId).filter((m) => !m.pending);
+    if (live.length !== store.getMessages(threadId).length) store.setMessages(threadId, live);
     return;
   }
-  await upsertMessages(thesisId, additions);
-  const synced = store.getMessages(thesisId).filter((m) => !m.pending);
+  await upsertMessages(threadId, additions);
+  const synced = store.getMessages(threadId).filter((m) => !m.pending);
   const have = new Set(synced.map((m) => m.id));
   const merged = [...synced, ...additions.filter((m) => !have.has(m.id))].sort((a, b) =>
     a.createdAt.localeCompare(b.createdAt)
   );
-  store.setMessages(thesisId, merged);
-  await setLastSyncedAt(thesisId, merged[merged.length - 1].createdAt);
+  store.setMessages(threadId, merged);
+  await setLastSyncedAt(threadId, merged[merged.length - 1].createdAt);
 }
 
 // Reveal the previous page of history (scroll-to-top). Server-authoritative with a
 // device-cache fallback when offline; the store's loadingOlder/hasMoreOlder guards
 // keep it from double-loading or paging past the beginning.
-export async function loadOlderMessages(thesisId: string): Promise<void> {
+export async function loadOlderMessages(threadId: string): Promise<void> {
   const store = useChatStore.getState();
-  if (store.getLoadingOlder(thesisId) || !store.getHasMoreOlder(thesisId)) return;
+  if (store.getLoadingOlder(threadId) || !store.getHasMoreOlder(threadId)) return;
 
-  const current = store.getMessages(thesisId);
+  const current = store.getMessages(threadId);
   // Cursor = oldest loaded message with a server row. Optimistic (pending) rows
   // carry a client clock and have no server row to page against, so skip them.
   const cursor = current.find((m) => !m.pending) ?? current[0];
   if (!cursor) return;
   const before = cursor.createdAt;
 
-  store.setLoadingOlder(thesisId, true);
+  store.setLoadingOlder(threadId, true);
   try {
     let older: ChatMessage[];
     let hasMore: boolean;
     try {
-      const server = await getChatHistoryPage(thesisId, { before, limit: OLDER_PAGE_SIZE });
-      older = mapServerMessages(server, thesisId);
+      const server = await getChatHistoryPage(threadId, { before, limit: OLDER_PAGE_SIZE });
+      older = mapServerMessages(server, threadId);
       hasMore = server.length >= OLDER_PAGE_SIZE; // a full page → older messages may remain
-      if (older.length) await upsertMessages(thesisId, older);
+      if (older.length) await upsertMessages(threadId, older);
     } catch {
       // Offline → serve the older page from the device cache instead.
-      const page = await getOlderMessages(thesisId, before, OLDER_PAGE_SIZE);
+      const page = await getOlderMessages(threadId, before, OLDER_PAGE_SIZE);
       older = page.messages;
       hasMore = page.hasMore;
     }
-    if (older.length) store.prependMessages(thesisId, older);
+    if (older.length) store.prependMessages(threadId, older);
     // Stop paging once a page comes back empty or short (reached the beginning).
-    store.setHasMoreOlder(thesisId, older.length > 0 && hasMore);
+    store.setHasMoreOlder(threadId, older.length > 0 && hasMore);
   } finally {
-    store.setLoadingOlder(thesisId, false);
+    store.setLoadingOlder(threadId, false);
   }
 }
 
 // Persist the current in-memory window to the device cache. Upsert (not
 // replace-all) so older pages already cached survive; optimistic rows reconcile to
 // their server ids on the next open (see syncLatestFromServer).
-async function persistCache(thesisId: string): Promise<void> {
+async function persistCache(threadId: string): Promise<void> {
   const store = useChatStore.getState();
-  await upsertMessages(thesisId, store.getMessages(thesisId));
+  await upsertMessages(threadId, store.getMessages(threadId));
 }
 
 // Approve or decline a parked destructive action. The continuation streams into
 // a fresh assistant bubble through the same handlers as a normal turn, so the
 // workspace's after-turn refresh (isGenerating true→false) fires as usual.
 async function runActionContinuation(
-  thesisId: string,
+  threadId: string,
   actionId: string,
   call: typeof chatConfirmAction,
 ): Promise<void> {
+  // thesisId, not threadId — see the alias comment in runAssistantTurn.
+  // syncOutlineAfterTurn and docChanges both need the real thesis id, and every
+  // current caller of approvePendingAction/declinePendingAction still only has a
+  // thesisId to pass in.
+  const thesisId = threadId;
   const store = useChatStore.getState();
   store.setPendingConfirm(null);
   const controller = new AbortController();
@@ -618,11 +641,11 @@ async function runActionContinuation(
   let producedOutput = false;
   let docChanged = false;
   // See runAssistantTurn: streamed text is batched, not written per chunk.
-  const pump = createStreamPump(thesisId, live);
+  const pump = createStreamPump(threadId, live);
   const ensureBubble = () => {
     const s = useChatStore.getState();
     if (!assistantId) {
-      assistantId = s.addMessage(thesisId, "assistant", "", { pending: true });
+      assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
       s.setStreamingId(assistantId);
     }
     return s;
@@ -651,40 +674,43 @@ async function runActionContinuation(
         const s = ensureBubble();
         producedOutput = true;
         pump.flush();
-        s.addFileToMessage(thesisId, assistantId!, file);
+        s.addFileToMessage(threadId, assistantId!, file);
       },
       // Developer trace only — see runAssistantTurn.
       onTool: (tool) => { if (!live()) return; useChatStore.getState().pushToolTrace(tool); },
+      onTitle: ({ threadId: titledId, title }) => {
+        useChatThreadsStore.getState().applyTitle(titledId, title);
+      },
     }, controller.signal);
     pump.flush();
     if (!producedOutput && live()) {
       const s = ensureBubble();
-      s.appendToMessage(thesisId, assistantId!, emptyTurnNote(docChanged));
+      s.appendToMessage(threadId, assistantId!, emptyTurnNote(docChanged));
     }
   } catch (error: any) {
     if (live()) {
       pump.flush();
       const note = `Sorry, I couldn't process the action. ${error?.message || "Please try again."}`;
       const s = ensureBubble();
-      s.appendToMessage(thesisId, assistantId!, `\n\n_${note}_`);
+      s.appendToMessage(threadId, assistantId!, `\n\n_${note}_`);
     }
   } finally {
     pump.cancel();
     const s = useChatStore.getState();
-    if (assistantId) s.markThinkingEnded(thesisId, assistantId);
+    if (assistantId) s.markThinkingEnded(threadId, assistantId);
     s.endTurn(turnId);
     // An approved destructive action (deleting a hand-typed table of contents,
     // say) runs in THIS continuation, not the original turn — so the outline has
     // to be re-synced here too.
     syncOutlineAfterTurn(thesisId, docChanged);
-    await persistCache(thesisId);
+    await persistCache(threadId);
   }
 }
 
-export function approvePendingAction(thesisId: string, actionId: string): Promise<void> {
-  return runActionContinuation(thesisId, actionId, chatConfirmAction);
+export function approvePendingAction(threadId: string, actionId: string): Promise<void> {
+  return runActionContinuation(threadId, actionId, chatConfirmAction);
 }
 
-export function declinePendingAction(thesisId: string, actionId: string): Promise<void> {
-  return runActionContinuation(thesisId, actionId, chatCancelAction);
+export function declinePendingAction(threadId: string, actionId: string): Promise<void> {
+  return runActionContinuation(threadId, actionId, chatCancelAction);
 }

@@ -324,12 +324,12 @@ export interface ChatAttachmentUpload {
 }
 
 export async function chatSend(
-  thesisId: string,
+  threadId: string,
   message: string,
   options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; regenerate?: boolean; attachments?: ChatAttachmentUpload[] }
 ): Promise<ChatSendResponse> {
   return apiPost("/api/chat/send", {
-    thesisId,
+    threadId,
     message,
     chapterId: options?.chapterId,
     sectionId: options?.sectionId,
@@ -375,21 +375,21 @@ export async function getComposerSuggestions(
 
 // Pass `since` (an ISO timestamp) to fetch only messages created after it —
 // the incremental sync path used by the on-device cache.
-export async function getChatHistory(thesisId: string, since?: string | null) {
+export async function getChatHistory(threadId: string, since?: string | null) {
   const query = since ? `?since=${encodeURIComponent(since)}` : "";
-  return apiGet<any[]>(`/api/chat/${thesisId}${query}`);
+  return apiGet<any[]>(`/api/threads/${threadId}/messages${query}`);
 }
 
 // Fetch one page of history for infinite scroll: the newest `limit` messages,
 // optionally older than the `before` ISO cursor. Returns a chronological array;
 // a full-length page means older messages still remain.
 export async function getChatHistoryPage(
-  thesisId: string,
+  threadId: string,
   opts: { limit: number; before?: string | null }
 ) {
   const params = new URLSearchParams({ limit: String(opts.limit) });
   if (opts.before) params.set("before", opts.before);
-  return apiGet<any[]>(`/api/chat/${thesisId}?${params.toString()}`);
+  return apiGet<any[]>(`/api/threads/${threadId}/messages?${params.toString()}`);
 }
 
 export interface ChatStreamHandlers {
@@ -401,6 +401,9 @@ export interface ChatStreamHandlers {
   onDocChanges?: (changes: DocChangesPayload) => void;
   /** Developer tool trace — only ever arrives from a server with AI_SHOW_TOOLS on. */
   onTool?: (tool: ToolTracePayload) => void;
+  /** Fired once, mid-stream, when this thread gets its first generated title —
+   *  lets the history panel update live instead of waiting for a refetch. */
+  onTitle?: (p: { threadId: string; title: string }) => void;
 }
 
 // The streaming endpoint escapes emoji (astral chars) to \uXXXX because RN's
@@ -508,6 +511,8 @@ async function postChatStream(
   const DC_CLOSE = "[[/MODK_DOCCHANGES]]";
   const TOOL_OPEN = "[[MODK_TOOL]]";
   const TOOL_CLOSE = "[[/MODK_TOOL]]";
+  const TITLE_OPEN = "[[MODK_TITLE]]";
+  const TITLE_CLOSE = "[[/MODK_TITLE]]";
 
   let mode: "answer" | "think" = "answer";
   let buf = ""; // unescaped text awaiting routing
@@ -534,9 +539,10 @@ async function postChatStream(
         const ci = buf.indexOf(CONFIRM_OPEN);
         const di = buf.indexOf(DC_OPEN);
         const oi = buf.indexOf(TOOL_OPEN);
-        const first = [ti, ai, fi, ci, di, oi].filter((i) => i !== -1).sort((a, b) => a - b)[0];
+        const li = buf.indexOf(TITLE_OPEN);
+        const first = [ti, ai, fi, ci, di, oi, li].filter((i) => i !== -1).sort((a, b) => a - b)[0];
         if (first === undefined) {
-          const hold = isFinal ? 0 : heldLen(buf, [THINK_OPEN, ASK_OPEN, FILE_OPEN, CONFIRM_OPEN, DC_OPEN, TOOL_OPEN]);
+          const hold = isFinal ? 0 : heldLen(buf, [THINK_OPEN, ASK_OPEN, FILE_OPEN, CONFIRM_OPEN, DC_OPEN, TOOL_OPEN, TITLE_OPEN]);
           const out = buf.slice(0, buf.length - hold);
           if (out) handlers.onDelta(out);
           buf = buf.slice(buf.length - hold);
@@ -583,6 +589,17 @@ async function postChatStream(
           if (closeAt === -1) { buf = buf.slice(first); break; }
           try { handlers.onTool?.(JSON.parse(buf.slice(first + TOOL_OPEN.length, closeAt))); } catch {}
           buf = buf.slice(closeAt + TOOL_CLOSE.length);
+          continue;
+        }
+        if (first === li) {
+          // TITLE frame: fires at most once, when a thread gets its first
+          // generated title. Need the closing marker before we can parse the
+          // JSON. The frame never reaches onDelta, so the raw JSON is never
+          // shown as text.
+          const closeAt = buf.indexOf(TITLE_CLOSE, first + TITLE_OPEN.length);
+          if (closeAt === -1) { buf = buf.slice(first); break; }
+          try { handlers.onTitle?.(JSON.parse(buf.slice(first + TITLE_OPEN.length, closeAt))); } catch {}
+          buf = buf.slice(closeAt + TITLE_CLOSE.length);
           continue;
         }
         // ASK frame: need the closing marker before we can parse the JSON.
@@ -641,7 +658,7 @@ async function postChatStream(
  * protocol details.
  */
 export async function chatSendStream(
-  thesisId: string,
+  threadId: string,
   message: string,
   handlers: ChatStreamHandlers,
   options?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; regenerate?: boolean; attachments?: ChatAttachmentUpload[]; signal?: AbortSignal }
@@ -653,7 +670,7 @@ export async function chatSendStream(
   // `regenerate`: this question is ALREADY saved server-side (the app is re-asking
   // it) — the server must not store it twice, and drops the reply being replaced.
   const body = {
-    thesisId,
+    threadId,
     message,
     chapterId: options?.chapterId,
     sectionId: options?.sectionId,
@@ -680,6 +697,70 @@ export async function chatConfirmAction(actionId: string, handlers: ChatStreamHa
 
 export async function chatCancelAction(actionId: string, handlers: ChatStreamHandlers, signal?: AbortSignal): Promise<void> {
   return postChatStream("/api/chat/cancel-action", { actionId }, handlers, signal);
+}
+
+// ============================================================
+// Chat Threads API (mounted at /api/threads)
+// Conversations are first-class: a thesis can hold several, and a thread can be
+// unattached. `GET /api/threads` already returns them in display order (pinned
+// first, then most recent — a brand-new empty thread ranks first on purpose);
+// callers must not re-sort.
+// ============================================================
+
+export interface ChatThread {
+  id: string;
+  thesisId: string | null;
+  title: string | null;
+  pinned: boolean;
+  archivedAt: string | null;
+  lastMessageAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ThreadSearchResult {
+  thread: ChatThread;
+  messageId: string;
+  snippet: string;
+  createdAt: string | null;
+}
+
+export async function listThreads(opts?: { thesisId?: string; archived?: boolean }): Promise<ChatThread[]> {
+  const params = new URLSearchParams();
+  if (opts?.thesisId) params.set("thesisId", opts.thesisId);
+  if (opts?.archived) params.set("archived", "1");
+  const q = params.toString();
+  return apiGet<ChatThread[]>(`/api/threads${q ? `?${q}` : ""}`);
+}
+
+export async function createThread(thesisId?: string | null): Promise<ChatThread> {
+  return apiPost<ChatThread>("/api/threads", { thesisId: thesisId ?? null });
+}
+
+/**
+ * The Writer's ✦ entry point: the conversation this thesis is currently in,
+ * created on demand. Deliberately a server call rather than the client picking
+ * from `listThreads` — that list ranks a brand-new empty thread FIRST (the
+ * student just tapped ＋ and wants to see it), whereas here the right answer is
+ * the thread with something in it. Same question, opposite orderings.
+ */
+export async function threadForThesis(thesisId: string): Promise<ChatThread> {
+  return apiPost<ChatThread>("/api/threads/for-thesis", { thesisId });
+}
+
+export async function patchThread(
+  threadId: string,
+  patch: { title?: string | null; pinned?: boolean; archived?: boolean }
+): Promise<ChatThread> {
+  return apiPatch<ChatThread>(`/api/threads/${threadId}`, patch);
+}
+
+export async function deleteThread(threadId: string): Promise<void> {
+  return apiDelete(`/api/threads/${threadId}`);
+}
+
+export async function searchThreads(q: string): Promise<ThreadSearchResult[]> {
+  return apiGet<ThreadSearchResult[]>(`/api/threads/search?q=${encodeURIComponent(q)}`);
 }
 
 // ============================================================
