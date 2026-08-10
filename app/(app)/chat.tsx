@@ -475,7 +475,16 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
       // attached conversation to an unattached one (or back) actually change what
       // the composer offers and what the next turn is scoped to.
       const row = useChatThreadsStore.getState().threads.find((th) => th.id === picked);
-      if (row) setThesisId(row.thesisId);
+      if (row) {
+        setThesisId(row.thesisId);
+        // The selected thesis FOLLOWS the conversation, in both directions.
+        // Opening a thesis conversation selects it app-wide so the Writer, the
+        // outline and the drawer move with you; opening a free chat clears the
+        // selection, because a conversation with no document should not leave
+        // the rest of the app claiming one is open — the header read "m moire
+        // isp" while the composer underneath said "No thesis attached".
+        useThesisStore.getState().setCurrentThesis(row.thesisId);
+      }
     },
     [stopSpeaking]
   );
@@ -772,7 +781,11 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
           ) : (
             <DrawerMenuButton />
           )}
-          <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>{thesisTitle}</Text>
+          {/* The thesis this conversation is about, or the app's name when it is
+              about no thesis at all — an empty header bar reads as a bug. */}
+          <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+            {thesisId ? thesisTitle : t("auth.appName")}
+          </Text>
           <Pressable
             onPress={() => setHistoryOpen(true)}
             hitSlop={8}
