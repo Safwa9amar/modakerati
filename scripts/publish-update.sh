@@ -45,4 +45,34 @@ RTV="$(npx expo-updates runtimeversion:resolve --platform android | node -e \
 echo "▸ runtime version: $RTV"
 echo "  (installed builds on a different runtime version will NOT see this update)"
 
-$EAS update --channel "$CHANNEL" --message "$MESSAGE"
+# --environment is REQUIRED from SDK 55 on, and mandatory outright when stdin is
+# not a TTY (a CI job, an agent shell) — without it the command just refuses.
+#
+# It selects which SERVER-SIDE EAS environment variables to pull, which is a
+# different mechanism from the .env file swapped in above, and one this project
+# does not use: the values that reach the bundle are the EXPO_PUBLIC_* lines
+# printed a few lines up. It matters anyway, because anything defined in that
+# EAS environment is written into the process env BEFORE the bundler runs, and
+# .env never overwrites an already-set variable — so a server-side
+# EXPO_PUBLIC_API_URL would silently outrank .env.production. Check the
+# "Environment variables loaded from the ... environment" line the CLI prints
+# before it bundles; it should be empty for this project.
+ENVIRONMENT="${3:-production}"
+echo "▸ EAS environment: $ENVIRONMENT (server-side vars only — the bundle's values are the ones above)"
+
+# ANDROID ONLY, deliberately. `eas update` defaults to --platform all, and "all"
+# means every platform the app config allows — which, with no `platforms` key in
+# app.json, includes WEB. The web export dies on expo-sqlite: its web build
+# imports ./wa-sqlite/wa-sqlite.wasm, that file is not in the published package,
+# and Metro fails the whole export over it. Nothing ships to a browser here, so
+# there is no reason to bundle one.
+#
+# The obvious fix — pinning `platforms` in app.json — is the WRONG one: app.json
+# is a fingerprint input, so it would move the runtime version and cut every
+# installed binary off from this and every future update. Keep it out here.
+#
+# Android is also the only platform with a release binary in the wild
+# (scripts/build-apk.sh → Gradle APK). Add ios when there is an iOS build to
+# update.
+$EAS update --channel "$CHANNEL" --message "$MESSAGE" \
+  --platform android --environment "$ENVIRONMENT" --non-interactive
