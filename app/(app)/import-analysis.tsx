@@ -12,7 +12,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { BackButton } from "@/components/BackButton";
 import { ProcessingSteps, type ProcessingStep } from "@/components/ProcessingSteps";
 import { CheckCircle, XCircle, AlertTriangle, AlertCircle, Info } from "lucide-react-native";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { AnalysisSuggestion } from "@/lib/api";
 
 const SEVERITY_COLORS = {
@@ -137,6 +137,23 @@ export default function ImportAnalysisScreen() {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
     return () => sub.remove();
   }, [isImporting]);
+
+  // Nothing to review → don't make the student read a page whose entire content
+  // is "there is nothing here", then tap a button to leave it. Go straight to
+  // chat with the imported thesis open.
+  //
+  // Gated on status "ready" specifically — the analysis has finished and
+  // produced a report. `isEmpty` is also true while the report is still null
+  // (mid-import) and on the error paths, and neither should navigate anywhere.
+  // The ref makes it fire once: replace() re-renders before the route changes.
+  const autoSkipped = useRef(false);
+  useEffect(() => {
+    if (autoSkipped.current) return;
+    if (status !== "ready" || !isEmpty || !thesis) return;
+    autoSkipped.current = true;
+    useThesisStore.getState().setCurrentThesis(thesis.id);
+    router.replace("/(app)/chat");
+  }, [status, isEmpty, thesis, router]);
 
   const megabytes = totalBytes > 0 ? (totalBytes / (1024 * 1024)).toFixed(1) : null;
   const uploading = status === "uploading";
