@@ -422,6 +422,14 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
         // the stuck placeholder bubbles happened: newThread() rejects, the
         // .then never runs, and nothing was left to clear the flag.
         setLoadingHistory(false);
+        // A refusal here is usually a STALE currentThesisId: it outlives the
+        // thesis it points at, so /threads/for-thesis 404s on a document this
+        // account doesn't own. Clear it now so the composer offers to attach a
+        // real one instead of silently retrying a dead id on every send.
+        if (thesisId) {
+          setThesisId(null);
+          useThesisStore.getState().setCurrentThesis(null);
+        }
       });
   }, []);
 
@@ -638,13 +646,33 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   // student rather than dropping their message on the floor.
   async function createThreadForSend(): Promise<string | null> {
     const store = useChatThreadsStore.getState();
-    try {
-      const id = thesisId ? await store.ensureThreadFor(thesisId) : await store.newThread(null);
+    const adopt = (id: string) => {
       setThreadId(id);
       store.setCurrent(id);
       return id;
+    };
+
+    if (thesisId) {
+      try {
+        return adopt(await store.ensureThreadFor(thesisId));
+      } catch {
+        // The thesis is gone, or was never this account's. currentThesisId
+        // outlives the thesis it points at — a deletion, or signing in as
+        // someone else — and the server rightly refuses to open a conversation
+        // on a document the student doesn't own.
+        //
+        // That must not dead-end them. Drop the stale attachment and fall
+        // through to the free conversation they were trying to start; the
+        // composer then offers to attach a real thesis.
+        setThesisId(null);
+        useThesisStore.getState().setCurrentThesis(null);
+      }
+    }
+
+    try {
+      return adopt(await store.newThread(null));
     } catch {
-      return null;
+      return null; // genuinely offline / server down — the caller says so
     }
   }
 
