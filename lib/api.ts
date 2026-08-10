@@ -750,7 +750,7 @@ export async function threadForThesis(thesisId: string): Promise<ChatThread> {
 
 export async function patchThread(
   threadId: string,
-  patch: { title?: string | null; pinned?: boolean; archived?: boolean }
+  patch: { title?: string | null; pinned?: boolean; archived?: boolean; thesisId?: string }
 ): Promise<ChatThread> {
   return apiPatch<ChatThread>(`/api/threads/${threadId}`, patch);
 }

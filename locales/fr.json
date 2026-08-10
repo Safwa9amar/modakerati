@@ -634,7 +634,14 @@
       "delete": "Supprimer",
       "deleteConfirm": "Supprimer cette conversation ? Cette action est irréversible.",
       "empty": "Aucune conversation pour le moment",
-      "archived": "Archivée"
+      "archived": "Archivée",
+      "newPlain": "Nouvelle discussion",
+      "newAboutThesis": "Nouvelle discussion sur {{title}}",
+      "attachFailed": "Impossible d'associer ce mémoire. Veuillez réessayer.",
+      "attach": "Associer un mémoire",
+      "attachPrompt": "De quel mémoire s'agit-il ?",
+      "attachEmpty": "Vous n'avez pas encore de mémoire. Commencez-en un et il apparaîtra ici.",
+      "unattachedHint": "Aucun mémoire associé — je peux quand même vous aider à structurer, rédiger et citer."
     }
   },
   "editor": {

@@ -48,6 +48,8 @@ interface ChatThreadsState {
   /** Applies the [[MODK_TITLE]] stream frame: a thread just got its first
    *  generated title, live, without waiting for a refetch. */
   applyTitle: (threadId: string, title: string) => void;
+  /** Merge a server-returned thread row into the list (upsert). */
+  applyThread: (row: ChatThread) => void;
   /**
    * The thread the Writer should be talking to for this thesis, resolved once and
    * cached. Calls POST /api/threads/for-thesis, which answers "the conversation
@@ -178,6 +180,16 @@ export const useChatThreadsStore = create<ChatThreadsState>((set, get) => ({
 
   applyTitle: (threadId, title) =>
     set((s) => ({ threads: s.threads.map((t) => (t.id === threadId ? { ...t, title } : t)) })),
+
+  applyThread: (row) =>
+    set((s) => ({
+      // Upsert rather than map: a thread the list hasn't loaded yet (the student
+      // attached a thesis before ever opening the history panel) still has to
+      // land, or the panel would show it under the wrong section.
+      threads: s.threads.some((t) => t.id === row.id)
+        ? s.threads.map((t) => (t.id === row.id ? row : t))
+        : [row, ...s.threads],
+    })),
 
   ensureThreadFor: async (thesisId) => {
     const { currentThreadId, threads } = get();

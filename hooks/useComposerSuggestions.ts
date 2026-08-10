@@ -34,7 +34,7 @@ interface Options {
  * caller falls back to its static presets whenever the list is empty. Store-agnostic
  * so both the workspace composer and the chat screen can use it.
  */
-export function useComposerSuggestions(thesisId: string, { enabled, selectedBlocks, threadId }: Options) {
+export function useComposerSuggestions(thesisId: string | null, { enabled, selectedBlocks, threadId }: Options) {
   const isGenerating = useChatStore((s) => s.isGenerating);
   // The "AI Suggestions" setting gates these chips entirely: off → no fetch and
   // no chips. Subscribed so flipping it clears/restores chips live.

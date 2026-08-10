@@ -36,6 +36,8 @@ import { Alert } from "react-native";
 import { ChatImageGrid, ChatImageViewer } from "@/components/ChatImages";
 import { splitImageFrames, pickChatImages, captureChatImage, pasteChatImage, MAX_CHAT_IMAGES, type StagedImage } from "@/lib/chat-images";
 import { ChatHistoryPanel } from "@/components/chat/ChatHistoryPanel";
+import { ThesisAttachSheet } from "@/components/chat/ThesisAttachSheet";
+import { patchThread } from "@/lib/api";
 import type { ChatMessage, ChatImage, FilePayload } from "@/types/chat";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -276,7 +278,12 @@ const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, i
 // The full thesis chat UI, reusable in two places: as the Chat TAB (variant
 // "screen", with a Home button) and inside the floating chat-head OVERLAY
 // (variant "overlay", with a Close button that collapses back to the bubble).
-export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose }: { thesisId: string; thesisTitle: string; variant?: "screen" | "overlay"; onClose?: () => void }) {
+export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "screen", onClose }: { thesisId: string | null; thesisTitle: string; variant?: "screen" | "overlay"; onClose?: () => void }) {
+  // The thesis this conversation is about, which can CHANGE mid-session: an
+  // unattached chat starts null and gains one when the student attaches it. Held
+  // as state rather than read straight from the prop so that attach takes effect
+  // on the very next turn without remounting the screen.
+  const [thesisId, setThesisId] = useState<string | null>(initialThesisId);
   const colors = useThemeColors();
   const router = useRouter();
   const { t, i18n } = useTranslation();
@@ -371,7 +378,18 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
-    void useChatThreadsStore.getState().ensureThreadFor(thesisId).then(setThreadId);
+    const store = useChatThreadsStore.getState();
+    // With a thesis in hand, ask the server which conversation it is currently
+    // in. Without one there is nothing to resolve FROM, so reopen whatever the
+    // student last had open, and only create an unattached thread if there
+    // genuinely isn't one — otherwise every visit to a thesis-less chat would
+    // leave a fresh empty conversation behind.
+    const resolve = thesisId
+      ? store.ensureThreadFor(thesisId)
+      : store.currentThreadId
+        ? Promise.resolve(store.currentThreadId)
+        : store.newThread();
+    void Promise.resolve(resolve).then(setThreadId);
   }, []);
 
   // Load a thread's messages whenever the thread being displayed changes — the
@@ -406,8 +424,34 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
       setThreadId(picked);
       useChatThreadsStore.getState().setCurrent(picked);
       setHistoryOpen(false);
+      // A picked thread carries its OWN attachment, which may differ from the one
+      // this screen was showing — reading it here is what makes switching from an
+      // attached conversation to an unattached one (or back) actually change what
+      // the composer offers and what the next turn is scoped to.
+      const row = useChatThreadsStore.getState().threads.find((th) => th.id === picked);
+      if (row) setThesisId(row.thesisId);
     },
     [stopSpeaking]
+  );
+
+  // Attach a thesis to this conversation. The server records WHEN, and tells the
+  // model on the next turn that the earlier exchanges happened without document
+  // access — so it can't describe them as though it had been reading along.
+  const handleAttachThesis = useCallback(
+    (picked: string) => {
+      if (!threadId) return;
+      // Optimistic: the composer's doc affordances should appear on the tap, not
+      // after a round-trip. A failure rolls it back rather than leaving the
+      // student a chat that looks attached and behaves otherwise.
+      setThesisId(picked);
+      void patchThread(threadId, { thesisId: picked })
+        .then((row) => useChatThreadsStore.getState().applyThread(row))
+        .catch(() => {
+          setThesisId(null);
+          Alert.alert(t("common.error"), t("chat.threads.attachFailed"));
+        });
+    },
+    [threadId, t]
   );
 
   // Bridge the model's pending question (data, in the chat store) to the global
@@ -821,6 +865,24 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
             </Animated.View>
           )}
 
+          {/* Unattached conversation: say so, and offer the way out. The AI can
+              still plan, draft and cite here — it just can't touch a document —
+              so this reads as an offer rather than a warning. */}
+          {!thesisId && (
+            <Pressable
+              onPress={() => useBottomSheet.getState().openSheet("thesis-attach")}
+              style={[styles.attachRow, { borderColor: colors.borderDefault, backgroundColor: colors.bgPrimary }]}
+              accessibilityRole="button"
+              accessibilityLabel={t("chat.threads.attach")}
+            >
+              <FileText size={16} color={colors.textSecondary} />
+              <Text style={[styles.attachHint, { color: colors.textSecondary }]} numberOfLines={2}>
+                {t("chat.threads.unattachedHint")}
+              </Text>
+              <Text style={[styles.attachCta, { color: colors.brandPrimary }]}>{t("chat.threads.attach")}</Text>
+            </Pressable>
+          )}
+
           {/* AI suggestion chips — grounded in the conversation. Shown only when the
               model returned some (no static fallback here, unlike the workspace). */}
           {suggestions.length > 0 && !isGenerating && (
@@ -956,6 +1018,10 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
         onClose={() => setHistoryOpen(false)}
         onPick={handlePickThread}
       />
+
+      {/* Attach a thesis to an unattached conversation. Mounted only when there
+          is nothing attached — once one is, there is nothing to pick. */}
+      {!thesisId && <ThesisAttachSheet onPick={handleAttachThesis} />}
     </View>
   );
 }
@@ -970,11 +1036,11 @@ export default function ChatScreen() {
     return s.theses.find((t) => t.id === s.currentThesisId)?.title ?? "";
   });
 
-  // The chat is the app's first screen, so "no thesis" is the FIRST RUN, not an
-  // error. Show the writer's starters — a chat turn is scoped to a thesis, so
-  // there is nothing to say until one exists.
-  if (!thesisId) return <EmptyWriter />;
-
+  // No thesis is no longer a dead end. A conversation can stand on its own — a
+  // plain assistant that can still plan, draft and answer questions about
+  // citation — and the student attaches a thesis from the composer whenever they
+  // want document editing. EmptyWriter (the writer's starters) is reachable from
+  // the drawer for anyone who wants to begin one instead.
   return <ThesisChat thesisId={thesisId} thesisTitle={thesisTitle} />;
 }
 
@@ -1027,6 +1093,19 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   suggestionsRow: { marginBottom: 10, marginHorizontal: 2 },
+  attachRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+    marginHorizontal: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  attachHint: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+  attachCta: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   attachmentChip: {
     flexDirection: "row",
     alignItems: "center",

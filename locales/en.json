@@ -634,7 +634,14 @@
       "delete": "Delete",
       "deleteConfirm": "Delete this conversation? This can't be undone.",
       "empty": "No conversations yet",
-      "archived": "Archived"
+      "archived": "Archived",
+      "newPlain": "New chat",
+      "newAboutThesis": "New chat about {{title}}",
+      "attachFailed": "Could not attach that thesis. Please try again.",
+      "attach": "Attach a thesis",
+      "attachPrompt": "Which thesis is this about?",
+      "attachEmpty": "You don't have a thesis yet. Start one and it will show up here.",
+      "unattachedHint": "No thesis attached — I can still help you plan, draft and cite."
     }
   },
   "editor": {

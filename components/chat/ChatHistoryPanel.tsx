@@ -221,18 +221,38 @@ function PanelBody({
     [onPick, onClose],
   );
 
-  const handleNewThread = useCallback(async () => {
-    if (creating) return;
-    setCreating(true);
-    try {
-      const id = await newThread(thesisId);
-      pick(id);
-    } catch {
-      Alert.alert(t("common.error"), t("thesis.genericError"));
-    } finally {
-      setCreating(false);
+  const createThreadFor = useCallback(
+    async (attachTo: string | null) => {
+      if (creating) return;
+      setCreating(true);
+      try {
+        const id = await newThread(attachTo);
+        pick(id);
+      } catch {
+        Alert.alert(t("common.error"), t("thesis.genericError"));
+      } finally {
+        setCreating(false);
+      }
+    },
+    [creating, newThread, pick, t]
+  );
+
+  // With no thesis in context there is only one thing ＋ can mean, so don't make
+  // the student dismiss a one-option menu. With one, both readings are genuinely
+  // useful — a question about this thesis, or a general one that has nothing to
+  // do with it — so ask which.
+  const handleNewThread = useCallback(() => {
+    const thesisTitle = thesisId ? theses.find((th) => th.id === thesisId)?.title : undefined;
+    if (!thesisId || !thesisTitle) {
+      void createThreadFor(null);
+      return;
     }
-  }, [creating, newThread, thesisId, pick, t]);
+    Alert.alert(t("chat.threads.new"), undefined, [
+      { text: t("chat.threads.newAboutThesis", { title: thesisTitle }), onPress: () => void createThreadFor(thesisId) },
+      { text: t("chat.threads.newPlain"), onPress: () => void createThreadFor(null) },
+      { text: t("common.cancel"), style: "cancel" },
+    ]);
+  }, [thesisId, theses, createThreadFor, t]);
 
   const menuTitle = menuThread ? menuThread.title?.trim() || t("chat.threads.untitled") : "";
   const menuTitleDir = firstStrongDirection(menuTitle, ambientDir);

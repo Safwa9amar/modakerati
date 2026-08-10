@@ -47,8 +47,10 @@ function mapServerMessages(rows: any[], threadId: string): ChatMessage[] {
  * student happens to be. Fire-and-forget: a failed refresh keeps the last good
  * copy (see outline-store.sync) and must never delay ending the turn.
  */
-function syncOutlineAfterTurn(thesisId: string, docChanged: boolean): void {
-  if (!docChanged) return;
+function syncOutlineAfterTurn(thesisId: string | null, docChanged: boolean): void {
+  // No thesis attached → nothing to sync, and nothing CAN have changed anyway:
+  // the unattached system prompt carries none of the doc-editing tools.
+  if (!thesisId || !docChanged) return;
   void useOutlineStore.getState().sync(thesisId);
 }
 
@@ -152,7 +154,7 @@ function createStreamPump(threadId: string, live: () => boolean): StreamPump {
 
 export async function sendMessageToAI(
   threadId: string,
-  thesisId: string,
+  thesisId: string | null,
   userMessage: string,
   opts?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; images?: StagedImage[] }
 ): Promise<void> {
@@ -183,7 +185,7 @@ export async function sendMessageToAI(
  * the repeated bubbles in the first place, so the affordance that replaces it
  * must not do the same thing.
  */
-export async function retryFailedMessage(threadId: string, thesisId: string, messageId: string): Promise<void> {
+export async function retryFailedMessage(threadId: string, thesisId: string | null, messageId: string): Promise<void> {
   const store = useChatStore.getState();
   if (store.isGenerating) return;
   const msg = store.getMessages(threadId).find((m) => m.id === messageId);
@@ -211,7 +213,7 @@ export async function retryFailedMessage(threadId: string, thesisId: string, mes
  * prompt; the user's own message is left in place. No-op while a turn is already
  * generating, or when there's no user message to answer.
  */
-export async function regenerateLastResponse(threadId: string, thesisId: string): Promise<void> {
+export async function regenerateLastResponse(threadId: string, thesisId: string | null): Promise<void> {
   const store = useChatStore.getState();
   if (store.isGenerating) return;
 
@@ -245,7 +247,7 @@ function displayText(m: ChatMessage): string {
 // regenerate so both behave identically once the user turn exists.
 async function runAssistantTurn(
   threadId: string,
-  thesisId: string,
+  thesisId: string | null,
   userMessage: string,
   opts?: {
     chapterId?: string; sectionId?: string; selection?: string;
@@ -263,8 +265,9 @@ async function runAssistantTurn(
 
   // flushOps / the outline sync / docChanges all need the real THESIS id, not
   // the thread id — the doc history checkpoint and the outline are per-document,
-  // shared by every thread on it (see chat-store's `docChanges` comment).
-  store.setDocChanges(thesisId, null);
+  // shared by every thread on it (see chat-store's `docChanges` comment). None of
+  // that exists for an unattached thread (no thesis → no document, no outline).
+  if (thesisId) store.setDocChanges(thesisId, null);
 
   // Lets the user cancel this turn from the UI (chat-store.stopGenerating).
   const controller = new AbortController();
@@ -290,7 +293,8 @@ async function runAssistantTurn(
   // chat call itself would. Lexical Writer typing serializes FIRST (it lives in
   // the WebView until serialized — a pending pause-save isn't in the op queue).
   await (useLexicalEditorStore.getState().flushEdits?.() ?? Promise.resolve()).catch(() => {});
-  await useThesisDocStore.getState().flushOps(thesisId).catch(() => {});
+  // No thesis attached → no live .docx to flush.
+  if (thesisId) await useThesisDocStore.getState().flushOps(thesisId).catch(() => {});
 
   // That flush is a network round-trip the user can hit Stop inside. Bail before
   // opening the stream rather than starting one only to abort it; the store is
@@ -356,7 +360,9 @@ async function runAssistantTurn(
           // the student still needs the "Undo AI changes" chip for them.
           docChanged = true;
           // thesisId, not threadId — see the field comment on chat-store's docChanges.
-          useChatStore.getState().setDocChanges(thesisId, changes);
+          // Can't actually fire with no thesis attached (no doc-editing tools are
+          // offered), but guarded rather than assumed.
+          if (thesisId) useChatStore.getState().setDocChanges(thesisId, changes);
         },
         onThinking: (chunk) => {
           if (!live()) return;
@@ -441,7 +447,7 @@ async function runAssistantTurn(
         // path's onDocChanges does — the outer finally reads this to decide
         // whether the outline needs re-syncing. thesisId, not threadId — see
         // the field comment on chat-store's docChanges.
-        if (result.docChanges) { docChanged = true; store.setDocChanges(thesisId, result.docChanges); }
+        if (result.docChanges) { docChanged = true; if (thesisId) store.setDocChanges(thesisId, result.docChanges); }
         return;
       } catch (fallbackError: any) {
         error = fallbackError;
@@ -616,7 +622,7 @@ async function persistCache(threadId: string): Promise<void> {
 // workspace's after-turn refresh (isGenerating true→false) fires as usual.
 async function runActionContinuation(
   threadId: string,
-  thesisId: string,
+  thesisId: string | null,
   actionId: string,
   call: typeof chatConfirmAction,
 ): Promise<void> {
@@ -662,7 +668,8 @@ async function runActionContinuation(
       onAsk: (ask) => { if (!live()) return; producedOutput = true; pump.flush(); useChatStore.getState().setPendingAsk(ask); },
       onConfirm: (confirm) => { if (!live()) return; producedOutput = true; pump.flush(); useChatStore.getState().setPendingConfirm(confirm); },
       // Not gated: the .docx was already edited, so the undo chip is owed either way.
-      onDocChanges: (changes) => { docChanged = true; useChatStore.getState().setDocChanges(thesisId, changes); },
+      // (Can't fire with no thesis attached — no destructive tool exists to confirm — but guarded rather than assumed.)
+      onDocChanges: (changes) => { docChanged = true; if (thesisId) useChatStore.getState().setDocChanges(thesisId, changes); },
       onFile: (file) => {
         if (!live()) return;
         const s = ensureBubble();
@@ -701,10 +708,10 @@ async function runActionContinuation(
   }
 }
 
-export function approvePendingAction(threadId: string, thesisId: string, actionId: string): Promise<void> {
+export function approvePendingAction(threadId: string, thesisId: string | null, actionId: string): Promise<void> {
   return runActionContinuation(threadId, thesisId, actionId, chatConfirmAction);
 }
 
-export function declinePendingAction(threadId: string, thesisId: string, actionId: string): Promise<void> {
+export function declinePendingAction(threadId: string, thesisId: string | null, actionId: string): Promise<void> {
   return runActionContinuation(threadId, thesisId, actionId, chatCancelAction);
 }
