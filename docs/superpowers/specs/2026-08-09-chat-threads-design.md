@@ -361,6 +361,31 @@ thread per thesis — the app is what creates one — so fixing it now would be
 untestable, and shipping plan 2 without fixing it would silently undermine the
 thread isolation this whole feature exists to provide.
 
+## 7c. Turn state is global, not per-thread
+
+Found while wiring the history panel. `chat-store`'s `isGenerating`,
+`streamingId`, `activeTurnId` and the reasoning clock are **global**, not keyed
+by thread. That was correct when a thesis had one conversation, and it is
+deliberate — `beginTurn()` aborts any prior turn, so the app only ever supports
+one live turn at a time.
+
+With threads it produces a cosmetic wrinkle: switch conversations while a turn is
+streaming and the *other* thread's composer shows the global "Stop" state, and
+picks up a stray "still working" note if its last loaded message happens to be an
+assistant one. No data goes anywhere wrong — `runAssistantTurn` captures its
+`threadId` in a closure at send time and never re-reads component state, so the
+stream keeps writing into the conversation it belongs to.
+
+Deliberately **not** fixed here. Making turn state per-thread is a real refactor
+of the most delicate part of the chat store — turn ownership, unconditional Stop,
+the tool trace — and it only matters once a student is routinely running a turn
+in one conversation while reading another. Revisit if that becomes common; do not
+bundle it into unrelated work.
+
+Note also what was *not* done: stopping the turn on switch. That would cancel a
+turn because the student looked away, which is exactly the behaviour the
+"AI turn finishes the job" rule exists to prevent.
+
 ## 8. Build order
 
 Each slice deploys on its own, behind the compat shim.
