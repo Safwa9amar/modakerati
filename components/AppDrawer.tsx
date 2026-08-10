@@ -243,19 +243,28 @@ function AppIndex() {
     },
     { key: "import", icon: FolderUp, label: t("home.importDocx"), onPress: handleImport },
     { key: "combine", icon: Combine, label: t("combine.short"), onPress: handleCombine },
-    {
-      key: "export",
-      icon: Download,
-      label: t("drawer.export"),
-      onPress: () =>
-        go(() => {
-          if (!currentThesis) return;
-          router.replace({
-            pathname: "/(app)/export",
-            params: { thesisId: currentThesis.id },
-          } as any);
-        }),
-    },
+    // Export is COMMENTED OUT, not deleted — it is expected back.
+    //
+    // Exporting now happens in the conversation: ask for it, and the reply
+    // carries a download card that saves the file straight to the device. This
+    // screen was a second route to the same artifact, one that made the student
+    // leave the chat to get what they had just asked for.
+    //
+    // app/(app)/export.tsx and export-success.tsx are left in place so this is a
+    // one-line restore.
+    // {
+    //   key: "export",
+    //   icon: Download,
+    //   label: t("drawer.export"),
+    //   onPress: () =>
+    //     go(() => {
+    //       if (!currentThesis) return;
+    //       router.replace({
+    //         pathname: "/(app)/export",
+    //         params: { thesisId: currentThesis.id },
+    //       } as any);
+    //     }),
+    // },
     {
       key: "library",
       icon: Library,
