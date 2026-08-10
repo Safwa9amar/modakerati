@@ -654,6 +654,49 @@ git commit -m "feat(chat): conversation history panel"
 
 **Files:** `app/(app)/chat.tsx`, `components/ChatOverlayPanel.tsx`.
 
+### ⚠️ Step 0 — resolve the thesis/thread conflation FIRST
+
+**The branch is non-functional until this is done, and `tsc` says nothing about
+it.** Task 8 renamed the `ai-service` entry points to `threadId`, but every
+caller still passes a thesis id, so `runAssistantTurn` and
+`runActionContinuation` currently carry `const thesisId = threadId;` as a
+deliberate temporary conflation. Two consequences:
+
+1. **Sends 404 right now.** `chatSendStream` puts that thesis uuid in the body's
+   `threadId` field; the server's `resolveThreadRequest` sees a valid uuid, takes
+   the `{kind:"thread"}` branch, `getThread` finds nothing, and the turn is
+   rejected as "thread not found".
+2. **Once real thread ids start flowing, the alias silently corrupts the
+   thesis-scoped work** — `syncOutlineAfterTurn` and `docChanges` would receive a
+   thread id where a thesis id is required.
+
+Fix by giving the turn runners both ids, then updating every caller:
+
+- `sendMessageToAI(threadId, thesisId, message, opts)`
+- `approvePendingAction(threadId, thesisId, actionId)` / `declinePendingAction(...)`
+- `regenerateLastResponse(threadId, thesisId)`
+- `loadInitialMessages(threadId)` / `loadOlderMessages(threadId)` need only the thread.
+
+Then delete both `const thesisId = threadId;` aliases.
+
+Call sites to update (confirmed by grep — there is no compiler help here, so work
+from this list and re-grep afterwards):
+
+- `app/(app)/chat.tsx` — lines ~349, 424, 477, 848, 865, 866
+- `components/workspace/BlockComposer.tsx` — ~189, 199, 202
+- `components/workspace/WorkspaceComposerSheet.tsx` — ~318, 323
+- `components/workspace/ai-dock/send.ts`
+- `app/(app)/block-editor.tsx` — ~140
+
+The workspace call sites all originate from the Writer, where a thesis is in
+hand; each needs a thread resolved via `threadForThesis(thesisId)` (cache it in
+`chat-threads-store.currentThreadId` rather than calling per keystroke).
+
+Afterwards, re-run the audit:
+```bash
+grep -rn "const thesisId = threadId" lib/ai-service.ts    # must return nothing
+```
+
 - [ ] **Step 1:** `ThesisChat({ thesisId, thesisTitle, variant, onClose })` becomes `ChatThread({ threadId, title, variant, onClose })`. Keep a `ThesisChat` wrapper that resolves `threadForThesis(thesisId)` on mount and renders `ChatThread`, so `ChatOverlayPanel` and the route need no restructuring.
 
 - [ ] **Step 2:** Add the header button that opens `ChatHistoryPanel`, and render the panel inside `ChatThread` so it works in both the screen and the Writer overlay.
