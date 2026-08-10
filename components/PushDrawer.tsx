@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Pressable, StyleSheet, useWindowDimensions, BackHandler, Keyboard, I18nManager } from "react-native";
+import {
+  View,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  BackHandler,
+  Keyboard,
+  I18nManager,
+  AppState,
+} from "react-native";
 import Animated, {
   useAnimatedStyle,
   useAnimatedReaction,
@@ -12,6 +21,7 @@ import {
   drawerOpenSV,
   drawerProgressSV,
   drawerDraggingSV,
+  resettleDrawer,
   useNavDrawerStore,
 } from "@/stores/nav-drawer-store";
 import { AppDrawer } from "@/components/AppDrawer";
@@ -123,11 +133,26 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [open, visuallyOpen]);
 
-  // Close on route change (defensive — heading-tap already closes before nav).
+  // Close on EVERY route change. Deliberately unguarded: the old version asked
+  // only when the store believed itself open, which is worthless for the one case
+  // that needs it — a drawer whose boolean says closed while the panel is still
+  // painted (see `resettleDrawer`). `closeDrawer` is level-triggered, so an
+  // already-closed drawer just re-springs to 0 and zustand skips the re-render.
   useEffect(() => {
-    if (useNavDrawerStore.getState().open) setOpen(false);
+    useNavDrawerStore.getState().closeDrawer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  // Coming back from another activity — the document picker Import and Combine
+  // open, the share sheet — re-settle to whatever the store decided while we were
+  // away. A close requested in the same tick the picker launched may have been
+  // frozen mid-slide with no frames to finish on; this is the frame it finishes.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") resettleDrawer();
+    });
+    return () => sub.remove();
+  }, []);
 
   // Leading-edge swipe to OPEN (closed state only). LTR: drag right grows progress;
   // RTL: drag left grows it. Memoized so a re-render never swaps the gesture mid-drag

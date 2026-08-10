@@ -61,6 +61,24 @@ function settle(open: boolean) {
   drawerProgressSV.value = withSpring(open ? 1 : 0, SPRING);
 }
 
+/**
+ * Re-apply the VISUAL state from the settled boolean, whatever `progress` is
+ * currently showing.
+ *
+ * A Reanimated spring runs off the UI thread's frame callback, and on Android
+ * that callback STOPS while another activity is in front — the document picker
+ * that Import and Combine open, the share sheet, the camera. A close asked for
+ * in the same tick one of those launches can be frozen part-way and never
+ * finish: the store says closed, the panel is still on screen, and because every
+ * other close path guards on the boolean ("it's already closed, nothing to do")
+ * nothing ever asks again. That is the drawer left hanging over the import
+ * screen. Level-triggered like `settle`, so calling it on a drawer that is
+ * already where it belongs costs one no-op spring.
+ */
+export function resettleDrawer() {
+  settle(useNavDrawerStore.getState().open);
+}
+
 export const useNavDrawerStore = create<NavDrawerState>((set, get) => ({
   open: false,
   view: "app",
