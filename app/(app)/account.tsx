@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -23,20 +22,8 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { useAuthStore } from "@/stores/auth-store";
 import { useProfileStore } from "@/stores/profile-store";
-import { useThesisStore } from "@/stores/thesis-store";
 import { BackButton } from "@/components/BackButton";
 import { AvatarPicker } from "@/components/AvatarPicker";
-
-// 0–999 shown as-is, 1000+ compacted to "8.4K" / "1.2M".
-function formatCount(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) {
-    const k = n / 1000;
-    return `${k % 1 === 0 ? k : k.toFixed(1)}K`;
-  }
-  const m = n / 1_000_000;
-  return `${m % 1 === 0 ? m : m.toFixed(1)}M`;
-}
 
 type AccountRow = {
   key: string;
@@ -63,20 +50,9 @@ export default function AccountScreen() {
 
   const signOut = useAuthStore((s) => s.signOut);
   const profile = useProfileStore((s) => s.profile);
-  const theses = useThesisStore((s) => s.theses);
 
   const notSet = t("profile.notSet");
   const displayName = profile?.fullName?.trim() || profile?.email?.split("@")[0] || notSet;
-
-  const stats = useMemo(() => {
-    const pages = theses.reduce((sum, th) => sum + (th.pageCount || 0), 0);
-    const words = theses.reduce((sum, th) => sum + (th.wordCount || 0), 0);
-    return [
-      { value: formatCount(theses.length), label: t("profile.theses") },
-      { value: formatCount(pages), label: t("home.pages", { defaultValue: "Pages" }) },
-      { value: formatCount(words), label: t("profile.words") },
-    ];
-  }, [theses, t]);
 
   const mine: AccountRow[] = [
     {
@@ -202,17 +178,6 @@ export default function AccountScreen() {
           </Text>
         </View>
 
-        <View style={[styles.stats, { flexDirection: rtl.flexDirection }]}>
-          {stats.map((s) => (
-            <View key={s.label} style={[styles.stat, { backgroundColor: colors.bgCard }]}>
-              <Text style={[styles.statValue, { color: colors.textPrimary }]}>{s.value}</Text>
-              <Text style={[styles.statLabel, { color: colors.textSecondary }]} numberOfLines={1}>
-                {s.label}
-              </Text>
-            </View>
-          ))}
-        </View>
-
         {renderGroup(t("account.mine"), mine)}
         {renderGroup(t("drawer.account"), account)}
         {renderGroup(t("account.about"), about)}
@@ -229,10 +194,6 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16 },
   identity: { alignItems: "center", gap: 10, paddingVertical: 14 },
   name: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
-  stats: { gap: 10, marginBottom: 6 },
-  stat: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 12 },
-  statValue: { fontSize: 18, fontFamily: "Inter_700Bold" },
-  statLabel: { fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
   groupLabel: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
