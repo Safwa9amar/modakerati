@@ -20,7 +20,7 @@ export function chartToSvg(spec: ChartSpec, opts: { width?: number; height?: num
   const values = Array.isArray(spec?.values) ? spec.values.map((v) => (Number.isFinite(+v) ? +v : 0)) : [];
   const n = Math.min(labels.length, values.length);
   const titleH = title ? 28 : 8;
-  const head = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Helvetica, Arial, sans-serif">`;
+  const head = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="sans-serif">`;
   const titleEl = title ? `<text x="${W / 2}" y="18" text-anchor="middle" font-size="14" font-weight="bold" fill="#222">${title}</text>` : "";
   const foot = `</svg>`;
 

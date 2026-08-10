@@ -30,7 +30,7 @@ import Animated, {
 import { LinearGradient } from "expo-linear-gradient";
 import { useTranslation } from "react-i18next";
 import { Sparkles, Check, Pencil, X, RotateCw } from "lucide-react-native";
-import { SvgXml } from "react-native-svg";
+import { ChartSvg } from "@/components/ChartSvg";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
 import { AiWorkingNote } from "@/components/AiWorkingNote";
@@ -479,13 +479,10 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
           onPress={() => sug.chart?.originalSvg && setChartPeek((v) => !v)}
           style={styles.paraWrap}
         >
-          <View style={{ width: "100%", aspectRatio: 491 / 288 }}>
-            <SvgXml
-              xml={chartPeek && sug.chart.originalSvg ? sug.chart.originalSvg : sug.chart.svg}
-              width="100%"
-              height="100%"
-            />
-          </View>
+          <ChartSvg
+            xml={chartPeek && sug.chart.originalSvg ? sug.chart.originalSvg : sug.chart.svg}
+            style={{ width: "100%", aspectRatio: 491 / 288 }}
+          />
           {!!sug.proposed.trim() && (
             <Text style={[baseTextStyle, contentTextStyle]}>{sug.proposed}</Text>
           )}

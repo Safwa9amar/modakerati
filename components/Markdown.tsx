@@ -10,7 +10,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useMarkdown, Renderer, type useMarkdownHookOptions } from "react-native-marked";
-import { SvgXml } from "react-native-svg";
+import { ChartSvg } from "@/components/ChartSvg";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { firstStrongDirection, getTextDirection, isolateBidi, type TextDirection } from "@/lib/text-direction";
 import { splitMath } from "@/lib/latex-unicode";
@@ -308,7 +308,7 @@ class MdRenderer extends Renderer {
       try {
         const spec = JSON.parse(text) as ChartSpec;
         const svg = chartToSvg(spec, { width: 320, height: 200 });
-        return <SvgXml key={this.getKey()} xml={svg} width="100%" />;
+        return <ChartSvg key={this.getKey()} xml={svg} style={{ width: "100%", aspectRatio: 320 / 200 }} />;
       } catch {
         // fall through to the code card on bad JSON
       }

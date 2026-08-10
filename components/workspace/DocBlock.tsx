@@ -19,7 +19,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
-import { SvgXml } from "react-native-svg";
+import { ChartSvg } from "@/components/ChartSvg";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthHeader } from "@/hooks/useAuthHeader";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -832,16 +832,15 @@ function FigureChart({
         isSelected && { backgroundColor: hi + "18" },
       ]}
     >
-      {/* SvgXml sizes to its container, and a container with no explicit height
+      {/* ChartSvg sizes to its container, and a container with no explicit height
           collapses to 0 — so the aspect ratio Word gave the drawing sets it. */}
-      <View
+      <ChartSvg
+        xml={svg}
         style={[
           styles.image,
           ratio ? { aspectRatio: ratio, maxHeight: MAX_IMAGE_HEIGHT } : { height: MAX_IMAGE_HEIGHT },
         ]}
-      >
-        <SvgXml xml={svg} width="100%" height="100%" />
-      </View>
+      />
       {captionNode}
     </Pressable>
   );
