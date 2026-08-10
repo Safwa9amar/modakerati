@@ -270,17 +270,34 @@ Add `MODK_TITLE` to `stripOwnFrames` in `src/lib/ai/control-frames.ts` — both 
 
 - [ ] **Step 2: Title after the first assistant turn**
 
-In `/stream`, after the assistant message is saved and alongside the existing
-`maybeSummarize(...)` fire-and-forget call:
+In `/stream`, after the assistant message is saved.
+
+⚠️ **This must be `await`ed — do NOT copy `maybeSummarize`'s fire-and-forget
+shape.** Verified against Hono's source: `streamText` calls `stream.close()` in a
+`finally` as soon as the handler callback's promise settles, and it does not wait
+for un-awaited promises. `StreamingApi.write()` swallows a write-after-close in an
+empty `catch`, so a deferred write neither throws nor arrives — the title frame
+would silently never reach the client. `maybeSummarize` gets away with it only
+because it never touches the stream.
 
 ```ts
-    // First real exchange on an untitled thread → name it. Fire-and-forget and
-    // fully optional: a failure leaves title NULL and the panel falls back to
-    // the student's first message, which is why nothing here is awaited.
-    void maybeTitleThread(threadId, message, ai, summarizeModelToUse)
-      .then((title) => { if (title) stream.write(streamSafe(`${TITLE_FRAME_OPEN}${JSON.stringify({ threadId, title })}${TITLE_FRAME_CLOSE}`)); })
-      .catch((e) => console.error("title error:", e?.message));
+    // First real exchange on an untitled thread → name it. Awaited, not
+    // fire-and-forget: the frame has to be written before streamText closes the
+    // stream, and a late write is silently dropped. Failure is still harmless —
+    // the title stays NULL and the panel falls back to the student's own first
+    // message — so this is wrapped rather than allowed to fail the turn.
+    if (!stopped) {
+      try {
+        const title = await maybeTitleThread(threadId, message, ai, summarizeModelToUse);
+        if (title) stream.write(streamSafe(`${TITLE_FRAME_OPEN}${JSON.stringify({ threadId, title })}${TITLE_FRAME_CLOSE}`));
+      } catch (e: any) {
+        console.error("title error:", e?.message);
+      }
+    }
 ```
+
+Note the DB-side title write still happens on a stopped turn; only the live
+stream notification is skipped, because there is no stream left to notify.
 
 Implement `maybeTitleThread` next to the other helpers in `chat.ts`:
 
@@ -288,7 +305,10 @@ Implement `maybeTitleThread` next to the other helpers in `chat.ts`:
 // Generate a title for a thread that has none. Returns null when the thread is
 // already titled, when the model refuses, or on any error — the caller treats a
 // null as "leave it untitled".
-async function maybeTitleThread(threadId: string, firstMessage: string, ai: any, model?: string): Promise<string | null> {
+async function maybeTitleThread(threadId: string, firstMessage: string, ai: AIProvider, model?: string): Promise<string | null> {
+  // An image-only send has an empty message, and its regenerate re-sends the
+  // same empty text — there is nothing to title from.
+  if (!firstMessage?.trim()) return null;
   const [row] = await db.select({ title: chatThreads.title }).from(chatThreads).where(eq(chatThreads.id, threadId));
   if (!row || row.title) return null;
   const answer = await ai.chat([{ role: "user", content: buildTitlePrompt(firstMessage) }], { model });
