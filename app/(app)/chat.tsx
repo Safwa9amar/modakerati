@@ -42,6 +42,21 @@ import type { ChatMessage, ChatImage, FilePayload } from "@/types/chat";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
+/**
+ * Whether opening this thread should wait behind a loading skeleton.
+ *
+ * `lastMessageAt` is the honest signal: null means the conversation has never
+ * held a message, so there is nothing on the server to fetch and a skeleton
+ * would be showing placeholder bubbles for a load that will find nothing. A
+ * thread we don't know about yet also answers false — under-showing the
+ * skeleton just means an empty chat that fills in, which is far better than the
+ * reverse.
+ */
+function threadHasHistory(threadId: string): boolean {
+  const row = useChatThreadsStore.getState().threads.find((t) => t.id === threadId);
+  return !!row?.lastMessageAt;
+}
+
 const LOGO = require("../../assets/icon.png");
 
 // A picked-but-not-yet-sent document. Staged in the composer so the user can add
@@ -366,7 +381,12 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   // True while the initial history is being pulled from cache/server. Starts true
   // only when nothing is in memory yet — a thesis revisited this session already
   // has its messages and shouldn't flash a skeleton.
-  const [loadingHistory, setLoadingHistory] = useState(() => messages.length === 0);
+  // The skeleton is only honest when history is actually on its way. A brand-new
+  // conversation — a first-time student with no thesis, or a chat just created
+  // with ＋ — has nothing to load, and placeholder bubbles there strand them
+  // staring at fake messages instead of typing. Starts false; only ever raised
+  // for a thread that has genuinely had messages before (see threadHasHistory).
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Resolve which conversation this thesis currently opens into — fired once
   // per mount, guarded by loadedRef so it never re-resolves a second thread out
@@ -379,17 +399,30 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     if (loadedRef.current) return;
     loadedRef.current = true;
     const store = useChatThreadsStore.getState();
-    // With a thesis in hand, ask the server which conversation it is currently
-    // in. Without one there is nothing to resolve FROM, so reopen whatever the
-    // student last had open, and only create an unattached thread if there
-    // genuinely isn't one — otherwise every visit to a thesis-less chat would
-    // leave a fresh empty conversation behind.
+    // RESUME only — never create. With a thesis in hand, ask the server which
+    // conversation it is currently in; without one, reopen whatever the student
+    // last had open. If there is nothing to resume we leave threadId null and
+    // show an empty chat they can type straight into: handleSend creates the
+    // thread on the first message. Creating one here instead would leave an
+    // empty conversation behind every time someone opened chat and walked away.
     const resolve = thesisId
       ? store.ensureThreadFor(thesisId)
       : store.currentThreadId
         ? Promise.resolve(store.currentThreadId)
-        : store.newThread();
-    void Promise.resolve(resolve).then(setThreadId);
+        : Promise.resolve(null);
+    void Promise.resolve(resolve)
+      .then((id) => {
+        if (!id) return; // nothing to resume — an empty chat, ready to type into
+        setLoadingHistory(threadHasHistory(id));
+        setThreadId(id);
+      })
+      .catch(() => {
+        // Offline, or the server refused. Leave the student in an empty
+        // conversation rather than an eternal skeleton — this is exactly how
+        // the stuck placeholder bubbles happened: newThread() rejects, the
+        // .then never runs, and nothing was left to clear the flag.
+        setLoadingHistory(false);
+      });
   }, []);
 
   // Load a thread's messages whenever the thread being displayed changes — the
@@ -401,7 +434,9 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   // even reach this effect — setThreadId to an unchanged value is a React no-op.
   useEffect(() => {
     if (!threadId) return;
-    setLoadingHistory(useChatStore.getState().getMessages(threadId).length === 0);
+    // Only clears — never raises. Whoever chose this thread already decided
+    // whether a skeleton is warranted, because only they know if it is a
+    // conversation being resumed or one created a moment ago.
     void loadInitialMessages(threadId).finally(() => setLoadingHistory(false));
   }, [threadId]);
 
@@ -421,6 +456,9 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
       isNearBottomRef.current = true;
       userHasScrolledRef.current = false;
       setShowScrollDown(false);
+      // Same rule as the initial resolve: a conversation with prior messages is
+      // worth waiting for, one just created with ＋ is not.
+      setLoadingHistory(threadHasHistory(picked));
       setThreadId(picked);
       useChatThreadsStore.getState().setCurrent(picked);
       setHistoryOpen(false);
@@ -560,10 +598,22 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   }
 
   async function handleSend() {
-    if (isGenerating || !threadId) return;
+    if (isGenerating) return;
     const text = inputText.trim();
     // Send when there's text, an attachment, or both — but never an empty turn.
     if (!text && !attachment && staged.length === 0) return;
+    // Typing IS starting a conversation. If there is no thread yet — a first-time
+    // student with no thesis, or one who opened chat and never touched ＋ — make
+    // one now rather than swallowing the send. Done here and not on mount so
+    // merely opening the chat and walking away doesn't litter the history panel
+    // with empty conversations.
+    const tid = threadId ?? (await createThreadForSend());
+    if (!tid) {
+      // Offline, or the server refused. Say so instead of quietly eating the
+      // message — the text is still in the box at this point.
+      Alert.alert(t("common.error"), t("thesis.genericError"));
+      return;
+    }
     const message = composeMessage(text, attachment, staged.length);
     const outgoing = staged;
     // A new turn takes the floor — don't keep reading the previous answer over it.
@@ -580,7 +630,22 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     // Sending your own message always jumps to the latest, even if scrolled up.
     isNearBottomRef.current = true;
     setShowScrollDown(false);
-    await sendMessageToAI(threadId, thesisId, message, { images: outgoing.length ? outgoing : undefined });
+    await sendMessageToAI(tid, thesisId, message, { images: outgoing.length ? outgoing : undefined });
+  }
+
+  // Create the conversation this send belongs to, on demand. Returns null when
+  // it can't be created (offline, server refused) so the caller can tell the
+  // student rather than dropping their message on the floor.
+  async function createThreadForSend(): Promise<string | null> {
+    const store = useChatThreadsStore.getState();
+    try {
+      const id = thesisId ? await store.ensureThreadFor(thesisId) : await store.newThread(null);
+      setThreadId(id);
+      store.setCurrent(id);
+      return id;
+    } catch {
+      return null;
+    }
   }
 
   // Add newly staged images, never past the cap. Say so when the cap is what
