@@ -18,6 +18,7 @@ import { Send, Square } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useBottomInset, useKeyboardLift } from "@/hooks/useBottomInset";
 import { useChatStore } from "@/stores/chat-store";
+import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { sendMessageToAI } from "@/lib/ai-service";
 import { getThesisDocument } from "@/lib/api";
@@ -137,7 +138,8 @@ export default function BlockEditorScreen() {
       return;
     }
     setAiPrompt("");
-    await sendMessageToAI(thesisId, prompt, { docBlockIndex: index });
+    const threadId = await useChatThreadsStore.getState().ensureThreadFor(thesisId);
+    await sendMessageToAI(threadId, thesisId, prompt, { docBlockIndex: index });
   };
 
   const hasAiText = aiPrompt.trim().length > 0;

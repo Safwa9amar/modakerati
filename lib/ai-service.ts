@@ -152,6 +152,7 @@ function createStreamPump(threadId: string, live: () => boolean): StreamPump {
 
 export async function sendMessageToAI(
   threadId: string,
+  thesisId: string,
   userMessage: string,
   opts?: { chapterId?: string; sectionId?: string; selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[]; images?: StagedImage[] }
 ): Promise<void> {
@@ -171,7 +172,7 @@ export async function sendMessageToAI(
   // A retry of a failed send starts clean: clear the marker, and let the turn
   // below set it again if this attempt fails too.
   store.setMessageFailed(threadId, userId, false);
-  await runAssistantTurn(threadId, userMessage, { ...opts, userMessageId: userId });
+  await runAssistantTurn(threadId, thesisId, userMessage, { ...opts, userMessageId: userId });
 }
 
 /**
@@ -182,7 +183,7 @@ export async function sendMessageToAI(
  * the repeated bubbles in the first place, so the affordance that replaces it
  * must not do the same thing.
  */
-export async function retryFailedMessage(threadId: string, messageId: string): Promise<void> {
+export async function retryFailedMessage(threadId: string, thesisId: string, messageId: string): Promise<void> {
   const store = useChatStore.getState();
   if (store.isGenerating) return;
   const msg = store.getMessages(threadId).find((m) => m.id === messageId);
@@ -195,7 +196,7 @@ export async function retryFailedMessage(threadId: string, messageId: string): P
   const images = (await Promise.all((msg.images ?? []).map(restageImage))).filter(
     (i): i is StagedImage => i !== null,
   );
-  await runAssistantTurn(threadId, displayText(msg), {
+  await runAssistantTurn(threadId, thesisId, displayText(msg), {
     chapterId: msg.chapterId,
     sectionId: msg.sectionId,
     userMessageId: messageId,
@@ -210,7 +211,7 @@ export async function retryFailedMessage(threadId: string, messageId: string): P
  * prompt; the user's own message is left in place. No-op while a turn is already
  * generating, or when there's no user message to answer.
  */
-export async function regenerateLastResponse(threadId: string): Promise<void> {
+export async function regenerateLastResponse(threadId: string, thesisId: string): Promise<void> {
   const store = useChatStore.getState();
   if (store.isGenerating) return;
 
@@ -228,7 +229,7 @@ export async function regenerateLastResponse(threadId: string): Promise<void> {
   // the stored row already holds the image frames, so the re-run sees the same
   // pictures without re-uploading them, and the server's "is this the same
   // question?" check compares against frame-stripped content.
-  await runAssistantTurn(threadId, displayText(userMsg), { chapterId: userMsg.chapterId, sectionId: userMsg.sectionId, regenerate: true });
+  await runAssistantTurn(threadId, thesisId, displayText(userMsg), { chapterId: userMsg.chapterId, sectionId: userMsg.sectionId, regenerate: true });
 }
 
 // What the student actually typed. A synced user row carries its attached images
@@ -244,6 +245,7 @@ function displayText(m: ChatMessage): string {
 // regenerate so both behave identically once the user turn exists.
 async function runAssistantTurn(
   threadId: string,
+  thesisId: string,
   userMessage: string,
   opts?: {
     chapterId?: string; sectionId?: string; selection?: string;
@@ -261,13 +263,7 @@ async function runAssistantTurn(
 
   // flushOps / the outline sync / docChanges all need the real THESIS id, not
   // the thread id — the doc history checkpoint and the outline are per-document,
-  // shared by every thread on it (see chat-store's `docChanges` comment). Every
-  // caller of sendMessageToAI still passes a thesisId into this single
-  // parameter today (only the chat screen resolves a real threadId first) — so
-  // reusing it here is correct now, and will need a genuine second parameter
-  // once the remaining callers (BlockComposer, WorkspaceComposerSheet,
-  // block-editor, ai-dock/send.ts) are migrated to pass a resolved thread id.
-  const thesisId = threadId;
+  // shared by every thread on it (see chat-store's `docChanges` comment).
   store.setDocChanges(thesisId, null);
 
   // Lets the user cancel this turn from the UI (chat-store.stopGenerating).
@@ -359,7 +355,7 @@ async function runAssistantTurn(
           // for a stopped turn: the .docx edits already happened server-side, so
           // the student still needs the "Undo AI changes" chip for them.
           docChanged = true;
-          // thesisId, not threadId — see the alias comment above.
+          // thesisId, not threadId — see the field comment on chat-store's docChanges.
           useChatStore.getState().setDocChanges(thesisId, changes);
         },
         onThinking: (chunk) => {
@@ -444,7 +440,7 @@ async function runAssistantTurn(
         // Mark the turn as having edited the .docx, exactly as the streaming
         // path's onDocChanges does — the outer finally reads this to decide
         // whether the outline needs re-syncing. thesisId, not threadId — see
-        // the alias comment above.
+        // the field comment on chat-store's docChanges.
         if (result.docChanges) { docChanged = true; store.setDocChanges(thesisId, result.docChanges); }
         return;
       } catch (fallbackError: any) {
@@ -477,7 +473,7 @@ async function runAssistantTurn(
     store.endTurn(turnId);
     // The turn's tools may have added or promoted headings — refresh the outline
     // wherever the student is, not only in the workspace screen. thesisId, not
-    // threadId — see the alias comment above.
+    // threadId — see the field comment on chat-store's docChanges.
     syncOutlineAfterTurn(thesisId, docChanged);
     // Persist the new turn to the device so it survives restarts and shows
     // instantly next time. Server-id reconciliation happens on the next open.
@@ -620,14 +616,12 @@ async function persistCache(threadId: string): Promise<void> {
 // workspace's after-turn refresh (isGenerating true→false) fires as usual.
 async function runActionContinuation(
   threadId: string,
+  thesisId: string,
   actionId: string,
   call: typeof chatConfirmAction,
 ): Promise<void> {
-  // thesisId, not threadId — see the alias comment in runAssistantTurn.
-  // syncOutlineAfterTurn and docChanges both need the real thesis id, and every
-  // current caller of approvePendingAction/declinePendingAction still only has a
-  // thesisId to pass in.
-  const thesisId = threadId;
+  // thesisId, not threadId — see the field comment on chat-store's docChanges.
+  // syncOutlineAfterTurn and docChanges both need the real thesis id.
   const store = useChatStore.getState();
   store.setPendingConfirm(null);
   const controller = new AbortController();
@@ -707,10 +701,10 @@ async function runActionContinuation(
   }
 }
 
-export function approvePendingAction(threadId: string, actionId: string): Promise<void> {
-  return runActionContinuation(threadId, actionId, chatConfirmAction);
+export function approvePendingAction(threadId: string, thesisId: string, actionId: string): Promise<void> {
+  return runActionContinuation(threadId, thesisId, actionId, chatConfirmAction);
 }
 
-export function declinePendingAction(threadId: string, actionId: string): Promise<void> {
-  return runActionContinuation(threadId, actionId, chatCancelAction);
+export function declinePendingAction(threadId: string, thesisId: string, actionId: string): Promise<void> {
+  return runActionContinuation(threadId, thesisId, actionId, chatCancelAction);
 }

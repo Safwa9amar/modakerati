@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { sendMessageToAI, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { ComposerAsk } from "./ComposerAsk";
@@ -184,9 +185,13 @@ export function BlockComposer({ thesisId, rtl, insetValue }: Props) {
     useWorkspaceStore.getState().setComposerInputFocused(false);
   }, []);
 
-  const handleAnswer = (answer: string) => {
+  // Resolved on demand rather than kept in state: this surface renders only
+  // while there's an ask/confirm gate up, so there's no "mount" moment early
+  // enough to pre-resolve it, and ensureThreadFor is cheap once cached.
+  const handleAnswer = async (answer: string) => {
     useChatStore.getState().setPendingAsk(null);
-    void sendMessageToAI(thesisId, answer, focusOpts);
+    const threadId = await useChatThreadsStore.getState().ensureThreadFor(thesisId);
+    void sendMessageToAI(threadId, thesisId, answer, focusOpts);
   };
 
   // The user always has the right to walk away from a question unanswered —
@@ -195,11 +200,15 @@ export function BlockComposer({ thesisId, rtl, insetValue }: Props) {
     useChatStore.getState().setPendingAsk(null);
   };
 
-  const handleApprove = () => {
-    if (pendingConfirm) void approvePendingAction(thesisId, pendingConfirm.actionId);
+  const handleApprove = async () => {
+    if (!pendingConfirm) return;
+    const threadId = await useChatThreadsStore.getState().ensureThreadFor(thesisId);
+    void approvePendingAction(threadId, thesisId, pendingConfirm.actionId);
   };
-  const handleDecline = () => {
-    if (pendingConfirm) void declinePendingAction(thesisId, pendingConfirm.actionId);
+  const handleDecline = async () => {
+    if (!pendingConfirm) return;
+    const threadId = await useChatThreadsStore.getState().ensureThreadFor(thesisId);
+    void declinePendingAction(threadId, thesisId, pendingConfirm.actionId);
   };
 
   if (!composerOpen) return null;

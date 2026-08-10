@@ -1,6 +1,7 @@
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useTableSuggestionStore } from "@/stores/table-suggestion-store";
+import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { sendMessageToAI } from "@/lib/ai-service";
 import type { DocBlockDTO } from "@/lib/api";
 import type { DockScope } from "@/lib/ai-dock-scopes";
@@ -105,13 +106,21 @@ export function sendFromDock({
       break;
   }
 
-  // Reached ONLY by the three intentionally-`direct` scopes above.
-  void sendMessageToAI(thesisId, prompt, {
-    docBlockIndex: indices.length ? indices[0] : null,
-    docBlockIndices: indices.length > 1 ? indices : undefined,
-    // Ground the ask on the selected text; whole-memoir asks carry no selection.
-    selection: indices.length ? scopeText || undefined : undefined,
-  });
+  // Reached ONLY by the three intentionally-`direct` scopes above. The thread is
+  // resolved asynchronously so collapse()/setAwaitingReply below still fire
+  // immediately (fire-and-forget, matching every other branch here) — only the
+  // actual send waits on it.
+  void useChatThreadsStore
+    .getState()
+    .ensureThreadFor(thesisId)
+    .then((threadId) => {
+      void sendMessageToAI(threadId, thesisId, prompt, {
+        docBlockIndex: indices.length ? indices[0] : null,
+        docBlockIndices: indices.length > 1 ? indices : undefined,
+        // Ground the ask on the selected text; whole-memoir asks carry no selection.
+        selection: indices.length ? scopeText || undefined : undefined,
+      });
+    });
   // collapse(), not a bare setExpanded: the ask bar is ALWAYS rendered now, so a
   // direct-outcome send has to clear `inputOpen` too — the old dock's handleAskSend
   // did this unconditionally. Leaving it set strands the target: re-tapping a

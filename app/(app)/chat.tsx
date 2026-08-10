@@ -7,6 +7,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useBottomInset, useKeyboardLift } from "@/hooks/useBottomInset";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import { sendMessageToAI, loadInitialMessages, loadOlderMessages, regenerateLastResponse, retryFailedMessage, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
@@ -330,10 +331,15 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // (looks "far from bottom") that would otherwise disengage the pin and leave
   // the chat stranded mid-history. Only a real drag hands scroll control over.
   const userHasScrolledRef = useRef(false);
-  const messages = useChatStore((s) => s.getMessages(thesisId));
+  // The conversation this thesis is currently in — resolved once below via
+  // ensureThreadFor, not the thesis id itself. The message store, the AI turn
+  // runners and the API calls all key off THIS, never `thesisId` (which only the
+  // outline sync and the undo checkpoint need — see lib/ai-service.ts).
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const messages = useChatStore((s) => s.getMessages(threadId ?? ""));
   // Infinite scroll: whether earlier messages remain and whether a page is loading.
-  const hasMoreOlder = useChatStore((s) => s.getHasMoreOlder(thesisId));
-  const loadingOlder = useChatStore((s) => s.getLoadingOlder(thesisId));
+  const hasMoreOlder = useChatStore((s) => s.getHasMoreOlder(threadId ?? ""));
+  const loadingOlder = useChatStore((s) => s.getLoadingOlder(threadId ?? ""));
   const isGenerating = useChatStore((s) => s.isGenerating);
   const streamingId = useChatStore((s) => s.streamingId);
   const loadedRef = useRef(false);
@@ -346,7 +352,14 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   useEffect(() => {
     if (!loadedRef.current) {
       loadedRef.current = true;
-      loadInitialMessages(thesisId).finally(() => setLoadingHistory(false));
+      useChatThreadsStore
+        .getState()
+        .ensureThreadFor(thesisId)
+        .then((id) => {
+          setThreadId(id);
+          return loadInitialMessages(id);
+        })
+        .finally(() => setLoadingHistory(false));
     }
   }, []);
 
@@ -417,22 +430,24 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // user turn). Stable identity so the memoized Bubble doesn't re-render on every
   // keystroke; snaps to the bottom so the fresh answer streams into view.
   const handleRegenerate = useCallback(() => {
+    if (!threadId) return;
     // The answer being read aloud is the one about to be replaced.
     stopSpeaking();
     isNearBottomRef.current = true;
     setShowScrollDown(false);
-    void regenerateLastResponse(thesisId);
-  }, [thesisId, stopSpeaking]);
+    void regenerateLastResponse(threadId, thesisId);
+  }, [threadId, thesisId, stopSpeaking]);
 
   // Retry a send that never landed. Re-runs the turn for the EXISTING user row —
   // no second bubble, and no server-side regenerate (that path deletes the reply
   // it means to replace).
   const handleRetryMessage = useCallback((messageId: string) => {
+    if (!threadId) return;
     stopSpeaking();
     isNearBottomRef.current = true;
     setShowScrollDown(false);
-    void retryFailedMessage(thesisId, messageId);
-  }, [thesisId, stopSpeaking]);
+    void retryFailedMessage(threadId, thesisId, messageId);
+  }, [threadId, thesisId, stopSpeaking]);
 
   // Builds the outgoing text.
   //
@@ -454,7 +469,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   }
 
   async function handleSend() {
-    if (isGenerating) return;
+    if (isGenerating || !threadId) return;
     const text = inputText.trim();
     // Send when there's text, an attachment, or both — but never an empty turn.
     if (!text && !attachment && staged.length === 0) return;
@@ -474,7 +489,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
     // Sending your own message always jumps to the latest, even if scrolled up.
     isNearBottomRef.current = true;
     setShowScrollDown(false);
-    await sendMessageToAI(thesisId, message, { images: outgoing.length ? outgoing : undefined });
+    await sendMessageToAI(threadId, thesisId, message, { images: outgoing.length ? outgoing : undefined });
   }
 
   // Add newly staged images, never past the cap. Say so when the cap is what
@@ -608,8 +623,8 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
             // (which passes through offset 0) doesn't fire a spurious load;
             // loadOlderMessages itself guards against double-loads and end-of-history.
             onStartReached={() => {
-              if (!userHasScrolledRef.current) return;
-              void loadOlderMessages(thesisId);
+              if (!userHasScrolledRef.current || !threadId) return;
+              void loadOlderMessages(threadId);
             }}
             onStartReachedThreshold={0.5}
             // Keep the on-screen content anchored when older messages are prepended,
@@ -845,7 +860,7 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
           ask={pendingAsk}
           onAnswer={(answer) => {
             setPendingAsk(null);
-            void sendMessageToAI(thesisId, answer);
+            if (threadId) void sendMessageToAI(threadId, thesisId, answer);
           }}
           onClose={() => setPendingAsk(null)}
         />
@@ -862,8 +877,8 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
         >
           <ComposerConfirm
             confirm={pendingConfirm}
-            onApprove={() => void approvePendingAction(thesisId, pendingConfirm.actionId)}
-            onCancel={() => void declinePendingAction(thesisId, pendingConfirm.actionId)}
+            onApprove={() => threadId && void approvePendingAction(threadId, thesisId, pendingConfirm.actionId)}
+            onCancel={() => threadId && void declinePendingAction(threadId, thesisId, pendingConfirm.actionId)}
             rtl={i18n.language === "ar"}
           />
         </View>

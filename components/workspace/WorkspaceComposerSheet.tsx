@@ -19,6 +19,7 @@ import {
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { sendMessageToAI, regenerateLastResponse, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { type DocBlockDTO, restoreThesisHistory } from "@/lib/api";
@@ -128,6 +129,33 @@ export function WorkspaceComposerSheet({
     [ordered, blocks],
   );
 
+  // The conversation this thesis is currently in — resolved once (per thesis) via
+  // ensureThreadFor. The message store, the AI turn runners and the API calls key
+  // off THIS, never `thesisId` — that stays reserved for the outline sync and the
+  // undo checkpoint (docChanges below), which are per-document, not per-thread.
+  const [threadId, setThreadId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    useChatThreadsStore
+      .getState()
+      .ensureThreadFor(thesisId)
+      .then((id) => {
+        if (!cancelled) setThreadId(id);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [thesisId]);
+  // Resolves the thread for a send, reusing the mount-resolved id when it's
+  // already there rather than re-awaiting ensureThreadFor's (cheap, but not
+  // free) cache check on every keystroke's send.
+  const resolveThreadId = useCallback(async () => {
+    if (threadId) return threadId;
+    const id = await useChatThreadsStore.getState().ensureThreadFor(thesisId);
+    setThreadId(id);
+    return id;
+  }, [threadId, thesisId]);
+
   const isGenerating = useChatStore((s) => s.isGenerating);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
   const pendingAsk = useChatStore((s) => s.pendingAsk);
@@ -140,7 +168,7 @@ export function WorkspaceComposerSheet({
   // return primitives so the composer re-renders only when the value changes (no
   // fresh-object selector loop).
   const thinking = useChatStore((s) => {
-    const list = s.messages[thesisId];
+    const list = s.messages[threadId ?? ""];
     if (!list) return "";
     if (s.streamingId) return list.find((m) => m.id === s.streamingId)?.thinking ?? "";
     if (s.isGenerating) return ""; // new turn starting → don't fall back to the last turn
@@ -150,7 +178,7 @@ export function WorkspaceComposerSheet({
     return "";
   });
   const thinkingMs = useChatStore((s) => {
-    const list = s.messages[thesisId];
+    const list = s.messages[threadId ?? ""];
     if (!list) return undefined;
     let msg: (typeof list)[number] | undefined;
     if (s.streamingId) {
@@ -315,12 +343,14 @@ export function WorkspaceComposerSheet({
     if (!text || isGenerating) return;
     setInputText("");
     Keyboard.dismiss();
-    await sendMessageToAI(thesisId, text, focusOpts);
+    const tid = await resolveThreadId();
+    await sendMessageToAI(tid, thesisId, text, focusOpts);
   };
 
-  const handleAnswer = (answer: string) => {
+  const handleAnswer = async (answer: string) => {
     useChatStore.getState().setPendingAsk(null);
-    void sendMessageToAI(thesisId, answer, focusOpts);
+    const tid = await resolveThreadId();
+    void sendMessageToAI(tid, thesisId, answer, focusOpts);
   };
 
   // The user always has the right to walk away from a question unanswered —
@@ -331,11 +361,19 @@ export function WorkspaceComposerSheet({
 
   // Approve / decline a gated destructive AI action. These call dedicated
   // endpoints (NOT a chat message) that run — or discard — the server-stored args.
-  const handleApprove = () => {
-    if (pendingConfirm) void approvePendingAction(thesisId, pendingConfirm.actionId);
+  const handleApprove = async () => {
+    if (!pendingConfirm) return;
+    const tid = await resolveThreadId();
+    void approvePendingAction(tid, thesisId, pendingConfirm.actionId);
   };
-  const handleDecline = () => {
-    if (pendingConfirm) void declinePendingAction(thesisId, pendingConfirm.actionId);
+  const handleDecline = async () => {
+    if (!pendingConfirm) return;
+    const tid = await resolveThreadId();
+    void declinePendingAction(tid, thesisId, pendingConfirm.actionId);
+  };
+  const handleRegenerate = async () => {
+    const tid = await resolveThreadId();
+    void regenerateLastResponse(tid, thesisId);
   };
 
   // One-tap revert of everything the last AI turn changed (its checkpoint snapshot).
@@ -391,7 +429,7 @@ export function WorkspaceComposerSheet({
     { key: "sources", label: t("composer.tools.sources"), icon: Paperclip, onPress: onOpenSources },
     { key: "outline", label: t("composer.tools.outline"), icon: ListTree, onPress: onOpenOutline },
     { key: "export", label: t("composer.tools.export"), icon: Download, onPress: onExport, disabled: !downloadUrl },
-    { key: "regenerate", label: t("composer.tools.regenerate"), icon: RotateCcw, onPress: () => void regenerateLastResponse(thesisId), disabled: isGenerating },
+    { key: "regenerate", label: t("composer.tools.regenerate"), icon: RotateCcw, onPress: () => void handleRegenerate(), disabled: isGenerating },
     { key: "thinking", label: t("composer.tools.thinking"), icon: Brain, active: thinkingEnabled, onPress: () => useWorkspaceStore.getState().setThinkingEnabled(!thinkingEnabled) },
     {
       key: "editBlock",

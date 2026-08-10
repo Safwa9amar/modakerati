@@ -5,6 +5,7 @@ import {
   patchThread,
   deleteThread,
   searchThreads,
+  threadForThesis,
   type ChatThread,
   type ThreadSearchResult,
 } from "@/lib/api";
@@ -47,6 +48,14 @@ interface ChatThreadsState {
   /** Applies the [[MODK_TITLE]] stream frame: a thread just got its first
    *  generated title, live, without waiting for a refetch. */
   applyTitle: (threadId: string, title: string) => void;
+  /**
+   * The thread the Writer should be talking to for this thesis, resolved once and
+   * cached. Calls POST /api/threads/for-thesis, which answers "the conversation
+   * this thesis is currently in" — deliberately a server call, because the thread
+   * LIST ranks a brand-new empty thread first (the student just tapped ＋) while
+   * this question wants the thread with something in it.
+   */
+  ensureThreadFor: (thesisId: string) => Promise<string>;
 }
 
 export const useChatThreadsStore = create<ChatThreadsState>((set, get) => ({
@@ -169,4 +178,22 @@ export const useChatThreadsStore = create<ChatThreadsState>((set, get) => ({
 
   applyTitle: (threadId, title) =>
     set((s) => ({ threads: s.threads.map((t) => (t.id === threadId ? { ...t, title } : t)) })),
+
+  ensureThreadFor: async (thesisId) => {
+    const { currentThreadId, threads } = get();
+    // Already resolved for THIS thesis — reuse it rather than round-tripping the
+    // server on every call (this fires from every send site, not just once).
+    if (currentThreadId) {
+      const cached = threads.find((t) => t.id === currentThreadId);
+      if (cached && cached.thesisId === thesisId) return currentThreadId;
+    }
+    const thread = await threadForThesis(thesisId);
+    set((s) => ({
+      currentThreadId: thread.id,
+      threads: s.threads.some((t) => t.id === thread.id)
+        ? s.threads.map((t) => (t.id === thread.id ? thread : t))
+        : [thread, ...s.threads],
+    }));
+    return thread.id;
+  },
 }));
