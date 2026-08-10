@@ -618,7 +618,24 @@
     "noResponse": "I couldn't produce a response this time. Tap Regenerate to try again.",
     "noResponseDocChanged": "I made the changes to your thesis but couldn't write a summary of them. Open your document to check them before trying again.",
     "listen": "Listen",
-    "stopAudio": "Stop"
+    "stopAudio": "Stop",
+    "threads": {
+      "title": "Conversations",
+      "new": "New chat",
+      "search": "Search conversations",
+      "pinned": "Pinned",
+      "noThesis": "Unattached",
+      "untitled": "Untitled conversation",
+      "rename": "Rename",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "archive": "Archive",
+      "unarchive": "Unarchive",
+      "delete": "Delete",
+      "deleteConfirm": "Delete this conversation? This can't be undone.",
+      "empty": "No conversations yet",
+      "archived": "Archived"
+    }
   },
   "editor": {
     "sectionEditor": "Section Editor",

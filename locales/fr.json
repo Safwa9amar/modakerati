@@ -618,7 +618,24 @@
     "noResponse": "Je n'ai pas réussi à produire de réponse cette fois. Appuyez sur « Régénérer » pour réessayer.",
     "noResponseDocChanged": "J'ai appliqué les modifications à votre mémoire mais je n'ai pas pu en rédiger le résumé. Ouvrez le document pour les vérifier avant de réessayer.",
     "listen": "Écouter",
-    "stopAudio": "Arrêter"
+    "stopAudio": "Arrêter",
+    "threads": {
+      "title": "Conversations",
+      "new": "Nouvelle discussion",
+      "search": "Rechercher des conversations",
+      "pinned": "Épinglées",
+      "noThesis": "Sans mémoire",
+      "untitled": "Conversation sans titre",
+      "rename": "Renommer",
+      "pin": "Épingler",
+      "unpin": "Désépingler",
+      "archive": "Archiver",
+      "unarchive": "Désarchiver",
+      "delete": "Supprimer",
+      "deleteConfirm": "Supprimer cette conversation ? Cette action est irréversible.",
+      "empty": "Aucune conversation pour le moment",
+      "archived": "Archivée"
+    }
   },
   "editor": {
     "sectionEditor": "Editeur de section",
