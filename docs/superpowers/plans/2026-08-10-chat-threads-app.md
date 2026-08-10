@@ -23,6 +23,18 @@ The Expo app has **no JS test runner**. That is a standing project decision, not
 - **Server tasks** keep full TDD with vitest. Baseline: `npm test` → 960 passed / 84 files.
 - **App tasks** are gated by `npx tsc --noEmit` (must be clean) plus **actually running the app** and exercising the described flow. Every app task below ends with a concrete "run it and check this" step. A task is not done because it compiles.
 
+⚠️ **`tsc` cannot catch this particular re-key, and that is the main risk in this
+plan.** Confirmed in Task 5: renaming a parameter from `thesisId` to `threadId`
+changes nothing the compiler checks, because arguments are positional and both
+are `string`. Passing a thesis id into a thread parameter compiles perfectly and
+then reads the wrong conversation — or none. So for Tasks 6–8, a clean typecheck
+proves almost nothing. Two things substitute for it:
+
+1. **A grep audit.** After Task 8, `grep -rn "thesisId" lib/chat-cache.ts lib/ai-service.ts stores/chat-store.ts types/chat.ts` must return only deliberate, commented survivors — at time of writing exactly one: `docChanges`, which stays thesis-keyed on purpose.
+2. **The runtime walkthrough** in Task 10, which is where a mixed-up key actually shows itself (empty history, or a message landing in the wrong conversation).
+
+Do not treat Tasks 6–8 as done on a green typecheck alone.
+
 Do not add a test runner to the app as part of this work.
 
 ## Conventions
