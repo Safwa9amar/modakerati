@@ -12,7 +12,7 @@ import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import { sendMessageToAI, loadInitialMessages, loadOlderMessages, regenerateLastResponse, retryFailedMessage, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { ComposerConfirm } from "@/components/workspace/ComposerConfirm";
-import { Send, Plus, Menu, List, Paperclip, Image as ImageIcon, Camera, ClipboardPaste, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw, Volume2, AlertCircle } from "lucide-react-native";
+import { Send, Plus, Menu, List, Paperclip, Image as ImageIcon, Camera, ClipboardPaste, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw, Volume2, AlertCircle, History } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
@@ -35,6 +35,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { Alert } from "react-native";
 import { ChatImageGrid, ChatImageViewer } from "@/components/ChatImages";
 import { splitImageFrames, pickChatImages, captureChatImage, pasteChatImage, MAX_CHAT_IMAGES, type StagedImage } from "@/lib/chat-images";
+import { ChatHistoryPanel } from "@/components/chat/ChatHistoryPanel";
 import type { ChatMessage, ChatImage, FilePayload } from "@/types/chat";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -333,8 +334,14 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // The conversation this thesis is currently in — resolved once below via
   // ensureThreadFor, not the thesis id itself. The message store, the AI turn
   // runners and the API calls all key off THIS, never `thesisId` (which only the
-  // outline sync and the undo checkpoint need — see lib/ai-service.ts).
+  // outline sync and the undo checkpoint need — see lib/ai-service.ts). Also
+  // changed by handlePickThread when the student switches conversations from
+  // the history panel.
   const [threadId, setThreadId] = useState<string | null>(null);
+  // Full-screen conversation-history panel (components/chat/ChatHistoryPanel).
+  // It owns its own list/search/loading state and only needs to know whether
+  // it's open, so its own `visible` effect fetches the list — nothing to load here.
+  const [historyOpen, setHistoryOpen] = useState(false);
   // AI-generated quick-action chips from the recent conversation + RAG. Only the
   // visible instance fetches, and not while an ask sheet is open. No block
   // selection in plain chat, so it grounds on the conversation alone. Declared
@@ -354,19 +361,54 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // has its messages and shouldn't flash a skeleton.
   const [loadingHistory, setLoadingHistory] = useState(() => messages.length === 0);
 
+  // Resolve which conversation this thesis currently opens into — fired once
+  // per mount, guarded by loadedRef so it never re-resolves a second thread out
+  // from under the student. Switching conversations afterwards goes through
+  // handlePickThread below, which sets `threadId` directly; it deliberately
+  // does NOT touch loadedRef, so this effect can never fire again for it — the
+  // effect below (keyed on threadId) is what does the actual message load for
+  // BOTH paths, so it isn't repeated here.
   useEffect(() => {
-    if (!loadedRef.current) {
-      loadedRef.current = true;
-      useChatThreadsStore
-        .getState()
-        .ensureThreadFor(thesisId)
-        .then((id) => {
-          setThreadId(id);
-          return loadInitialMessages(id);
-        })
-        .finally(() => setLoadingHistory(false));
-    }
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    void useChatThreadsStore.getState().ensureThreadFor(thesisId).then(setThreadId);
   }, []);
+
+  // Load a thread's messages whenever the thread being displayed changes — the
+  // initial resolve above, or a pick from the history panel. loadInitialMessages
+  // itself is idempotent (it bails immediately once the thread already has
+  // messages in memory this session — see lib/ai-service.ts), so switching back
+  // to a thread already open this session is a no-op here: no refetch, no
+  // re-flash of the skeleton. Picking the thread that's ALREADY current doesn't
+  // even reach this effect — setThreadId to an unchanged value is a React no-op.
+  useEffect(() => {
+    if (!threadId) return;
+    setLoadingHistory(useChatStore.getState().getMessages(threadId).length === 0);
+    void loadInitialMessages(threadId).finally(() => setLoadingHistory(false));
+  }, [threadId]);
+
+  // Switch the conversation this screen is showing. The AI turn runners in
+  // lib/ai-service.ts close over the threadId that was active when a turn
+  // STARTED, not a live read of this state, so a turn already streaming keeps
+  // writing into the thread it belongs to — never into whichever thread this
+  // screen switches to. Read-aloud is stopped the same way regenerate/retry
+  // stop it: a different conversation takes the floor. The scroll-pin flags are
+  // re-armed exactly as they are on a thesis switch below (same FlatList
+  // instance, an entirely different message array) — otherwise a thread opened
+  // while scrolled up in the previous one would land mid-scroll instead of at
+  // its latest message.
+  const handlePickThread = useCallback(
+    (picked: string) => {
+      stopSpeaking();
+      isNearBottomRef.current = true;
+      userHasScrolledRef.current = false;
+      setShowScrollDown(false);
+      setThreadId(picked);
+      useChatThreadsStore.getState().setCurrent(picked);
+      setHistoryOpen(false);
+    },
+    [stopSpeaking]
+  );
 
   // Bridge the model's pending question (data, in the chat store) to the global
   // sheet store so the "ask" sheet's open state lives alongside every other sheet.
@@ -594,7 +636,15 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
             <DrawerMenuButton />
           )}
           <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>{thesisTitle}</Text>
-          <View style={{ width: 30 }} />
+          <Pressable
+            onPress={() => setHistoryOpen(true)}
+            hitSlop={8}
+            style={{ padding: 4 }}
+            accessibilityRole="button"
+            accessibilityLabel={t("chat.threads.title")}
+          >
+            <History size={22} color={colors.textPrimary} strokeWidth={1.8} />
+          </Pressable>
         </View>
       </SafeAreaView>
 
@@ -897,6 +947,15 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
 
       {/* Full-screen view of a tapped attachment. */}
       <ChatImageViewer image={viewerImage} onClose={() => setViewerImage(null)} />
+
+      {/* Full-screen conversation list — owns its own load/search/menu state;
+          this screen only tells it whether it's open and what to do on a pick. */}
+      <ChatHistoryPanel
+        visible={historyOpen}
+        thesisId={thesisId}
+        onClose={() => setHistoryOpen(false)}
+        onPick={handlePickThread}
+      />
     </View>
   );
 }
