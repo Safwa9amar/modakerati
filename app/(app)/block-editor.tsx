@@ -23,6 +23,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { sendMessageToAI } from "@/lib/ai-service";
 import { getThesisDocument } from "@/lib/api";
 import { BackButton } from "@/components/BackButton";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 // RTL when right-to-left characters dominate (thesis content is often Arabic and
 // the `language` field is unreliable, so we detect from the text itself).
@@ -183,7 +184,7 @@ export default function BlockEditorScreen() {
                     color: colors.textPrimary,
                     backgroundColor: colors.bgCard,
                     borderColor: colors.borderDefault,
-                    textAlign: rtl ? "right" : "left",
+                    textAlign: visualTextAlign(rtl),
                     writingDirection: rtl ? "rtl" : "ltr",
                   },
                 ]}

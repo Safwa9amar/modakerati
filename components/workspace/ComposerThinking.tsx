@@ -4,6 +4,7 @@ import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { ThinkingTrace } from "@/components/ThinkingTrace";
 import { AiWorkingNote } from "@/components/AiWorkingNote";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 interface Props {
   isGenerating: boolean;
@@ -40,7 +41,7 @@ export function ComposerThinking({ isGenerating, reasoning, thinking, durationMs
     return (
       <View style={[styles.box, { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle }]}>
         <Text
-          style={[styles.status, { color: colors.textSecondary, textAlign: appRtl ? "right" : "left" }]}
+          style={[styles.status, { color: colors.textSecondary, textAlign: visualTextAlign(appRtl) }]}
           numberOfLines={1}
         >
           {statusReady}

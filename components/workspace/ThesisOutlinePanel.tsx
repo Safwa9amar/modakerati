@@ -23,7 +23,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { thesisBlockImageUrl, type OutlineNodeDTO, type DocBlockDTO } from "@/lib/api";
 import { normalize } from "@/lib/text-normalize";
 import { isFigureBlock } from "@/lib/doc-ornament";
-import { visualRow } from "@/lib/rtl-layout";
+import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 
 // Whether any heading title contains Arabic/Hebrew letters → render right-to-left.
 // thesis.language is unreliable for imports, so detect direction from the content.
@@ -163,7 +163,7 @@ function OutlineRow({
         style={[
           isTop ? styles.rowTitleTop : styles.rowTitle,
           active && styles.rowTitleActive,
-          { color: textColor, textAlign: rowRtl ? "right" : "left" },
+          { color: textColor, textAlign: visualTextAlign(rowRtl) },
         ]}
         numberOfLines={2}
       >
@@ -228,7 +228,7 @@ function FigureRow({
   numberLabel: string;
 }) {
   const label = item.caption || numberLabel;
-  const align = rtl ? "right" : "left";
+  const align = visualTextAlign(rtl);
   return (
     <Pressable
       onPress={() => onPress(item.index, label)}
@@ -268,7 +268,7 @@ function TableRow({
 }) {
   const label = item.caption || numberLabel;
   const sub = item.caption ? `${numberLabel} · ${sizeLabel}` : sizeLabel;
-  const align = rtl ? "right" : "left";
+  const align = visualTextAlign(rtl);
   return (
     <Pressable
       onPress={() => onPress(item.index, label)}
@@ -566,7 +566,7 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
             </Pressable>
           )}
           <Text
-            style={[styles.title, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}
+            style={[styles.title, { color: colors.textPrimary, textAlign: visualTextAlign(rtl) }]}
             numberOfLines={1}
           >
             {t("thesis.thesisStructure")}
@@ -647,7 +647,7 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
             onChangeText={setQuery}
             placeholder={searchPlaceholder}
             placeholderTextColor={colors.textPlaceholder}
-            style={[styles.searchInput, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}
+            style={[styles.searchInput, { color: colors.textPrimary, textAlign: visualTextAlign(rtl) }]}
             returnKeyType="search"
             autoCorrect={false}
           />
@@ -692,7 +692,7 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
             outlineLoading && !searching ? (
               <ListSkeleton colors={colors} rtl={rtl} />
             ) : (
-              <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+              <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: visualTextAlign(rtl) }]}>
                 {searching
                   ? t("thesis.noMatches", { defaultValue: "No headings match your search." })
                   : t("thesis.noChapters", { defaultValue: "No headings found in this document yet." })}
@@ -727,7 +727,7 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
             docLoading && !searching ? (
               <ListSkeleton colors={colors} rtl={rtl} rows={5} />
             ) : (
-              <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+              <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: visualTextAlign(rtl) }]}>
                 {searching
                   ? t("thesis.noMatches", { defaultValue: "No matches for your search." })
                   : t("thesis.noTables", { defaultValue: "No tables in this document yet." })}
@@ -763,7 +763,7 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
             docLoading && !searching ? (
               <ListSkeleton colors={colors} rtl={rtl} rows={5} />
             ) : (
-              <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+              <Text style={[styles.emptyText, { color: colors.textSecondary, textAlign: visualTextAlign(rtl) }]}>
                 {searching
                   ? t("thesis.noMatches", { defaultValue: "No matches for your search." })
                   : t("thesis.noFigures", { defaultValue: "No figures in this document yet." })}

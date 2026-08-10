@@ -17,6 +17,7 @@ import { getTextDirection } from "@/lib/text-direction";
 import { updateThesis, deleteThesis as apiDeleteThesis } from "@/lib/api";
 import { useThesisStore } from "@/stores/thesis-store";
 import type { Thesis } from "@/types/thesis";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 /**
  * The ⋯ header menu. Opens a bottom action sheet with Rename (inline modal),
@@ -132,7 +133,7 @@ export function ThesisHeaderMenu({
                   backgroundColor: colors.bgInput,
                   color: colors.textPrimary,
                   borderColor: colors.borderDefault,
-                  textAlign: nameRtl ? "right" : "left",
+                  textAlign: visualTextAlign(nameRtl),
                   writingDirection: nameRtl ? "rtl" : "ltr",
                 },
               ]}

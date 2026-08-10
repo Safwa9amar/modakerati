@@ -5,6 +5,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { getTextDirection } from "@/lib/text-direction";
 import { ribbonDrop, pageEdgeThickness } from "@/lib/thesis-book";
 import { useCoverParallax } from "./useCoverParallax";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 const RIBBON_COLOR = "#2FCF9E";
 
@@ -49,13 +50,13 @@ export function ThesisBookCover({
             <Text
               style={[
                 styles.title,
-                { textAlign: isRtl ? "right" : "left", writingDirection: isRtl ? "rtl" : "ltr" },
+                { textAlign: visualTextAlign(isRtl), writingDirection: isRtl ? "rtl" : "ltr" },
               ]}
               numberOfLines={4}
             >
               {title}
             </Text>
-            <Text style={[styles.hint, { textAlign: isRtl ? "right" : "left" }]} numberOfLines={1}>
+            <Text style={[styles.hint, { textAlign: visualTextAlign(isRtl) }]} numberOfLines={1}>
               📗 {Math.round(progress)}% · {resumeHint}
             </Text>
           </LinearGradient>

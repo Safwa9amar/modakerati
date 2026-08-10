@@ -4,6 +4,7 @@ import type { TFunction } from "i18next";
 import { TriangleAlert } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import type { ConfirmPayload } from "@/types/chat";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 interface Props {
   confirm: ConfirmPayload;
@@ -47,10 +48,10 @@ export function ComposerConfirm({ confirm, onApprove, onCancel, rtl }: Props) {
           {t("confirmAction.title", { defaultValue: "The AI wants to make a critical change" })}
         </Text>
       </View>
-      <Text style={[styles.preview, { color: colors.textSecondary, textAlign: rtl ? "right" : "left" }]}>
+      <Text style={[styles.preview, { color: colors.textSecondary, textAlign: visualTextAlign(rtl) }]}>
         {previewText(t, confirm)}
       </Text>
-      <Text style={[styles.note, { color: colors.textPlaceholder, textAlign: rtl ? "right" : "left" }]}>
+      <Text style={[styles.note, { color: colors.textPlaceholder, textAlign: visualTextAlign(rtl) }]}>
         {t("confirmAction.undoNote", { defaultValue: "You can undo this later from History." })}
       </Text>
       <View style={[styles.actions, rtl && { flexDirection: "row-reverse" }]}>

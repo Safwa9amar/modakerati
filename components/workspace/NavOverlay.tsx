@@ -4,7 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing } from "
 import { CornerDownRight } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
-import { visualRow } from "@/lib/rtl-layout";
+import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 
 // Ink that reads on the white document paper (theme text flips light in dark mode).
 const PAPER = "#FFFFFF";
@@ -44,7 +44,7 @@ export function NavOverlay() {
           {label ? (
             <>
               <CornerDownRight size={15} color={INK_SOFT} style={rtl ? styles.flip : undefined} />
-              <Text style={[styles.label, { textAlign: rtl ? "right" : "left" }]} numberOfLines={1}>
+              <Text style={[styles.label, { textAlign: visualTextAlign(rtl) }]} numberOfLines={1}>
                 {label}
               </Text>
             </>

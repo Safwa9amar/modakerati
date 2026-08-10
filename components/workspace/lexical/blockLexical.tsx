@@ -48,6 +48,7 @@ import { $isListNode, $isListItemNode, $createListNode, $createListItemNode, typ
 import type { CellImageDTO, DocBlockDTO, DocListKind, InlineMathDTO, TextBoxLine } from "@/lib/api";
 // type-only — table-diff must never enter the web bundle by value.
 import type { TableDiff } from "@/lib/table-diff";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 // The inline-run extension the paragraph DTO carries (not in the base type).
 export type ParaRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
@@ -893,7 +894,7 @@ function EditableTable({
                     fontWeight: isHeader ? 600 : 400,
                     background: "#ffffff",
                     color: "#111114",
-                    textAlign: dir === "rtl" ? "right" : "left",
+                    textAlign: visualTextAlign(dir === "rtl"),
                     direction: dir,
                   },
                 })
@@ -1315,7 +1316,7 @@ function renderTablePreview(rows: string[][], header: boolean, rtl: boolean): Re
               border: "1px solid #c8c8d0",
               padding: "4px 8px",
               maxWidth: CELL_MAX_WIDTH,
-              textAlign: dir === "rtl" ? "right" : "left",
+              textAlign: visualTextAlign(dir === "rtl"),
               ...(isHeader ? { backgroundColor: "#f0f0f3", fontWeight: 600 } : null),
             };
             return React.createElement(isHeader ? "th" : "td", { key: ci, style: cellStyle, dir: "auto" }, cell);

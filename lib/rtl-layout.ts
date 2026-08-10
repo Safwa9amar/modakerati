@@ -44,3 +44,34 @@ export function visualRow(rtl: boolean): RowDirection {
  * meaningless because the sequence is positional, not linguistic.
  */
 export const LTR_ROW: RowDirection = I18nManager.isRTL ? "row-reverse" : "row";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Text alignment, which is the SAME trap wearing different clothes.
+//
+// RN's `textAlign: "left" | "right"` is not physical. Android resolves it
+// against the paragraph's layout direction (TextLayoutManager.getTextAlignment
+// → getTextGravity): "left" becomes ALIGN_NORMAL — the paragraph's START — and
+// "right" becomes ALIGN_OPPOSITE, its END. Only then is that turned into a
+// physical gravity using the SCRIPT's direction.
+//
+// So in an Arabic app, `textAlign: "right"` asks for the END of a right-to-left
+// paragraph, and the label renders hard against the LEFT edge — which is
+// precisely how the drawer looked, every label stranded at the far side of its
+// row from the icon it belonged to.
+//
+// The rule is identical to visualRow's, and so is the payoff: when the app is
+// LTR this reduces to the `rtl ? "right" : "left"` it replaces, so French and
+// English render byte-identically and only Arabic changes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type TextAlign = "left" | "right";
+
+/** Align to the reading START of `rtl` — where a label or a heading belongs. */
+export function visualTextAlign(rtl: boolean): TextAlign {
+  return rtl === I18nManager.isRTL ? "left" : "right";
+}
+
+/** Align to the reading END — a trailing slot, a page number, an outer column. */
+export function visualTextAlignEnd(rtl: boolean): TextAlign {
+  return rtl === I18nManager.isRTL ? "right" : "left";
+}

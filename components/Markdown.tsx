@@ -16,7 +16,7 @@ import { firstStrongDirection, getTextDirection, isolateBidi, type TextDirection
 import { splitMath } from "@/lib/latex-unicode";
 import { chartToSvg, type ChartSpec } from "@/lib/chart-svg";
 import type { ThemeColors } from "@/constants/colors";
-import { visualRow, LTR_ROW } from "@/lib/rtl-layout";
+import { visualRow, LTR_ROW, visualTextAlign } from "@/lib/rtl-layout";
 
 const MONO = Platform.OS === "ios" ? "Menlo" : "monospace";
 
@@ -54,7 +54,7 @@ const MIN_COL_W = 92;
 type Ctx = { dir: TextDirection; colors: ThemeColors; textColor: string };
 
 const dirStyle = (d: TextDirection): TextStyle => ({
-  textAlign: d === "rtl" ? "right" : "left",
+  textAlign: visualTextAlign(d === "rtl"),
   writingDirection: d,
 });
 

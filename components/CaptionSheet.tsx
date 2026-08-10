@@ -45,7 +45,7 @@ import {
   type CaptionsDTO,
   type DocBlockDTO,
 } from "@/lib/api";
-import { visualRow } from "@/lib/rtl-layout";
+import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 
 /** How much of the screen the sheet covers. Under two thirds on purpose: the student
  *  is captioning something they need to SEE, and the panel scrolls internally. */
@@ -163,7 +163,7 @@ function CaptionPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ges
   const { t } = useTranslation();
   const { isRTL: appRtl } = useRTL();
   const rowDir = visualRow(appRtl);
-  const textAlign = appRtl ? "right" : "left";
+  const textAlign = visualTextAlign(appRtl);
 
   const thesisId = useCaptionSheetStore((s) => s.thesisId);
   const mode = useCaptionSheetStore((s) => s.mode);
@@ -394,7 +394,7 @@ function CaptionPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ges
               direction (an Arabic thesis previews right-to-left even in a French UI). */}
           <View style={[styles.preview, { borderColor: colors.borderDefault, backgroundColor: colors.bgPrimary }]}>
             <Text
-              style={[styles.previewText, { color: colors.textPrimary, textAlign: docRtl ? "right" : "left" }]}
+              style={[styles.previewText, { color: colors.textPrimary, textAlign: visualTextAlign(docRtl) }]}
               numberOfLines={3}
             >
               <Text style={styles.previewNum}>
@@ -418,7 +418,7 @@ function CaptionPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ges
               placeholderTextColor={colors.textPlaceholder}
               style={[
                 styles.input,
-                { color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgPrimary, textAlign: docRtl ? "right" : "left" },
+                { color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgPrimary, textAlign: visualTextAlign(docRtl) },
               ]}
             />
           </View>

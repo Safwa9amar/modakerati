@@ -15,7 +15,7 @@ import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { getTextDirection } from "@/lib/text-direction";
 import { AskPreviewGrid } from "@/components/AskPreviewGrid";
 import type { AskPayload } from "@/types/chat";
-import { visualRow } from "@/lib/rtl-layout";
+import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 
 interface Props {
   ask: AskPayload | null;
@@ -126,7 +126,13 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={[styles.header, { flexDirection: visualRow(rtl) }]}>
-          <Text style={[styles.question, { color: colors.textPrimary }, rtl && styles.rtlText]}>
+          <Text
+            style={[
+              styles.question,
+              { color: colors.textPrimary },
+              rtl && { textAlign: visualTextAlign(rtl), writingDirection: "rtl" as const },
+            ]}
+          >
             {ask.question}
           </Text>
           <Pressable
@@ -167,7 +173,7 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
               placeholderTextColor={colors.textSecondary}
               style={[
                 styles.input,
-                { color: colors.textPrimary, backgroundColor: colors.bgCard, textAlign: rtl ? "right" : "left" },
+                { color: colors.textPrimary, backgroundColor: colors.bgCard, textAlign: visualTextAlign(rtl) },
               ]}
               onSubmitEditing={() => submit(text)}
               returnKeyType="send"
@@ -190,7 +196,6 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingTop: 24 },
   header: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 16 },
   question: { flex: 1, fontSize: 18, fontFamily: "Inter_600SemiBold" },
-  rtlText: { textAlign: "right", writingDirection: "rtl" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
   chip: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1 },
   chipText: { fontSize: 14, fontFamily: "Inter_500Medium" },

@@ -31,7 +31,7 @@ import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { chromeOp, listHfTemplates, type HfPreviewLine, type HfPreviewSeg, type HfTemplateSummary } from "@/lib/api";
 import { estimateTokenCount } from "@/lib/thinking";
-import { visualRow } from "@/lib/rtl-layout";
+import { visualRow, visualTextAlign, visualTextAlignEnd } from "@/lib/rtl-layout";
 
 /** How much of the screen the sheet covers. Exported because the Writer has to know
  *  what's LEFT — it scrolls the band being edited into that strip. Kept under two
@@ -153,7 +153,7 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
   const { t } = useTranslation();
   const { isRTL: appRtl } = useRTL();
   const rowDir = visualRow(appRtl);
-  const textAlign = appRtl ? "right" : "left";
+  const textAlign = visualTextAlign(appRtl);
 
   const thesisId = useHfSheetStore((s) => s.thesisId);
   const index = useHfSheetStore((s) => s.index);
@@ -325,7 +325,14 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
             flex: line.length > 1 ? 1 : undefined,
             fontSize: 12.5,
             color: colors.textPrimary,
-            textAlign: si === 0 ? (docRtl ? "right" : "left") : si === line.length - 1 ? (docRtl ? "left" : "right") : "center",
+            // Outer slots hug the page's outer edges: the first is the line's
+            // start, the last its end, anything between is centred.
+            textAlign:
+              si === 0
+                ? visualTextAlign(docRtl)
+                : si === line.length - 1
+                  ? visualTextAlignEnd(docRtl)
+                  : "center",
           }}
         >
           {slot.map((s) => segText(s, values)).join(" ") || " "}

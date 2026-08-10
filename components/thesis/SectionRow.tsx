@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronRight, ChevronLeft, ChevronDown } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { getTextDirection } from "@/lib/text-direction";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 export type SectionChapter = { index: number; title: string };
 
@@ -66,13 +67,13 @@ export function SectionRow({
 
         <View style={styles.info}>
           <Text
-            style={[styles.title, { color: colors.textPrimary, textAlign: isRtl ? "right" : "left" }]}
+            style={[styles.title, { color: colors.textPrimary, textAlign: visualTextAlign(isRtl) }]}
             numberOfLines={2}
           >
             {title}
           </Text>
           <Text
-            style={[styles.meta, { color: colors.textSecondary, textAlign: isRtl ? "right" : "left" }]}
+            style={[styles.meta, { color: colors.textSecondary, textAlign: visualTextAlign(isRtl) }]}
           >
             {chapters.length} {t("home.chapters")}
           </Text>
@@ -99,7 +100,7 @@ export function SectionRow({
                 <Text
                   style={[
                     styles.chapterText,
-                    { color: colors.textSecondary, textAlign: cRtl ? "right" : "left" },
+                    { color: colors.textSecondary, textAlign: visualTextAlign(cRtl) },
                   ]}
                   numberOfLines={1}
                 >

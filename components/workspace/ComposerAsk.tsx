@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { X } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import type { AskPayload } from "@/types/chat";
-import { visualRow } from "@/lib/rtl-layout";
+import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 
 interface Props {
   ask: AskPayload;
@@ -39,7 +39,7 @@ export function ComposerAsk({ ask, onAnswer, rtl, onDismiss, onInputFocus, onInp
   return (
     <View style={styles.container}>
       <View style={[styles.header, { flexDirection: visualRow(rtl) }]}>
-        <Text style={[styles.question, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}>
+        <Text style={[styles.question, { color: colors.textPrimary, textAlign: visualTextAlign(rtl) }]}>
           {ask.question}
         </Text>
         {onDismiss && (
@@ -78,7 +78,7 @@ export function ComposerAsk({ ask, onAnswer, rtl, onDismiss, onInputFocus, onInp
             // follows the question's direction so the caret starts on the right in RTL.
             style={[
               styles.input,
-              { color: colors.textPrimary, backgroundColor: colors.bgCard, textAlign: rtl ? "right" : "left" },
+              { color: colors.textPrimary, backgroundColor: colors.bgCard, textAlign: visualTextAlign(rtl) },
             ]}
             multiline
             onFocus={onInputFocus}

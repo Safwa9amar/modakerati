@@ -2,7 +2,7 @@ import { View, Text, StyleSheet } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { type DocSectionDTO } from "@/lib/api";
-import { visualRow } from "@/lib/rtl-layout";
+import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 
 // Word-style READ-ONLY page chrome for the Outline view: a grey header zone at
 // the top of the white card, a footer zone at the bottom, and dashed section
@@ -89,7 +89,7 @@ export function OutlineHeaderZone({ section, rtl }: { section?: DocSectionDTO; r
           numberOfLines={2}
           style={[
             styles.zoneText,
-            { textAlign: rtl ? "right" : "left", writingDirection: rtl ? "rtl" : "ltr" },
+            { textAlign: visualTextAlign(rtl), writingDirection: rtl ? "rtl" : "ltr" },
           ]}
         >
           {section.header.text}

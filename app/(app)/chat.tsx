@@ -40,6 +40,7 @@ import { downloadExport } from "@/lib/download-export";
 import { ThesisAttachSheet } from "@/components/chat/ThesisAttachSheet";
 import { patchThread } from "@/lib/api";
 import type { ChatMessage, ChatImage, FilePayload } from "@/types/chat";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -146,7 +147,7 @@ const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, i
   // Direction follows the message's own language so a mix of Arabic/English/French
   // chats each align correctly regardless of the app's locale.
   const dir = getTextDirection(bodyText);
-  const textDirStyle = { textAlign: dir === "rtl" ? "right" : "left", writingDirection: dir } as const;
+  const textDirStyle = { textAlign: visualTextAlign(dir === "rtl"), writingDirection: dir } as const;
   return (
     <View style={[styles.messageRow, isUser ? styles.userRow : styles.aiRow]}>
       {!isUser && <Image source={LOGO} style={styles.aiAvatar} />}

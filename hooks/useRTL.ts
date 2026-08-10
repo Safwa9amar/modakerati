@@ -1,7 +1,7 @@
 import { I18nManager } from "react-native";
 import { useTranslation } from "react-i18next";
 import { isRTL } from "@/lib/i18n";
-import { visualRow } from "@/lib/rtl-layout";
+import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 
 export function useRTL() {
   const { i18n } = useTranslation();
@@ -14,7 +14,11 @@ export function useRTL() {
     // straight back to visual LTR, which is why icons, chevrons and the account
     // avatar all sat on the wrong side of the Arabic UI. See @/lib/rtl-layout.
     flexDirection: visualRow(rtl),
-    textAlign: (rtl ? "right" : "left") as "right" | "left",
+    // Also NOT `rtl ? "right" : "left"`. RN reads textAlign as start/end against
+    // the paragraph direction, so "right" in Arabic means the paragraph's END —
+    // which is how every drawer label ended up stranded at the far side of its
+    // row from its own icon.
+    textAlign: visualTextAlign(rtl),
     // A transform, so RN does NOT mirror it for us — this one really does follow
     // the language alone, whatever the global direction is doing.
     iconRotation: rtl ? "180deg" : "0deg",

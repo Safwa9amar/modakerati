@@ -14,6 +14,7 @@ import { Search, Check, X, GraduationCap } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useUniversityStore } from "@/stores/university-store";
 import type { University } from "@/types/thesis";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 /**
  * Searchable picker over the 130 Algerian institutions.
@@ -128,7 +129,7 @@ export function UniversityPicker({
             {isAr ? item.nameAr : item.nameFr}
           </Text>
           <Text
-            style={[styles.meta, { color: colors.textSecondary, textAlign: isAr ? "right" : "left" }]}
+            style={[styles.meta, { color: colors.textSecondary, textAlign: visualTextAlign(isAr) }]}
             numberOfLines={1}
           >
             {subtitleFor(item, isAr)}
@@ -150,7 +151,7 @@ export function UniversityPicker({
           autoFocus={autoFocus}
           placeholder={t("university.searchPlaceholder")}
           placeholderTextColor={colors.textPlaceholder}
-          style={[styles.searchInput, { color: colors.textPrimary, textAlign: isAr ? "right" : "left" }]}
+          style={[styles.searchInput, { color: colors.textPrimary, textAlign: visualTextAlign(isAr) }]}
           autoCorrect={false}
           spellCheck={false}
         />

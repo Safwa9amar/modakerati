@@ -32,6 +32,7 @@ import { useEquationSheetStore } from "@/stores/equation-sheet-store";
 import { thesisBlockImageUrl, type DocBlockDTO, type InlineMathDTO } from "@/lib/api";
 import { hSelection, hMedium } from "@/lib/haptics";
 import { isOrnamentBlock } from "@/lib/doc-ornament";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 // Dark ink / muted ink for text rendered on the always-white PaperPage.
 const INK = "#1A1A1A";
@@ -203,7 +204,7 @@ function DocBlockInner({
           <Text
             style={[
               styles.otherText,
-              { textAlign: oDir === "rtl" ? "right" : "left", writingDirection: oDir },
+              { textAlign: visualTextAlign(oDir === "rtl"), writingDirection: oDir },
             ]}
           >
             {otherText}
@@ -408,7 +409,7 @@ function DocBlockInner({
   // An explicit paragraph direction (w:bidi, set via the Edit tools) wins;
   // otherwise fall back to auto-detecting from the text's script.
   const dir = block.direction ?? detectDir(block.text, rtl);
-  const align = dir === "rtl" ? "right" : "left";
+  const align = visualTextAlign(dir === "rtl");
   // Explicit paragraph alignment (w:jc) wins; otherwise fall back to the
   // direction-based default (headings) / justified body. Without this the native
   // render ignores the paragraph's real alignment, so the Edit tools look broken.
@@ -940,7 +941,7 @@ export function detectDir(text: string, fallbackRtl: boolean): "rtl" | "ltr" {
 
 function dirStyle(text: string, fallbackRtl: boolean) {
   const dir = detectDir(text, fallbackRtl);
-  return { textAlign: dir === "rtl" ? "right" : "left", writingDirection: dir } as const;
+  return { textAlign: visualTextAlign(dir === "rtl"), writingDirection: dir } as const;
 }
 
 // One-shot green settle flash behind a freshly-approved paragraph: "the new

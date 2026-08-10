@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { getTextDirection } from "@/lib/text-direction";
 import type { FilePayload } from "@/types/chat";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 /**
  * A downloadable artifact (e.g. a thesis export) shown inline in the chat as a
@@ -28,7 +29,7 @@ export function FileCard({ file, onPress }: { file: FilePayload; onPress?: () =>
   const tint = isDoc ? "#2B6CB0" : "#6B46C1"; // Word blue / LaTeX purple
   const title = file.title?.trim() || file.filename;
   const isRtl = getTextDirection(title) === "rtl";
-  const align = isRtl ? "right" : "left";
+  const align = visualTextAlign(isRtl);
 
   // Size and page count, joined into the muted line beside the format badge.
   const meta = [
