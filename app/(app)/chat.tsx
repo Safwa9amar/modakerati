@@ -315,7 +315,6 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // AI-generated quick-action chips from the recent conversation + RAG. Only the
   // visible instance fetches, and not while an ask sheet is open. No block
   // selection in plain chat, so it grounds on the conversation alone.
-  const { suggestions } = useComposerSuggestions(thesisId, { enabled: active && !pendingAsk });
   // Read-aloud for a tapped assistant answer. One at a time, owned here so
   // starting a second message cuts the first off (see useSpeakMessage).
   const { speakingId, toggle: toggleSpeak, stop: stopSpeaking } = useSpeakMessage(i18n.language);
@@ -336,6 +335,12 @@ export function ThesisChat({ thesisId, thesisTitle, variant = "screen", onClose 
   // runners and the API calls all key off THIS, never `thesisId` (which only the
   // outline sync and the undo checkpoint need — see lib/ai-service.ts).
   const [threadId, setThreadId] = useState<string | null>(null);
+  // AI-generated quick-action chips from the recent conversation + RAG. Only the
+  // visible instance fetches, and not while an ask sheet is open. No block
+  // selection in plain chat, so it grounds on the conversation alone. Declared
+  // after `threadId` because it watches the thread's newest message to know when
+  // to refresh.
+  const { suggestions } = useComposerSuggestions(thesisId, { enabled: active && !pendingAsk, threadId });
   const messages = useChatStore((s) => s.getMessages(threadId ?? ""));
   // Infinite scroll: whether earlier messages remain and whether a page is loading.
   const hasMoreOlder = useChatStore((s) => s.getHasMoreOlder(threadId ?? ""));

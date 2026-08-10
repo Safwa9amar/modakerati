@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useChatStore } from "@/stores/chat-store";
+import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useInsertMenuStore } from "@/stores/insert-menu-store";
@@ -131,7 +132,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const awaitingReply = useFloatingPillStore((s) => s.awaitingReply);
   const generatingPhase = useChatStore((s) => s.generatingPhase);
   const streamingId = useChatStore((s) => s.streamingId);
-  const threadMessages = useChatStore((s) => s.messages[thesisId]);
+  // Keyed by THREAD — chat-store.messages is per-conversation. Reading it by
+  // thesis would look up a key that never exists, leaving the peek card
+  // permanently blank. currentThreadId is set by whichever Writer surface last
+  // resolved a conversation for this thesis; null before that, which the
+  // optional chaining below already tolerates.
+  const currentThreadId = useChatThreadsStore((s) => s.currentThreadId);
+  const threadMessages = useChatStore((s) => (currentThreadId ? s.messages[currentThreadId] : undefined));
   const thesisTitle = useThesisStore((s) => s.theses.find((th) => th.id === thesisId)?.title ?? "");
 
   // Keyboard HEIGHT tracking — positioning ONLY (the bubble is NOT suppressed by

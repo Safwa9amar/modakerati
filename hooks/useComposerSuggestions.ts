@@ -12,6 +12,14 @@ interface Options {
   enabled: boolean;
   /** Workspace selection to ground on. Omit in plain chat (no block selection). */
   selectedBlocks?: { index: number; text: string }[];
+  /**
+   * The open conversation, used only to watch for a new message so the chips
+   * refresh after a reply. Separate from `thesisId`, which grounds the fetch:
+   * chat-store.messages is keyed by thread, so reading it by thesis would look
+   * up a key that never exists and leave this trigger permanently inert.
+   * Undefined until the thread resolves — the other triggers still fire.
+   */
+  threadId?: string | null;
 }
 
 /**
@@ -26,15 +34,19 @@ interface Options {
  * caller falls back to its static presets whenever the list is empty. Store-agnostic
  * so both the workspace composer and the chat screen can use it.
  */
-export function useComposerSuggestions(thesisId: string, { enabled, selectedBlocks }: Options) {
+export function useComposerSuggestions(thesisId: string, { enabled, selectedBlocks, threadId }: Options) {
   const isGenerating = useChatStore((s) => s.isGenerating);
   // The "AI Suggestions" setting gates these chips entirely: off → no fetch and
   // no chips. Subscribed so flipping it clears/restores chips live.
   const aiSuggestionsEnabled = useNotificationStore((s) => s.preferences.aiSuggestions);
   // Subscribe to the last message id so the effect re-runs when history first
   // loads and after each new turn — driving the "refresh after a reply" trigger.
+  // Read by THREAD, not thesis: chat-store.messages is keyed by conversation.
+  // `thesisId` above is still a real thesis — it grounds the RAG fetch below —
+  // but using it here would silently look up a key that never exists, leaving
+  // this trigger permanently inert and the chips stale after every reply.
   const lastMessageId = useChatStore((s) => {
-    const m = s.messages[thesisId];
+    const m = threadId ? s.messages[threadId] : undefined;
     return m && m.length ? m[m.length - 1].id : "";
   });
 

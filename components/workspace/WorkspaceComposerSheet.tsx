@@ -256,6 +256,7 @@ export function WorkspaceComposerSheet({
   const { suggestions } = useComposerSuggestions(thesisId, {
     enabled: composerOpen && composerMode === "ai" && !pendingAsk,
     selectedBlocks,
+    threadId,
   });
 
   // The sheet's detents. While docked, detent 0 becomes [handle + compact
