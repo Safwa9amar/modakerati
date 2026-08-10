@@ -31,6 +31,7 @@ import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { chromeOp, listHfTemplates, type HfPreviewLine, type HfPreviewSeg, type HfTemplateSummary } from "@/lib/api";
 import { estimateTokenCount } from "@/lib/thinking";
+import { visualRow } from "@/lib/rtl-layout";
 
 /** How much of the screen the sheet covers. Exported because the Writer has to know
  *  what's LEFT — it scrolls the band being edited into that strip. Kept under two
@@ -151,7 +152,7 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
   const colors = useThemeColors();
   const { t } = useTranslation();
   const { isRTL: appRtl } = useRTL();
-  const rowDir = appRtl ? "row-reverse" : "row";
+  const rowDir = visualRow(appRtl);
   const textAlign = appRtl ? "right" : "left";
 
   const thesisId = useHfSheetStore((s) => s.thesisId);
@@ -315,7 +316,7 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
   const docRtl = appRtl;
 
   const renderLine = (line: HfPreviewLine, li: number, values?: Record<string, string>) => (
-    <View key={li} style={{ flexDirection: docRtl ? "row-reverse" : "row", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+    <View key={li} style={{ flexDirection: visualRow(docRtl), justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
       {line.map((slot, si) => (
         <Text
           key={si}

@@ -23,6 +23,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { thesisBlockImageUrl, type OutlineNodeDTO, type DocBlockDTO } from "@/lib/api";
 import { normalize } from "@/lib/text-normalize";
 import { isFigureBlock } from "@/lib/doc-ornament";
+import { visualRow } from "@/lib/rtl-layout";
 
 // Whether any heading title contains Arabic/Hebrew letters → render right-to-left.
 // thesis.language is unreliable for imports, so detect direction from the content.
@@ -129,7 +130,7 @@ function OutlineRow({
         styles.row,
         active && { backgroundColor: colors.brandPrimary + "14", borderRadius: 8 },
         {
-          flexDirection: rowRtl ? "row-reverse" : "row",
+          flexDirection: visualRow(rowRtl),
           paddingLeft: rowRtl ? 0 : indent,
           paddingRight: rowRtl ? indent : 0,
         },
@@ -231,7 +232,7 @@ function FigureRow({
   return (
     <Pressable
       onPress={() => onPress(item.index, label)}
-      style={[styles.mediaRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+      style={[styles.mediaRow, { flexDirection: visualRow(rtl) }]}
     >
       <FigureThumb block={item.block} thesisId={thesisId} tick={tick} colors={colors} />
       <View style={styles.mediaText}>
@@ -271,7 +272,7 @@ function TableRow({
   return (
     <Pressable
       onPress={() => onPress(item.index, label)}
-      style={[styles.mediaRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+      style={[styles.mediaRow, { flexDirection: visualRow(rtl) }]}
     >
       <View style={[styles.thumb, styles.thumbTile, { backgroundColor: colors.bgInput }]}>
         <TableIcon size={18} color={colors.textSecondary} />
@@ -303,7 +304,7 @@ function ListSkeleton({
   return (
     <View>
       {Array.from({ length: rows }, (_, i) => (
-        <View key={i} style={[styles.skelRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+        <View key={i} style={[styles.skelRow, { flexDirection: visualRow(rtl) }]}>
           <View style={[styles.skelDot, { backgroundColor: colors.borderDefault }]} />
           <View
             style={[styles.skelBar, { backgroundColor: colors.borderDefault, width: `${86 - (i % 3) * 18}%` }]}
@@ -548,7 +549,7 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
     <View style={[styles.panel, { backgroundColor: colors.bgModal }]}>
       {/* Sticky header: title + close, the tab switcher, and the search field. */}
       <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
-        <View style={[styles.titleRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+        <View style={[styles.titleRow, { flexDirection: visualRow(rtl) }]}>
           {onBack && (
             <Pressable
               onPress={onBack}
@@ -582,7 +583,7 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
         </View>
 
         {/* Tab switcher: Contents / Tables / Figures (segmented, RTL-aware). */}
-        <View style={[styles.tabBar, { backgroundColor: colors.bgInput, flexDirection: rtl ? "row-reverse" : "row" }]}>
+        <View style={[styles.tabBar, { backgroundColor: colors.bgInput, flexDirection: visualRow(rtl) }]}>
           {tabs.map((it) => {
             const active = it.key === tab;
             return (
@@ -609,8 +610,8 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
         </View>
 
         {tab === "toc" && (
-          <View style={[styles.statusRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
-            <View style={[styles.statusBadges, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+          <View style={[styles.statusRow, { flexDirection: visualRow(rtl) }]}>
+            <View style={[styles.statusBadges, { flexDirection: visualRow(rtl) }]}>
               <View style={styles.statusBadge}>
                 <View style={[styles.statusDot, { backgroundColor: colors.brandPrimary }]} />
                 <Text style={[styles.statusText, { color: colors.textSecondary }]}>{sectionCount} {t("home.sections")}</Text>
@@ -637,7 +638,7 @@ export function ThesisOutlinePanel({ onBack }: { onBack?: () => void } = {}) {
         <View
           style={[
             styles.searchBox,
-            { backgroundColor: colors.bgInput, borderColor: colors.borderDefault, flexDirection: rtl ? "row-reverse" : "row" },
+            { backgroundColor: colors.bgInput, borderColor: colors.borderDefault, flexDirection: visualRow(rtl) },
           ]}
         >
           <Search size={16} color={colors.textSecondary} />

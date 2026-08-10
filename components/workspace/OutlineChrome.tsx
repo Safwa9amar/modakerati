@@ -2,6 +2,7 @@ import { View, Text, StyleSheet } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { type DocSectionDTO } from "@/lib/api";
+import { visualRow } from "@/lib/rtl-layout";
 
 // Word-style READ-ONLY page chrome for the Outline view: a grey header zone at
 // the top of the white card, a footer zone at the bottom, and dashed section
@@ -130,7 +131,7 @@ export function OutlineFooterZone({ section, rtl }: { section?: DocSectionDTO; r
 // Dashed divider + chip above the first block of a section whose chrome changed.
 export function OutlineSectionMarker({ label, rtl }: { label: string; rtl: boolean }) {
   return (
-    <View style={[styles.marker, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+    <View style={[styles.marker, { flexDirection: visualRow(rtl) }]}>
       <View style={styles.markerLine} />
       <Text style={[styles.chip, { writingDirection: rtl ? "rtl" : "ltr" }]} numberOfLines={1}>
         {label}

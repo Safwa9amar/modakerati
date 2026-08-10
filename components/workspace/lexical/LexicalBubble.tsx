@@ -24,6 +24,7 @@ import {
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { hSelection } from "@/lib/haptics";
 import type { LexicalState } from "./LexicalDomEditor";
+import { visualRow } from "@/lib/rtl-layout";
 
 // Text-colour swatches (6-hex, no '#'), mirroring BlockContextBar's palette; the
 // trailing eraser sends color:"clear".
@@ -63,14 +64,14 @@ export function LexicalBubble({
   const sep = (k: string) => <View key={k} style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />;
 
   return (
-    <View style={[styles.wrap, { flexDirection: rtl ? "row-reverse" : "row" }]} pointerEvents="box-none">
-      <View style={[styles.pill, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle, flexDirection: rtl ? "row-reverse" : "row" }]}>
+    <View style={[styles.wrap, { flexDirection: visualRow(rtl) }]} pointerEvents="box-none">
+      <View style={[styles.pill, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle, flexDirection: visualRow(rtl) }]}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           keyboardShouldPersistTaps="always"
           style={styles.scroll}
-          contentContainerStyle={[styles.row, { flexDirection: rtl ? "row-reverse" : "row" }]}
+          contentContainerStyle={[styles.row, { flexDirection: visualRow(rtl) }]}
         >
           {chip("undo", Undo2, false, () => onCommand("undo"))}
           {chip("redo", Redo2, false, () => onCommand("redo"))}

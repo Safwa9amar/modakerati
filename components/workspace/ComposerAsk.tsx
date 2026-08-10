@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { X } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import type { AskPayload } from "@/types/chat";
+import { visualRow } from "@/lib/rtl-layout";
 
 interface Props {
   ask: AskPayload;
@@ -37,7 +38,7 @@ export function ComposerAsk({ ask, onAnswer, rtl, onDismiss, onInputFocus, onInp
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, rtl && styles.headerRtl]}>
+      <View style={[styles.header, { flexDirection: visualRow(rtl) }]}>
         <Text style={[styles.question, { color: colors.textPrimary, textAlign: rtl ? "right" : "left" }]}>
           {ask.question}
         </Text>
@@ -53,7 +54,7 @@ export function ComposerAsk({ ask, onAnswer, rtl, onDismiss, onInputFocus, onInp
         )}
       </View>
 
-      <View style={[styles.options, rtl && styles.optionsRtl]}>
+      <View style={[styles.options, { flexDirection: visualRow(rtl) }]}>
         {ask.options.map((opt) => (
           <Pressable
             key={opt}
@@ -66,7 +67,7 @@ export function ComposerAsk({ ask, onAnswer, rtl, onDismiss, onInputFocus, onInp
       </View>
 
       {ask.allowFreeText && (
-        <View style={[styles.inputRow, rtl && styles.inputRowRtl]}>
+        <View style={[styles.inputRow, { flexDirection: visualRow(rtl) }]}>
           <TextInput
             value={text}
             onChangeText={setText}
@@ -95,14 +96,11 @@ export function ComposerAsk({ ask, onAnswer, rtl, onDismiss, onInputFocus, onInp
 const styles = StyleSheet.create({
   container: { gap: 12, paddingTop: 4 },
   header: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  headerRtl: { flexDirection: "row-reverse" },
   question: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold" },
   options: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  optionsRtl: { flexDirection: "row-reverse" },
   option: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1 },
   optionText: { fontSize: 13, fontFamily: "Inter_500Medium" },
   inputRow: { flexDirection: "row", gap: 8, alignItems: "flex-end" },
-  inputRowRtl: { flexDirection: "row-reverse" },
   input: {
     flex: 1,
     borderRadius: 12,

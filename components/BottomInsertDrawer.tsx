@@ -17,6 +17,7 @@ import { INSERT_BLOCKS, INSERT_CATEGORIES, filterBlocks, type InsertBlockDef, ty
 import { pickAndInsertImage } from "@/lib/insert-image";
 import { pasteImageFromClipboard } from "@/lib/paste-image";
 import { createThesisStyle, getThesisStyles, type ThesisStyle } from "@/lib/thesis-styles";
+import { visualRow } from "@/lib/rtl-layout";
 
 const DRAWER_FRACTION = 0.64;
 const SPRING = { damping: 22, stiffness: 240, mass: 0.7 } as const;
@@ -142,7 +143,7 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
   const colors = useThemeColors();
   const { t } = useTranslation();
   const rtl = useRTL().isRTL;
-  const rowDir = rtl ? "row-reverse" : "row";
+  const rowDir = visualRow(rtl);
   const textAlign = rtl ? "right" : "left";
   const { width } = useWindowDimensions();
 

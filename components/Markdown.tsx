@@ -16,6 +16,7 @@ import { firstStrongDirection, getTextDirection, isolateBidi, type TextDirection
 import { splitMath } from "@/lib/latex-unicode";
 import { chartToSvg, type ChartSpec } from "@/lib/chart-svg";
 import type { ThemeColors } from "@/constants/colors";
+import { visualRow, LTR_ROW } from "@/lib/rtl-layout";
 
 const MONO = Platform.OS === "ios" ? "Menlo" : "monospace";
 
@@ -41,16 +42,9 @@ const MATH_FONT: TextStyle = {
   fontSize: 15.5,
 };
 
-/**
- * RN resolves `flexDirection: "row"` against the app's GLOBAL layout direction,
- * so a row whose visual direction must follow THIS message flips to row-reverse
- * whenever the message and the locale disagree.
- */
-const visualRow = (rtl: boolean): "row" | "row-reverse" => (rtl === I18nManager.isRTL ? "row" : "row-reverse");
-
-// For rows we lay out in visual order ourselves (table columns): renders the
-// children left→right on screen whatever the app locale is.
-const LTR_ROW: "row" | "row-reverse" = I18nManager.isRTL ? "row-reverse" : "row";
+// `visualRow` and `LTR_ROW` used to live here. They were right, and they were
+// the ONLY place in the app that was — so they now live in @/lib/rtl-layout and
+// everything else has been moved onto them.
 
 const SEP = StyleSheet.hairlineWidth;
 // Below this a column is unreadable, so the table scrolls sideways instead of

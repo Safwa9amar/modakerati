@@ -2,6 +2,7 @@ import React from "react";
 import { View, Pressable, Text, StyleSheet } from "react-native";
 import { Sparkles, Pencil } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { visualRow } from "@/lib/rtl-layout";
 
 type Mode = "ai" | "edit";
 
@@ -30,7 +31,7 @@ export function ComposerModeToggle({ mode, onChange, aiLabel, editLabel, rtl }: 
     );
   };
   return (
-    <View style={[styles.wrap, { backgroundColor: colors.bgInput, flexDirection: rtl ? "row-reverse" : "row" }]}>
+    <View style={[styles.wrap, { backgroundColor: colors.bgInput, flexDirection: visualRow(rtl) }]}>
       {seg("ai", aiLabel, Sparkles)}
       {seg("edit", editLabel, Pencil)}
     </View>

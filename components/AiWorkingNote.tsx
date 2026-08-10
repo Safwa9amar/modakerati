@@ -6,6 +6,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { useWorkingClock } from "@/hooks/useWorkingClock";
 import { SpinningAsterisk } from "@/components/ThinkingTrace";
 import { formatElapsed } from "@/lib/thinking";
+import { visualRow } from "@/lib/rtl-layout";
 
 interface Props {
   /** Drive the note from an explicit request instead of the chat turn — for
@@ -85,7 +86,7 @@ export function AiWorkingNote({ active, stream, rtl = false, stoppable = true, i
       accessibilityRole="progressbar"
       accessibilityLabel={label}
     >
-      <View style={[styles.row, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+      <View style={[styles.row, { flexDirection: visualRow(rtl) }]}>
         <SpinningAsterisk color={accentInk} />
         <Text style={[styles.label, { color: mutedInk, textAlign: rtl ? "right" : "left" }]}>{label}</Text>
         <View style={styles.spacer} />

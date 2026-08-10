@@ -4,6 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing } from "
 import { CornerDownRight } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { visualRow } from "@/lib/rtl-layout";
 
 // Ink that reads on the white document paper (theme text flips light in dark mode).
 const PAPER = "#FFFFFF";
@@ -38,7 +39,7 @@ export function NavOverlay() {
   return (
     <Animated.View style={[styles.fill, style]} pointerEvents={navigating ? "auto" : "none"}>
       <View style={styles.center}>
-        <View style={[styles.pill, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+        <View style={[styles.pill, { flexDirection: visualRow(rtl) }]}>
           <ActivityIndicator size="small" color={colors.brandPrimary} />
           {label ? (
             <>

@@ -7,6 +7,7 @@ import type { DocBlockDTO } from "@/lib/api";
 import type { FormatChange } from "@/lib/thesis-ops";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { visualRow } from "@/lib/rtl-layout";
 
 type ParagraphBlock = Extract<DocBlockDTO, { kind: "paragraph" }>;
 type Align = "left" | "center" | "right" | "justify";
@@ -120,7 +121,7 @@ export function ComposerEditTools({ thesisId, selection, blockCount, hint, style
 
   return (
     <View style={{ gap: 8 }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.row, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.row, { flexDirection: visualRow(rtl) }]}>
         {STYLE_OPTIONS.map((o) => {
           const active = allLevel(o.level);
           return (
@@ -133,7 +134,7 @@ export function ComposerEditTools({ thesisId, selection, blockCount, hint, style
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[styles.row, { flexDirection: rtl ? "row-reverse" : "row" }]}
+        contentContainerStyle={[styles.row, { flexDirection: visualRow(rtl) }]}
       >
         {/* Move the block up / down one position — single selection only. */}
         {single && (

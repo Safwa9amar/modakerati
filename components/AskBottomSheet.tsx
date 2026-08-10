@@ -15,6 +15,7 @@ import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { getTextDirection } from "@/lib/text-direction";
 import { AskPreviewGrid } from "@/components/AskPreviewGrid";
 import type { AskPayload } from "@/types/chat";
+import { visualRow } from "@/lib/rtl-layout";
 
 interface Props {
   ask: AskPayload | null;
@@ -124,7 +125,7 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={[styles.header, rtl && styles.headerRtl]}>
+        <View style={[styles.header, { flexDirection: visualRow(rtl) }]}>
           <Text style={[styles.question, { color: colors.textPrimary }, rtl && styles.rtlText]}>
             {ask.question}
           </Text>
@@ -144,7 +145,7 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
           // every dismiss route stays available unanswered.
           <AskPreviewGrid previews={ask.previews} onChoose={submit} />
         ) : (
-          <View style={[styles.chips, rtl && styles.chipsRtl]}>
+          <View style={[styles.chips, { flexDirection: visualRow(rtl) }]}>
             {ask.options.map((opt) => (
               <Pressable
                 key={opt}
@@ -158,7 +159,7 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
         )}
 
         {ask.allowFreeText && (
-          <View style={[styles.inputRow, rtl && styles.inputRowRtl]}>
+          <View style={[styles.inputRow, { flexDirection: visualRow(rtl) }]}>
             <BottomSheetTextInput
               value={text}
               onChangeText={setText}
@@ -188,12 +189,9 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 24 },
   header: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 16 },
-  headerRtl: { flexDirection: "row-reverse" },
   question: { flex: 1, fontSize: 18, fontFamily: "Inter_600SemiBold" },
   rtlText: { textAlign: "right", writingDirection: "rtl" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
-  chipsRtl: { flexDirection: "row-reverse" },
-  inputRowRtl: { flexDirection: "row-reverse" },
   chip: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1 },
   chipText: { fontSize: 14, fontFamily: "Inter_500Medium" },
   inputRow: { flexDirection: "row", gap: 10, alignItems: "center" },

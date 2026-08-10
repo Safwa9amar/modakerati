@@ -34,6 +34,7 @@ import { ComposerConfirm } from "./ComposerConfirm";
 import { ComposerModeToggle } from "./ComposerModeToggle";
 import { ComposerEditTools } from "./ComposerEditTools";
 import { ComposerRibbon } from "./ribbon/ComposerRibbon";
+import { visualRow } from "@/lib/rtl-layout";
 
 /** Height of the collapsed peek (the doc area pads its bottom by this). */
 export const COMPOSER_COLLAPSED_HEIGHT = 250;
@@ -498,7 +499,7 @@ export function WorkspaceComposerSheet({
         >
         {/* Focus chip */}
         {!docked && (
-        <View style={[styles.chipRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+        <View style={[styles.chipRow, { flexDirection: visualRow(rtl) }]}>
           <View style={[styles.chip, { backgroundColor: colors.brandPrimaryLight + "22" }]}>
             <Text style={[styles.chipText, { color: colors.brandPrimary }]} numberOfLines={1}>
               {chipLabel}
@@ -530,7 +531,7 @@ export function WorkspaceComposerSheet({
 
         {/* Bulk actions — only while building a multi-selection on a live .docx. */}
         {!docked && isLiveDoc && multiSelect && count > 0 && (
-          <View style={[styles.bulkRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+          <View style={[styles.bulkRow, { flexDirection: visualRow(rtl) }]}>
             <Pressable
               onPress={handleBulkNewPage}
               style={[styles.bulkBtn, { borderColor: colors.borderDefault }]}

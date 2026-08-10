@@ -45,6 +45,7 @@ import {
   type CaptionsDTO,
   type DocBlockDTO,
 } from "@/lib/api";
+import { visualRow } from "@/lib/rtl-layout";
 
 /** How much of the screen the sheet covers. Under two thirds on purpose: the student
  *  is captioning something they need to SEE, and the panel scrolls internally. */
@@ -161,7 +162,7 @@ function CaptionPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ges
   const colors = useThemeColors();
   const { t } = useTranslation();
   const { isRTL: appRtl } = useRTL();
-  const rowDir = appRtl ? "row-reverse" : "row";
+  const rowDir = visualRow(appRtl);
   const textAlign = appRtl ? "right" : "left";
 
   const thesisId = useCaptionSheetStore((s) => s.thesisId);

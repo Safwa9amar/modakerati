@@ -32,6 +32,7 @@ import type { FormatChange, ParaRun } from "@/lib/thesis-ops";
 import { AnimatedChip } from "./AnimatedChip";
 import { PictureCropModal } from "./PictureCropModal";
 import { TOOLBARS, ToolbarProvider, CHIP, toolStyles, type ToolbarCtx, type ChromeSelection, type ParagraphBlock, type Align } from "./bubble-tools";
+import { visualRow } from "@/lib/rtl-layout";
 
 // ── Vertical (column) form geometry ──
 // Shared with FloatingPill, which sizes + clamps the drag host from these: one chip
@@ -466,7 +467,7 @@ export function BlockContextBar({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
         contentContainerStyle={
-          vertical ? styles.expansionColumn : [styles.expansionRow, { flexDirection: rtl ? "row-reverse" : "row" }]
+          vertical ? styles.expansionColumn : [styles.expansionRow, { flexDirection: visualRow(rtl) }]
         }
       >
         {/* Keyed by TARGET so a panel holding a draft — the header/footer ✦ input and
@@ -488,16 +489,16 @@ export function BlockContextBar({
               keeps the expansion panel mounted across form switches (no spurious
               re-entering). */}
           {expansion}
-          <View style={[styles.fullRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+          <View style={[styles.fullRow, { flexDirection: visualRow(rtl) }]}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               keyboardShouldPersistTaps="always"
               style={styles.fullScroll}
               ref={toolsScrollRef}
-              contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
+              contentContainerStyle={[styles.fullTools, { flexDirection: visualRow(rtl) }]}
             >
-              {toolRow("dock-", [styles.toolsRowInner, { flexDirection: rtl ? "row-reverse" : "row" }])}
+              {toolRow("dock-", [styles.toolsRowInner, { flexDirection: visualRow(rtl) }])}
             </ScrollView>
             {AskAI}
             {OutlineBtn}
@@ -513,7 +514,7 @@ export function BlockContextBar({
             // the screen's trailing edge (FloatingPill's sideX, same `rtl` flag), so the
             // strip must be the trailing child and the panel opens inward — row in LTR
             // (panel, strip), row-reverse in RTL (strip, panel).
-            vertical && [styles.pillWrapV, { flexDirection: rtl ? "row-reverse" : "row" }],
+            vertical && [styles.pillWrapV, { flexDirection: visualRow(rtl) }],
           ]}
           pointerEvents="box-none"
         >
@@ -529,7 +530,7 @@ export function BlockContextBar({
                 ? [styles.pillColumn, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]
                 : full
                   ? [styles.fullCard, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle }]
-                  : [styles.pill, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle, flexDirection: rtl ? "row-reverse" : "row" }]
+                  : [styles.pill, { backgroundColor: colors.bgPrimary, borderColor: colors.borderSubtle, flexDirection: visualRow(rtl) }]
             }
           >
             {vertical ? (
@@ -558,16 +559,16 @@ export function BlockContextBar({
                 {OutlineBtn}
               </>
             ) : full ? (
-              <View style={[styles.fullRow, { flexDirection: rtl ? "row-reverse" : "row" }]}>
+              <View style={[styles.fullRow, { flexDirection: visualRow(rtl) }]}>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   keyboardShouldPersistTaps="always"
                   style={styles.fullScroll}
                   ref={toolsScrollRef}
-                  contentContainerStyle={[styles.fullTools, { flexDirection: rtl ? "row-reverse" : "row" }]}
+                  contentContainerStyle={[styles.fullTools, { flexDirection: visualRow(rtl) }]}
                 >
-                  {toolRow("full-", [styles.toolsRowInner, { flexDirection: rtl ? "row-reverse" : "row" }])}
+                  {toolRow("full-", [styles.toolsRowInner, { flexDirection: visualRow(rtl) }])}
                   {/* Static collapse control — outside the keyed row so toolset morphs
                       don't tear it down. */}
                   <ShellChip Icon={X} label={t("common.close", { defaultValue: "Close" })} onPress={() => useToolbarStore.getState().closeMore()} enterIndex={13} />
@@ -586,9 +587,9 @@ export function BlockContextBar({
                   keyboardShouldPersistTaps="always"
                   style={styles.pillScroll}
                   ref={toolsScrollRef}
-                  contentContainerStyle={[styles.pillToolsRow, { flexDirection: rtl ? "row-reverse" : "row" }]}
+                  contentContainerStyle={[styles.pillToolsRow, { flexDirection: visualRow(rtl) }]}
                 >
-                  {toolRow("tools-", [styles.toolsRowInner, { flexDirection: rtl ? "row-reverse" : "row" }])}
+                  {toolRow("tools-", [styles.toolsRowInner, { flexDirection: visualRow(rtl) }])}
                 </ScrollView>
                 <View style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />
                 {AskAI}

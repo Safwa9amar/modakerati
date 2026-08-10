@@ -38,6 +38,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { askThesisEquationAI, insertThesisEquation, previewThesisEquation, updateThesisEquation } from "@/lib/api";
 import MathPreview from "@/components/workspace/MathPreview";
+import { visualRow } from "@/lib/rtl-layout";
 
 /** How much of the screen the sheet covers. The student is placing an equation in a
  *  document they need to keep seeing, so it stops short of the top. */
@@ -151,7 +152,7 @@ function EquationPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ge
   const { t } = useTranslation();
   const { isRTL: appRtl } = useRTL();
   const dark = useSettingsStore((s) => s.theme) === "dark";
-  const rowDir = appRtl ? "row-reverse" : "row";
+  const rowDir = visualRow(appRtl);
   const textAlign = appRtl ? "right" : "left";
 
   const thesisId = useEquationSheetStore((s) => s.thesisId);

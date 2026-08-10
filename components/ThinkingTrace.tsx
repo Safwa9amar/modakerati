@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { Asterisk, ChevronDown, ChevronUp } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { windowLines, formatThinkingDuration, estimateTokenCount } from "@/lib/thinking";
+import { visualRow } from "@/lib/rtl-layout";
 
 // How many trailing reasoning lines the live window shows.
 const LIVE_LINES = 6;
@@ -138,7 +139,7 @@ export function ThinkingTrace({
         onPress={() => setOpen((o) => !o)}
         hitSlop={6}
         accessibilityRole="button"
-        style={[styles.header, { flexDirection: rtl ? "row-reverse" : "row" }]}
+        style={[styles.header, { flexDirection: visualRow(rtl) }]}
       >
         {streaming ? (
           <SpinningAsterisk color={accentInk} />
