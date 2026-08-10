@@ -36,6 +36,7 @@ import { Alert } from "react-native";
 import { ChatImageGrid, ChatImageViewer } from "@/components/ChatImages";
 import { splitImageFrames, pickChatImages, captureChatImage, pasteChatImage, MAX_CHAT_IMAGES, type StagedImage } from "@/lib/chat-images";
 import { ChatHistoryPanel } from "@/components/chat/ChatHistoryPanel";
+import { ChatWelcome } from "@/components/chat/ChatWelcome";
 import { ThesisAttachSheet } from "@/components/chat/ThesisAttachSheet";
 import { patchThread } from "@/lib/api";
 import type { ChatMessage, ChatImage, FilePayload } from "@/types/chat";
@@ -796,6 +797,10 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
         <View style={{ flex: 1 }}>
           {loadingHistory && messages.length === 0 ? (
             <ChatSkeleton />
+          ) : messages.length === 0 ? (
+            // Nothing said yet — and nothing loading. Say what this can do for
+            // them rather than showing an empty void above the composer.
+            <ChatWelcome />
           ) : (
           <FlatList
             ref={flatListRef}

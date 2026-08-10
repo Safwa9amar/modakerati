@@ -64,8 +64,6 @@ function emptyTurnNote(docChanged: boolean): string {
       });
 }
 
-const WELCOME =
-  "Hello! I'm your thesis assistant. Let's work on your thesis together.\n\nWhat would you like to focus on? You can:\n\n- Tell me about a chapter to draft\n- Ask me to suggest a structure\n- Request help with your methodology";
 
 // How long streamed text is allowed to pool before it is written to the store.
 //
@@ -517,10 +515,13 @@ export async function loadInitialMessages(threadId: string) {
     // offline / backend unavailable
   }
 
-  // 3. Nothing locally or on the server → show the welcome placeholder.
-  if (store.getMessages(threadId).length === 0) {
-    store.addMessage(threadId, "assistant", WELCOME, { pending: true });
-  }
+  // 3. Nothing locally or on the server → the screen renders <ChatWelcome/>.
+  //
+  // This used to insert a fake assistant message here. It read as though the
+  // model had spoken before the student said anything, and because it was a real
+  // row in the store it could be read aloud, regenerated, and made the thread
+  // look non-empty. An empty conversation is now empty, and the welcome is
+  // rendered rather than pretended.
 }
 
 // Reconcile the newest messages with the server. First sync (no cursor yet) pulls

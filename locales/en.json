@@ -619,6 +619,9 @@
     "noResponseDocChanged": "I made the changes to your thesis but couldn't write a summary of them. Open your document to check them before trying again.",
     "listen": "Listen",
     "stopAudio": "Stop",
+    "welcome": {
+      "body": "I'm your thesis assistant. I can draft chapters, structure your plan, fix formatting and handle citations — in Arabic, French or English."
+    },
     "threads": {
       "title": "Conversations",
       "new": "New chat",

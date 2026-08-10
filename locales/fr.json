@@ -619,6 +619,9 @@
     "noResponseDocChanged": "J'ai appliqué les modifications à votre mémoire mais je n'ai pas pu en rédiger le résumé. Ouvrez le document pour les vérifier avant de réessayer.",
     "listen": "Écouter",
     "stopAudio": "Arrêter",
+    "welcome": {
+      "body": "Je suis votre assistant de mémoire. Je peux rédiger des chapitres, structurer votre plan, corriger la mise en forme et gérer les citations — en arabe, en français ou en anglais."
+    },
     "threads": {
       "title": "Conversations",
       "new": "Nouvelle discussion",
