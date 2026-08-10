@@ -656,6 +656,8 @@
   },
   "preview": {
     "preview": "معاينة",
+    "download": "تنزيل",
+    "downloadFailed": "انتهت صلاحية رابط التنزيل. اطلب التصدير مرة أخرى.",
     "pageOf": "صفحة {{current}} من {{total}}"
   },
   "export": {

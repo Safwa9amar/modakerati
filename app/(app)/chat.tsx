@@ -36,6 +36,7 @@ import { ChatImageGrid, ChatImageViewer } from "@/components/ChatImages";
 import { splitImageFrames, pickChatImages, captureChatImage, pasteChatImage, MAX_CHAT_IMAGES, type StagedImage } from "@/lib/chat-images";
 import { ChatHistoryPanel } from "@/components/chat/ChatHistoryPanel";
 import { ChatWelcome } from "@/components/chat/ChatWelcome";
+import { downloadExport } from "@/lib/download-export";
 import { ThesisAttachSheet } from "@/components/chat/ThesisAttachSheet";
 import { patchThread } from "@/lib/api";
 import type { ChatMessage, ChatImage, FilePayload } from "@/types/chat";
@@ -565,11 +566,20 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
 
   // Open the thesis's live .docx in the workspace (the document IS the export).
   // (Stable identity so the memoized Bubble doesn't re-render on every keystroke.)
-  const handlePreviewFile = useCallback(
-    (_file: FilePayload) => {
-      router.push({ pathname: "/(app)/thesis-workspace", params: { thesisId } });
+  // Tapping an export downloads it and hands it to the OS — Save to Files, open
+  // in Word, share anywhere. It used to push the workspace instead, which showed
+  // the document the student was already looking at rather than giving them the
+  // file they asked to export.
+  const handleDownloadFile = useCallback(
+    async (file: FilePayload) => {
+      try {
+        await downloadExport(file);
+      } catch {
+        // Almost always an expired link — exports are signed for one hour.
+        Alert.alert(t("common.error"), t("preview.downloadFailed"));
+      }
     },
-    [router, thesisId]
+    [t]
   );
 
   // Regenerate the most recent assistant reply (drops it and re-runs the last
@@ -817,7 +827,7 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
           <FlatList
             ref={flatListRef}
             data={messages}
-            renderItem={({ item, index }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} isLiveTurn={item.id === liveTurnId} isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1} isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating} isSpeaking={item.id === speakingId} onExpand={setViewerContent} onPreviewFile={handlePreviewFile} onRegenerate={handleRegenerate} onRetryMessage={handleRetryMessage} onSpeak={toggleSpeak} onViewImage={setViewerImage} />}
+            renderItem={({ item, index }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} isLiveTurn={item.id === liveTurnId} isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1} isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating} isSpeaking={item.id === speakingId} onExpand={setViewerContent} onPreviewFile={handleDownloadFile} onRegenerate={handleRegenerate} onRetryMessage={handleRetryMessage} onSpeak={toggleSpeak} onViewImage={setViewerImage} />}
             keyExtractor={(item) => item.id}
             // The live-turn flag lives outside `data`, so tell the list about it —
             // otherwise the last bubble can keep its working note after the turn ends.

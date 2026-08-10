@@ -656,6 +656,8 @@
   },
   "preview": {
     "preview": "Apercu",
+    "download": "Télécharger",
+    "downloadFailed": "Ce lien de téléchargement a expiré. Demandez à nouveau l'export.",
     "pageOf": "Page {{current}} sur {{total}}"
   },
   "export": {

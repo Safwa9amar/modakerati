@@ -656,6 +656,8 @@
   },
   "preview": {
     "preview": "Preview",
+    "download": "Download",
+    "downloadFailed": "That download link has expired. Ask for the export again.",
     "pageOf": "Page {{current}} of {{total}}"
   },
   "export": {

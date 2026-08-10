@@ -1,5 +1,5 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { FileText, FileCode, Eye } from "lucide-react-native";
+import { FileText, FileCode, Download } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { getTextDirection } from "@/lib/text-direction";
@@ -8,9 +8,15 @@ import type { FilePayload } from "@/types/chat";
 /**
  * A downloadable artifact (e.g. a thesis export) shown inline in the chat as a
  * tappable card. Laid out as a header (file-type icon, title, and a FORMAT badge
- * with "size · pages" meta) above a divided "Preview" footer. Tapping anywhere
- * opens the IN-APP preview — the file is never opened externally. The card flows
- * RTL when its title is in an RTL script, independent of the app's locale.
+ * with "size · pages" meta) above a divided "Download" footer. Tapping anywhere
+ * opens the signed download URL, which the OS hands to the browser or a viewer.
+ *
+ * It used to open an in-app preview instead. The export is the thing the student
+ * actually came for, so handing them the file directly beats a read-only look at
+ * it. Note the signed link lives for one hour, so an old card can fail — the
+ * caller reports that rather than doing nothing.
+ *
+ * The card flows RTL when its title is in an RTL script, independent of locale.
  */
 export function FileCard({ file, onPress }: { file: FilePayload; onPress?: () => void }) {
   const colors = useThemeColors();
@@ -36,7 +42,7 @@ export function FileCard({ file, onPress }: { file: FilePayload; onPress?: () =>
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={t("chat.previewFile", { defaultValue: "Preview file" })}
+      accessibilityLabel={t("preview.download", { defaultValue: "Download" })}
       style={({ pressed }) => [
         styles.card,
         { backgroundColor: colors.bgSurface, borderColor: colors.borderDefault, opacity: pressed ? 0.9 : 1 },
@@ -65,9 +71,9 @@ export function FileCard({ file, onPress }: { file: FilePayload; onPress?: () =>
       </View>
 
       <View style={[styles.footer, { borderTopColor: colors.borderDefault }]}>
-        <Eye size={15} color={colors.brandPrimary} strokeWidth={2} />
+        <Download size={15} color={colors.brandPrimary} strokeWidth={2} />
         <Text style={[styles.footerLabel, { color: colors.brandPrimary }]}>
-          {t("preview.preview", { defaultValue: "Preview" })}
+          {t("preview.download", { defaultValue: "Download" })}
         </Text>
       </View>
     </Pressable>
