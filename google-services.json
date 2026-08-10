@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "491738218959",
+    "project_id": "modakerati",
+    "storage_bucket": "modakerati.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:491738218959:android:4d6d32b4e487d6a5c4d2ba",
+        "android_client_info": {
+          "package_name": "com.modakerati.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "491738218959-na9me00r54ds1c0vdl2aufsu7nd7cji2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWFpeYiQ1d23Q2sac7nRjv4PptfRqylHU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "491738218959-na9me00r54ds1c0vdl2aufsu7nd7cji2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

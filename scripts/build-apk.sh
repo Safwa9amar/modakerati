@@ -23,6 +23,16 @@ fi
 grep -q "MODAKERATI_UPLOAD_STORE_FILE" ~/.gradle/gradle.properties 2>/dev/null \
   || { echo "✗ signing credentials not in ~/.gradle/gradle.properties — the build would be DEBUG-signed"; exit 1; }
 
+# A binary shipped without the OTA config can NEVER be updated over the air — the
+# only fix is shipping another binary. Both of these are cheap to get wrong and
+# invisible until you need an emergency patch, so refuse the build instead.
+if grep -q PROJECT_ID_PLACEHOLDER app.json; then
+  echo "✗ app.json still has PROJECT_ID_PLACEHOLDER — run 'eas init' and 'eas update:configure', or this build can never receive OTA updates"
+  exit 1
+fi
+grep -q "EXPO_UPDATE_URL" android/app/src/main/AndroidManifest.xml 2>/dev/null \
+  || { echo "✗ android/ predates the OTA config — run 'npx expo prebuild -p android' first"; exit 1; }
+
 RESTORE=0
 if [ -f .env ]; then cp .env .env.devbackup; RESTORE=1; fi
 restore() {

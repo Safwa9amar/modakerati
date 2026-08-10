@@ -62,3 +62,9 @@ credentials/
 
 # production env (secrets — never commit)
 .env.production
+
+# Firebase service account key for FCM V1 push (SECRET — never commit).
+# google-services.json is NOT here on purpose: it holds only public identifiers
+# and Expo expects it committed so prebuild can find it.
+*-firebase-adminsdk-*.json
+firebase-service-account*.json

@@ -7,6 +7,17 @@
     "icon": "./assets/icon.png",
     "scheme": "modakerati",
     "userInterfaceStyle": "automatic",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8994cc05-5a16-4ea4-a498-89c27eea3b55",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      }
+    },
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -15,14 +26,25 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.modakerati.app",
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Modakerati uses speech recognition to turn your voice into text in your thesis.",
+        "NSMicrophoneUsageDescription": "Modakerati uses your microphone to dictate text into your thesis."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#121220"
       },
-      "package": "com.modakerati.app"
+      "package": "com.modakerati.app",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "plugins": [
       "expo-router",
@@ -46,6 +68,13 @@
       "expo-audio",
       "./plugins/withReleaseSigning",
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8994cc05-5a16-4ea4-a498-89c27eea3b55"
+      }
+    },
+    "owner": "astro0666"
   }
 }
