@@ -17,7 +17,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useFocusEffect } from "expo-router";
+import { useLocalSearchParams, useFocusEffect, Redirect } from "expo-router";
 import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
 import { Undo2, Redo2 } from "lucide-react-native";
@@ -34,7 +34,6 @@ import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { DrawerMenuButton } from "@/components/DrawerMenuButton";
-import { EmptyWriter } from "@/components/EmptyWriter";
 import { useSettingsStore } from "@/stores/settings-store";
 import { WordDocxView, type DocTapBlock } from "@/components/workspace/WordDocxView";
 import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
@@ -524,10 +523,14 @@ export default function ThesisWorkspaceScreen() {
 
   const title = thesis?.title ?? "";
 
-  // No thesis asked for at all — this screen is the app's root, so that is the
-  // "nothing open yet" state, not an error. The writer keeps its shape; only the
-  // page is missing.
-  if (!thesisId) return <EmptyWriter />;
+  // No thesis asked for at all. There is nothing to write in, so send the
+  // student to chat — which works perfectly well without a document and offers
+  // to attach or start one.
+  //
+  // This used to render a "Start writing" screen whose three actions (New
+  // thesis, Import, Templates) were the drawer's own entries, down to the same
+  // locale keys — a second front door onto the same three doors.
+  if (!thesisId) return <Redirect href={"/(app)/chat" as any} />;
 
   // Loading: no thesis yet (refreshThesis still in flight).
   if (!thesis) {

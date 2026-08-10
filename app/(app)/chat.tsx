@@ -17,7 +17,6 @@ import { useRouter } from "expo-router";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { DrawerMenuButton } from "@/components/DrawerMenuButton";
-import { EmptyWriter } from "@/components/EmptyWriter";
 import { Markdown } from "@/components/Markdown";
 import { MessageViewer } from "@/components/MessageViewer";
 import { ChatSkeleton } from "@/components/ChatSkeleton";
@@ -1137,8 +1136,8 @@ export default function ChatScreen() {
   // No thesis is no longer a dead end. A conversation can stand on its own — a
   // plain assistant that can still plan, draft and answer questions about
   // citation — and the student attaches a thesis from the composer whenever they
-  // want document editing. EmptyWriter (the writer's starters) is reachable from
-  // the drawer for anyone who wants to begin one instead.
+  // want document editing. Starting one is in the drawer: New thesis, Import,
+  // Templates.
   return <ThesisChat thesisId={thesisId} thesisTitle={thesisTitle} />;
 }
 
