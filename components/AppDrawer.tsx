@@ -230,7 +230,13 @@ function AppIndex() {
       // thread as an overlay over the writer. Same thread either way — the writer's
       // dock with nothing selected posts into it too, and its reply card still
       // expands over the document without leaving the page.
-      onPress: () => go(() => router.replace("/(app)/chat" as any)),
+      //
+      // dismissTo, NOT replace: chat is already the bottom of this stack, and
+      // replacing the top screen with a second chat left TWO of them mounted —
+      // both listening to the same pending question, both presenting a sheet for
+      // it. This pops back down to the chat that's already there (and falls back
+      // to a replace when there isn't one).
+      onPress: () => go(() => router.dismissTo("/(app)/chat" as any)),
     },
   ];
 

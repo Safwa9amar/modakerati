@@ -19,24 +19,52 @@ import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 
 interface Props {
   ask: AskPayload | null;
+  /**
+   * False while this chat surface isn't the one the student is looking at (see
+   * ThesisChat's `active`). `pendingAsk` is GLOBAL, so every mounted chat would
+   * otherwise present its own copy of the same question — two chat screens in
+   * the stack meant two identical sheets on screen at once.
+   */
+  enabled?: boolean;
   onAnswer: (answer: string) => void;
   onClose: () => void;
 }
 
-export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
+export function AskBottomSheet({ ask, enabled = true, onAnswer, onClose }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const isOpen = useBottomSheet((s) => s.openSheets.has("ask"));
+  const sheetOpen = useBottomSheet((s) => s.openSheets.has("ask"));
+  const isOpen = enabled && sheetOpen;
   const sheetRef = useRef<BottomSheetModal>(null);
   const [text, setText] = useState("");
+  // The question ON SCREEN, held here rather than read straight off `ask`, so
+  // that clearing `pendingAsk` from somewhere ELSE — the workspace composer
+  // answers the same global question — can't unmount this modal while it is
+  // still presented. That unmount is what left a dead second sheet behind.
+  const [shown, setShown] = useState<AskPayload | null>(null);
+  // Whether this instance may own the sheet, readable from `onDismiss` (which
+  // fires a frame later, long after a re-render).
+  const enabledRef = useRef(enabled);
   // The answer the student picked, held until gorhom finishes dismissing. Every
   // way out of this sheet goes through `dismiss()` → `onDismiss`; answering used
   // to skip that, clearing `ask` and UNMOUNTING the modal mid-presentation — the
   // one thing this codebase's sheets must never do (see components/BottomSheet).
   const answerRef = useRef<string | null>(null);
 
-  // Open/close is owned by the global sheet store; `ask` carries the content.
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
+
+  // Content, decoupled from presentation. A re-filed identical question (the
+  // stream and the finished turn both post one) swaps the text in place instead
+  // of presenting a second time; nothing to show and nothing open drops it.
+  useEffect(() => {
+    if (ask) setShown(ask);
+    else if (!isOpen) setShown(null);
+  }, [ask, isOpen]);
+
+  // Open/close is owned by the global sheet store; `shown` carries the content.
   useEffect(() => {
     if (isOpen) {
       setText("");
@@ -67,7 +95,7 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
     []
   );
 
-  if (!ask) return null;
+  if (!shown) return null;
 
   // Answering closes the sheet the same way ✕ / backdrop / back / swipe do: park
   // the answer and dismiss. `handleDismiss` sends it once gorhom has actually
@@ -85,13 +113,26 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
   const handleDismiss = () => {
     const answer = answerRef.current;
     answerRef.current = null;
-    if (answer) onAnswer(answer);
-    else onClose();
+    // gorhom has finished tearing the sheet down by now, so dropping the modal
+    // is safe here and ONLY here — the next question mounts a fresh one, which
+    // is also what the New Architecture needs to present a sheet twice (see
+    // components/BottomSheet).
+    setShown(null);
+    if (answer) {
+      onAnswer(answer);
+      return;
+    }
+    // RETRACTED, not dismissed: this chat went to the background with the
+    // question still up, so the sheet came down without the student touching
+    // it. The question itself survives — clearing `pendingAsk` here would
+    // swallow it on the way to the surface that's now in front.
+    if (!enabledRef.current) return;
+    onClose();
   };
 
   // The answer field follows the QUESTION's direction, so an Arabic question
   // puts the caret on the right (same rule as the workspace's ComposerAsk).
-  const rtl = getTextDirection(ask.question) === "rtl";
+  const rtl = getTextDirection(shown.question) === "rtl";
 
   return (
     <BottomSheetModal
@@ -133,7 +174,7 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
               rtl && { textAlign: visualTextAlign(rtl), writingDirection: "rtl" as const },
             ]}
           >
-            {ask.question}
+            {shown.question}
           </Text>
           <Pressable
             onPress={() => sheetRef.current?.dismiss()}
@@ -145,14 +186,14 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
           </Pressable>
         </View>
 
-        {ask.previews?.length ? (
+        {shown.previews?.length ? (
           // Visual choices (e.g. divider ornaments): preview cards instead of
           // chips. Answering goes through the same submit → dismiss path, and
           // every dismiss route stays available unanswered.
-          <AskPreviewGrid previews={ask.previews} onChoose={submit} />
+          <AskPreviewGrid previews={shown.previews} onChoose={submit} />
         ) : (
           <View style={[styles.chips, { flexDirection: visualRow(rtl) }]}>
-            {ask.options.map((opt) => (
+            {shown.options.map((opt) => (
               <Pressable
                 key={opt}
                 onPress={() => submit(opt)}
@@ -164,7 +205,7 @@ export function AskBottomSheet({ ask, onAnswer, onClose }: Props) {
           </View>
         )}
 
-        {ask.allowFreeText && (
+        {shown.allowFreeText && (
           <View style={[styles.inputRow, { flexDirection: visualRow(rtl) }]}>
             <BottomSheetTextInput
               value={text}

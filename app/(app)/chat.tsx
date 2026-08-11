@@ -13,7 +13,7 @@ import { useChatHead } from "@/stores/chat-head-store";
 import { sendMessageToAI, loadInitialMessages, loadOlderMessages, regenerateLastResponse, retryFailedMessage, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { ComposerConfirm } from "@/components/workspace/ComposerConfirm";
 import { Send, Plus, Menu, List, Paperclip, Image as ImageIcon, Camera, ClipboardPaste, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw, Volume2, AlertCircle, History } from "lucide-react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { DrawerMenuButton } from "@/components/DrawerMenuButton";
@@ -57,6 +57,21 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 function threadHasHistory(threadId: string): boolean {
   const row = useChatThreadsStore.getState().threads.find((t) => t.id === threadId);
   return !!row?.lastMessageAt;
+}
+
+/**
+ * Whether this mount has a conversation to RESUME — i.e. whether the opening
+ * resolve has a question to ask before the screen can honestly say "nothing has
+ * been said yet".
+ *
+ * A thesis in hand means the server is about to be asked which conversation that
+ * thesis is currently in; a currentThreadId means one is already open this
+ * session. Either way an answer is on its way, and drawing the welcome art in
+ * the meantime is what made a returning student watch TWO different screens on
+ * every launch — the empty-state, then their actual chat a moment later.
+ */
+function hasConversationToResume(thesisId: string | null): boolean {
+  return !!thesisId || !!useChatThreadsStore.getState().currentThreadId;
 }
 
 const LOGO = require("../../assets/icon.png");
@@ -295,7 +310,7 @@ const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, i
 // The full thesis chat UI, reusable in two places: as the Chat TAB (variant
 // "screen", with a Home button) and inside the floating chat-head OVERLAY
 // (variant "overlay", with a Close button that collapses back to the bubble).
-export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "screen", onClose }: { thesisId: string | null; thesisTitle: string; variant?: "screen" | "overlay"; onClose?: () => void }) {
+export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "screen", focused = true, onClose }: { thesisId: string | null; thesisTitle: string; variant?: "screen" | "overlay"; focused?: boolean; onClose?: () => void }) {
   // The thesis this conversation is about, which can CHANGE mid-session: an
   // unattached chat starts null and gains one when the student attaches it. Held
   // as state rather than read straight from the prop so that attach takes effect
@@ -331,12 +346,17 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   const pendingAsk = useChatStore((s) => s.pendingAsk);
   const pendingConfirm = useChatStore((s) => s.pendingConfirm);
   const setPendingAsk = useChatStore((s) => s.setPendingAsk);
-  // This UI exists in two places at once (the Chat TAB and the floating chat-head
-  // OVERLAY). Only the visible one is "active" and may drive the GLOBAL sheets
-  // (ask/structure) — otherwise the agent's ask_user would open two sheets. The
-  // tab yields to the overlay while it's expanded.
+  // This UI exists in several places at once: the chat SCREEN — which the stack
+  // can hold more than one of, since every drawer row `replace`s the top screen
+  // and a chat opened over another screen lands on top of the chat that's
+  // already the app's root — and the floating chat-head OVERLAY. Only the one
+  // the student is actually looking at is "active" and may drive the GLOBAL
+  // sheets (ask/structure) or fetch suggestions; otherwise ask_user presents one
+  // sheet per mounted copy, which is exactly the duplicated ask sheet. A screen
+  // qualifies only while it holds navigation FOCUS, and yields to the overlay
+  // while that's expanded.
   const chatHeadExpanded = useChatHead((s) => s.expanded);
-  const active = variant === "overlay" ? chatHeadExpanded : !chatHeadExpanded;
+  const active = variant === "overlay" ? chatHeadExpanded : focused && !chatHeadExpanded;
   // AI-generated quick-action chips from the recent conversation + RAG. Only the
   // visible instance fetches, and not while an ask sheet is open. No block
   // selection in plain chat, so it grounds on the conversation alone.
@@ -389,6 +409,13 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   // staring at fake messages instead of typing. Starts false; only ever raised
   // for a thread that has genuinely had messages before (see threadHasHistory).
   const [loadingHistory, setLoadingHistory] = useState(false);
+  // True until the opening resolve below knows WHICH conversation this screen is
+  // showing — or that there is none to show. Seeded synchronously (never in an
+  // effect) because a single frame of the welcome art before the resumed chat
+  // lands is exactly the flash this exists to prevent. Distinct from
+  // `loadingHistory`, which covers fetching a KNOWN thread's messages; the two
+  // render the same skeleton, so the handoff between them is invisible.
+  const [resolving, setResolving] = useState(() => hasConversationToResume(initialThesisId));
 
   // Resolve which conversation this thesis currently opens into — fired once
   // per mount, guarded by loadedRef so it never re-resolves a second thread out
@@ -414,11 +441,21 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
         : Promise.resolve(null);
     void Promise.resolve(resolve)
       .then((id) => {
-        if (!id) return; // nothing to resume — an empty chat, ready to type into
+        if (!id) {
+          // Nothing to resume — an empty chat, ready to type into. NOW the
+          // welcome is the truth rather than a guess made before asking.
+          setResolving(false);
+          return;
+        }
+        // Batched into one commit with the flag below, so the skeleton hands
+        // straight over to the history load without a frame of empty state
+        // between them.
         setLoadingHistory(threadHasHistory(id));
         setThreadId(id);
+        setResolving(false);
       })
       .catch(() => {
+        setResolving(false);
         // Offline, or the server refused. Leave the student in an empty
         // conversation rather than an eternal skeleton — this is exactly how
         // the stuck placeholder bubbles happened: newThread() rejects, the
@@ -793,9 +830,13 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
             <DrawerMenuButton />
           )}
           {/* The thesis this conversation is about, or the app's name when it is
-              about no thesis at all — an empty header bar reads as a bug. */}
+              about no thesis at all — an empty header bar reads as a bug. The
+              app's name also covers the launch gap: the remembered thesis ID is
+              restored instantly but its TITLE only arrives with the theses list
+              over the network, and until then `thesisTitle` is "" — which is how
+              a blank bar got on screen despite the rule above. */}
           <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-            {thesisId ? thesisTitle : t("auth.appName")}
+            {(thesisId ? thesisTitle : "") || t("auth.appName")}
           </Text>
           <Pressable
             onPress={() => setHistoryOpen(true)}
@@ -818,11 +859,17 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
           two must never both be on or they double-count. */}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={{ flex: 1 }}>
-          {loadingHistory && messages.length === 0 ? (
+          {(resolving || loadingHistory) && messages.length === 0 ? (
+            // Either we don't know which conversation this is yet, or we know and
+            // its messages are on the way. Both are "loading", and both must look
+            // the same — the student should never see the empty state flash past
+            // on the way to a chat they already had. Gated on there being no
+            // messages so a send made during the resolve isn't hidden behind it.
             <ChatSkeleton />
           ) : messages.length === 0 ? (
-            // Nothing said yet — and nothing loading. Say what this can do for
-            // them rather than showing an empty void above the composer.
+            // Nothing said yet — and nothing loading, and nothing left to resolve.
+            // Say what this can do for them rather than showing an empty void
+            // above the composer.
             <ChatWelcome />
           ) : (
           <FlatList
@@ -1093,16 +1140,18 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
         </View>
       </KeyboardAvoidingView>
 
-      {active && (
-        <AskBottomSheet
-          ask={pendingAsk}
-          onAnswer={(answer) => {
-            setPendingAsk(null);
-            if (threadId) void sendMessageToAI(threadId, thesisId, answer);
-          }}
-          onClose={() => setPendingAsk(null)}
-        />
-      )}
+      {/* Mounted whether or not this copy is the visible one, and told which it
+          is: a background copy RETRACTS its sheet instead of being unmounted
+          mid-presentation, which is what left a second, dead sheet on screen. */}
+      <AskBottomSheet
+        ask={pendingAsk}
+        enabled={active}
+        onAnswer={(answer) => {
+          setPendingAsk(null);
+          if (threadId) void sendMessageToAI(threadId, thesisId, answer);
+        }}
+        onClose={() => setPendingAsk(null)}
+      />
 
       {/* Gated destructive AI action → Approve/Cancel card pinned above the input.
           The doc isn't visible on this screen, so there's no "undo AI changes" chip here. */}
@@ -1157,12 +1206,25 @@ export default function ChatScreen() {
     return s.theses.find((t) => t.id === s.currentThesisId)?.title ?? "";
   });
 
+  // The stack can hold more than one chat screen at a time (the drawer replaces
+  // the top screen, and Open chat from a thesis pushes one over the chat that is
+  // already the app's root), and every one of them stays MOUNTED. They all watch
+  // the same global `pendingAsk`, so without this only luck decided how many ask
+  // sheets presented at once. Focus is the tiebreaker: exactly one screen has it.
+  const [focused, setFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, [])
+  );
+
   // No thesis is no longer a dead end. A conversation can stand on its own — a
   // plain assistant that can still plan, draft and answer questions about
   // citation — and the student attaches a thesis from the composer whenever they
   // want document editing. Starting one is in the drawer: New thesis, Import,
   // Templates.
-  return <ThesisChat thesisId={thesisId} thesisTitle={thesisTitle} />;
+  return <ThesisChat thesisId={thesisId} thesisTitle={thesisTitle} focused={focused} />;
 }
 
 const styles = StyleSheet.create({

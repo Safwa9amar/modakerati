@@ -82,7 +82,10 @@ export default function ThesisDetailScreen() {
   const openChat = () => {
     if (!thesis) return;
     useThesisStore.getState().setCurrentThesis(thesis.id);
-    router.push("/(app)/chat" as any);
+    // dismissTo, not push: chat is the app's root screen, so pushing put a
+    // SECOND chat on top of the one already down there — both mounted, both
+    // presenting their own sheet for the same pending question.
+    router.dismissTo("/(app)/chat" as any);
   };
 
   const openWorkspace = () => {

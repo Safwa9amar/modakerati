@@ -152,7 +152,9 @@ export default function ImportAnalysisScreen() {
     if (status !== "ready" || !isEmpty || !thesis) return;
     autoSkipped.current = true;
     useThesisStore.getState().setCurrentThesis(thesis.id);
-    router.replace("/(app)/chat");
+    // dismissTo rather than replace, so this lands on the chat already at the
+    // bottom of the stack instead of stacking a second one on top of it.
+    router.dismissTo("/(app)/chat");
   }, [status, isEmpty, thesis, router]);
 
   const megabytes = totalBytes > 0 ? (totalBytes / (1024 * 1024)).toFixed(1) : null;
