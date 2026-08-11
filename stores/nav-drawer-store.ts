@@ -51,32 +51,50 @@ export const drawerDraggingSV = makeMutable(false);
 
 const SPRING = { damping: 22, stiffness: 240, mass: 0.7 } as const;
 
-// Drive both shared values from one place. Deliberately UNCONDITIONAL: an earlier
-// version skipped the spring while `drawerDraggingSV` was true, which meant a
-// gesture that somehow never reported its end wedged the drawer permanently. The
-// guard was not load-bearing anyway — a live pan writes `drawerProgressSV` every
-// frame from its own onUpdate, so the finger still wins over a spring started here.
+// Drive all three shared values from one place. Deliberately UNCONDITIONAL: an
+// earlier version skipped the spring while `drawerDraggingSV` was true, which
+// meant a gesture that somehow never reported its end wedged the drawer
+// permanently. A live pan writes `drawerProgressSV` every frame from its own
+// onUpdate, so the finger still wins over a spring started here.
+//
+// Clearing `drawerDraggingSV` is the other half of that, and it was missing —
+// which is the drawer you cannot close. `dragging` means "a finger owns the
+// progress value", and PushDrawer's release reaction reads
+// `dragging ? -1 : open ? 1 : 0` and settles only on a target >= 0. So a gesture
+// that begins and never finalises — the detector unmounting mid-drag, the memo
+// swapping under it — leaves the flag true and that reaction DEAD for the rest
+// of the session. Worse, the next drag on the peek then activates `closePan`,
+// whose onEnd keeps the drawer open unless the drag passed 40% of the width: a
+// short swipe at a stuck drawer re-opens it, which is exactly what "I try to
+// close it and it comes back" is.
+//
+// An explicit command outranks a finger that has gone. Every programmatic
+// open/close now takes ownership back.
 function settle(open: boolean) {
+  drawerDraggingSV.value = false;
   drawerOpenSV.value = open;
   drawerProgressSV.value = withSpring(open ? 1 : 0, SPRING);
 }
 
 /**
- * Re-apply the VISUAL state from the settled boolean, whatever `progress` is
- * currently showing.
+ * Force the drawer shut, ignoring what the store currently believes.
+ *
+ * Used on every return to the foreground. This replaces an earlier
+ * `resettleDrawer()` that re-applied the visual state from the `open` boolean —
+ * which was the wrong instrument, because it TRUSTS that boolean: come back from
+ * the document picker with `open` stale-true and it faithfully re-opens the
+ * drawer over the import screen it was supposed to have left.
  *
  * A Reanimated spring runs off the UI thread's frame callback, and on Android
- * that callback STOPS while another activity is in front — the document picker
- * that Import and Combine open, the share sheet, the camera. A close asked for
- * in the same tick one of those launches can be frozen part-way and never
- * finish: the store says closed, the panel is still on screen, and because every
- * other close path guards on the boolean ("it's already closed, nothing to do")
- * nothing ever asks again. That is the drawer left hanging over the import
- * screen. Level-triggered like `settle`, so calling it on a drawer that is
- * already where it belongs costs one no-op spring.
+ * that callback stops while another activity is in front — the picker Import and
+ * Combine open, the share sheet, the camera. A close asked for in the same tick
+ * one of those launches can freeze part-way and never finish. There is no state
+ * worth preserving across that: whatever happened while we were away, coming
+ * back to a closed drawer is always right, and it is the only answer that cannot
+ * be wrong.
  */
-export function resettleDrawer() {
-  settle(useNavDrawerStore.getState().open);
+export function forceCloseDrawer() {
+  useNavDrawerStore.getState().closeDrawer();
 }
 
 export const useNavDrawerStore = create<NavDrawerState>((set, get) => ({

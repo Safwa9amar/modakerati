@@ -21,7 +21,7 @@ import {
   drawerOpenSV,
   drawerProgressSV,
   drawerDraggingSV,
-  resettleDrawer,
+  forceCloseDrawer,
   useNavDrawerStore,
 } from "@/stores/nav-drawer-store";
 import { AppDrawer } from "@/components/AppDrawer";
@@ -136,7 +136,7 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
   // Close on EVERY route change. Deliberately unguarded: the old version asked
   // only when the store believed itself open, which is worthless for the one case
   // that needs it — a drawer whose boolean says closed while the panel is still
-  // painted (see `resettleDrawer`). `closeDrawer` is level-triggered, so an
+  // painted (see `forceCloseDrawer`). `closeDrawer` is level-triggered, so an
   // already-closed drawer just re-springs to 0 and zustand skips the re-render.
   useEffect(() => {
     useNavDrawerStore.getState().closeDrawer();
@@ -144,12 +144,13 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   // Coming back from another activity — the document picker Import and Combine
-  // open, the share sheet — re-settle to whatever the store decided while we were
-  // away. A close requested in the same tick the picker launched may have been
-  // frozen mid-slide with no frames to finish on; this is the frame it finishes.
+  // open, the share sheet — force the drawer SHUT. Not "re-settle to whatever the
+  // store believes": that trusts a boolean which, if it is stale-true, faithfully
+  // re-opens the drawer over the screen we just navigated to. Returning to a
+  // closed drawer is always right, and it is the only answer that cannot be wrong.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
-      if (next === "active") resettleDrawer();
+      if (next === "active") forceCloseDrawer();
     });
     return () => sub.remove();
   }, []);
