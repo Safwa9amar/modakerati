@@ -39,6 +39,7 @@ import { hSelection, hSuccess } from "@/lib/haptics";
 import { diffWords, type DiffSegment } from "@/lib/word-diff";
 import { estimateTokenCount } from "@/lib/thinking";
 import type { DocBlockDTO } from "@/lib/api";
+import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 
 // ---------------------------------------------------------------------------
 // Fixed on-white palette — this surface sits on the WHITE document paper, so
@@ -159,16 +160,18 @@ export function InlineSuggestion({ thesisId, block, rtl }: Props) {
     editing && draft ? draft : sug.proposed || sug.original || blockText,
     rtl,
   );
-  const appRow = I18nManager.isRTL
-    ? ("row-reverse" as const)
-    : ("row" as const);
+  // Chrome rows read in the APP's direction, and the app IS that direction —
+  // RN has already mirrored them. This used to hand back "row-reverse" under
+  // forceRTL, which flipped the suggestion pill's own toolbar back to visual
+  // LTR inside an Arabic document. See @/lib/rtl-layout.
+  const appRow = visualRow(I18nManager.isRTL);
   // Images have no heading level → render the caption in body typography.
   const baseTextStyle = paragraphTextStyle(block.kind === "paragraph" ? block.level : 0);
   // writingDirection unconditionally: DocBlock omits it on Android only for
   // JUSTIFIED text (a Fabric justify quirk) — this component never justifies,
   // so RTL bidi needs the explicit direction on both platforms.
   const contentTextStyle = {
-    textAlign: contentDir === "rtl" ? ("right" as const) : ("left" as const),
+    textAlign: visualTextAlign(contentDir === "rtl"),
     writingDirection: contentDir,
   };
   // The green "in review" bar sits at the paragraph's logical start.

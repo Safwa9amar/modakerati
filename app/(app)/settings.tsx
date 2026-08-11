@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useRTL } from "@/hooks/useRTL";
 import { useSettingsStore, type ToolbarOrientation } from "@/stores/settings-store";
 import { useNotificationStore } from "@/stores/notification-store";
 import { useByokStore } from "@/stores/byok-store";
@@ -15,7 +16,7 @@ import { Card } from "@/components/ui/Card";
 import {
   Globe, Moon, Sun, Bell, Sparkles, Clock,
   Trash2, AlertTriangle, RefreshCw,
-  Info, FileText, Shield, ChevronRight, ChevronDown, Check, FlaskConical, Mic,
+  Info, FileText, Shield, ChevronRight, ChevronLeft, ChevronDown, Check, FlaskConical, Mic,
   Rows3, Columns3, KeyRound,
 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
@@ -48,6 +49,12 @@ interface SettingRow {
 export default function SettingsScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  // This screen had NO direction handling at all — it leaned entirely on RN's
+  // native mirroring, which reorders the rows but leaves every label to RN's
+  // default alignment. In Arabic that stranded each one at the far side of its
+  // row from its own icon. The chevron was hardcoded to point right, too.
+  const rtl = useRTL();
+  const RowChevron = rtl.isRTL ? ChevronLeft : ChevronRight;
   const router = useRouter();
   const theme = useSettingsStore((s) => s.theme);
   const language = useSettingsStore((s) => s.language);
@@ -250,7 +257,7 @@ export default function SettingsScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {sections.map((section, si) => (
           <View key={si} style={styles.section}>
-            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{section.title}</Text>
+            <Text style={[styles.sectionLabel, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>{section.title}</Text>
             <Card style={styles.sectionCard}>
               {section.rows.map((row, ri) => (
                 <View key={ri}>
@@ -264,23 +271,23 @@ export default function SettingsScreen() {
                     <Text
                       style={[
                         styles.rowLabel,
-                        { color: row.destructive ? colors.semanticError : colors.textPrimary },
+                        { color: row.destructive ? colors.semanticError : colors.textPrimary, textAlign: rtl.textAlign },
                       ]}
                     >
                       {row.label}
                     </Text>
                     {row.type === "chevron" && (
                       <View style={styles.rowRight}>
-                        {row.value && <Text style={[styles.rowValue, { color: colors.textSecondary }]}>{row.value}</Text>}
-                        <ChevronRight size={16} color={colors.textSecondary} />
+                        {row.value && <Text style={[styles.rowValue, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>{row.value}</Text>}
+                        <RowChevron size={16} color={colors.textSecondary} />
                       </View>
                     )}
                     {row.type === "select" && (
                       <View style={styles.rowRight}>
-                        {row.value && <Text style={[styles.rowValue, { color: colors.textSecondary }]}>{row.value}</Text>}
+                        {row.value && <Text style={[styles.rowValue, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>{row.value}</Text>}
                         {row.expanded
                           ? <ChevronDown size={16} color={colors.textSecondary} />
-                          : <ChevronRight size={16} color={colors.textSecondary} />}
+                          : <RowChevron size={16} color={colors.textSecondary} />}
                       </View>
                     )}
                     {row.type === "toggle" && (
@@ -292,7 +299,7 @@ export default function SettingsScreen() {
                       />
                     )}
                     {row.type === "plain" && row.value && (
-                      <Text style={[styles.rowValue, { color: colors.textSecondary }]}>{row.value}</Text>
+                      <Text style={[styles.rowValue, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>{row.value}</Text>
                     )}
                   </Pressable>
 

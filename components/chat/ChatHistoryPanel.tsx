@@ -28,6 +28,7 @@ import { groupThreads } from "@/lib/thread-groups";
 import { SkeletonGroup, SkeletonBlock, SkeletonCard } from "@/components/ui/Skeleton";
 import type { ChatThread, ThreadSearchResult } from "@/lib/api";
 import type { ThemeColors } from "@/constants/colors";
+import { visualTextAlign } from "@/lib/rtl-layout";
 
 // -----------------------------------------------------------------------------
 // The conversation history panel: every thread the student can switch to,
@@ -43,7 +44,7 @@ import type { ThemeColors } from "@/constants/colors";
 const SEARCH_DEBOUNCE_MS = 300;
 
 function dirStyle(dir: TextDirection) {
-  return { textAlign: dir === "rtl" ? ("right" as const) : ("left" as const), writingDirection: dir };
+  return { textAlign: visualTextAlign(dir === "rtl"), writingDirection: dir };
 }
 
 // Relative time reuses the existing generic "notifications.*" strings rather
