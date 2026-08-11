@@ -225,7 +225,11 @@ function ToolsPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gestu
   const { t } = useTranslation();
   const { flexDirection } = useRTL();
   const { width } = useWindowDimensions();
-  const tileW = Math.floor((width - PAD * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS);
+  // Subtract the panel's hairline border (both sides) as well as the padding and
+  // gaps: the grid lives INSIDE that border, so sizing tiles off the bare window
+  // width overshot by a fraction of a dp and Yoga wrapped the 4th tile of every
+  // row — a dead column, and the last row pushed below the short detent.
+  const tileW = Math.floor((width - StyleSheet.hairlineWidth * 2 - PAD * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS);
 
   // This panel is always MOUNTED (it lives in the root drawer), so everything that
   // costs anything is gated on `open` — otherwise every document tick in the app

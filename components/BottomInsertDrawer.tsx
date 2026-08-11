@@ -204,8 +204,12 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
   const filtered = useMemo(() => filterBlocks(query, label), [query]);
   const searching = query.trim().length > 0;
 
-  // 3-column tile width (drawer is full-width): total padding 2*PAD, two 8px gaps.
-  const tileW = Math.floor((width - PAD * 2 - 16) / 3);
+  // 3-column tile width (drawer is full-width): total padding 2*PAD, two 8px gaps,
+  // and — easy to miss — the panel's own hairline border on each side. Measuring
+  // from the bare window width overshot the panel's INNER width by that fraction
+  // of a dp, and Yoga wrapped the third tile onto its own row: a 2-up grid with a
+  // dead column on the end.
+  const tileW = Math.floor((width - StyleSheet.hairlineWidth * 2 - PAD * 2 - 16) / 3);
 
   const pick = async (d: InsertBlockDef) => {
     if (d.status !== "ready") return;
