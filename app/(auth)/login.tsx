@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthStore } from "@/stores/auth-store";
 import { isAppleSignInAvailable } from "@/lib/apple-auth";
+import { userFacingError } from "@/lib/safe-error";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 
@@ -55,7 +56,7 @@ export default function LoginScreen() {
     setLoading(true);
     const { error: err } = await signInWithEmail(email, password);
     setLoading(false);
-    if (err) setError(err);
+    if (err) setError(userFacingError(err));
   };
 
   const handleGoogle = async () => {
@@ -66,7 +67,7 @@ export default function LoginScreen() {
     // Backing out of the Google sheet is a normal thing to do — say nothing.
     // On success there is nothing to do either: the new session moves the app
     // to the chat through useProtectedRoute, and this screen unmounts.
-    if (!cancelled && err) setError(err);
+    if (!cancelled && err) setError(userFacingError(err));
   };
 
   const handleApple = async () => {
@@ -75,7 +76,7 @@ export default function LoginScreen() {
     const { error: err, cancelled } = await signInWithApple();
     setAppleLoading(false);
     // Dismissing the Apple sheet is normal — say nothing.
-    if (!cancelled && err) setError(err);
+    if (!cancelled && err) setError(userFacingError(err));
   };
 
   return (

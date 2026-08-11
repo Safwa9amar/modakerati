@@ -21,6 +21,7 @@ import {
   type WizardPlanSection,
 } from "@/stores/thesis-wizard-store";
 import { generateThesisPlan, streamThesisPlan, createThesis, getThesis } from "@/lib/api";
+import { userFacingError } from "@/lib/safe-error";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
 import { ChevronUp, ChevronDown, Trash2, Plus } from "lucide-react-native";
@@ -89,7 +90,7 @@ export default function ThesisPlanScreen() {
           setLocalPlan(sections);
           useThesisWizard.getState().set({ plan: sections });
         } catch (e) {
-          if (active) Alert.alert(t("common.error", { defaultValue: "Error" }), e instanceof Error ? e.message : String(e));
+          if (active) Alert.alert(t("common.error", { defaultValue: "Error" }), userFacingError(e));
         }
       } finally {
         if (active) setGenerating(false);
@@ -176,7 +177,7 @@ export default function ThesisPlanScreen() {
     } catch (e) {
       Alert.alert(
         t("common.error", { defaultValue: "Error" }),
-        e instanceof Error ? e.message : String(e)
+        userFacingError(e)
       );
     } finally {
       setGenerating(false);
@@ -225,7 +226,7 @@ export default function ThesisPlanScreen() {
     } catch (e) {
       Alert.alert(
         t("common.error", { defaultValue: "Error" }),
-        e instanceof Error ? e.message : String(e)
+        userFacingError(e)
       );
     } finally {
       setCreating(false);

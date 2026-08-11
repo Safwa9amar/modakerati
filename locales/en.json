@@ -617,6 +617,8 @@
     "notSent": "Not sent",
     "noResponse": "I couldn't produce a response this time. Tap Regenerate to try again.",
     "noResponseDocChanged": "I made the changes to your thesis but couldn't write a summary of them. Open your document to check them before trying again.",
+    "errorOffline": "I couldn't reach the server. Check your connection, then tap Regenerate to try again.",
+    "errorGeneric": "Something went wrong on our side. Tap Regenerate to try again.",
     "listen": "Listen",
     "stopAudio": "Stop",
     "welcome": {

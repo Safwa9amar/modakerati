@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthStore } from "@/stores/auth-store";
 import { BackButton } from "@/components/BackButton";
+import { userFacingError } from "@/lib/safe-error";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 
@@ -50,7 +51,7 @@ export default function SignupScreen() {
     );
     setLoading(false);
     if (err) {
-      setError(err);
+      setError(userFacingError(err));
     } else {
       router.replace("/(auth)/login" as any);
     }

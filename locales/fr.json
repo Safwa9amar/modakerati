@@ -617,6 +617,8 @@
     "notSent": "Non envoyé",
     "noResponse": "Je n'ai pas réussi à produire de réponse cette fois. Appuyez sur « Régénérer » pour réessayer.",
     "noResponseDocChanged": "J'ai appliqué les modifications à votre mémoire mais je n'ai pas pu en rédiger le résumé. Ouvrez le document pour les vérifier avant de réessayer.",
+    "errorOffline": "Je n'ai pas pu joindre le serveur. Vérifiez votre connexion, puis appuyez sur « Régénérer » pour réessayer.",
+    "errorGeneric": "Un problème est survenu de notre côté. Appuyez sur « Régénérer » pour réessayer.",
     "listen": "Écouter",
     "stopAudio": "Arrêter",
     "welcome": {

@@ -7,6 +7,7 @@ import { chatSend, chatSendStream, chatConfirmAction, chatCancelAction, getChatH
 import { getLatestMessages, getOlderMessages, upsertMessages, deletePending, deleteStalePending, getLastSyncedAt, setLastSyncedAt } from "./chat-cache";
 import { IMG_FRAME_OPEN, splitImageFrames, restageImage, toAttachment, toChatImage, type StagedImage } from "./chat-images";
 import i18n from "./i18n";
+import { userFacingError } from "./safe-error";
 import type { ChatMessage } from "@/types/chat";
 
 // The first view shows only the most recent few messages; scrolling to the top
@@ -458,7 +459,7 @@ async function runAssistantTurn(
     // this was written for. The Retry on that bubble re-runs THIS row.
     if (opts?.userMessageId) store.setMessageFailed(threadId, opts.userMessageId, true);
 
-    const note = `Sorry, I couldn't process your message. ${error.message || "Please try again."}`;
+    const note = userFacingError(error);
     if (assistantId) {
       store.appendToMessage(threadId, assistantId, `\n\n_${note}_`);
     } else {
@@ -692,7 +693,7 @@ async function runActionContinuation(
   } catch (error: any) {
     if (live()) {
       pump.flush();
-      const note = `Sorry, I couldn't process the action. ${error?.message || "Please try again."}`;
+      const note = userFacingError(error);
       const s = ensureBubble();
       s.appendToMessage(threadId, assistantId!, `\n\n_${note}_`);
     }
