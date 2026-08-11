@@ -597,6 +597,8 @@
     "removeAttachment": "Retirer la piece jointe",
     "attachedImage": "Image jointe",
     "attachedFile": "Fichier joint",
+    "attachNeedsThesisTitle": "Aucun mémoire associé",
+    "attachNeedsThesis": "Les fichiers de référence sont enregistrés dans un mémoire, pour que l'IA puisse les lire. Associez d'abord cette conversation à un mémoire.",
     "describeImage": "Veuillez decrire ce que vous voyez et son lien avec mon memoire.",
     "analyzeFile": "Veuillez analyser ce document.",
     "toolStructure": "Structure",
@@ -890,7 +892,10 @@
     "description": "Que doit retenir l'IA de ce fichier ?",
     "upload": "Téléverser",
     "empty": "Aucune source. Ajoutez des fichiers de référence pour aider l'IA.",
-    "unextracted": "Non extrait"
+    "unextracted": "Non extrait",
+    "uploading": "Enregistrement dans vos sources…",
+    "uploadFailed": "Impossible de téléverser ce fichier.",
+    "tooLarge": "Ce fichier est trop volumineux (10 Mo maximum)."
   },
   "import": {
     "title": "Importer un memoire",

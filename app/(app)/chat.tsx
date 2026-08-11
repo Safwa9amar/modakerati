@@ -12,9 +12,8 @@ import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import { sendMessageToAI, loadInitialMessages, loadOlderMessages, regenerateLastResponse, retryFailedMessage, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { ComposerConfirm } from "@/components/workspace/ComposerConfirm";
-import { Send, Plus, Menu, List, Paperclip, Image as ImageIcon, Camera, ClipboardPaste, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw, Volume2, AlertCircle, History } from "lucide-react-native";
+import { Send, Plus, Menu, Paperclip, Image as ImageIcon, Camera, ClipboardPaste, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw, Volume2, AlertCircle, History } from "lucide-react-native";
 import { useRouter, useFocusEffect } from "expo-router";
-import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { DrawerMenuButton } from "@/components/DrawerMenuButton";
 import { Markdown } from "@/components/Markdown";
@@ -34,6 +33,7 @@ import { ThinkingTrace } from "@/components/ThinkingTrace";
 import { AiWorkingNote } from "@/components/AiWorkingNote";
 import { deriveThinkingMs } from "@/lib/thinking";
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { Alert } from "react-native";
 import { ChatImageGrid, ChatImageViewer } from "@/components/ChatImages";
 import { splitImageFrames, pickChatImages, captureChatImage, pasteChatImage, MAX_CHAT_IMAGES, type StagedImage } from "@/lib/chat-images";
@@ -41,7 +41,9 @@ import { ChatHistoryPanel } from "@/components/chat/ChatHistoryPanel";
 import { ChatWelcome } from "@/components/chat/ChatWelcome";
 import { downloadExport } from "@/lib/download-export";
 import { ThesisAttachSheet } from "@/components/chat/ThesisAttachSheet";
-import { patchThread } from "@/lib/api";
+import { addSource, patchThread } from "@/lib/api";
+import { useSourceStore } from "@/stores/source-store";
+import type { ThesisSource } from "@/types/source";
 import type { ChatMessage, ChatImage, FilePayload } from "@/types/chat";
 import { visualTextAlign } from "@/lib/rtl-layout";
 
@@ -81,9 +83,63 @@ const LOGO = require("../../assets/icon.png");
 
 // A picked-but-not-yet-sent document. Staged in the composer so the user can add
 // a prompt (or remove it) before it goes to the AI. Images are staged separately
-// (see `images` below) because several can ride on one message and, unlike this,
-// their bytes actually travel — see lib/chat-images.ts.
+// (see `images` below) because several can ride on one message and their bytes
+// travel WITH the turn (lib/chat-images.ts); a document takes the other route —
+// it is stored as one of the thesis's sources first, and the turn then talks
+// about something already on the server (see uploadAttachmentAsSource).
 type Attachment = { type: "file"; uri: string; name: string; size?: number };
+
+// What a document attached in chat is allowed to be — the same list the Sources
+// sheet offers, plus PDF. Only .docx / .txt / .md have their text extracted
+// server-side today; a PDF is still stored (so it's there when extraction
+// lands), and the message says outright that it couldn't be read, rather than
+// letting the AI meet an empty source and guess why.
+const SOURCE_MIME_TYPES = [
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  "text/markdown",
+  "application/pdf",
+];
+
+// What the server accepts for one source material (lib/source-service). Checked
+// here as well so a file too big to store is refused before it is read into a
+// base64 string several megabytes long — and with a message that names the limit.
+const MAX_SOURCE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Put a document the student attached in chat where the AI can actually READ it:
+ * the thesis's SOURCE MATERIALS.
+ *
+ * Chat has no channel for file bytes — a turn carries text and images and
+ * nothing else — so for a long time the attachment contributed only its NAME to
+ * the message and the file itself was dropped when the composer cleared. The AI
+ * was then asked to analyse a document it had never been given, and (rightly)
+ * said it couldn't.
+ *
+ * Sources are that channel, and they already exist: the server extracts the
+ * text, embeds it for retrieval, and the AI reaches it with list_sources /
+ * get_source_content / search_sources. So the send uploads first and talks
+ * second. The student's own words become the source's description — that field
+ * is literally "what should the AI take from this?", which is what they just
+ * typed.
+ *
+ * Thesis-scoped by nature (a source belongs to a document), which is why the
+ * caller must have resolved a thesis before getting here.
+ */
+async function uploadAttachmentAsSource(thesisId: string, att: Attachment, note: string): Promise<ThesisSource> {
+  const base64 = await FileSystem.readAsStringAsync(att.uri, { encoding: FileSystem.EncodingType.Base64 });
+  const src = await addSource(thesisId, {
+    base64,
+    filename: att.name,
+    // No title: the server defaults it to the filename, which is what the
+    // message's own "[Attached file: …]" marker names — so the entry the AI
+    // finds in list_sources is recognisably the file the student just sent.
+    description: note.trim().slice(0, 500) || undefined,
+  });
+  // Keep the Sources sheet honest without a refetch: it lists from this store.
+  useSourceStore.getState().add(thesisId, src);
+  return src;
+}
 
 // Above this length, an assistant answer is collapsed to a clipped preview with
 // "View more" (expand inline) / "View full" (open the full-screen viewer)
@@ -330,6 +386,10 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [viewerContent, setViewerContent] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
+  // True while a staged document is being read and stored as a thesis source.
+  // It happens INSIDE the send, before the turn opens, so the composer has to
+  // hold still for it: a second tap would upload the same file twice.
+  const [uploadingSource, setUploadingSource] = useState(false);
   // Images picked / snapped / pasted but not yet sent. An array because a
   // student comparing two figures shouldn't have to send them one at a time.
   const [staged, setStaged] = useState<StagedImage[]>([]);
@@ -685,12 +745,23 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   // server records them on the row, so a `[Attached image]` marker would be a
   // second, less accurate account of the same thing. An UNCAPTIONED image still
   // needs an instruction, though — the model is being handed a picture and no
-  // question — so it gets the localised default. Documents keep the marker,
-  // because their contents genuinely don't travel yet.
-  function composeMessage(text: string, att: Attachment | null, imageCount: number): string {
-    if (att) {
+  // question — so it gets the localised default.
+  //
+  // A document still gets a marker, but it now names something REAL: the file
+  // was stored as one of this thesis's source materials just before this ran,
+  // under this exact title, so the AI finds it by calling list_sources and reads
+  // it with get_source_content.
+  function composeMessage(text: string, source: ThesisSource | null, imageCount: number): string {
+    if (source) {
       const prompt = text || t("chat.analyzeFile", { defaultValue: "Please analyze this document." });
-      return `[Attached file: ${att.name}] ${prompt}`;
+      // A type the server can't read yet (PDF today) is stored, but its text is
+      // empty. Say so in the message instead of letting the AI find an empty
+      // source mid-turn and improvise — told plainly, it can explain the limit
+      // to the student in their own language.
+      const note = source.status === "unextracted"
+        ? " — stored, but its text could not be extracted (unsupported file type)"
+        : "";
+      return `[Attached file: ${source.title}${note}] ${prompt}`;
     }
     if (imageCount > 0 && !text) {
       return t("chat.describeImage", { defaultValue: "Please describe what you see and how it relates to my thesis." });
@@ -699,7 +770,9 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   }
 
   async function handleSend() {
-    if (isGenerating) return;
+    // `uploadingSource` holds the composer still while a document is on its way
+    // to the sources: a second tap would store the same file twice.
+    if (isGenerating || uploadingSource) return;
     const text = inputText.trim();
     // Send when there's text, an attachment, or both — but never an empty turn.
     if (!text && !attachment && staged.length === 0) return;
@@ -708,14 +781,47 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     // one now rather than swallowing the send. Done here and not on mount so
     // merely opening the chat and walking away doesn't litter the history panel
     // with empty conversations.
-    const tid = threadId ?? (await createThreadForSend());
-    if (!tid) {
+    const resolved = threadId ? { id: threadId, thesisId } : await createThreadForSend();
+    if (!resolved) {
       // Offline, or the server refused. Say so instead of quietly eating the
       // message — the text is still in the box at this point.
       Alert.alert(t("common.error"), t("thesis.genericError"));
       return;
     }
-    const message = composeMessage(text, attachment, staged.length);
+    // Not the `thesisId` state: resolving the thread can DROP a stale one (see
+    // createThreadForSend), and that setState isn't visible to this closure.
+    // The upload below would otherwise be aimed at a thesis that isn't there.
+    const { id: tid, thesisId: sendThesisId } = resolved;
+
+    // A staged document goes to the thesis's source materials before the turn
+    // opens — that is the only route by which the AI can read it. The composer
+    // keeps everything until the upload lands, so a failure leaves the student
+    // exactly where they were rather than sending a message about a file that
+    // never arrived.
+    let source: ThesisSource | null = null;
+    if (attachment) {
+      if (!sendThesisId) return void promptAttachThesis();
+      if ((attachment.size ?? 0) > MAX_SOURCE_BYTES) {
+        Alert.alert(
+          t("sources.title", { defaultValue: "Sources" }),
+          t("sources.tooLarge", { defaultValue: "That file is too large (max 10 MB)." }),
+        );
+        return;
+      }
+      setUploadingSource(true);
+      try {
+        source = await uploadAttachmentAsSource(sendThesisId, attachment, text);
+      } catch (err) {
+        Alert.alert(
+          t("sources.title", { defaultValue: "Sources" }),
+          err instanceof Error && err.message ? err.message : t("sources.uploadFailed", { defaultValue: "Couldn't upload that file." }),
+        );
+        return;
+      } finally {
+        setUploadingSource(false);
+      }
+    }
+    const message = composeMessage(text, source, staged.length);
     const outgoing = staged;
     // A new turn takes the floor — don't keep reading the previous answer over it.
     stopSpeaking();
@@ -731,23 +837,39 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     // Sending your own message always jumps to the latest, even if scrolled up.
     isNearBottomRef.current = true;
     setShowScrollDown(false);
-    await sendMessageToAI(tid, thesisId, message, { images: outgoing.length ? outgoing : undefined });
+    await sendMessageToAI(tid, sendThesisId, message, { images: outgoing.length ? outgoing : undefined });
   }
 
-  // Create the conversation this send belongs to, on demand. Returns null when
-  // it can't be created (offline, server refused) so the caller can tell the
-  // student rather than dropping their message on the floor.
-  async function createThreadForSend(): Promise<string | null> {
+  // A document can only be attached to a thesis — a source belongs to a
+  // document — so an unattached conversation is offered the way out rather than
+  // just refused. Same sheet the "unattached" row above the composer opens.
+  function promptAttachThesis() {
+    Alert.alert(
+      t("chat.attachNeedsThesisTitle", { defaultValue: "No thesis attached" }),
+      t("chat.attachNeedsThesis", { defaultValue: "Reference files are saved to a thesis. Attach this conversation to one first." }),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        { text: t("chat.threads.attach"), onPress: () => useBottomSheet.getState().openSheet("thesis-attach") },
+      ],
+    );
+  }
+
+  // Create the conversation this send belongs to, on demand. Returns the thread
+  // AND the thesis it ended up on — which is not always the one we started with,
+  // since a stale thesis is dropped here. Null when the thread can't be created
+  // (offline, server refused) so the caller can tell the student rather than
+  // dropping their message on the floor.
+  async function createThreadForSend(): Promise<{ id: string; thesisId: string | null } | null> {
     const store = useChatThreadsStore.getState();
-    const adopt = (id: string) => {
+    const adopt = (id: string, onThesis: string | null) => {
       setThreadId(id);
       store.setCurrent(id);
-      return id;
+      return { id, thesisId: onThesis };
     };
 
     if (thesisId) {
       try {
-        return adopt(await store.ensureThreadFor(thesisId));
+        return adopt(await store.ensureThreadFor(thesisId), thesisId);
       } catch {
         // The thesis is gone, or was never this account's. currentThesisId
         // outlives the thesis it points at — a deletion, or signing in as
@@ -763,7 +885,7 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     }
 
     try {
-      return adopt(await store.newThread(null));
+      return adopt(await store.newThread(null), null);
     } catch {
       return null; // genuinely offline / server down — the caller says so
     }
@@ -791,18 +913,20 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     setToolsExpanded(false);
     rotation.value = withTiming(0, { duration: 200 });
     switch (tool) {
-      case "structure":
-        useNavDrawerStore.getState().openDrawer();
-        break;
       case "file":
+        // Refused BEFORE the picker rather than after: a file staged on an
+        // unattached conversation has nowhere to be stored, and finding that
+        // out at send time means having chosen it for nothing.
+        if (!thesisId) return promptAttachThesis();
         try {
           const result = await DocumentPicker.getDocumentAsync({
-            type: ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"],
+            type: SOURCE_MIME_TYPES,
             copyToCacheDirectory: true,
           });
           if (!result.canceled && result.assets?.[0]) {
             const file = result.assets[0];
-            // Stage it in the composer; it's sent with the next message, not now.
+            // Stage it in the composer; the send stores it as a source (and only
+            // then does the message that talks about it go out).
             setAttachment({ type: "file", uri: file.uri, name: file.name, size: file.size ?? undefined });
           }
         } catch {}
@@ -847,7 +971,6 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   const canSend = hasText || attachment !== null || staged.length > 0;
 
   const tools = [
-    { key: "structure", icon: List, label: t("chat.toolStructure", { defaultValue: "Structure" }), color: colors.brandAccent },
     { key: "file", icon: Paperclip, label: t("chat.toolAttach", { defaultValue: "Attach" }), color: colors.semanticWarning },
     { key: "image", icon: ImageIcon, label: t("chat.toolPhoto", { defaultValue: "Photo" }), color: "#9959FF" },
     { key: "camera", icon: Camera, label: t("chat.toolCamera", { defaultValue: "Camera" }), color: "#0EA5E9" },
@@ -1051,21 +1174,32 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
                 <Text style={[styles.attachmentName, { color: colors.textPrimary }]} numberOfLines={1}>
                   {attachment.name}
                 </Text>
+                {/* The size, until the send takes over the line to say where
+                    the file is actually going — the chip is the only place the
+                    student learns that an attachment becomes a source. */}
                 <Text style={[styles.attachmentMeta, { color: colors.textSecondary }]} numberOfLines={1}>
-                  {attachment.size != null
-                    ? `${(attachment.size / 1024).toFixed(1)} KB`
-                    : t("chat.attachedFile", { defaultValue: "Attached file" })}
+                  {uploadingSource
+                    ? t("sources.uploading", { defaultValue: "Saving to your sources…" })
+                    : attachment.size != null
+                      ? `${(attachment.size / 1024).toFixed(1)} KB`
+                      : t("chat.attachedFile", { defaultValue: "Attached file" })}
                 </Text>
               </View>
-              <Pressable
-                onPress={() => setAttachment(null)}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel={t("chat.removeAttachment", { defaultValue: "Remove attachment" })}
-                style={[styles.attachmentRemove, { backgroundColor: colors.bgCard }]}
-              >
-                <X size={16} color={colors.textSecondary} strokeWidth={2} />
-              </Pressable>
+              {/* Removing mid-upload would leave the source stored with no
+                  message about it, so the affordance yields to a spinner. */}
+              {uploadingSource ? (
+                <ActivityIndicator size="small" color={colors.textSecondary} style={styles.attachmentRemove} />
+              ) : (
+                <Pressable
+                  onPress={() => setAttachment(null)}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("chat.removeAttachment", { defaultValue: "Remove attachment" })}
+                  style={[styles.attachmentRemove, { backgroundColor: colors.bgCard }]}
+                >
+                  <X size={16} color={colors.textSecondary} strokeWidth={2} />
+                </Pressable>
+              )}
             </Animated.View>
           )}
 
@@ -1143,7 +1277,10 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
                   }
                 }}
                 returnKeyType="send"
-                editable={!isGenerating}
+                // The text is read once, when the send starts, and becomes the
+                // source's description — so it must not keep changing while the
+                // file is being stored under it.
+                editable={!isGenerating && !uploadingSource}
                 multiline
                 maxLength={2000}
               />
@@ -1161,6 +1298,12 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
                 >
                   <Square size={12} color="#FFFFFF" fill="#FFFFFF" />
                 </AnimatedPressable>
+              ) : uploadingSource ? (
+                // The send has begun — the document is going to the sources
+                // before the turn opens. Not a Stop: there is no turn yet.
+                <View style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                </View>
               ) : canSend ? (
                 <AnimatedPressable
                   entering={FadeIn.duration(150)}

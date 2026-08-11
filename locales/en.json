@@ -597,6 +597,8 @@
     "removeAttachment": "Remove attachment",
     "attachedImage": "Attached image",
     "attachedFile": "Attached file",
+    "attachNeedsThesisTitle": "No thesis attached",
+    "attachNeedsThesis": "Reference files are saved to a thesis, so the AI can read them. Attach this conversation to one first.",
     "describeImage": "Please describe what you see and how it relates to my thesis.",
     "analyzeFile": "Please analyze this document.",
     "toolStructure": "Structure",
@@ -890,7 +892,10 @@
     "description": "What should the AI take from this?",
     "upload": "Upload",
     "empty": "No sources yet. Add reference files to help the AI.",
-    "unextracted": "Not extracted"
+    "unextracted": "Not extracted",
+    "uploading": "Saving to your sources…",
+    "uploadFailed": "Couldn't upload that file.",
+    "tooLarge": "That file is too large (max 10 MB)."
   },
   "import": {
     "title": "Import Thesis",
