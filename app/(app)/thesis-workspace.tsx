@@ -316,6 +316,10 @@ export default function ThesisWorkspaceScreen() {
       if (thesisId) void useThesisDocStore.getState().load(thesisId);
       void refreshEditorCfg();
       if (thesisId) void useThesisDocStore.getState().refreshHistoryState(thesisId);
+      // The workspace stays mounted under a pushed screen, so "is the writer
+      // on top?" has to be tracked by focus, not by mount. See the store note.
+      useWorkspaceStore.getState().setScreenFocused(true);
+      return () => useWorkspaceStore.getState().setScreenFocused(false);
     }, [thesisId, refreshEditorCfg]),
   );
 
@@ -358,6 +362,15 @@ export default function ThesisWorkspaceScreen() {
     const resolved = tapBlocks.find((b) => b.index === idx)?.text ?? existing?.text ?? "";
     store.selectBlock(idx, resolved);
   }, [blockIndex, tapBlocks]);
+
+  // Was this screen opened ON a block (a reference tapped in a chat answer, a
+  // heading tapped in the details outline) rather than opened plainly? The Writer
+  // needs to know: an explicit destination outranks the saved reading position.
+  const deepLinkBlock = useMemo(() => {
+    if (blockIndex == null) return null;
+    const n = Number(blockIndex);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }, [blockIndex]);
 
   // Cold deep-link (opened from the chat tab / detail outline with a blockIndex):
   // once the document has loaded, ask the active doc layer to scroll to it. Fires
@@ -729,6 +742,7 @@ export default function ThesisWorkspaceScreen() {
                 blocks={liveDoc.blocks}
                 rtl={docRtl}
                 active={previewMode === null}
+                deepLinkBlock={deepLinkBlock}
               />
             </View>
 

@@ -17,6 +17,7 @@ import { splitMath } from "@/lib/latex-unicode";
 import { chartToSvg, type ChartSpec } from "@/lib/chart-svg";
 import type { ThemeColors } from "@/constants/colors";
 import { visualRow, LTR_ROW, visualTextAlign } from "@/lib/rtl-layout";
+import { parseBlockHref, type BlockLink } from "@/lib/block-links";
 
 const MONO = Platform.OS === "ios" ? "Menlo" : "monospace";
 
@@ -51,7 +52,18 @@ const SEP = StyleSheet.hairlineWidth;
 // squeezing further. Two- and three-column tables still fit a chat bubble.
 const MIN_COL_W = 92;
 
-type Ctx = { dir: TextDirection; colors: ThemeColors; textColor: string };
+// A reference to a place in the thesis (`modk://b/11`) is the one link that does
+// NOT leave the app: tapping it opens the document there. Marked with a trailing
+// arrow so it reads as "go to", and LTR-isolated so the glyph doesn't reorder
+// into the middle of an Arabic sentence.
+const BLOCK_LINK_MARK = "↗︎"; // ↗ (text presentation — never an emoji)
+
+type Ctx = {
+  dir: TextDirection;
+  colors: ThemeColors;
+  textColor: string;
+  onBlockPress?: (link: BlockLink, label: string) => void;
+};
 
 const dirStyle = (d: TextDirection): TextStyle => ({
   textAlign: visualTextAlign(d === "rtl"),
@@ -363,6 +375,36 @@ class MdRenderer extends Renderer {
   // Link text never reached getTextNode — the base renderer builds its own
   // <Text> — so a linked filename got no bidi isolation and no emoji font.
   link(children: string | ReactNode[], href: string, linkStyle?: TextStyle, title?: string): ReactNode {
+    const label = typeof children === "string" ? children : collectText(children);
+    const block = parseBlockHref(href);
+    if (block) {
+      const { onBlockPress, colors } = this.ctx;
+      // No handler on this surface (a preview, a screen that can't navigate) →
+      // render the words alone. Falling through to the base link would hand
+      // `modk://b/11` to Linking.openURL, which fails with a console warning and
+      // leaves an underlined dead end in the middle of the sentence.
+      if (!onBlockPress) {
+        return (
+          <Text key={this.getKey()} selectable style={linkStyle}>
+            {typeof children === "string" ? inlineRuns(children, this.ctx.dir) : children}
+          </Text>
+        );
+      }
+      return (
+        <Text
+          key={this.getKey()}
+          selectable
+          accessibilityRole="link"
+          accessibilityLabel={label}
+          accessibilityHint={title || undefined}
+          onPress={() => onBlockPress(block, label)}
+          style={[linkStyle, { color: colors.brandPrimaryLight, textDecorationLine: "underline" }]}
+        >
+          {typeof children === "string" ? inlineRuns(children, this.ctx.dir) : children}
+          <Text style={EMOJI_FONT}>{isolateBidi(` ${BLOCK_LINK_MARK}`, "ltr")}</Text>
+        </Text>
+      );
+    }
     return super.link(
       typeof children === "string" ? inlineRuns(children, this.ctx.dir) : children,
       href,
@@ -501,11 +543,18 @@ export function Markdown({
   color,
   direction,
   streaming,
+  onBlockPress,
 }: {
   content: string;
   color?: string;
   direction?: TextDirection;
   streaming?: boolean;
+  /**
+   * Tap handler for a reference to a place in the thesis (`modk://b/N`). Keep it
+   * referentially stable (useCallback) — the renderer is rebuilt when it changes.
+   * Omitted on surfaces with nowhere to navigate: the link renders as plain text.
+   */
+  onBlockPress?: (link: BlockLink, label: string) => void;
 }) {
   const colors = useThemeColors();
   const textColor = color ?? colors.textPrimary;
@@ -526,10 +575,10 @@ export function Markdown({
   const rowDirection = visualRow(rtl);
 
   const renderer = useMemo(
-    () => new MdRenderer({ dir, colors, textColor }),
+    () => new MdRenderer({ dir, colors, textColor, onBlockPress }),
     // A fresh renderer per render pass keeps the internal key slugger in step
     // with the element tree it just produced.
-    [body, dir, colors, textColor],
+    [body, dir, colors, textColor, onBlockPress],
   );
 
   const options = useMemo<useMarkdownHookOptions>(

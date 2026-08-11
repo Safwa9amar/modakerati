@@ -22,6 +22,9 @@ import { MessageViewer } from "@/components/MessageViewer";
 import { ChatSkeleton } from "@/components/ChatSkeleton";
 import { FileCard } from "@/components/FileCard";
 import { splitFileFrames } from "@/lib/file-frames";
+import { resolveBlockIndex, type BlockLink } from "@/lib/block-links";
+import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { ComposerQuickActions } from "@/components/workspace/ComposerQuickActions";
 import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { useSpeakMessage } from "@/hooks/useSpeakMessage";
@@ -114,7 +117,7 @@ function FadeOverlay({ color }: { color: string }) {
   );
 }
 
-const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, isUnanswered, isSpeaking, onExpand, onPreviewFile, onRegenerate, onRetryMessage, onSpeak, onViewImage }: { item: ChatMessage; colors: any; isStreaming?: boolean; isLiveTurn?: boolean; isLastAssistant?: boolean; isUnanswered?: boolean; isSpeaking?: boolean; onExpand?: (content: string) => void; onPreviewFile?: (file: FilePayload) => void; onRegenerate?: () => void; onRetryMessage?: (id: string) => void; onSpeak?: (id: string, text: string) => void; onViewImage?: (image: ChatImage) => void }) => {
+const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, isUnanswered, isSpeaking, onExpand, onPreviewFile, onRegenerate, onRetryMessage, onSpeak, onViewImage, onBlockPress }: { item: ChatMessage; colors: any; isStreaming?: boolean; isLiveTurn?: boolean; isLastAssistant?: boolean; isUnanswered?: boolean; isSpeaking?: boolean; onExpand?: (content: string) => void; onPreviewFile?: (file: FilePayload) => void; onRegenerate?: () => void; onRetryMessage?: (id: string) => void; onSpeak?: (id: string, text: string) => void; onViewImage?: (image: ChatImage) => void; onBlockPress?: (link: BlockLink, label: string) => void }) => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const isUser = item.role === "user";
@@ -194,7 +197,7 @@ const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, i
           // on a timer instead of per token, so headings/tables/lists appear as they
           // are written without the O(n²) re-lex that made per-token parsing janky.
           <View style={collapsed ? styles.collapsedWrap : undefined}>
-            <Markdown content={bodyText} color={colors.textPrimary} direction={dir} streaming={isStreaming} />
+            <Markdown content={bodyText} color={colors.textPrimary} direction={dir} streaming={isStreaming} onBlockPress={onBlockPress} />
             {collapsed && <FadeOverlay color={colors.chatAiBubble} />}
           </View>
         ) : null}
@@ -632,6 +635,39 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     void regenerateLastResponse(threadId, thesisId);
   }, [threadId, thesisId, stopSpeaking]);
 
+  // The AI referred to a place in the thesis and linked it (`modk://b/N`) — take
+  // the student there. The index inside the link is as-written, which is why it
+  // is re-resolved against the CURRENT document before we jump: the student may
+  // have edited since, and landing on the wrong paragraph is worse than the link
+  // not existing.
+  //
+  // Two destinations, decided by what this chat is showing OVER. The chat panel
+  // is mounted at the app root and can float above any screen, so `variant`
+  // doesn't answer it — the workspace's own focus flag does. With the writer
+  // right behind us the document is already open: scroll it and get out of the
+  // way. Anywhere else it's a navigation, and the workspace picks the block up
+  // from the route param on arrival.
+  const openThesisBlock = useCallback((link: BlockLink, label: string) => {
+    if (!thesisId) return;
+    const doc = useThesisDocStore.getState().byId[thesisId];
+    const index = resolveBlockIndex(doc?.available ? doc.blocks : undefined, link, label);
+    const ws = useWorkspaceStore.getState();
+    useThesisStore.getState().setCurrentThesis(thesisId);
+    // Pre-select it so the block is already the composer's target when the
+    // writer appears — the same thing the details outline does.
+    ws.selectBlock(index, label || null);
+    const inWorkspace = ws.screenFocused && ws.thesisId === thesisId;
+    onClose?.(); // overlay: drop the panel so the document is visible
+    if (inWorkspace) {
+      ws.requestScrollToBlock(index);
+      return;
+    }
+    router.push({
+      pathname: "/(app)/thesis-workspace",
+      params: { thesisId, blockIndex: String(index) },
+    });
+  }, [thesisId, onClose, router]);
+
   // Retry a send that never landed. Re-runs the turn for the EXISTING user row —
   // no second bubble, and no server-side regenerate (that path deletes the reply
   // it means to replace).
@@ -875,7 +911,7 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
           <FlatList
             ref={flatListRef}
             data={messages}
-            renderItem={({ item, index }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} isLiveTurn={item.id === liveTurnId} isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1} isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating} isSpeaking={item.id === speakingId} onExpand={setViewerContent} onPreviewFile={handleDownloadFile} onRegenerate={handleRegenerate} onRetryMessage={handleRetryMessage} onSpeak={toggleSpeak} onViewImage={setViewerImage} />}
+            renderItem={({ item, index }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} isLiveTurn={item.id === liveTurnId} isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1} isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating} isSpeaking={item.id === speakingId} onExpand={setViewerContent} onPreviewFile={handleDownloadFile} onRegenerate={handleRegenerate} onRetryMessage={handleRetryMessage} onSpeak={toggleSpeak} onViewImage={setViewerImage} onBlockPress={openThesisBlock} />}
             keyExtractor={(item) => item.id}
             // The live-turn flag lives outside `data`, so tell the list about it —
             // otherwise the last bubble can keep its working note after the turn ends.
@@ -1175,6 +1211,7 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
         visible={viewerContent !== null}
         content={viewerContent}
         onClose={() => setViewerContent(null)}
+        onBlockPress={openThesisBlock}
       />
 
       {/* Full-screen view of a tapped attachment. */}

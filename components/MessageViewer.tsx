@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { Markdown } from "@/components/Markdown";
 import { splitFileFrames } from "@/lib/file-frames";
+import type { BlockLink } from "@/lib/block-links";
 
 const LOGO = require("../assets/icon.png");
 
@@ -18,7 +19,15 @@ const LOGO = require("../assets/icon.png");
  * the modal's own native window — a Modal renders in a separate window and the
  * root provider's insets don't reach it (header would overlap the status bar).
  */
-function ViewerBody({ content, onClose }: { content: string | null; onClose: () => void }) {
+function ViewerBody({
+  content,
+  onClose,
+  onBlockPress,
+}: {
+  content: string | null;
+  onClose: () => void;
+  onBlockPress?: (link: BlockLink, label: string) => void;
+}) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
@@ -50,7 +59,13 @@ function ViewerBody({ content, onClose }: { content: string | null; onClose: () 
         contentContainerStyle={[styles.body, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}
         showsVerticalScrollIndicator
       >
-        {content ? <Markdown content={splitFileFrames(content).text} color={colors.textPrimary} /> : null}
+        {content ? (
+          <Markdown
+            content={splitFileFrames(content).text}
+            color={colors.textPrimary}
+            onBlockPress={onBlockPress}
+          />
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -65,10 +80,14 @@ export function MessageViewer({
   visible,
   content,
   onClose,
+  onBlockPress,
 }: {
   visible: boolean;
   content: string | null;
   onClose: () => void;
+  /** Tapping a reference to a place in the thesis. The viewer closes itself
+   *  first — the destination is a different screen. */
+  onBlockPress?: (link: BlockLink, label: string) => void;
 }) {
   return (
     <Modal
@@ -79,7 +98,18 @@ export function MessageViewer({
       statusBarTranslucent
     >
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <ViewerBody content={content} onClose={onClose} />
+        <ViewerBody
+          content={content}
+          onClose={onClose}
+          onBlockPress={
+            onBlockPress
+              ? (link, label) => {
+                  onClose();
+                  onBlockPress(link, label);
+                }
+              : undefined
+          }
+        />
       </SafeAreaProvider>
     </Modal>
   );

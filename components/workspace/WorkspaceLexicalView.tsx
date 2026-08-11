@@ -97,11 +97,18 @@ export function WorkspaceLexicalView({
   blocks,
   rtl,
   active,
+  deepLinkBlock,
 }: {
   thesisId: string;
   blocks: DocBlockDTO[];
   rtl: boolean;
   active: boolean;
+  /**
+   * The block this screen was OPENED ON — a reference tapped in a chat answer,
+   * or a heading tapped in the thesis details outline. Present only for that
+   * entry; null when the student just opened the writer.
+   */
+  deepLinkBlock?: number | null;
 }) {
   const colors = useThemeColors();
   const { t } = useTranslation();
@@ -132,12 +139,25 @@ export function WorkspaceLexicalView({
   const activeRef = useRef(active);
   activeRef.current = active;
 
+  // The block this entry was opened ON, while it is still in charge of where we
+  // land. Declared up here because both the scroll reporter (which retires it) and
+  // the restore trigger (which honours it) need it; the reasoning is at
+  // `triggerRestore` below.
+  const deepLinkRef = useRef<number | null>(deepLinkBlock ?? null);
+  useEffect(() => {
+    deepLinkRef.current = deepLinkBlock ?? null;
+  }, [deepLinkBlock]);
+
   // Scroll persistence: remember where the user left off so re-entering the editor
   // (or returning from a Preview) lands there instead of at the top. The editor is
   // re-keyed on `seedNonce`, so capture the anchor to restore at each (re)seed; the
   // store (module-level, not reset on workspace-leave) holds it across screen exits.
   const lastScrollY = useRef(0);
   const onScroll = useCallback((a: ScrollAnchor) => {
+    // Reporting is gated off while a jump settles, so this is the student moving
+    // under their own steam: a deep link that brought them here has done its job,
+    // and from now on it's the reading position that should be restored.
+    deepLinkRef.current = null;
     useEditorScrollStore.getState().save(thesisId, a);
     // Auto-hide the top-bar + dock on scroll (issue #6): hide on scroll DOWN past a
     // small threshold, show on scroll UP or near the top. setChromeVisible no-ops when
@@ -164,16 +184,44 @@ export function WorkspaceLexicalView({
   const [scrollRestore, setScrollRestore] = useState<{ anchor: ScrollAnchor; nonce: number } | null>(null);
   const restoreTargetRef = useRef<ScrollAnchor | null>(useEditorScrollStore.getState().get(thesisId));
   const restoreNonce = useRef(0);
+  // "Where you left off" and "the place you just tapped a link to" are two answers
+  // to the same question, and only one of them can win. A deep link is an EXPLICIT
+  // destination — the student asked for THAT paragraph — so for that entry it
+  // REPLACES the saved position as the anchor to land on.
+  //
+  // Replacing rather than merely suppressing is what makes the jump land. The
+  // workspace also fires a plain scroll request for the same block, but that is a
+  // single scrollIntoView: on a cold open of a long document the page is still
+  // laying out under it, so it lands short. The anchor path re-applies itself
+  // until layout stops growing (see ScrollSyncPlugin), which is precisely the
+  // problem a cold deep link has.
+  //
+  // It stays in charge until one of two things ends the entry, because restore has
+  // several triggers (screen focus, the persisted map finishing its async
+  // rehydration) and a late one would yank the reader off the block they came to
+  // see: the student scrolling — they have arrived and moved on — or a Preview
+  // round-trip, after which the reading position is again the right thing to
+  // return to.
+  //
   // Loading overlay while the (re)loaded WebView renders this large doc and scrolls
   // to the saved block — otherwise the user watches it load at the top and jump down.
   // Start covered if we already know we'll restore to a non-top position on mount.
+  // A deep link never shows it: the student is arriving somewhere they asked for,
+  // and the workspace already masks that jump with its own navigation overlay —
+  // "Restoring your place…" over it names the wrong thing entirely.
   const initTarget = restoreTargetRef.current;
-  const [restoring, setRestoring] = useState<boolean>(!!initTarget && initTarget.index > 2);
+  const [restoring, setRestoring] = useState<boolean>(
+    deepLinkBlock == null && !!initTarget && initTarget.index > 2,
+  );
   const triggerRestore = useCallback(() => {
-    const a = restoreTargetRef.current ?? useEditorScrollStore.getState().get(thesisId);
+    const deep = deepLinkRef.current;
+    const a: ScrollAnchor | null =
+      deep != null
+        ? { y: 0, index: deep, delta: 0 } // land the block at the top of the viewport
+        : restoreTargetRef.current ?? useEditorScrollStore.getState().get(thesisId);
     if (!a || a.index < 0) return;
     setScrollRestore({ anchor: a, nonce: ++restoreNonce.current });
-    if (a.index > 2) setRestoring(true); // cover the reload + scroll-to-block
+    if (deep == null && a.index > 2) setRestoring(true); // cover the reload + scroll-to-block
   }, [thesisId]);
   // The DOM reached the target (or the user scrolled) → reveal the editor.
   const onScrollRestored = useCallback(() => { setRestoring(false); }, []);
@@ -554,6 +602,9 @@ export function WorkspaceLexicalView({
       // position saved before we left the Writer (e.g. to open a Preview).
       triggerRestore();
     } else if (!active && wasActive.current) {
+      // Leaving the Writer for a Preview ends the deep link's claim: coming back
+      // should land where the student was reading, not back at the linked block.
+      deepLinkRef.current = null;
       captureRestoreTarget(); // remember where we were before the preview round-trip
       flushNow(); // leaving the Writer (e.g. opening a preview) → flush edits
       useCompletionStore.getState().cancel(); // don't leave a pending/showing completion behind

@@ -122,6 +122,13 @@ interface WorkspaceState {
   // Set by the outline sheet (tap a heading) and by a cold deep-link; null =
   // nothing pending. Reset on workspace leave.
   scrollTarget: { index: number; nonce: number } | null;
+  // Is the writer the screen the student is actually looking at? `thesisId` alone
+  // can't answer that: the workspace stays MOUNTED (and keeps its state) while
+  // thesis details or an export screen sits on top of it. Anything that has to
+  // choose between "scroll the document behind me" and "navigate to it" — a
+  // reference tapped in the chat panel, which is mounted at the app root and can
+  // float over any screen — reads this. Set from the screen's focus effect.
+  screenFocused: boolean;
   // True while a heading-navigation jump is in flight. The workspace masks the
   // raw scroll with a fade + loader (so the user never sees the fly-through), then
   // clears this and flashes the target. Set by requestScrollToBlock.
@@ -176,6 +183,7 @@ interface WorkspaceState {
   // Ask the active doc view to scroll to `index` (bumps the request nonce so a
   // repeat request for the same block still fires). Also raises `navigating`.
   requestScrollToBlock: (index: number) => void;
+  setScreenFocused: (v: boolean) => void;
   setNavigating: (v: boolean) => void;
   flashBlock: (index: number) => void;
   setActiveBlockIndex: (index: number | null) => void;
@@ -206,6 +214,7 @@ const INITIAL = {
   keyboardActive: false,
   askAiOpen: false,
   scrollTarget: null as { index: number; nonce: number } | null,
+  screenFocused: false,
   navigating: false,
   flashTarget: null as { index: number; nonce: number } | null,
   activeBlockIndex: null as number | null,
@@ -337,6 +346,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       scrollTarget: { index, nonce: (s.scrollTarget?.nonce ?? 0) + 1 },
       navigating: true,
     })),
+
+  setScreenFocused: (v) => set({ screenFocused: v }),
 
   setNavigating: (v) => set({ navigating: v }),
 
