@@ -286,12 +286,18 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // (user feedback: block selection must always get its text/image/table tools).
   // …except while checkbox-selecting, where checking another block is part of
   // composing the SAME ask — closing the input there would discard what was typed.
+  //
+  // Keyed on the index SET, not the array identity: every editor report rebuilds
+  // `selectedBlocks`, and re-selecting the same blocks is not a change of target.
+  // Identity alone made a redundant report close a live ask and throw away the
+  // prompt being typed into it.
+  const selectionKey = useMemo(() => indices.join(","), [indices]);
   useEffect(() => {
     if (selectMode) return;
     if (useFloatingPillStore.getState().inputOpen) {
       useFloatingPillStore.getState().setInputOpen(false);
     }
-  }, [selectedBlocks, selectMode]);
+  }, [selectionKey, selectMode]);
 
   // ── Drag position ──
   // Messenger chat-head rule: the COLLAPSED bubble always rests against a screen

@@ -699,6 +699,24 @@ export function WorkspaceLexicalView({
       }
       return;
     }
+    // ── PHANTOM COLLAPSE GUARD ──
+    // Focus leaving the WebView costs the page its text selection, and tapping
+    // ✦ Ask AI is precisely that: the dock's input takes focus and the keyboard
+    // comes up. Lexical rebuilds its selection from the caret the browser leaves
+    // behind and reports a SINGLE block. Acting on that report tore down the very
+    // scope the student had just built: the selection shrank to one paragraph, so
+    // FloatingPill closed the ask input (it closes on any selection change), the
+    // bubble fell back to that paragraph's formatting tools, and the half-typed
+    // prompt went with the unmounted dock — the reported "I can't send an AI
+    // prompt with more than two blocks selected". A shrink only counts when the
+    // report came from a student actually working in the editor.
+    if (
+      s.userDriven === false &&
+      (s.blocks?.length ?? 1) <= 1 &&
+      useWorkspaceStore.getState().selectedBlocks.length > 1
+    ) {
+      return;
+    }
     // Any non-chrome selection clears a stale chrome selection.
     useWorkspaceStore.getState().setChromeSelection(null);
     useLexicalEditorStore.getState().setFormat({

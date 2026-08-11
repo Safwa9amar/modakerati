@@ -212,7 +212,20 @@ export type LexicalState = {
   // server snapshots. Optional so the lab screens' bare literals still type-check.
   canUndo?: boolean;
   canRedo?: boolean;
+  // False when the report was NOT produced by the student working in the editor:
+  // focus has left the WebView, so whatever the browser left of the DOM selection
+  // is an artifact, not a choice. Native uses it to refuse a report that would
+  // shrink a multi-block selection — see WorkspaceLexicalView's onState.
+  userDriven?: boolean;
 };
+
+// A touch/keystroke on the editor counts as the student driving it for this long,
+// covering the window where the gesture is over but the focus bookkeeping (or a
+// mid-gesture ActionMode) hasn't settled yet.
+const DRIVING_MS = 700;
+// The events that mean a finger or a key is on the editor itself. Captured, so a
+// plugin that stops propagation can't hide the interaction from us.
+const DRIVING_EVENTS = ["pointerdown", "touchstart", "mousedown", "keydown", "beforeinput"] as const;
 
 // Lexical maps active formats to THESE class names; the CSS below styles them.
 const theme = {
@@ -803,6 +816,65 @@ function EditorBridge({
     );
   }, [editor, onState]);
 
+  // ── Is the STUDENT driving this report? ──
+  // The OS drops the WebView's text selection the moment the WebView stops being
+  // the focused view — which is exactly what tapping ✦ Ask AI does (the dock's
+  // input takes focus, the keyboard comes up). Lexical then rebuilds its selection
+  // from the leftover caret on its very next update, so the editor reports ONE
+  // block: a "selection change" the student never made. Native can't tell that
+  // report from a real tap on its own, so we label it here. Two independent
+  // signals, because neither alone is trustworthy on both platforms: the editor
+  // holds focus AND the page owns the window's focus, or a finger/key was on the
+  // editor a moment ago.
+  const drivenAt = useRef(0);
+  // Event-tracked focus, cross-checked below against activeElement/hasFocus: each
+  // signal is unreliable on its own (the page can keep `activeElement` after the
+  // native view hands focus away; `hasFocus()` can lag a WebView focus change), so
+  // "focused" means every signal agrees. Only a lost focus can veto anything, and
+  // only a shrink, so an over-cautious false here costs nothing.
+  const pageFocused = useRef(true);
+  useEffect(() => {
+    const stamp = () => { drivenAt.current = Date.now(); pageFocused.current = true; };
+    const gained = () => { pageFocused.current = true; };
+    const lost = () => { pageFocused.current = false; };
+    let bound: HTMLElement | null = null;
+    const bind = (el: HTMLElement | null) => {
+      if (bound) {
+        for (const e of DRIVING_EVENTS) bound.removeEventListener(e, stamp, true);
+        bound.removeEventListener("focus", gained, true);
+        bound.removeEventListener("blur", lost, true);
+      }
+      bound = el;
+      if (bound) {
+        for (const e of DRIVING_EVENTS) bound.addEventListener(e, stamp, true);
+        bound.addEventListener("focus", gained, true);
+        bound.addEventListener("blur", lost, true);
+      }
+    };
+    const off = editor.registerRootListener((root) => bind(root));
+    // The window pair, not the root's — the root may not be attached yet on the
+    // first pass, and losing the WebView's focus is a window-level event anyway.
+    const win = typeof window !== "undefined" ? window : null;
+    win?.addEventListener("focus", gained);
+    win?.addEventListener("blur", lost);
+    return () => {
+      off();
+      bind(null);
+      win?.removeEventListener("focus", gained);
+      win?.removeEventListener("blur", lost);
+    };
+  }, [editor]);
+  const isUserDriven = useCallback(() => {
+    const root = editor.getRootElement();
+    const doc = root?.ownerDocument;
+    if (!root || !doc) return true; // nothing to interrogate — never veto on a guess
+    const focused =
+      pageFocused.current &&
+      (doc.activeElement === root || root.contains(doc.activeElement)) &&
+      (typeof doc.hasFocus !== "function" || doc.hasFocus());
+    return focused || Date.now() - drivenAt.current < DRIVING_MS;
+  }, [editor]);
+
   // Report the focused block (formats, index, text, screen-Y) to the native side
   // so the reused native pill / AI dock can attach to the Lexical selection.
   useEffect(() => {
@@ -901,9 +973,9 @@ function EditorBridge({
         const el = editor.getElementByKey(key);
         if (el) payload = { ...payload, y: el.getBoundingClientRect().top };
       }
-      onState({ ...payload, canUndo: canUndoRef.current, canRedo: canRedoRef.current });
+      onState({ ...payload, canUndo: canUndoRef.current, canRedo: canRedoRef.current, userDriven: isUserDriven() });
     });
-  }, [editor, onState]);
+  }, [editor, onState, isUserDriven]);
 
   return null;
 }
