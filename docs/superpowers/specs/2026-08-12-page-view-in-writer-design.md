@@ -288,14 +288,33 @@ export function $isDisplayOnlyNode(n: LexicalNode | null | undefined): boolean {
 }
 ```
 
-Known call sites, all of which must change together:
+**The real call sites, verified against source 2026-08-13.** This spec originally listed four.
+Two of them were *comments* rather than calls, and it missed four genuine index-arithmetic
+sites — the dangerous half. The corrected list:
 
-- `$lexicalToBlocks` — [blockLexical.tsx:2074](../../../components/workspace/lexical/blockLexical.tsx)
-- the drag/reorder walker — [blockLexical.tsx:2139](../../../components/workspace/lexical/blockLexical.tsx)
-- `$anyNodeAtBlockIndex` — [LexicalDomEditor.tsx:1372](../../../components/workspace/lexical/LexicalDomEditor.tsx)
-- `ScrollSyncPlugin`'s DOM-index mapping — [LexicalDomEditor.tsx:1207](../../../components/workspace/lexical/LexicalDomEditor.tsx) and :1279
+| Site | What its index feeds |
+|---|---|
+| `$lexicalToBlocks` — `blockLexical.tsx` | serialization back to the block model |
+| `$blockEntries` — `blockLexical.tsx` | drag/reorder from→to |
+| `$nodeAtBlockIndex` — `LexicalDomEditor.tsx` | `applyBlockFormat`'s target for the native pill |
+| `$anyNodeAtBlockIndex` — `LexicalDomEditor.tsx` | scroll-to-block, suggestions |
+| `$rootChildBlockIndex` — `LexicalDomEditor.tsx` | `onState.index` for table/image selections |
+| `$blockIndexOfNode` — `LexicalDomEditor.tsx` | **`onState.index` for every text selection — the index the AI dock sends to the server** |
+| `$selectRows` — `LexicalDomEditor.tsx` | checkbox multi-select → bulk ops |
+| `ScrollSyncPlugin.measure` — `LexicalDomEditor.tsx` | scroll restore |
 
-Adding a node kind without auditing all four is the most likely way to break this feature silently.
+Identity checks that must **stay** `$isChromeNode`: `findBand` / `findKey`, the three
+chrome-preview swap/restore sites, and `onState`'s `cn` arm.
+
+Do not trust this table either. Derive the list with
+`rg -n '\$isChromeNode' components/ lib/ stores/ hooks/ app/` and judge each site by what it
+asks — "skip this, it is not a block" widens; "is this specifically a chrome band" does not.
+
+What the omission would have cost, concretely: with root children `[P0, PageBreak, P1, P2]`,
+`$blockIndexOfNode` reports block 1 as **2** — the AI edits the wrong paragraph — and
+`$nodeAtBlockIndex(1)` returns **null**, so a formatting tap silently does nothing. Three other
+walkers were safe only by accident, because `PageBreakNode.getTextContent()` returns `""` and
+their fallback counts only text-bearing nodes. Luck, not design.
 
 ### 5. Rendering and interaction
 
@@ -394,6 +413,27 @@ Device QA checklist, since none of the above catches it:
 | Measurement jank on a large thesis | Medium | Idle debounce, per-block cache, progressive first pass, block cap |
 | Font metrics differ from Word | Low | Accepted under D1 |
 | Ships across three repos | Medium | Engine must be rebuilt (`dist/` is gitignored) and the server redeployed before it works on a device |
+
+## Pre-existing defects found during the walker audit
+
+Neither was introduced by this feature and neither is fixed by it. Both index root children raw
+with no display-only awareness, so **both are already wrong today** whenever a chrome band sits
+above the target; page nodes only widen the blast radius.
+
+1. **`RangeSuggestionPlugin` — destructive.** `LexicalDomEditor.tsx` ~2464-2469 calls
+   `root.getChildren()[i]?.remove()` and `[r.start]?.replace(...)` with `r.start`/`r.end`
+   arriving from native as *block-model* indices. With a band above the range it removes and
+   replaces the **wrong nodes**. The correct mapping is `$anyNodeAtBlockIndex`, but the code
+   assumes one root child per block index and a list violates that assumption differently than a
+   band does — so this needs its own task and device QA, not a drive-by fix.
+2. **`SelectionHighlightPlugin` — visual only.** ~2504-2505 indexes `kids[i]` with the store's
+   `selectedBlocks`. Its comment calls those "root-child indices (canonical)"; `$selectRows`,
+   which produces them, is block-model. Highlights the wrong block.
+
+One more belongs to this feature rather than predating it: the chrome-preview swap (~625-708)
+calls `setData` on `ChromeNode` only, so a header/footer **template preview will not repaint the
+page bands**. That qualifies D4's "no new editing UI is built" claim — the picker works, but its
+live preview is incomplete until the swap also targets page nodes.
 
 ## Deferred to v2
 
