@@ -1327,7 +1327,7 @@ export class PageBreakNode extends DecoratorNode<React.ReactNode> {
 
   constructor(data: PageBreakData, key?: NodeKey) { super(key); this.__data = data; }
 
-  getData(): PageBreakData { return this.__data; }
+  getData(): PageBreakData { return this.getLatest().__data; }
   setData(data: PageBreakData): void { this.getWritable().__data = data; }
 
   /** Display-only: contributes no text, so it can never leak into a block. */
@@ -1348,10 +1348,12 @@ export class PageBreakNode extends DecoratorNode<React.ReactNode> {
   /** Which half of the band was last tapped. onState reads this to decide
    *  whether to report the header or the footer — the node is ONE selectable
    *  node but carries TWO targets, which is the only way it differs from
-   *  ChromeNode. */
+   *  ChromeNode. This is the reason a display-only node has mutable state at
+   *  all: without it there would be no way to tell, after selection lands on
+   *  the node, which half of the band the tap was actually on. */
   __pick: "top" | "bottom" = "bottom";
   setPick(side: "top" | "bottom"): void { this.getWritable().__pick = side; }
-  getPick(): "top" | "bottom" { return this.__pick; }
+  getPick(): "top" | "bottom" { return this.getLatest().__pick; }
 
   decorate(editor: LexicalEditor): React.ReactNode {
     const key = this.getKey();
