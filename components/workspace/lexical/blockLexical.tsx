@@ -96,6 +96,46 @@ export type ChromeData = {
   border?: { bottom: boolean; color: string | null };
 };
 
+/** One page boundary: the ending page's footer, the gutter, the next page's
+ *  header. Rendered by PageBreakNode; never serialized to a block. */
+export type PageBreakData = {
+  /**
+   * A boundary node sits BETWEEN two pages, so the first page would have no
+   * header and the last no footer. Two edge variants close that:
+   *   • "leading"  — before the first block: header only, no gutter
+   *   • "boundary" — between pages: footer, gutter, header
+   *   • "trailing" — after the last block: footer only, no gutter
+   */
+  variant: "leading" | "boundary" | "trailing";
+  /** 1-based number of the page the footer belongs to. */
+  endingPage: number;
+  /** Footer of the ending page. null → the paper shows nothing (spec D5/D6). */
+  footer: {
+    text: string;
+    /** The resolved, formatted page number, or null when the footer carries no
+     *  PAGE field or the page is unnumbered. */
+    pageText: string | null;
+    sectionIndex: number;
+    startBlockIndex: number;
+  } | null;
+  /** Header of the page BEGINNING after the gutter. null → no header. */
+  header: {
+    text: string;
+    segments: string[];
+    border: { bottom: boolean; color: string | null } | null;
+    sectionIndex: number;
+    startBlockIndex: number;
+  } | null;
+  /** Names the page beginning after the gutter — "p. 14", or for an unnumbered
+   *  page its NAME ("divider page"). Never a number on an unnumbered page. */
+  gutterLabel: string;
+  /** Where a gutter tap goes when the ending page has NO footer: the section's
+   *  footer, so the sheet opens and the student can ask for page numbers. null
+   *  when the page is deliberately unnumbered — there is nothing to offer. */
+  gutterTarget: { sectionIndex: number; startBlockIndex: number; text: string } | null;
+  rtl: boolean;
+};
+
 // ── Opaque structural-block node (table / image / other) ─────────────────────
 type SerializedBlockDataNode = SerializedLexicalNode & { block: DocBlockDTO };
 
@@ -1137,6 +1177,75 @@ function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }):
   );
 }
 
+/** The band rendered inside the WebView for a page-boundary node: the ending
+ *  page's footer, the gutter, and the beginning page's header — in that
+ *  order, top to bottom on the paper. `noFocus` is duplicated from ChromeBand
+ *  rather than shared because ChromeBand closes over its own props. */
+function PageBreakBand({
+  data, onPickHeader, onPickFooter,
+}: { data: PageBreakData; onPickHeader: () => void; onPickFooter: () => void }): React.ReactElement {
+  const noFocus = (e: { preventDefault: () => void }) => {
+    e.preventDefault();
+    if (typeof window !== "undefined") {
+      window.getSelection?.()?.removeAllRanges?.();
+      (document.activeElement as HTMLElement | null)?.blur?.();
+    }
+  };
+  const ruleColor = data.header?.border?.bottom
+    ? (data.header.border.color ? `#${data.header.border.color}` : "#9A5A31")
+    : null;
+  const footerLine = [data.footer?.text, data.footer?.pageText].filter(Boolean).join("   ");
+
+  return React.createElement(
+    "div",
+    { className: "lx-pagebreak", dir: data.rtl ? "rtl" : "ltr" },
+    // Foot of the ending page — omitted entirely when the document has no
+    // footer there, so the paper only ever shows what Word will print.
+    data.footer
+      ? React.createElement(
+          "div",
+          { className: "lx-pb-footer", onMouseDown: noFocus, onClick: onPickFooter },
+          React.createElement("span", { className: "lx-pb-footer-txt" }, footerLine || " "),
+        )
+      : null,
+    // The gutter is APP CHROME, not paper: its label can never be mistaken for
+    // something that will print, which is why an unnumbered page's name lives
+    // here. Only a real boundary has one — the edge variants open or close the
+    // document rather than separating two pages.
+    data.variant === "boundary"
+      ? React.createElement(
+          "div",
+          {
+            className: "lx-pb-gutter",
+            // Only tappable when there is no footer to tap instead — then it is
+            // the way in to "add page numbers here".
+            ...(data.footer || !data.gutterTarget
+              ? {}
+              : { onMouseDown: noFocus, onClick: onPickFooter, style: { cursor: "pointer" } }),
+          },
+          React.createElement("span", { className: "lx-pb-gutter-lbl" }, data.gutterLabel),
+        )
+      : null,
+    // Top of the page starting after the gutter.
+    data.header
+      ? React.createElement(
+          "div",
+          { className: "lx-pb-header", onMouseDown: noFocus, onClick: onPickHeader },
+          React.createElement(
+            "div",
+            { className: "lx-pb-header-row" },
+            (data.header.segments.length ? data.header.segments : [data.header.text]).map((seg, i) =>
+              React.createElement("span", { key: i, className: "lx-chrome-hdr-seg" }, seg || " "),
+            ),
+          ),
+          ruleColor
+            ? React.createElement("div", { className: "lx-chrome-hdr-rule", style: { background: ruleColor } })
+            : null,
+        )
+      : null,
+  );
+}
+
 export class ChromeNode extends DecoratorNode<React.ReactNode> {
   __data: ChromeData;
 
@@ -1205,6 +1314,87 @@ export function $createChromeNode(data: ChromeData): ChromeNode {
 }
 export function $isChromeNode(node: LexicalNode | null | undefined): node is ChromeNode {
   return node instanceof ChromeNode;
+}
+
+// ── Display-only page-boundary node (footer + gutter + header, one node) ─────
+type SerializedPageBreakNode = SerializedLexicalNode & { data: PageBreakData };
+
+export class PageBreakNode extends DecoratorNode<React.ReactNode> {
+  __data: PageBreakData;
+
+  static getType(): string { return "modk-pagebreak"; }
+  static clone(node: PageBreakNode): PageBreakNode { return new PageBreakNode(node.__data, node.__key); }
+
+  constructor(data: PageBreakData, key?: NodeKey) { super(key); this.__data = data; }
+
+  getData(): PageBreakData { return this.__data; }
+  setData(data: PageBreakData): void { this.getWritable().__data = data; }
+
+  /** Display-only: contributes no text, so it can never leak into a block. */
+  getTextContent(): string { return ""; }
+
+  createDOM(): HTMLElement {
+    const el = document.createElement("div");
+    el.contentEditable = "false";
+    // Same reason ChromeNode marks its wrapper: the reorder-mode grip CSS
+    // excludes wrappers, and the lx-* classes live on the inner React band.
+    el.className = "lx-chrome-wrap lx-pagebreak-host";
+    return el;
+  }
+  updateDOM(): false { return false; }
+
+  isInline(): false { return false; }
+
+  /** Which half of the band was last tapped. onState reads this to decide
+   *  whether to report the header or the footer — the node is ONE selectable
+   *  node but carries TWO targets, which is the only way it differs from
+   *  ChromeNode. */
+  __pick: "top" | "bottom" = "bottom";
+  setPick(side: "top" | "bottom"): void { this.getWritable().__pick = side; }
+  getPick(): "top" | "bottom" { return this.__pick; }
+
+  decorate(editor: LexicalEditor): React.ReactNode {
+    const key = this.getKey();
+    // Mirrors ChromeNode.decorate exactly: record the side, then put a
+    // NodeSelection on ourselves. onState turns that into "chrome:top" /
+    // "chrome:bottom", so the whole native chrome path is reused unchanged.
+    const pick = (side: "top" | "bottom") => () =>
+      editor.update(
+        () => {
+          const self = $getNodeByKey(key);
+          if ($isPageBreakNode(self)) self.setPick(side);
+          const ns = $createNodeSelection();
+          ns.add(key);
+          $setSelection(ns);
+        },
+        { tag: SKIP_DOM_SELECTION_TAG },
+      );
+    return React.createElement(PageBreakBand, {
+      data: this.__data,
+      onPickHeader: pick("top"),
+      onPickFooter: pick("bottom"),
+    });
+  }
+
+  exportJSON(): SerializedPageBreakNode {
+    return { ...super.exportJSON(), type: PageBreakNode.getType(), version: 1, data: this.__data };
+  }
+  static importJSON(json: SerializedPageBreakNode): PageBreakNode { return new PageBreakNode(json.data); }
+}
+
+export function $createPageBreakNode(data: PageBreakData): PageBreakNode { return new PageBreakNode(data); }
+export function $isPageBreakNode(node: LexicalNode | null | undefined): node is PageBreakNode {
+  return node instanceof PageBreakNode;
+}
+
+/**
+ * Every node that exists only to be LOOKED at — chrome bands and page
+ * boundaries. Block-index walkers must skip these or every index past the first
+ * one is off by N. This predicate is the single place that list is defined;
+ * adding a display-only node kind means adding it HERE, not at each call site.
+ */
+export function $isDisplayOnlyNode(node: LexicalNode | null | undefined): boolean {
+  return $isChromeNode(node) || $isPageBreakNode(node);
 }
 
 // ── AI suggestion node (in-place proposal, replaces its block) ────────────────
