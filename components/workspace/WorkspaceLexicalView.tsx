@@ -28,6 +28,7 @@ import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { pasteImageFromClipboard } from "@/lib/paste-image";
 import { useEditorScrollStore, type ScrollAnchor } from "@/stores/editor-scroll-store";
 import { hLight, hMedium, hSelection } from "@/lib/haptics";
+import { geometryFromSection, type PageSectionInput } from "@/lib/page-layout";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -68,6 +69,9 @@ function buildChrome(
   blocks: DocBlockDTO[],
   rtl: boolean,
   t: (k: string, o?: Record<string, unknown>) => string,
+  /** When the page view is on it renders a header at every page top, so the
+   *  section-start copy is a duplicate — the footer band goes the same way. */
+  pagesOn: boolean,
 ): ChromeData[] {
   if (!sections || sections.length === 0 || blocks.length === 0) return [];
   const lastIdx = blocks[blocks.length - 1].index;
@@ -78,18 +82,72 @@ function buildChrome(
       out.push({ kind: "section", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: "",
         label: t("workspace.hf.newSectionHere", { defaultValue: "New section" }), rtl });
     }
-    if (s.header) {
+    if (s.header && !pagesOn) {
       out.push({ kind: "top", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: s.header.text,
         label: t("workspace.hf.topOfPage", { defaultValue: "Top of every page" }), rtl,
         segments: s.header.segments, border: s.header.border });
     }
-    if (s.footer) {
+    if (s.footer && !pagesOn) {
       const bottomText = s.footer.text || t("workspace.hf.pageNumberValue", { defaultValue: "page number" });
       out.push({ kind: "bottom", sectionIndex: si, startBlockIndex: Math.max(s.startBlockIndex, nextStart - 1),
         text: bottomText, label: t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" }), rtl });
     }
   });
   return out;
+}
+
+/** Everything the DOM editor needs to paginate, all serializable. Strings are
+ *  localized HERE because t() cannot cross the 'use dom' boundary. */
+export type PageSetup = {
+  sections: (PageSectionInput & {
+    /** Why the page is unnumbered, so the gutter can NAME it correctly.
+     *  null when the page is numbered normally. */
+    unnumberedKind: "divider" | "ornament" | null;
+    textColumnPx: number;
+    contentHeightPx: number;
+    startsOnNewPage: boolean;
+    header: { text: string; segments: string[]; border: { bottom: boolean; color: string | null } | null } | null;
+    footer: { text: string; hasPageNumbers: boolean } | null;
+  })[];
+  /** "p. {n}" with {n} substituted by the DOM side. */
+  gutterNumberTemplate: string;
+  /** Names an unnumbered page in the gutter, e.g. "divider page". */
+  gutterDividerLabel: string;
+  gutterOrnamentLabel: string;
+  rtl: boolean;
+};
+
+function buildPageSetup(
+  sections: DocSectionDTO[] | undefined,
+  rtl: boolean,
+  t: (k: string, o?: Record<string, unknown>) => string,
+): PageSetup | null {
+  if (!sections || sections.length === 0) return null;
+  return {
+    sections: sections.map((s) => {
+      const g = geometryFromSection(s.page);
+      return {
+        startBlockIndex: s.startBlockIndex,
+        // A divider page and an ornamented front-matter page carry no number by
+        // design — the paper shows nothing and the gutter names them instead.
+        unnumbered: !!s.dividerPage || !!s.pageOrnament,
+        unnumberedKind: s.dividerPage ? "divider" : s.pageOrnament ? "ornament" : null,
+        pageNumberStart: s.footer?.pageNumbers?.startAt ?? null,
+        pageNumberFormat: s.footer?.pageNumbers?.format ?? "decimal",
+        textColumnPx: g.textColumnPx,
+        contentHeightPx: g.contentHeightPx,
+        startsOnNewPage: !!s.startsOnNewPage,
+        header: s.header
+          ? { text: s.header.text, segments: s.header.segments, border: s.header.border }
+          : null,
+        footer: s.footer ? { text: s.footer.text, hasPageNumbers: !!s.footer.pageNumbers } : null,
+      };
+    }),
+    gutterNumberTemplate: t("workspace.pages.gutterPage", { defaultValue: "p. {{n}}" }),
+    gutterDividerLabel: t("workspace.pages.dividerPage", { defaultValue: "divider page" }),
+    gutterOrnamentLabel: t("workspace.pages.frontMatterPage", { defaultValue: "unnumbered page" }),
+    rtl,
+  };
 }
 
 export function WorkspaceLexicalView({
@@ -275,9 +333,15 @@ export function WorkspaceLexicalView({
   const keyboardActive = useWorkspaceStore((s) => s.keyboardActive);
   // Display-only section chrome bands, interleaved into the initial seed (below) by
   // block index. Reseeds rebuild their own chrome from the reseeded blocks/sections.
+  // Serializable pagination input for the DOM side (Task 10 consumes it). Gated on
+  // `showChrome` only for now — `showPages` lands in a later task.
+  const pageSetup = useMemo(
+    () => buildPageSetup(doc?.available ? doc.sections : undefined, rtl, t),
+    [doc, rtl, t],
+  );
   const chrome = useMemo(
-    () => (showChrome ? buildChrome(doc?.available ? doc.sections : undefined, blocks, rtl, t) : []),
-    [showChrome, doc, blocks, rtl, t],
+    () => (showChrome ? buildChrome(doc?.available ? doc.sections : undefined, blocks, rtl, t, !!pageSetup) : []),
+    [showChrome, doc, blocks, rtl, t, pageSetup],
   );
   // Auth token for loading LARGE figures in the WebView (via <img src>?token=). The
   // server accepts the token query param; refreshed on doc change (freshness).
@@ -524,8 +588,8 @@ export function WorkspaceLexicalView({
     const latest = stripMedia(cur.blocks);
     baselineRef.current = latest;
     syncedDocRef.current = cur;
-    setReseed({ blocks: latest, chrome: useWorkspaceStore.getState().showChrome ? buildChrome(cur.sections, latest, rtl, t) : [], nonce: ++reseedNonce.current });
-  }, [thesisId, rtl, t]);
+    setReseed({ blocks: latest, chrome: useWorkspaceStore.getState().showChrome ? buildChrome(cur.sections, latest, rtl, t, !!pageSetup) : [], nonce: ++reseedNonce.current });
+  }, [thesisId, rtl, t, pageSetup]);
 
   // Toggling the structure indicators reseeds the editor so the bands appear/disappear
   // in place (no remount → scroll + undo preserved). Skips the initial mount.
@@ -666,9 +730,9 @@ export function WorkspaceLexicalView({
       baselineRef.current = latest;
       syncedDocRef.current = doc;
       // in-place, no remount — rebuild the chrome bands from this same reseeded doc.
-      setReseed({ blocks: latest, chrome: useWorkspaceStore.getState().showChrome ? buildChrome(doc.sections, latest, rtl, t) : [], nonce: ++reseedNonce.current });
+      setReseed({ blocks: latest, chrome: useWorkspaceStore.getState().showChrome ? buildChrome(doc.sections, latest, rtl, t, !!pageSetup) : [], nonce: ++reseedNonce.current });
     }
-  }, [doc, active, rtl, t]);
+  }, [doc, active, rtl, t, pageSetup]);
 
   // Auto-sync (no manual Save): the Writer ALWAYS saves to the server shortly
   // after the user pauses. (Debounced, because Lexical edits — unlike the durable
@@ -1054,6 +1118,7 @@ export function WorkspaceLexicalView({
           key={`ws:${thesisId}:${seedNonce}`}
           initialBlocks={seed}
           chrome={chrome}
+          pageSetup={pageSetup}
           command={command}
           keyboardActive={keyboardActive}
           onSwipeOpenDrawer={() => useNavDrawerStore.getState().openDrawer()}

@@ -134,6 +134,9 @@ import {
 import { singleMoveTo } from "@/lib/reorder-range";
 import type { DocBlockDTO } from "@/lib/api";
 import type { BlockKind } from "@/stores/insert-menu-store";
+// type-only — WorkspaceLexicalView is the native ('use dom' host) module; importing
+// just the type is erased at compile time, same contract as ChromeData above.
+import type { PageSetup } from "../WorkspaceLexicalView";
 
 // Payload the native Insert menu sends back in: which block to produce (or
 // clearSlash = just remove the /query, used before a native structural op).
@@ -2947,6 +2950,7 @@ export default function LexicalDomEditor({
   onBlocks,
   initialBlocks,
   chrome,
+  pageSetup,
   reseed,
   scrollToIndex,
   scrollToChrome,
@@ -2999,6 +3003,11 @@ export default function LexicalDomEditor({
   // Display-only section chrome (header/footer/section-break bands) interleaved into
   // the seed/reseed by BLOCK INDEX; carried alongside `initialBlocks` and `reseed`.
   chrome?: ChromeData[];
+  // Serializable pagination input (geometry + section facts + pre-localized gutter
+  // strings) built natively by buildPageSetup — Task 10's PaginationPlugin consumes
+  // it to measure and insert PageBreakNodes. Unused for now; accepted so this task
+  // compiles and can be verified alone.
+  pageSetup?: PageSetup | null;
   // In-place reconcile trigger: on nonce change, rebuild content from `blocks`
   // (+ its chrome) WITHOUT remounting (used to reflect external native/AI edits).
   reseed?: { blocks: DocBlockDTO[]; chrome?: ChromeData[]; nonce: number };
