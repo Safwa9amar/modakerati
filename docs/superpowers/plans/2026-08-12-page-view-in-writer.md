@@ -367,7 +367,8 @@ In `src/lib/thesis-doc.ts`, add to `DocSectionDTO` after `ownFooter`:
   /** Page size + margins in twips (1440 = 1 inch), inheritance resolved by the
    *  engine. null when the document declares no page size at all. */
   page: { widthTwips: number; heightTwips: number;
-          margins: { top: number; bottom: number; left: number; right: number; header: number; footer: number } } | null;
+          margins: { top: number; bottom: number; left: number; right: number;
+                     header: number; footer: number; gutter: number } } | null;
   /** This section IS a chapter divider page (add_divider_pages). Such a page
    *  carries no page number by design — see the Writer's page view. */
   dividerPage: boolean;
@@ -452,7 +453,8 @@ All three are **optional** — older SQLite-cached DTOs predate them and every c
   page?: {
     widthTwips: number;
     heightTwips: number;
-    margins: { top: number; bottom: number; left: number; right: number; header: number; footer: number };
+    margins: { top: number; bottom: number; left: number; right: number;
+               header: number; footer: number; gutter: number };
   } | null;
   /** This section is a chapter divider page — no page number by design. */
   dividerPage?: boolean;
@@ -615,7 +617,7 @@ const TWIPS_TO_PX = PX_PER_INCH / TWIPS_PER_INCH;
 const A4_FALLBACK = {
   widthTwips: 11906,
   heightTwips: 16838,
-  margins: { top: 1440, bottom: 1440, left: 1440, right: 1440, header: 720, footer: 720 },
+  margins: { top: 1440, bottom: 1440, left: 1440, right: 1440, header: 720, footer: 720, gutter: 0 },
 };
 
 /** The two numbers pagination actually needs, in CSS pixels. */
@@ -631,7 +633,10 @@ export function geometryFromSection(page: DocSectionDTO["page"] | undefined): Pa
   const p = page ?? A4_FALLBACK;
   const m = p.margins;
   return {
-    textColumnPx: (p.widthTwips - m.left - m.right) * TWIPS_TO_PX,
+    // The gutter is the BINDING allowance — extra width stolen from the text
+    // column on the bound edge. These theses are bound, so ignoring it makes
+    // every column systematically too wide and under-counts pages.
+    textColumnPx: (p.widthTwips - m.left - m.right - (m.gutter ?? 0)) * TWIPS_TO_PX,
     contentHeightPx: (p.heightTwips - m.top - m.bottom) * TWIPS_TO_PX,
   };
 }

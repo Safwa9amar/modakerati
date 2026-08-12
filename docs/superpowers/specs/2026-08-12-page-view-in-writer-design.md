@@ -101,12 +101,21 @@ Add to `SectionInfo`:
 page: {
   widthTwips: number;
   heightTwips: number;
-  margins: { top: number; bottom: number; left: number; right: number; header: number; footer: number };
+  margins: { top: number; bottom: number; left: number; right: number;
+             header: number; footer: number; gutter: number };
 } | null;   // null when the section's sectPr declares neither pgSz nor pgMar
 ```
 
-Read from the section's own `w:sectPr` (`w:pgSz`, `w:pgMar`), inheriting the body-level `sectPr` when
-the section declares none — the same inheritance the header/footer read already implements.
+Read from the section's own `w:sectPr` (`w:pgSz`, `w:pgMar`), falling back to the body-level `sectPr`
+when the section declares neither.
+
+That fallback is **not** what Word does, and the distinction matters enough to record. In ECMA-376 each
+`sectPr` is self-contained; an omitted `w:pgSz` resolves to the *application* default, which this
+engine's own `parseSectPr` encodes as US Letter. The fallback exists because `addSectionBreak` writes a
+bare `<w:sectPr><w:type w:val="nextPage"/></w:sectPr>` with no geometry — our own gap — and treating the
+body geometry as that section's geometry is what makes an A4 thesis paginate as A4 rather than as
+Letter. Arguably `addSectionBreak` should write full geometry instead; until it does, this fallback is
+what stands between the student and a silently wrong page size.
 
 Server: `sectionHFDTO()` in `src/lib/thesis-doc.ts` forwards it onto `DocSectionDTO.page`. Best-effort,
 exactly like `sections` itself — a failure yields `null`, never a failed DTO.
@@ -144,11 +153,16 @@ Rejected alternatives:
 Derive from the section's geometry, at 96 CSS px per inch (1440 twips):
 
 ```
-textColumnPx  = (widthTwips  - marginLeft - marginRight)  / 1440 * 96
-pageContentPx = (heightTwips - marginTop  - marginBottom) / 1440 * 96
+textColumnPx  = (widthTwips  - marginLeft - marginRight - gutter) / 1440 * 96
+pageContentPx = (heightTwips - marginTop  - marginBottom)         / 1440 * 96
 ```
 
-A4 at 1-inch margins gives `textColumnPx ≈ 601.7`, `pageContentPx ≈ 930.5`.
+A4 at 1-inch margins with no gutter gives `textColumnPx ≈ 601.7`, `pageContentPx ≈ 930.5`.
+
+The **gutter** is Word's binding allowance — width taken from the text column on the
+bound edge. A mémoire is a bound document, so a thesis that sets one and has it ignored
+gets a column several percent too wide on *every* page, biasing the count in one
+direction rather than adding noise. It is cheap to carry, so it is carried.
 
 A measuring host lives offscreen in the same WebView:
 
