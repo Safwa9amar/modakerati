@@ -86,6 +86,13 @@ import {
   $isBlockDataNode,
   ChromeNode,
   $isChromeNode,
+  $isPageBreakNode,
+  // The ONE predicate that owns "this node exists only to be looked at" —
+  // chrome bands AND page boundaries. Every block-INDEX walk skips it; only a
+  // genuine "is this specifically a chrome band?" identity test uses
+  // $isChromeNode. Getting that backwards puts every index past the node off
+  // by N, which is exactly how c28d406 and 6eae8ee both shipped.
+  $isDisplayOnlyNode,
   type ChromeData,
   type ChromeKind,
   MediaContext,
@@ -891,9 +898,11 @@ function EditorBridge({
           // A tapped chrome band (section header/footer/section-break) → NodeSelection
           // on its display-only ChromeNode. Report it with a "chrome:"-prefixed
           // blockType so the native side shows the chrome bubble (not a block toolset).
-          // Mutually exclusive with the BlockDataNode path below (a selection is ONE
-          // node): check chrome first, else the structural block.
+          // Mutually exclusive with the page-band and BlockDataNode paths below (a
+          // selection is ONE node): check chrome first, then the page band, else
+          // the structural block.
           const cn = nodes.length === 1 && $isChromeNode(nodes[0]) ? nodes[0] : null;
+          const pb = nodes.length === 1 && $isPageBreakNode(nodes[0]) ? nodes[0] : null;
           const bd = nodes.length === 1 && $isBlockDataNode(nodes[0]) ? nodes[0] : null;
           if (cn) {
             const cd = cn.getData();
@@ -906,6 +915,27 @@ function EditorBridge({
               blocks: [{ index: cd.startBlockIndex, text: cd.text }],
               y: -1,
             };
+          } else if (pb) {
+            // A tapped page band. It carries BOTH a header and a footer, so the
+            // side the student actually touched decides which we report — then
+            // it rides the EXISTING chrome path, so the native sheet, the ✦
+            // panel and the template picker all work with no native change.
+            const d = pb.getData();
+            const side = pb.getPick();
+            // A gutter tap on a footerless page falls back to gutterTarget, so
+            // the footer sheet still opens and can offer page numbers.
+            const part = side === "top" ? d.header : (d.footer ?? d.gutterTarget);
+            if (part) {
+              key = pb.getKey();
+              payload = {
+                bold: false, italic: false, underline: false,
+                blockType: "chrome:" + side,   // "chrome:top" | "chrome:bottom"
+                isRTL: d.rtl, alignment: null,
+                index: part.startBlockIndex, text: part.text,
+                blocks: [{ index: part.startBlockIndex, text: part.text }],
+                y: -1,
+              };
+            }
           } else if (bd) {
             const idx = $rootChildBlockIndex(bd);
             key = bd.getKey();
@@ -1016,10 +1046,11 @@ function FloatingToolbar() {
         }
       } else if ($isNodeSelection(sel)) {
         const ns = sel.getNodes();
-        // Chrome bands (section header/footer/section-break) are display-only and the
-        // native side owns their bubble — never surface the web fallback toolbar for
-        // them (leave `info` null → the toolbar renders nothing).
-        if (ns.length === 1 && $isChromeNode(ns[0])) return;
+        // Display-only nodes — chrome bands (section header/footer/section-break)
+        // and page boundaries — have their bubble owned by the native side; never
+        // surface the web fallback toolbar for them (leave `info` null → the
+        // toolbar renders nothing).
+        if (ns.length === 1 && $isDisplayOnlyNode(ns[0])) return;
         if (ns.length === 1 && $isBlockDataNode(ns[0])) info = { key: ns[0].getKey(), kind: "block", block: (ns[0] as BlockDataNode).getBlock().kind, bold: false, italic: false, underline: false };
       }
     });
@@ -1201,13 +1232,14 @@ function ScrollSyncPlugin({
         if (i >= 0) {
           const el = kids[i] as HTMLElement;
           const r = el.getBoundingClientRect();
-          // Report a BLOCK index (chrome bands skipped, lists expanded), NOT the raw
-          // DOM child index. Chrome bands (section header/footer/break) render as
-          // top-level root DOM children but are excluded from the block model, so a
-          // raw DOM index wouldn't line up with the chrome-aware $anyNodeAtBlockIndex
-          // used on restore — it'd be off by the chrome count for every block below
-          // the first band. Map the first-visible element → its Lexical node → block
-          // index; if that element is a chrome band, anchor to the block it precedes.
+          // Report a BLOCK index (display-only nodes skipped, lists expanded), NOT
+          // the raw DOM child index. Chrome bands (section header/footer/break) and
+          // page boundaries render as top-level root DOM children but are excluded
+          // from the block model, so a raw DOM index wouldn't line up with the
+          // display-only-aware $anyNodeAtBlockIndex used on restore — it'd be off by
+          // their count for every block below the first one. Map the first-visible
+          // element → its Lexical node → block index; if that element is a band,
+          // anchor to the block it precedes.
           let index = -1;
           // editor.read (NOT getEditorState().read): $getNearestNodeFromDOMNode maps a
           // DOM node → Lexical node via the editor's key↔DOM map, so it needs the active
@@ -1215,7 +1247,7 @@ function ScrollSyncPlugin({
           // state → getActiveEditor() throws "no active editor").
           editor.read(() => {
             let node = $getNearestNodeFromDOMNode(el);
-            while (node && $isChromeNode(node)) node = node.getNextSibling();
+            while (node && $isDisplayOnlyNode(node)) node = node.getNextSibling();
             if (node) index = $blockIndexOfNode(node);
           });
           return { y: window.scrollY, index, delta: Math.max(0, Math.round(-r.top)) };
@@ -1352,7 +1384,7 @@ function listItemsOf(list: ListNode): ListItemNode[] {
 function $nodeAtBlockIndex(idx: number): ElementNode | null {
   let acc = 0;
   for (const child of $getRoot().getChildren()) {
-    if ($isChromeNode(child)) continue; // display-only chrome — not a block
+    if ($isDisplayOnlyNode(child)) continue; // chrome band / page boundary — not a block
     if ($isListNode(child)) {
       const items = listItemsOf(child);
       if (idx < acc + items.length) return items[idx - acc];
@@ -1372,7 +1404,7 @@ function $nodeAtBlockIndex(idx: number): ElementNode | null {
 function $anyNodeAtBlockIndex(idx: number): LexicalNode | null {
   let acc = 0;
   for (const child of $getRoot().getChildren()) {
-    if ($isChromeNode(child)) continue; // display-only chrome — not a block
+    if ($isDisplayOnlyNode(child)) continue; // chrome band / page boundary — not a block
     if ($isListNode(child)) {
       const items = listItemsOf(child);
       if (idx < acc + items.length) return items[idx - acc];
@@ -1389,7 +1421,7 @@ function $anyNodeAtBlockIndex(idx: number): LexicalNode | null {
 function $rootChildBlockIndex(node: LexicalNode): number {
   let acc = 0;
   for (const child of $getRoot().getChildren()) {
-    if ($isChromeNode(child)) continue; // display-only chrome — not a block
+    if ($isDisplayOnlyNode(child)) continue; // chrome band / page boundary — not a block
     if (child === node) return acc;
     acc += $isListNode(child) ? listItemsOf(child).length : 1;
   }
@@ -1405,7 +1437,7 @@ function $blockIndexOfNode(node: LexicalNode): number {
   while (item && !$isListItemNode(item)) item = item.getParent();
   let acc = 0;
   for (const child of $getRoot().getChildren()) {
-    if ($isChromeNode(child)) continue; // display-only chrome — not a block
+    if ($isDisplayOnlyNode(child)) continue; // chrome band / page boundary — not a block
     if (child === top) {
       if ($isListNode(top) && $isListItemNode(item)) acc += listItemsOf(top).indexOf(item);
       return acc;
@@ -2512,7 +2544,7 @@ function $selectRows(): SelectRow[] {
   const out: SelectRow[] = [];
   let idx = 0;
   for (const child of $getRoot().getChildren()) {
-    if ($isChromeNode(child)) continue; // display-only band — not a block, not selectable
+    if ($isDisplayOnlyNode(child)) continue; // display-only band — not a block, not selectable
     if ($isSuggestionNode(child) || $isRangeSuggestionNode(child)) {
       // A proposal under review isn't selectable, but it still stands in for the
       // blocks it replaced — advance past them so later rows keep the right index.

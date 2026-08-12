@@ -2263,7 +2263,7 @@ export function $blocksToLexical(blocks: DocBlockDTO[], chrome?: ChromeData[]): 
 export function $lexicalToBlocks(): DocBlockDTO[] {
   const out: DocBlockDTO[] = [];
   for (const node of $getRoot().getChildren()) {
-    if ($isChromeNode(node)) continue; // display-only chrome — never serializes to a block
+    if ($isDisplayOnlyNode(node)) continue; // display-only — never serializes to a block
     if ($isSuggestionNode(node) && node.__sug.action === "setChart") {
       // A CHART proposal is a sidecar: it was inserted BESIDE the chart, which is
       // still in the tree and serializes itself. Emitting a block here would insert
@@ -2328,7 +2328,7 @@ export function $blockEntries(): BlockEntry[] {
   const out: BlockEntry[] = [];
   let idx = 0;
   for (const node of $getRoot().getChildren()) {
-    if ($isChromeNode(node)) continue;           // display-only, not draggable
+    if ($isDisplayOnlyNode(node)) continue;      // display-only, not draggable
     if ($isSuggestionNode(node) || $isRangeSuggestionNode(node)) {
       // reorder is suppressed while a proposal shows; still advance the index so a
       // stray call stays consistent with $lexicalToBlocks — except a CHART card,
