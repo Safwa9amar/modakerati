@@ -65,6 +65,15 @@ prompt and template picker. No new editing UI is built.
 only what Word will print. The count lives in the grey gutter, which is app chrome and cannot be
 mistaken for document content.
 
+**D6 — Deliberately unnumbered pages show no number anywhere, not even in the gutter.** A chapter
+divider page and an ornamented front-matter page (dedication, acknowledgements, abstract) carry no
+number by design. D5's gutter number would print one on exactly those pages. They are marked
+*unnumbered* and the gutter names them instead. See §3.
+
+**D7 — The Writer reports the document's numbering convention; it never picks one.** Universities
+split on whether a divider page is counted. Both conventions are expressible in Word and the Writer
+renders whichever the .docx encodes, rather than guessing. See §3.
+
 ## Architecture
 
 ```
@@ -101,6 +110,19 @@ the section declares none — the same inheritance the header/footer read alread
 
 Server: `sectionHFDTO()` in `src/lib/thesis-doc.ts` forwards it onto `DocSectionDTO.page`. Best-effort,
 exactly like `sections` itself — a failure yields `null`, never a failed DTO.
+
+`sectionHFDTO()` must also start carrying the two flags that mark an unnumbered page (§3):
+
+```ts
+dividerPage?: boolean;                                        // built by add_divider_pages
+pageOrnament?: "dedication" | "thanks" | "abstract";          // decorated by add_page_ornament
+```
+
+Neither needs new detection work. Both are already computed in
+`src/mcp/doc-section-map.ts` — `dividerPage` from the invisible `modk_divider_*` bookmark on the
+section's first block, `pageOrnament` alongside it — and surfaced to the AI through `get_sections`.
+They have simply never reached `DocSectionDTO`. Lift the detection into a shared helper rather than
+duplicating the bookmark scan, so the AI's view and the Writer's view cannot drift apart.
 
 App: mirror it as **optional** on `DocSectionDTO` ([lib/api.ts:1224](../../../lib/api.ts)). Older SQLite
 caches predate the field, so every consumer tolerates `undefined` and falls back to A4 at 1 inch
@@ -172,6 +194,37 @@ are inside D1 and outside what the TOC needs.
 - Formatting follows the owning section's `pageNumberFormat` (`decimal`, `lowerRoman`, `upperRoman`,
   `lowerLetter`, `upperLetter`). Anything else, or `null`, renders decimal.
 
+#### Unnumbered pages
+
+A page is **unnumbered** when its owning section is a chapter divider (`dividerPage`) or an ornamented
+front-matter page (`pageOrnament`). `add_divider_pages` builds these with no header and no footer
+deliberately, and a dedication or acknowledgements page is unnumbered in a mémoire by convention.
+
+An unnumbered page shows no number on the paper — which D5 already gives, since it has no footer — and
+**no number in the gutter either**. The gutter names the page instead: *"divider page"* /
+*"صفحة فاصلة"* / *"page de garde"*. Without this, D5 stamps a number onto the one page whose whole
+point is not having one.
+
+#### The two counting conventions
+
+Universities differ on whether a divider page occupies a number. Both are expressible in Word, and the
+Writer renders whichever the document encodes — it never picks (D7):
+
+| | Page before | Divider | Page after | How the .docx says it |
+|---|---|---|---|---|
+| **Counted** | 5 | *(blank, but is 6)* | 7 | Nothing special. The divider is a physical page; Word counts it and its empty footer prints nothing. |
+| **Not counted** | 5 | *(blank, no number)* | 6 | The section *after* the divider sets `pageNumberStart = 6`, restarting the count so the divider's number is consumed. |
+
+**Counted is what ships today** — `add_divider_pages` builds a divider with no footer and no numbering
+restart, so Word counts it. Rendering follows from the rules above with no special case: the page-break
+accumulator advances the counter for every physical page, and *not counted* falls out of the existing
+`pageNumberStart` reset. No new counting logic is required — only the `unnumbered` flag that suppresses
+display.
+
+A consequence worth stating: if a student's university uses *not counted* but their .docx does not
+restart numbering, the Writer will show *counted*. That is correct — it is what Word will print — and
+it makes a genuine formatting error visible instead of hiding it.
+
 ### 4. Node model
 
 Wrapping runs of blocks in page containers would introduce new element nodes to the Lexical tree. The
@@ -201,7 +254,9 @@ export type PageBreakData = {
     startBlockIndex: number;
   } | null;
   gutterLabel: string;                       // always present; labels the page BEGINNING after the
-                                             // gutter, i.e. endingPage + 1 — "p. 14" below page 13
+                                             // gutter, i.e. endingPage + 1 — "p. 14" below page 13.
+                                             // When that page is unnumbered (§3) this is its NAME —
+                                             // "divider page" — never a number.
   rtl: boolean;
 };
 ```
@@ -308,6 +363,10 @@ Device QA checklist, since none of the above catches it:
 4. A section with `startsOnNewPage` begins a page.
 5. Roman front matter renumbers to decimal at the body section.
 6. A numbers-only footer shows a number, not `—`.
+6b. A chapter divider page shows no number on the paper **and none in the gutter** — the gutter names
+    it. Same for an ornamented dedication / acknowledgements / abstract page.
+6c. Both counting conventions render correctly: with no numbering restart the page after a divider is
+    *divider + 1*; with `pageNumberStart` set on the following section it is *divider*.
 7. Tapping either band opens the correct sheet; a template applies.
 8. An Arabic (RTL) thesis paginates and both bands render right-to-left.
 9. Typing near a boundary does not visibly stutter.
