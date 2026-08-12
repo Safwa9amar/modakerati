@@ -386,6 +386,12 @@ Device QA checklist, since none of the above catches it:
 - **Calibration against the PDF pipeline.** On document open, fetch a true block→page map derived from
   the OnlyOffice conversion and anchor local measurement to it, correcting accumulated drift. This is
   the upgrade path from "formatting truth" to precision.
+- **"Don't count this page" from the divider band.** A one-tap toggle in the divider's sheet that
+  writes `pageNumberStart` on the *following* section, switching a document between the two counting
+  conventions in §3. Genuinely useful — a student will not discover that restart alone — but it is a
+  new `chrome-op` variant and therefore a write path, where v1 is rendering. Out of v1 deliberately,
+  not by oversight.
+
 - **Mid-paragraph breaks.** More faithful, but the break must render inside a paragraph without
   splitting the Lexical model — materially harder than one node per boundary.
 - **Proportional bottom whitespace**, showing how much room Word would actually leave on a short page.
