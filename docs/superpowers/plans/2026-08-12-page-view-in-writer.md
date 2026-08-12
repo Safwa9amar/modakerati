@@ -326,8 +326,9 @@ import { sectionHFDTO } from "../lib/thesis-doc";
 
 describe("sectionHFDTO page geometry", () => {
   test("every section reports page geometry in twips", async () => {
-    const engine = new Mdocxengine();
-    await engine.load(path.resolve(process.cwd(), "assets/thesis-base.docx"));
+    // Mdocxengine's constructor is PRIVATE and there is no .load() instance
+    // method — every call site in the repo uses this static factory.
+    const engine = await Mdocxengine.loadFromFile(path.resolve(process.cwd(), "assets/thesis-base.docx"));
     const sections = await sectionHFDTO(engine);
 
     expect(sections.length).toBeGreaterThan(0);
@@ -340,8 +341,7 @@ describe("sectionHFDTO page geometry", () => {
   });
 
   test("a plain section is neither a divider nor ornamented", async () => {
-    const engine = new Mdocxengine();
-    await engine.load(path.resolve(process.cwd(), "assets/thesis-base.docx"));
+    const engine = await Mdocxengine.loadFromFile(path.resolve(process.cwd(), "assets/thesis-base.docx"));
     const sections = await sectionHFDTO(engine);
     expect(sections[0].dividerPage).toBe(false);
     expect(sections[0].pageOrnament).toBeNull();
@@ -422,7 +422,14 @@ Expected: PASS (6 tests).
 cd ~/modakerati-server && npx vitest run --testTimeout=60000
 ```
 
-Expected: pass. `destructive-gate.test.ts` has a known pre-existing failure unrelated to this work — confirm with `git stash && npx vitest run src/__tests__/destructive-gate.test.ts; git stash pop` before attributing it to your change.
+Expected: pass. Adding fields to `DocSectionDTO` will break any exact-shape `toEqual`
+assertion elsewhere — `src/__tests__/section-hf-dto.test.ts` has one. That is a real
+consequence of your change, not someone else's; update it and commit it separately so
+this task's own commit stays reviewable.
+
+Before blaming your change for any other failure, verify with
+`git stash push -- <only your files>` that it fails without them too. (`destructive-gate.test.ts`
+was a known failure when this plan was written and has since been fixed upstream — it should pass.)
 
 - [ ] **Step 7: Commit**
 
@@ -965,7 +972,10 @@ export class PageBreakNode extends DecoratorNode<React.ReactNode> {
 
   constructor(data: PageBreakData, key?: NodeKey) { super(key); this.__data = data; }
 
-  getData(): PageBreakData { return this.__data; }
+  // getLatest() is not optional here: Lexical node objects are immutable
+  // snapshots, so reading __data off a stale reference returns stale state.
+  // Both neighbouring decorators (ChromeNode, BlockDataNode) do the same.
+  getData(): PageBreakData { return this.getLatest().__data; }
   setData(data: PageBreakData): void { this.getWritable().__data = data; }
 
   /** Display-only: contributes no text, so it can never leak into a block. */
@@ -989,7 +999,10 @@ export class PageBreakNode extends DecoratorNode<React.ReactNode> {
    *  ChromeNode. */
   __pick: "top" | "bottom" = "bottom";
   setPick(side: "top" | "bottom"): void { this.getWritable().__pick = side; }
-  getPick(): "top" | "bottom" { return this.__pick; }
+  // getLatest() for the same reason as getData — and it matters MORE here:
+  // setPick writes through getWritable(), creating a new node version, and a
+  // stale read lands the student in the footer's sheet after tapping the header.
+  getPick(): "top" | "bottom" { return this.getLatest().__pick; }
 
   decorate(editor: LexicalEditor): React.ReactNode {
     const key = this.getKey();
