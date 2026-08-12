@@ -544,7 +544,87 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   border-color: #4b57c4; background-color: #4b57c4;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.2 8.4l3.1 3.1 6.5-6.5'/%3E%3C/svg%3E");
 }
+
+/* Offscreen measuring host for the page view. Content is rendered here at TRUE
+   A4 text-column width, in the document's own point sizes, purely to learn how
+   tall each block is on a real page — the visible editor keeps writing-size text.
+   visibility:hidden, NEVER display:none: a display:none subtree reports zero
+   heights and every page would hold the whole document. */
+.lx-measure {
+  position: absolute; left: -10000px; top: 0;
+  visibility: hidden; pointer-events: none;
+  font-family: sans-serif; color: #1a1a1a;
+}
+.lx-measure * { max-width: none; }
+
+/* ── Page boundary: footer, gutter, header ────────────────────────────────── */
+.lx-pagebreak-host { user-select: none; -webkit-user-select: none; }
+.lx-pagebreak { margin: 0 -18px; }            /* bleed past .lx-content padding to the paper edge */
+.lx-pb-footer { padding: 10px 18px 14px; text-align: center; cursor: pointer;
+  box-shadow: 0 6px 8px -8px rgba(0,0,0,.35); }
+.lx-pb-footer-txt { font-size: 12px; color: #3a3a46; }
+.lx-pb-gutter { height: 17px; background: #dcdde3; display: flex; align-items: center;
+  justify-content: center; }
+.lx-pb-gutter-lbl { font-size: 9.5px; font-weight: 700; color: #979daa; letter-spacing: .04em; }
+.lx-pb-header { padding: 13px 18px 5px; cursor: pointer;
+  box-shadow: 0 -6px 8px -8px rgba(0,0,0,.35); }
+.lx-pb-header-row { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; }
 `;
+
+/**
+ * Measure each block's rendered height at TRUE page geometry.
+ *
+ * Renders one block at a time into an offscreen host whose width is the real
+ * text column (≈601.7px for A4 at 1"), so the heights returned are the heights
+ * Word would produce — not the heights of the readable-size visible editor.
+ *
+ * Heights are cached under a content hash, so a keystroke re-measures exactly
+ * one block. Never call this per keystroke regardless: the caller debounces.
+ */
+const measureCache = new Map<string, number>();
+
+function blockMeasureKey(el: HTMLElement, columnPx: number): string {
+  return `${Math.round(columnPx)}|${el.className}|${el.innerHTML}`;
+}
+
+export function measureBlockHeights(
+  sources: HTMLElement[],
+  columnPx: number,
+  rtl: boolean,
+): number[] {
+  let host = document.querySelector<HTMLDivElement>(".lx-measure");
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "lx-measure";
+    document.body.appendChild(host);
+  }
+  host.style.width = `${columnPx}px`;
+  // Arabic line-breaking differs from Latin, so the host must measure in the
+  // DOCUMENT's direction — which is content-driven here, never locale-driven.
+  host.dir = rtl ? "rtl" : "ltr";
+
+  return sources.map((src) => {
+    const key = `${rtl ? "r" : "l"}|${blockMeasureKey(src, columnPx)}`;
+    const hit = measureCache.get(key);
+    if (hit !== undefined) return hit;
+
+    const clone = src.cloneNode(true) as HTMLElement;
+    host.innerHTML = "";
+    host.appendChild(clone);
+    // getBoundingClientRect excludes margins, which DO occupy page height —
+    // .lx-p alone carries a 10px bottom margin, ~8% of a page over 8 blocks.
+    const cs = window.getComputedStyle(clone);
+    const h = clone.getBoundingClientRect().height
+      + parseFloat(cs.marginTop || "0")
+      + parseFloat(cs.marginBottom || "0");
+    host.innerHTML = "";
+
+    // Bound the cache so a long editing session cannot grow it without limit.
+    if (measureCache.size > 4000) measureCache.clear();
+    measureCache.set(key, h);
+    return h;
+  });
+}
 
 // Seed a little bilingual content so RTL auto-detection is visible immediately.
 function seed(): void {
