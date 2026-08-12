@@ -503,9 +503,12 @@ Create `scripts/verify-page-layout.mjs`:
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-const src = fs.readFileSync(path.resolve("lib/page-layout.ts"), "utf8");
+// Resolve against THIS file, not the cwd, so the script runs from anywhere.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const src = fs.readFileSync(path.join(ROOT, "lib/page-layout.ts"), "utf8");
 const js = ts.transpileModule(src, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
@@ -526,6 +529,15 @@ const check = (name, actual, expected) => {
 const a4 = M.geometryFromSection(undefined);
 check("A4 fallback text column ≈ 601.7px", Math.round(a4.textColumnPx * 10) / 10, 601.7);
 check("A4 fallback content height ≈ 930.5px", Math.round(a4.contentHeightPx * 10) / 10, 930.5);
+// The fallback's gutter is 0, so the checks above would still pass with the
+// gutter term deleted entirely. This one is the only thing holding it: a bound
+// thesis loses that width from the text column on every page.
+// 11906 − 1440 − 1440 − 720 = 8306 twips × 96/1440 = 553.7px (vs 601.7 without).
+const bound = M.geometryFromSection({
+  widthTwips: 11906, heightTwips: 16838,
+  margins: { top: 1440, bottom: 1440, left: 1440, right: 1440, header: 720, footer: 720, gutter: 720 },
+});
+check("a binding gutter narrows the text column", Math.round(bound.textColumnPx * 10) / 10, 553.7);
 
 // ── pagination ──────────────────────────────────────────────────────────────
 const limits = (n, v) => Array.from({ length: n }, () => v);
