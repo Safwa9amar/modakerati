@@ -13,11 +13,15 @@ interface Options {
   /** Workspace selection to ground on. Omit in plain chat (no block selection). */
   selectedBlocks?: { index: number; text: string }[];
   /**
-   * The open conversation, used only to watch for a new message so the chips
-   * refresh after a reply. Separate from `thesisId`, which grounds the fetch:
-   * chat-store.messages is keyed by thread, so reading it by thesis would look
-   * up a key that never exists and leave this trigger permanently inert.
-   * Undefined until the thread resolves — the other triggers still fire.
+   * The open conversation. Two jobs: it's what the chips GROUND on (the screen
+   * can be showing any thread the student picked out of the history, and the
+   * server would otherwise ground on the thesis's newest one), and it's what we
+   * watch for a new message so the chips refresh after a reply.
+   *
+   * Separate from `thesisId`, which only feeds RAG: chat-store.messages is keyed
+   * by thread, so reading it by thesis would look up a key that never exists and
+   * leave this trigger permanently inert. Undefined until the thread resolves —
+   * the other triggers still fire.
    */
   threadId?: string | null;
 }
@@ -72,8 +76,10 @@ export function useComposerSuggestions(thesisId: string | null, { enabled, selec
     }
 
     // Only while visible, and NOT mid-generation (wait for the turn to finish so
-    // its reply feeds the chips).
-    if (!enabled || !thesisId || isGenerating) return;
+    // its reply feeds the chips). A thesis-less conversation still gets chips —
+    // grounded on the talk, with no document to retrieve from — so a thread alone
+    // is enough to ask.
+    if (!enabled || (!thesisId && !threadId) || isGenerating) return;
 
     // Nothing to ground on (brand-new thesis, no selection) → show static presets.
     if (!lastMessageId && !selectionKey) {
@@ -81,7 +87,7 @@ export function useComposerSuggestions(thesisId: string | null, { enabled, selec
       return;
     }
 
-    const key = `${lastMessageId}|${selectionKey}`;
+    const key = `${threadId ?? ""}|${lastMessageId}|${selectionKey}`;
     if (key === lastKeyRef.current) return; // context unchanged since last fetch
 
     // Per-run flag: the cleanup flips it so a response that resolves after the
@@ -102,6 +108,7 @@ export function useComposerSuggestions(thesisId: string | null, { enabled, selec
         const result = await getComposerSuggestions(
           thesisId,
           {
+            threadId,
             selection: combined || undefined,
             docBlockIndex: indices.length ? indices[0] : null,
             docBlockIndices: indices.length > 1 ? indices : undefined,
@@ -127,7 +134,7 @@ export function useComposerSuggestions(thesisId: string | null, { enabled, selec
       abortRef.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thesisId, enabled, aiSuggestionsEnabled, isGenerating, selectionKey, lastMessageId]);
+  }, [thesisId, threadId, enabled, aiSuggestionsEnabled, isGenerating, selectionKey, lastMessageId]);
 
   return { suggestions, loading };
 }

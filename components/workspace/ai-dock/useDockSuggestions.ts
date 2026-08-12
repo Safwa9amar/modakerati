@@ -6,6 +6,12 @@ import { getComposerSuggestions, type ComposerSuggestion } from "@/lib/api";
  * Scope-grounded suggestion chips. Intentionally separate from
  * hooks/useComposerSuggestions (no debounce, no cache — the dock unmounts on
  * collapse) but honours the same `preferences.aiSuggestions` gate.
+ *
+ * No threadId is sent, on purpose: the dock has no conversation of its own, and
+ * the server falls back to the thesis's newest non-archived thread — the same one
+ * ensureThreadFor picks, so the chips ground on exactly the conversation a send
+ * from here would join. Resolving it in the app instead would mean CREATING a
+ * thread from a passive fetch that fires on every selection change.
  */
 export function useDockSuggestions(thesisId: string, indices: number[]) {
   // Subscribed, not read once, so toggling the setting clears/restores chips live.

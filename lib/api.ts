@@ -352,18 +352,33 @@ export interface ComposerSuggestion {
   prompt: string;
 }
 
-// Fetch dynamic composer quick-action chips for a thesis, grounded in the recent
-// conversation + the current selection + RAG context. Best-effort: the server
-// returns an empty array on any failure, and callers fall back to static presets.
+// Fetch dynamic composer quick-action chips, grounded in the recent conversation
+// + the current selection + RAG context. Best-effort: the server returns an empty
+// array on any failure, and callers fall back to static presets.
+//
+// `threadId` is what the chips ground on — WHICH conversation, not which thesis.
+// Omitting it makes the server fall back to the thesis's newest thread, which is
+// right for a caller that has no thread of its own (the workspace dock) and wrong
+// for one that does: the chat screen can be looking at any thread in the history,
+// and chips about a different conversation are worse than none.
 export async function getComposerSuggestions(
-  thesisId: string,
-  options?: { selection?: string; docBlockIndex?: number | null; docBlockIndices?: number[] },
+  thesisId: string | null,
+  options?: {
+    threadId?: string | null;
+    selection?: string;
+    docBlockIndex?: number | null;
+    docBlockIndices?: number[];
+  },
   signal?: AbortSignal
 ): Promise<ComposerSuggestion[]> {
   const res = await apiPost<{ suggestions?: ComposerSuggestion[] }>(
     "/api/chat/suggestions",
     {
       thesisId,
+      // Explicitly absent, never null-with-a-thesis: the server reads a sent-but-
+      // malformed threadId as a client bug and answers nothing, while an absent
+      // one is the documented "resolve it for me" signal.
+      ...(options?.threadId ? { threadId: options.threadId } : {}),
       selection: options?.selection,
       docBlockIndex: options?.docBlockIndex ?? null,
       docBlockIndices: options?.docBlockIndices,
