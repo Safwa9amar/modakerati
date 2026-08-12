@@ -1241,6 +1241,19 @@ export type DocSectionDTO = {
   linkedToPrevious?: boolean | null;
   // The section begins on a fresh page (vs. a continuous break).
   startsOnNewPage?: boolean;
+  /** Page size + margins in twips (1440 = 1 inch). Optional: older cached DTOs
+   *  predate it — absent means "assume A4 at 1 inch" (lib/page-layout.ts). */
+  page?: {
+    widthTwips: number;
+    heightTwips: number;
+    margins: { top: number; bottom: number; left: number; right: number;
+               header: number; footer: number; gutter: number };
+  } | null;
+  /** This section is a chapter divider page — no page number by design. */
+  dividerPage?: boolean;
+  /** Ornamented front-matter page ("dedication" | "thanks" | "abstract"), else
+   *  null. Also unnumbered by convention. */
+  pageOrnament?: string | null;
 };
 
 export type DocumentDTO =
