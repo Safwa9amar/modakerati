@@ -1,7 +1,9 @@
 # "This operation is not supported" — while holding the tool
 
 **Date:** 2026-08-12
-**Status:** Design, not implemented
+**Status:** Implemented 2026-08-13 (`~/modakerati-server`, branch `feat/writer-page-view`). Full suite
+1112 passing, `tsc --noEmit` clean. Not yet deployed — see *Implementation notes* at the end for the
+four places the build deviates from this design, and what is still only logged rather than acted on.
 **Repos touched:** `~/modakerati-server` (all of it)
 
 ## Problem
@@ -306,3 +308,43 @@ exist — check 1 was added after some of those rows were written.
 
 The behavioural claim to prove is not "the tests pass" but that the turn in the screenshot now ends
 with the blank lines gone.
+
+## Implementation notes (2026-08-13)
+
+Built as designed except in four places, each a change of mechanism rather than of intent.
+
+**1. `attemptedTools` was not added.** The design asked the model to declare what it tried, verified
+against the bridge's record. The declaration turned out to be the weak half: the bridge already knows
+what ran, so the check reads its own `called` set and `loadCalls` directly and asks the model for
+nothing. One less field the model can get wrong, and it cannot be gamed by naming a tool it never
+called.
+
+**2. Every redirect is one-shot, which the design did not call for.** Check 2 reasons from keywords,
+not from the document, so it can be wrong — and unlike the `load_tools` redirect there is no step the
+model can take to escape it. Re-reporting the same capability (keyed by the backlog's own
+`capabilityKey`) now files it, tagged `[gate: re-reported after a redirect]`. Without this, one bad
+keyword could bury a real gap permanently. The check order also changed: naming the relevant *group*
+beats a generic "go and look", so the group redirect runs before the never-looked catch-all.
+
+**3. The detector reads `run.mutated`, the loop's existing flag,** rather than inferring "did this
+turn change anything" from tool names. It is set when a mutating tool ran *and succeeded*, which is
+the precise question, and it is already the field the turn trace records.
+
+**4. `holds` is an array.** A blank paragraph very often carries both a section break and a page
+break; reporting one reason would have meant choosing which truth to tell.
+
+**Still weaker than the design.** §4 says a second false claim should be "logged with the answer text
+so the pattern is visible in the trace". It currently emits a `console.warn` only — there is no
+`ai_*` table row and nothing surfaces in the dashboard, so a recurrence is visible in server logs and
+nowhere else. The re-prompt itself works in both loops; only the telemetry is missing.
+
+**What the streaming correction looks like to a student.** The wrong sentence has already been sent
+by the time it can be detected, so the correction *appends*: the student sees the refusal, then a
+blank line, then the assistant doing the work. Retracting streamed text would need a control frame
+the app does not have. Worth revisiting if it reads badly in practice — the alternative is holding
+the final answer back until the turn ends, which costs perceived latency on every good answer to
+tidy up a rare bad one.
+
+**One deliberate budget change.** `find_blocks` takes the always-loaded core set from 19 tools to 20,
+and the test that pins that ceiling was changed from `< 20` to `<= 20`. Core is billed on every turn;
+the bound is a budget to argue with in review, not a number to nudge.
