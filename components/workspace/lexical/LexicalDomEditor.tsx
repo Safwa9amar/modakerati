@@ -3098,8 +3098,9 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       const forcedStarts = new Set(
         sections.filter((s) => s.startsOnNewPage && s.startBlockIndex > 0).map((s) => s.startBlockIndex),
       );
-      const starts = paginate({ heights, pageContentPx, forcedStarts });
-      const numbering = numberPages(starts, sections);
+      // `remainder` is deliberately unused until Task 8 renders the spacer.
+      const { starts, physPage } = paginate({ heights, pageContentPx, forcedStarts });
+      const numbering = numberPages(starts, physPage, sections);
       if (cancelled || numbering.length === 0) return;
 
       // 3 ─ Build the node data.
