@@ -1198,7 +1198,22 @@ export type InlineMathDTO = {
 };
 
 export type DocBlockDTO =
-  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; alignment: "left" | "center" | "right" | "both" | null; direction: "rtl" | "ltr" | null; math?: InlineMathDTO[]; anchors?: AnchoredShape[] }
+  | {
+      index: number; kind: "paragraph"; text: string; styleId: string | null;
+      level: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+      alignment: "left" | "center" | "right" | "both" | null;
+      direction: "rtl" | "ltr" | null;
+      math?: InlineMathDTO[]; anchors?: AnchoredShape[];
+      /** Effective typography resolved server-side through the OOXML cascade —
+       *  what the MEASURING host paginates with. Display typography is untouched.
+       *  Optional: older cached DTOs predate it. */
+      fmt?: {
+        sizePt: number;
+        line: { rule: "auto" | "exact" | "atLeast"; value: number };
+        beforePt: number;
+        afterPt: number;
+      };
+    }
   | {
       index: number;
       kind: "table";
