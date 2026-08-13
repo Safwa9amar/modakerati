@@ -145,11 +145,33 @@ Use logical `inset-inline-start`, never `left`.
   first resolvable image. Honest for every case here; a second picture anchor on one paragraph would
   fetch the wrong bytes.
 
+## v1 scope decisions (made during the app build)
+
+- **Paragraph carriers do not render their anchors yet.** Only blocks that go through
+  `BlockDataNode` (image / textbox / table / other) get the overlay. A `paragraph` block is a real
+  editable Lexical node whose children the reconciler and the write-back round-trip own — injecting
+  an overlay risks `$paraFromElement` and a blank editor. Covering it needs a zero-height
+  display-only sibling node (the `PageBreakNode` pattern: registration + every `$isDisplayOnlyNode`
+  walker + the pagination row walk). The divider case — the actual bug — is an `image` block and is
+  fully covered. A paragraph carrying prose plus a floating picture still shows nothing.
+- **The shape's CONTENTS scale with the shape.** Type size, insets, border weight and radius all
+  multiply by the same factor — a 20pt title in a box scaled to 56% must not overflow a box Word had
+  it fitting inside. `placeAnchor` returns `scale` for exactly this.
+- **`y.from: "page"` pins to the carrier's top** rather than applying a page-origin offset against a
+  paragraph origin, which would drop the shape hundreds of px over unrelated text. One occurrence.
+- **`x.from: "margin"` is treated as `"column"`** — sanctioned for a single-column body; an
+  approximation, not an identity.
+- **An ornament block's anchors render nothing** — its `decorate` deliberately returns null before
+  any anchor logic (there is no box to position against). A second silent drop beside the
+  table-cell anchor above.
+- ⚠️ Until the `extractInlineImage` first-`<wp:extent>` bug is fixed, the frame renders at the
+  block's buggy 318px while the title scales by true geometry — close on a phone column, but they
+  only line up exactly once the engine reads the picture's own extent.
+
 ## Non-goals for v1
 
 - Text flowing *around* a shape (`wrapSquare`/`wrapTight` render as overlays; text runs under them).
 - Editing a shape's text in place. It renders; the AI already edits these through its own tools.
-- `y.from: "page"`, one occurrence — falls back to paragraph-relative.
 - Rotation, `wp14:sizeRelH`, and the `other` shape kinds (rendered as a placeholder, round-tripped).
 
 ## Verification
