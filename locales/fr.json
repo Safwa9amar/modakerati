@@ -984,6 +984,12 @@
       "field": { "chapter": "⟨chapitre⟩", "title": "⟨titre⟩", "author": "⟨auteur⟩", "university": "⟨université⟩", "date": "⟨date⟩" },
       "num": { "decimal": "1, 2, 3…", "lowerRoman": "i, ii, iii…", "upperRoman": "I, II, III…", "other": "#" }
     },
+    "pages": {
+      "toggle": "Afficher les pages",
+      "gutterPage": "p. {{n}}",
+      "dividerPage": "page de garde",
+      "frontMatterPage": "page non numérotée"
+    },
     "open": "Ouvrir l'espace de travail",
     "preview": "Aperçu",
     "previewWord": "Word",

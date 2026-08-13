@@ -984,6 +984,12 @@
       "field": { "chapter": "⟨الفصل⟩", "title": "⟨العنوان⟩", "author": "⟨المؤلف⟩", "university": "⟨الجامعة⟩", "date": "⟨التاريخ⟩" },
       "num": { "decimal": "١، ٢، ٣…", "lowerRoman": "i، ii، iii…", "upperRoman": "I، II، III…", "other": "#" }
     },
+    "pages": {
+      "toggle": "إظهار الصفحات",
+      "gutterPage": "ص. {{n}}",
+      "dividerPage": "صفحة فاصلة",
+      "frontMatterPage": "صفحة غير مرقّمة"
+    },
     "open": "فتح مساحة العمل",
     "preview": "معاينة",
     "previewWord": "Word",
