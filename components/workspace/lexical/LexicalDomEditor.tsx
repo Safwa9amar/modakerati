@@ -2553,14 +2553,39 @@ function RangeSuggestionPlugin({
       const existing = root.getChildren().find($isRangeSuggestionNode) as RangeSuggestionNode | undefined;
       const data: RangeData = { original: r.original, proposed: r.proposed, status: r.status, instruction: r.instruction, reasoning: r.reasoning, reasoningMs: r.reasoningMs };
       if (existing) { existing.getWritable().__data = data; return; } // stream in place
-      // Create: replace blocks [start..end] with ONE range node. Delete the trailing
-      // range blocks high→low (positional-safe), then swap the first for the node.
-      const kids = root.getChildren();
-      if (r.start < 0 || r.start >= kids.length) return;
+      // Create: replace blocks [start..end] with ONE range node.
+      //
+      // r.start/r.end are BLOCK-MODEL indices. Root-child positions are NOT the
+      // same space, and they diverge in both directions: a display-only node (a
+      // chrome band, a page boundary) adds a position the block model doesn't
+      // have, while a list collapses many block indices into ONE child. Indexing
+      // getChildren() with them therefore removed and REPLACED the wrong nodes —
+      // destructively, on any document with a band or a list above the range.
+      //
+      // Resolve to real nodes through the block-model mapper instead, and collect
+      // them all BEFORE mutating: the removals below change the child list, and a
+      // walk must not read a list it is editing.
       const originals: RangeOriginal[] = r.originalBlocks;
+      if (r.start < 0 || r.end < r.start) return;
+      const targets: LexicalNode[] = [];
+      for (let i = r.start; i <= r.end; i++) {
+        const n = $anyNodeAtBlockIndex(i);
+        if (n && !targets.some((t) => t.getKey() === n.getKey())) targets.push(n);
+      }
+      if (targets.length === 0) return;
+      // Every target must be a direct child of the root. A list item is not: it
+      // lives inside a ListNode, so replacing it with a block-level decorator
+      // would leave a malformed list (and emptying the list would strand it).
+      // Refusing to show the proposal is strictly better than mangling the
+      // student's document — the range tools already handle a null result.
+      const rootKey = root.getKey();
+      if (!targets.every((n) => n.getParent()?.getKey() === rootKey)) {
+        console.warn("[range] proposal spans non-top-level blocks (a list?) — not rendering it");
+        return;
+      }
       $setSelection(null);
-      for (let i = Math.min(r.end, kids.length - 1); i > r.start; i--) root.getChildren()[i]?.remove();
-      root.getChildren()[r.start]?.replace($createRangeSuggestionNode(data, originals));
+      for (let i = targets.length - 1; i > 0; i--) targets[i].remove();
+      targets[0].replace($createRangeSuggestionNode(data, originals));
     };
     // Create is structural (pin scroll + blur); a pure stream update isn't.
     if (!hasNode) withScrollPinned(editor, mutate, true);
