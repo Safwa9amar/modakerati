@@ -138,7 +138,15 @@ import {
 import { singleMoveTo } from "@/lib/reorder-range";
 // Pure geometry/pagination/numbering — no React, no RN, no DOM, so it is the one
 // piece of this feature verifiable off-device (scripts/verify-page-layout.mjs).
-import { paginate, numberPages, sectionForBlock, type AnchorSectionGeometry } from "@/lib/page-layout";
+import {
+  paginate,
+  numberPages,
+  sectionForBlock,
+  lineHeightPx,
+  PX_PER_PT,
+  type AnchorSectionGeometry,
+  type BlockFmt,
+} from "@/lib/page-layout";
 import type { DocBlockDTO } from "@/lib/api";
 import type { BlockKind } from "@/stores/insert-menu-store";
 // type-only — WorkspaceLexicalView is the native ('use dom' host) module; importing
@@ -607,17 +615,50 @@ html, body { max-width: 100vw; overflow-x: hidden; }
  * default export" for any non-TYPE named export. tsc cannot see that — it is a
  * bundle-time failure that takes the whole editor screen down with it.
  */
-const measureCache = new Map<string, number>();
+const measureCache = new Map<string, { h: number; before: number }>();
+
+// Module-private helper beside the cache, called from PaginationPlugin's
+// font-readiness effect — a measurement taken before Liberation Serif loads
+// is poisoned (it measured the fallback serif's metrics, not Word's).
+function measureCacheClear(): void {
+  measureCache.clear();
+}
 
 function blockMeasureKey(el: HTMLElement, columnPx: number): string {
   return `${Math.round(columnPx)}|${el.className}|${el.innerHTML}`;
+}
+
+// Height of ONE line at `normal` leading in the measuring font — the base the
+// `auto` multiplier scales (Word's 1.5x means 1.5x the font's own leading,
+// which for Liberation Serif is Times New Roman's). Cached per (sizePt, rtl).
+// Measured inside the SAME offscreen host used for block measurement (not
+// document.body) so it shares the same width/dir context.
+const singleLineCache = new Map<string, number>();
+function singleLinePx(host: HTMLElement, sizePt: number, rtl: boolean): number {
+  const key = `${sizePt}|${rtl ? "r" : "l"}`;
+  const hit = singleLineCache.get(key);
+  if (hit !== undefined) return hit;
+  const probe = document.createElement("div");
+  probe.style.cssText = `font-size:${sizePt * PX_PER_PT}px;line-height:normal;`;
+  // Same tofu-safe rule as the rest of the app: Arabic NEVER gets a
+  // concrete-first font stack (per-char glyph paths break on RNSVG/WebView
+  // for some concrete serif fallback chains) — a generic sans is the only
+  // stack verified safe on-device for Arabic text.
+  probe.style.fontFamily = rtl ? "sans-serif" : '"Liberation Serif", Georgia, serif';
+  probe.textContent = rtl ? "نص" : "Hg";
+  host.appendChild(probe);
+  const h = probe.getBoundingClientRect().height;
+  probe.remove();
+  singleLineCache.set(key, h);
+  return h;
 }
 
 function measureBlockHeights(
   sources: HTMLElement[],
   columnPx: number,
   rtl: boolean,
-): number[] {
+  fmts?: (BlockFmt | null)[],
+): { h: number; before: number }[] {
   let host = document.querySelector<HTMLDivElement>(".lx-measure");
   if (!host) {
     host = document.createElement("div");
@@ -629,26 +670,48 @@ function measureBlockHeights(
   // DOCUMENT's direction — which is content-driven here, never locale-driven.
   host.dir = rtl ? "rtl" : "ltr";
 
-  return sources.map((src) => {
-    const key = `${rtl ? "r" : "l"}|${blockMeasureKey(src, columnPx)}`;
+  return sources.map((src, i) => {
+    const fmt = fmts?.[i] ?? null;
+    const key = `${rtl ? "r" : "l"}|${fmt ? JSON.stringify(fmt) : "-"}|${blockMeasureKey(src, columnPx)}`;
     const hit = measureCache.get(key);
     if (hit !== undefined) return hit;
 
     const clone = src.cloneNode(true) as HTMLElement;
     host.innerHTML = "";
     host.appendChild(clone);
-    // getBoundingClientRect excludes margins, which DO occupy page height —
-    // .lx-p alone carries a 10px bottom margin, ~8% of a page over 8 blocks.
-    const cs = window.getComputedStyle(clone);
-    const h = clone.getBoundingClientRect().height
-      + parseFloat(cs.marginTop || "0")
-      + parseFloat(cs.marginBottom || "0");
+
+    let result: { h: number; before: number };
+    if (fmt) {
+      // Measure at the DOCUMENT's typography, not the editor's reading style:
+      // Liberation Serif (Times New Roman's metric twin) for LTR, the same
+      // tofu-safe generic sans for RTL — never a concrete-first stack on
+      // Arabic. Margins are zeroed because before/after now come from the
+      // DTO, not getComputedStyle.
+      clone.style.fontFamily = rtl ? "sans-serif" : '"Liberation Serif", Georgia, serif';
+      clone.style.fontSize = `${fmt.sizePt * PX_PER_PT}px`;
+      clone.style.lineHeight = `${lineHeightPx(fmt, singleLinePx(host, fmt.sizePt, rtl))}px`;
+      clone.style.marginTop = "0";
+      clone.style.marginBottom = "0";
+      const h = clone.getBoundingClientRect().height + fmt.afterPt * PX_PER_PT;
+      result = { h, before: fmt.beforePt * PX_PER_PT };
+    } else {
+      // No fmt (tables, images, old caches): today's path — heights come
+      // from the clone's own computed margins, not the DTO. `h` still
+      // excludes the space-before component (marginTop), same contract as
+      // the fmt branch above and as `paginate()` requires of `heights[]` —
+      // it now travels separately as `before` so a natural-page-top break
+      // can still shed it (F3) without double-counting it mid-page.
+      const cs = window.getComputedStyle(clone);
+      const marginTop = parseFloat(cs.marginTop || "0");
+      const h = clone.getBoundingClientRect().height + parseFloat(cs.marginBottom || "0");
+      result = { h, before: marginTop };
+    }
     host.innerHTML = "";
 
     // Bound the cache so a long editing session cannot grow it without limit.
     if (measureCache.size > 4000) measureCache.clear();
-    measureCache.set(key, h);
-    return h;
+    measureCache.set(key, result);
+    return result;
   });
 }
 
@@ -3070,6 +3133,21 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
     if (!setup || setup.sections.length === 0) { dropAll(); return; }
     const sections = setup.sections;
 
+    // Font readiness: a measurement taken before Liberation Serif finishes
+    // loading measured the fallback serif's metrics instead — poisoned, and
+    // cached under the same keys real measurements will later hit. Clear
+    // BOTH caches (block heights and the single-line probe — a probe taken
+    // in the fallback is exactly as poisoned as a block measurement) and
+    // re-run once the real font is in.
+    if (typeof document !== "undefined" && "fonts" in document) {
+      (document as Document & { fonts: FontFaceSet }).fonts.ready.then(() => {
+        if (cancelled) return;
+        measureCacheClear();
+        singleLineCache.clear();
+        schedule();
+      });
+    }
+
     const repaginate = () => {
       if (cancelled) return;
 
@@ -3104,13 +3182,24 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       // re-laying out the measuring host per block. Page HEIGHT is per-section
       // below, which is the one that actually varies (landscape appendices).
       const columnPx = sections[0].textColumnPx;
-      const heights = measureBlockHeights(rows, columnPx, setup.rtl);
+      // `fmts` comes from nowhere yet — Task 7 threads `blockFmts` through
+      // `pageSetup`. Until then every block falls back to today's
+      // getComputedStyle-margin path inside measureBlockHeights.
+      const results = measureBlockHeights(rows, columnPx, setup.rtl);
+      const heights = results.map((r) => r.h);
+      const spaceBefore = results.map((r) => r.before);
       const pageContentPx = rows.map((_, i) => sections[sectionForBlock(sections, i)].contentHeightPx);
       const forcedStarts = new Set(
         sections.filter((s) => s.startsOnNewPage && s.startBlockIndex > 0).map((s) => s.startBlockIndex),
       );
       // `remainder` is deliberately unused until Task 8 renders the spacer.
-      const { starts, physPage } = paginate({ heights, pageContentPx, forcedStarts });
+      // Threading `keepWithNext`/`splittable` (F2/F4) through `pageSetup` is
+      // Task 7's job, but `spaceBefore` needs no new prop to be correct today
+      // — measureBlockHeights already keeps every block's `before` and `h`
+      // additive to its old single-number total, so passing it here only
+      // turns on F3 (a natural page top sheds the block's space-before)
+      // uniformly for fmt and non-fmt blocks alike; nothing else changes.
+      const { starts, physPage } = paginate({ heights, spaceBefore, pageContentPx, forcedStarts });
       const numbering = numberPages(starts, physPage, sections);
       if (cancelled || numbering.length === 0) return;
 
