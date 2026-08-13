@@ -154,5 +154,94 @@ check("lineHeightPx: atLeast takes the larger of rule and leading",
   [M.lineHeightPx?.(fmtOf("atLeast", 12), 20), M.lineHeightPx?.(fmtOf("atLeast", 12), 10)], [20, 16]);
 check("PX_PER_PT is 96/72", M.PX_PER_PT, 96 / 72);
 
+// ── chrome artwork placement ────────────────────────────────────────────────
+// The real thesis (f7cd3175): A4, margins t/b 1418tw, l 1418tw, r 1701tw,
+// header 708tw. Its cover frame is an anchored, behind-text picture measured
+// from the header PARAGRAPH; the الإهداء frame is measured from the MARGIN.
+const THESIS_PAGE = {
+  widthTwips: 11906, heightTwips: 16838,
+  margins: { top: 1418, bottom: 1418, left: 1418, right: 1701, header: 708, footer: 1349, gutter: 0 },
+};
+const rtlGeo = M.chromeGeometryFromSection(THESIS_PAGE);
+const round = (n) => Math.round(n * 10) / 10;
+check("chrome geometry: page art uses the PHYSICAL left margin, unmirrored",
+  round(rtlGeo.leftMarginPx), round((1418 * 96) / 1440));
+check("chrome geometry: header distance comes from w:header",
+  round(rtlGeo.headerDistancePx), round((708 * 96) / 1440));
+
+// Fractions of the sheet — the form that survives to any screen width.
+const IN = 914400;
+const inPx = (emu) => (emu / IN) * 96;
+const cover = M.chromeDrawingFractions(
+  { widthEmu: 10706100, heightEmu: 10756900,
+    posH: { relativeTo: "column", offsetEmu: -2462530, align: null },
+    posV: { relativeTo: "paragraph", offsetEmu: -525780, align: null } },
+  rtlGeo,
+);
+// The cover bitmap is 1.35x the sheet and pushed off its left edge — that is
+// what lands the border INSIDE it on the page edges. Stretching it to the paper
+// instead would pull that border inward.
+check("cover frame is wider than the sheet, as authored",
+  round(cover.widthFrac), round(inPx(10706100) / rtlGeo.pageWidthPx));
+check("cover frame starts off the sheet's left edge",
+  [cover.leftFrac < 0, round(cover.leftFrac)],
+  [true, round((rtlGeo.leftMarginPx + inPx(-2462530)) / rtlGeo.pageWidthPx)]);
+check("cover frame's far edge runs past the sheet",
+  cover.leftFrac + cover.widthFrac > 1, true);
+
+// The الإهداء frame is authored to sit flush on the sheet — the check that the
+// origin mapping is right, since a wrong one shows up as a visible inset.
+const dedication = M.chromeDrawingFractions(
+  { widthEmu: 7550785, heightEmu: 10668000,
+    posH: { relativeTo: "margin", offsetEmu: -884555, align: null },
+    posV: { relativeTo: "margin", offsetEmu: -884555, align: null } },
+  rtlGeo,
+);
+check("the الإهداء frame covers the sheet edge to edge",
+  [Math.abs(dedication.leftFrac) < 0.01, Math.abs(dedication.leftFrac + dedication.widthFrac - 1) < 0.01],
+  [true, true]);
+check("...and spans essentially the whole sheet height",
+  dedication.heightFrac > 0.94 && dedication.heightFrac <= 1.01, true);
+
+// Fractions are resolution-free: the same numbers drive any paper width.
+const at390 = { left: cover.leftFrac * 390, width: cover.widthFrac * 390 };
+const at780 = { left: cover.leftFrac * 780, width: cover.widthFrac * 780 };
+check("doubling the paper doubles the art, preserving Word's proportions",
+  [round(at780.left / at390.left), round(at780.width / at390.width)], [2, 2]);
+
+// A page-relative anchor at 0 starts at the sheet's own corner.
+const pageRel = M.chromeDrawingFractions(
+  { widthEmu: IN, heightEmu: IN,
+    posH: { relativeTo: "page", offsetEmu: 0, align: null },
+    posV: { relativeTo: "page", offsetEmu: 0, align: null } },
+  rtlGeo,
+);
+check("a page-relative anchor at offset 0 sits on the sheet's left edge",
+  round(pageRel.leftFrac), 0);
+check("...and one top margin above the text, as a fraction of the sheet",
+  round(pageRel.topFrac), round(-rtlGeo.topMarginPx / rtlGeo.pageHeightPx));
+
+// ── duotone ─────────────────────────────────────────────────────────────────
+check("no duotone → no stops, so the bytes draw untouched", M.duotoneStops(null), null);
+check("a duotone with no colour → no stops",
+  M.duotoneStops({ dark: null, light: "FFFFFF", shade: 0.45, satMod: 1.35 }), null);
+check("a malformed hex is refused rather than guessed",
+  M.duotoneStops({ dark: "nothex", light: null, shade: null, satMod: null }), null);
+check("no shade/satMod → the colour passes through untouched",
+  M.duotoneStops({ dark: "FFC000", light: "FFFFFF", shade: null, satMod: null }),
+  { dark: "FFC000", light: "FFFFFF" });
+
+// The real cover frame: accent4 gold at 45% shade. The shade MUST be applied in
+// linear light — doing it in sRGB gives #735600, a mud brown, where Word paints
+// a clear amber. This check is the guard on that.
+const gold = M.duotoneStops({ dark: "FFC000", light: "FFFFFF", shade: 0.45, satMod: 1.35 });
+check("the cover frame's gold is a mid amber, not mud", gold.dark, "B38600");
+check("...and it is genuinely golden: red high, green mid, blue absent",
+  [parseInt(gold.dark.slice(0, 2), 16) > 150,
+   parseInt(gold.dark.slice(2, 4), 16) > 100 && parseInt(gold.dark.slice(2, 4), 16) < 180,
+   parseInt(gold.dark.slice(4, 6), 16) < 30],
+  [true, true, true]);
+check("the highlight stop carries through", gold.light, "FFFFFF");
+
 console.log(failures ? `\n${failures} FAILED` : "\nAll page-layout checks passed");
 process.exit(failures ? 1 : 0);

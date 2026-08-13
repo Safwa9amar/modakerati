@@ -1274,6 +1274,36 @@ export type DocBlockDTO =
     }
   | { index: number; kind: "other"; tag: string };
 
+/**
+ * A picture placed in a header/footer part (mirror of the server's
+ * ChromeDrawingDTO), with the geometry needed to paint it where Word paints it.
+ *
+ * This is what a thesis cover frame IS: an anchored `behindDoc` picture that
+ * deliberately overflows the header rectangle to cover the whole page. Sizes and
+ * offsets are in EMU (914400 per inch) — `lib/page-layout.ts` converts.
+ */
+export type ChromeDrawingDTO = {
+  /** Inline bytes when small enough; otherwise absent with `hasMedia` set. */
+  dataUri?: string;
+  /** Real bytes exist even when they were too big to inline. */
+  hasMedia?: boolean;
+  widthEmu: number;
+  heightEmu: number;
+  /** Floating (wp:anchor) rather than in the text flow (wp:inline). */
+  anchored: boolean;
+  /** Word's "Behind Text" — paints under the body text, not over it. */
+  behindDoc: boolean;
+  /** "none" | "square" | "tight" | "through" | "topAndBottom" | "inline" */
+  wrap: string;
+  posH: { relativeTo: string; offsetEmu: number | null; align: string | null };
+  posV: { relativeTo: string; offsetEmu: number | null; align: string | null };
+  /** Word's Recolor. The cover frame ships as a BLACK png painted in the theme
+   *  accent — drawing the raw bytes gives a black border instead of gold. */
+  duotone: { dark: string | null; light: string | null;
+             shade: number | null; satMod: number | null } | null;
+  descr?: string | null;
+};
+
 // One Word section's page chrome (mirror of the server's DocSectionDTO).
 export type DocSectionDTO = {
   startBlockIndex: number;
@@ -1284,10 +1314,15 @@ export type DocSectionDTO = {
     segments: string[];
     // The header's bottom rule (Word's header line): present + 6-hex colour|null.
     border: { bottom: boolean; color: string | null };
+    // Pictures in the part. A header can be text-free and still carry a full-page
+    // frame, so this may be the ONLY reason the header is non-null. Optional:
+    // older cached DTOs predate it.
+    drawings?: ChromeDrawingDTO[];
   } | null;
   footer: {
     text: string; // "" when the footer is page-numbers-only
     pageNumbers: { format: string; startAt: number | null } | null;
+    drawings?: ChromeDrawingDTO[];
   } | null;
   // Word "Link to Previous" state for this section's header+footer (both inherit
   // → true; has its own → false; null = first section). Older cached DTOs predate

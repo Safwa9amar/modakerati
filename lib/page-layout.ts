@@ -421,6 +421,204 @@ export function placeAnchor(
   return { startPx, topPx, vAlign, widthPx, heightPx, zIndex: a.behindDoc ? 0 : 2, scale };
 }
 
+/** The page geometry a chrome drawing is placed against, in DOCUMENT px. Built
+ *  natively from DocSectionDTO.page and carried into the 'use dom' editor. */
+export type ChromePageGeometry = {
+  /** Full sheet width — the scale reference. Page artwork is scaled to the
+   *  PAPER, not the text column: the editor uses ~18px side margins to keep a
+   *  phone readable, so its column fills ~91% of the sheet where Word's fills
+   *  ~74%. Scaling a page-sized frame by the column ratio would push it a
+   *  quarter-page wider than the paper it is supposed to border. */
+  pageWidthPx: number;
+  /** Full sheet height, for telling a page frame from header furniture. */
+  pageHeightPx: number;
+  textColumnPx: number;
+  /** The PHYSICAL left margin — not the inline-start one. Unlike body anchors
+   *  (see {@link placeAnchor}), page artwork is NOT mirrored for an RTL
+   *  document: the surveyed thesis is Arabic, and its 8.26in cover frame sits
+   *  flush on the 8.27in sheet only when its `margin`-relative offset is
+   *  measured from the left. Mirroring pushed it a fifth of an inch off the
+   *  right edge. Decorative frames are symmetric anyway; a logo is not, and
+   *  physical placement is what Word stores for it. */
+  leftMarginPx: number;
+  topMarginPx: number;
+  /** Distance from the page's top edge to the header paragraph (w:header). */
+  headerDistancePx: number;
+};
+
+/**
+ * One drawing's geometry as FRACTIONS of the page, which is the only form that
+ * survives the trip to a phone.
+ *
+ * Absolute sizes are useless here and stretching the art to the paper is worse:
+ * the cover frame's bitmap is deliberately 1.4× the sheet and pushed off its
+ * left edge, because that is what lands the *border inside it* on the page
+ * edges. Squeezing the whole bitmap into the paper pulls that border inward and
+ * leaves a margin Word never had. Keeping Word's ratios and re-scaling them to
+ * whatever the editor's paper happens to be reproduces the layout exactly, at
+ * any width, and lets `overflow-x: hidden` clip the overhang like Word does.
+ */
+export type ChromeDrawingFractions = {
+  /** Left edge ÷ page width, from the paper's PHYSICAL left edge — deliberately
+   *  not mirrored for RTL; see {@link ChromePageGeometry.leftMarginPx}. */
+  leftFrac: number;
+  /** Top ÷ page height, from the page's CONTENT top. Negative for full-page art,
+   *  which starts above the text area — the normal case, not an error. */
+  topFrac: number;
+  widthFrac: number;
+  heightFrac: number;
+};
+
+/** Page geometry for chrome placement, from a section's twips. */
+export function chromeGeometryFromSection(page: DocSectionDTO["page"] | undefined): ChromePageGeometry {
+  const p = page ?? A4_FALLBACK;
+  const m = p.margins;
+  return {
+    pageWidthPx: p.widthTwips * TWIPS_TO_PX,
+    pageHeightPx: p.heightTwips * TWIPS_TO_PX,
+    textColumnPx: (p.widthTwips - m.left - m.right - (m.gutter ?? 0)) * TWIPS_TO_PX,
+    leftMarginPx: m.left * TWIPS_TO_PX,
+    topMarginPx: m.top * TWIPS_TO_PX,
+    headerDistancePx: (m.header ?? 0) * TWIPS_TO_PX,
+  };
+}
+
+/**
+ * Express one header/footer picture's placement as fractions of its page.
+ *
+ * A thesis cover frame is an anchored picture deliberately BIGGER than the sheet
+ * and offset off its left edge, so Word paints the border inside the bitmap
+ * exactly on the page edges. Its offsets are measured from one of several
+ * origins, and getting the origin wrong moves the art by inches — so each
+ * `relativeFrom` is mapped explicitly rather than defaulted:
+ *
+ * - **V `page`** — the sheet's top edge, one top margin above the content box.
+ * - **V `paragraph`/`line`** — the header paragraph, which sits `w:header` below
+ *   the sheet's top edge (this is where Word puts a header anchor by default).
+ * - **V `margin`/`topMargin`** — the content box's top, i.e. origin 0.
+ * - **H `page`** — the sheet's left edge, i.e. origin 0.
+ * - **H `column`/`margin`** — the left margin, one margin in from the sheet's
+ *   edge. The body is single-column, so the margin box and the column begin
+ *   together.
+ *
+ * Everything comes back as a ratio of page width (X) or page height (Y), so the
+ * caller multiplies by whatever its paper measures. See
+ * {@link ChromeDrawingFractions} for why absolute px would be wrong.
+ *
+ * An `align` with no offset resolves against the sheet, matching how Word centres
+ * page-relative art; anything unrecognised falls back to its axis origin rather
+ * than guessing.
+ */
+export function chromeDrawingFractions(
+  d: { widthEmu: number; heightEmu: number;
+       posH: { relativeTo: string; offsetEmu: number | null; align: string | null };
+       posV: { relativeTo: string; offsetEmu: number | null; align: string | null } },
+  geo: ChromePageGeometry,
+): ChromeDrawingFractions {
+  const pw = geo.pageWidthPx > 0 ? geo.pageWidthPx : 1;
+  const ph = geo.pageHeightPx > 0 ? geo.pageHeightPx : 1;
+  const widthPx = emuToPx(d.widthEmu);
+  const heightPx = emuToPx(d.heightEmu);
+
+  // Vertical origins are measured from the page's CONTENT top, which is where
+  // the caller's reference edge (the band's bottom) sits.
+  const vOrigin =
+    d.posV.relativeTo === "page"
+      ? -geo.topMarginPx
+      : d.posV.relativeTo === "paragraph" || d.posV.relativeTo === "line"
+        ? -geo.topMarginPx + geo.headerDistancePx
+        : 0; // margin / topMargin → the content box itself
+  const topPx =
+    d.posV.offsetEmu != null
+      ? vOrigin + emuToPx(d.posV.offsetEmu)
+      : d.posV.align === "center"
+        ? -geo.topMarginPx + (geo.topMarginPx * 2 - heightPx) / 2
+        : vOrigin;
+
+  // Horizontal origins are measured from the paper's physical LEFT edge.
+  const hOrigin = d.posH.relativeTo === "page" ? 0 : geo.leftMarginPx;
+  const leftPx =
+    d.posH.offsetEmu != null
+      ? hOrigin + emuToPx(d.posH.offsetEmu)
+      : d.posH.align === "center"
+        ? (geo.pageWidthPx - widthPx) / 2
+        : d.posH.align === "right"
+          ? geo.pageWidthPx - widthPx
+          : hOrigin;
+
+  return { leftFrac: leftPx / pw, topFrac: topPx / ph, widthFrac: widthPx / pw, heightFrac: heightPx / ph };
+}
+
+/** sRGB channel (0..1) → linear light, and back. DrawingML's shade/tint operate
+ *  on linear values, which is why a naive 45% of #FFC000 comes out mud-brown
+ *  instead of the gold Word paints. */
+const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+const toSrgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
+
+/**
+ * The two endpoint colours of Word's duotone Recolor, as 6-hex.
+ *
+ * A duotone maps the source's LUMINANCE across two colours — black pixels become
+ * the shadow colour, white pixels the highlight. That is why it cannot be done
+ * with a CSS filter chain: `hue-rotate`/`saturate`/`brightness` are all
+ * multiplicative, so a black source (which is exactly what these frames are —
+ * the cover art is a black PNG named "Bordure Noire") stays black through all of
+ * them. The caller feeds these stops to an SVG feComponentTransfer instead,
+ * which is a real luminance map.
+ *
+ * `shade` is applied in LINEAR light and `satMod` in HSL, matching DrawingML.
+ * Returns null when there is nothing to recolour, and the caller then draws the
+ * stored bytes untouched — right for a photo or already-coloured art.
+ */
+export function duotoneStops(
+  duotone: { dark: string | null; light: string | null; shade: number | null; satMod: number | null } | null,
+): { dark: string; light: string } | null {
+  if (!duotone?.dark) return null;
+  const hex = duotone.dark.replace(/^#/, "");
+  if (!/^[0-9A-Fa-f]{6}$/.test(hex)) return null;
+
+  let r = parseInt(hex.slice(0, 2), 16) / 255;
+  let g = parseInt(hex.slice(2, 4), 16) / 255;
+  let b = parseInt(hex.slice(4, 6), 16) / 255;
+
+  const shade = duotone.shade;
+  if (shade != null && shade > 0 && shade !== 1) {
+    r = toSrgb(toLinear(r) * shade);
+    g = toSrgb(toLinear(g) * shade);
+    b = toSrgb(toLinear(b) * shade);
+  }
+
+  const satMod = duotone.satMod;
+  if (satMod != null && satMod > 0 && satMod !== 1) {
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      const s = Math.min(1, (l > 0.5 ? d / (2 - max - min) : d / (max + min)) * satMod);
+      let h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h /= 6;
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      const hue = (t: number) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+      };
+      r = hue(h + 1 / 3); g = hue(h); b = hue(h - 1 / 3);
+    }
+  }
+
+  const hx = (c: number) => Math.round(Math.max(0, Math.min(1, c)) * 255).toString(16).padStart(2, "0").toUpperCase();
+  const light = (duotone.light ?? "FFFFFF").replace(/^#/, "");
+  return {
+    dark: `${hx(r)}${hx(g)}${hx(b)}`,
+    light: /^[0-9A-Fa-f]{6}$/.test(light) ? light.toUpperCase() : "FFFFFF",
+  };
+}
+
 /** Render a page number in w:pgNumType vocabulary. Unknown formats → decimal. */
 export function formatPageNumber(n: number, format: string): string {
   if (n < 1) return String(n);

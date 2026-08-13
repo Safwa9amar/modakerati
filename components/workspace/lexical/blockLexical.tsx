@@ -99,6 +99,119 @@ export type ChromeData = {
 
 /** One page boundary: the ending page's footer, the gutter, the next page's
  *  header. Rendered by PageBreakNode; never serialized to a block. */
+/**
+ * One picture painted behind a page, as FRACTIONS of that page.
+ *
+ * X fractions become CSS percentages of the band (which bleeds to the paper's
+ * edges), so the art keeps Word's exact proportions at any screen width. Y
+ * fractions multiply the page's MEASURED height, because the editor's pages are
+ * as tall as their content rather than a fixed sheet. Word's ratio in, the
+ * editor's ratio out — the art lands where it lands on paper.
+ */
+export type PageArtwork = {
+  dataUri: string;
+  /** ÷ page width, from the paper's PHYSICAL left edge — not RTL-mirrored. */
+  leftFrac: number;
+  /** ÷ page height, from the page's content top. Negative = starts above it. */
+  topFrac: number;
+  widthFrac: number;
+  heightFrac: number;
+  /** Sheet aspect (height ÷ width), the stand-in for the page's rendered height
+   *  until the DOM measurement lands. */
+  pageAspect: number;
+  /** Word's duotone Recolor as its two luminance endpoints, 6-hex. A CSS filter
+   *  chain cannot express this — see `duotoneStops`. null = draw as stored. */
+  duotone: { dark: string; light: string } | null;
+  alt: string;
+};
+
+/** Word's duotone as an SVG filter: luminance → a two-stop colour ramp. This is
+ *  the only faithful way to paint these frames — the stored art is BLACK and
+ *  every CSS filter is multiplicative, so no chain of them yields gold. */
+function DuotoneDefs({ stops }: { stops: { dark: string; light: string }[] }): React.ReactElement | null {
+  if (!stops.length) return null;
+  const chan = (hex: string, i: number) => parseInt(hex.slice(i * 2, i * 2 + 2), 16) / 255;
+  return React.createElement(
+    "svg",
+    { className: "lx-pb-art-defs", "aria-hidden": "true", focusable: "false" },
+    React.createElement(
+      "defs",
+      null,
+      stops.map((s) =>
+        React.createElement(
+          "filter",
+          { key: duotoneId(s), id: duotoneId(s), colorInterpolationFilters: "sRGB" },
+          // Luminance first, so the ramp is driven by brightness, not by hue.
+          React.createElement("feColorMatrix", {
+            type: "matrix",
+            values: "0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0.2126 0.7152 0.0722 0 0  0 0 0 1 0",
+          }),
+          // Two-entry tables ARE the duotone: 0 → dark, 1 → light. Alpha is left
+          // alone, so the frame's transparent middle stays transparent.
+          React.createElement(
+            "feComponentTransfer",
+            null,
+            React.createElement("feFuncR", { type: "table", tableValues: `${chan(s.dark, 0)} ${chan(s.light, 0)}` }),
+            React.createElement("feFuncG", { type: "table", tableValues: `${chan(s.dark, 1)} ${chan(s.light, 1)}` }),
+            React.createElement("feFuncB", { type: "table", tableValues: `${chan(s.dark, 2)} ${chan(s.light, 2)}` }),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+const duotoneId = (s: { dark: string; light: string }) => `lxdt-${s.dark}-${s.light}`;
+
+/**
+ * The height of the page this band opens, measured in the DOM.
+ *
+ * A full-page frame has to be stretched to it: the editor's pages are as tall as
+ * their content, so a frame drawn at its true 11.7in height would run through
+ * the next two pages. The extent is this band's bottom to the next band's top —
+ * which is only knowable after layout, hence the measurement.
+ *
+ * Measurement only ever sets local state. It must never call editor.update():
+ * a layout pass that dirties the editor would re-trigger pagination and, through
+ * it, autosave.
+ */
+function usePageExtent(
+  hostRef: React.RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+): { extent: number; bandWidth: number } {
+  const [box, setBox] = React.useState({ extent: 0, bandWidth: 0 });
+  React.useEffect(() => {
+    if (!enabled) return;
+    let raf = 0;
+    const measure = () => {
+      const host = hostRef.current;
+      const band = host?.closest(".lx-pagebreak") as HTMLElement | null;
+      if (!band) return;
+      const bands = Array.from(document.querySelectorAll(".lx-pagebreak")) as HTMLElement[];
+      const next = bands[bands.indexOf(band) + 1];
+      const rect = band.getBoundingClientRect();
+      // No following band → this is the last page; fall back to the content end.
+      const bottom = next
+        ? next.getBoundingClientRect().top
+        : (band.closest(".lx-content") as HTMLElement | null)?.getBoundingClientRect().bottom ?? rect.bottom;
+      const extent = Math.max(0, Math.round(bottom - rect.bottom));
+      const bandWidth = Math.round(rect.width);
+      setBox((prev) =>
+        Math.abs(prev.extent - extent) > 1 || Math.abs(prev.bandWidth - bandWidth) > 1
+          ? { extent, bandWidth }
+          : prev,
+      );
+    };
+    // After layout, and again on any reflow of the editor.
+    raf = requestAnimationFrame(measure);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => { measure(); }) : null;
+    const content = hostRef.current?.closest(".lx-content");
+    if (ro && content) ro.observe(content);
+    return () => { cancelAnimationFrame(raf); ro?.disconnect(); };
+  }, [hostRef, enabled]);
+  return box;
+}
+
 export type PageBreakData = {
   /**
    * A boundary node sits BETWEEN two pages, so the first page would have no
@@ -127,6 +240,10 @@ export type PageBreakData = {
     sectionIndex: number;
     startBlockIndex: number;
   } | null;
+  /** Artwork painted behind the page BEGINNING after the gutter — a decorative
+   *  cover frame is exactly this. Already placed in rendered px relative to that
+   *  page's content box (see `placeChromeDrawing`). Empty on most pages. */
+  artwork?: PageArtwork[];
   /** Names the page beginning after the gutter — "p. 14", or for an unnumbered
    *  page its NAME ("divider page"). Never a number on an unnumbered page. */
   gutterLabel: string;
@@ -1417,6 +1534,10 @@ function PageBreakBand({
     ? (data.header.border.color ? `#${data.header.border.color}` : "#9A5A31")
     : null;
   const footerLine = [data.footer?.text, data.footer?.pageText].filter(Boolean).join("   ");
+  const headerText = (data.header?.segments.join("") || data.header?.text || "").trim();
+  const artwork = data.artwork ?? [];
+  const artRef = React.useRef<HTMLDivElement | null>(null);
+  const { extent: pageExtent, bandWidth } = usePageExtent(artRef, artwork.length > 0);
 
   return React.createElement(
     "div",
@@ -1455,8 +1576,10 @@ function PageBreakBand({
           React.createElement("span", { className: "lx-pb-gutter-lbl" }, data.gutterLabel),
         )
       : null,
-    // Top of the page starting after the gutter.
-    data.header
+    // Top of the page starting after the gutter. A header that is ONLY artwork
+    // (a decorative cover frame) has no text row to draw — rendering one would
+    // put an empty grey strip on the paper.
+    data.header && (headerText || ruleColor)
       ? React.createElement(
           "div",
           { className: "lx-pb-header", onMouseDown: noFocus, onClick: onPickHeader },
@@ -1470,6 +1593,41 @@ function PageBreakBand({
           ruleColor
             ? React.createElement("div", { className: "lx-chrome-hdr-rule", style: { background: ruleColor } })
             : null,
+        )
+      : null,
+    // Artwork for the page BEGINNING here. Absolutely positioned from the band's
+    // bottom edge — which is exactly that page's content-box origin, the frame
+    // placeChromeDrawing measured against. It sits BEFORE the page's blocks in
+    // document order and takes no stacking context of its own, so the text that
+    // follows paints over it: Word's "Behind Text", for free.
+    artwork.length
+      ? React.createElement(
+          "div",
+          { className: "lx-pb-art", "aria-hidden": "true", ref: artRef },
+          React.createElement(DuotoneDefs, {
+            stops: artwork.map((a) => a.duotone).filter((s): s is { dark: string; light: string } => !!s),
+          }),
+          artwork.map((a, i) => {
+            // X rides CSS percentages of the paper, so it is exact at any width
+            // with no measurement at all. Y needs the page's real height: until
+            // that lands, a proportional sheet stands in, which is right for the
+            // full-height pages this art belongs to.
+            const pageH = pageExtent > 0 ? pageExtent : bandWidth * a.pageAspect;
+            return React.createElement("img", {
+              key: i,
+              src: a.dataUri,
+              alt: a.alt,
+              draggable: false,
+              className: "lx-pb-art-img",
+              style: {
+                left: `${a.leftFrac * 100}%`,
+                width: `${a.widthFrac * 100}%`,
+                top: `${a.topFrac * pageH}px`,
+                height: `${a.heightFrac * pageH}px`,
+                ...(a.duotone ? { filter: `url(#${duotoneId(a.duotone)})` } : null),
+              } as React.CSSProperties,
+            });
+          }),
         )
       : null,
   );

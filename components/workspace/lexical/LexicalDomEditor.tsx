@@ -144,6 +144,8 @@ import {
   numberPages,
   sectionForBlock,
   lineHeightPx,
+  chromeDrawingFractions,
+  duotoneStops,
   PX_PER_PT,
   type AnchorSectionGeometry,
   type BlockFmt,
@@ -283,7 +285,13 @@ const CSS = `
    editor horizontally, cutting body text off at the edges. Wide content scrolls
    INSIDE its own overflow-x container (the tables' ScrollWrap) instead. */
 html, body { max-width: 100vw; overflow-x: hidden; }
-.lx-root { position: relative; height: 100%; background: #ffffff; font-family: sans-serif; overflow-x: hidden; }
+/* isolation:isolate makes this the stacking context page artwork sits inside.
+   Without it, .lx-pb-art-img's z-index:-1 would escape to the document root and
+   paint BEHIND this element's white background — the frame would simply not be
+   there. overflow-x:hidden then clips a frame wider than the paper at the
+   sheet's edge, which is what Word does with the same oversized art. */
+.lx-root { position: relative; height: 100%; background: #ffffff; font-family: sans-serif;
+  overflow-x: hidden; isolation: isolate; }
 .lx-content { outline: none; min-height: 100%; padding: 16px 18px 140px; color: #1a1a1a;
   font-size: 15px; line-height: 1.7; -webkit-user-select: text; max-width: 100%; }
 .lx-ph { position: absolute; top: 16px; inset-inline-start: 18px; color: #8a8a8a; pointer-events: none; font-size: 15px; }
@@ -599,6 +607,25 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 .lx-pb-header { padding: 13px 18px 5px; cursor: pointer;
   box-shadow: 0 -6px 8px -8px rgba(0,0,0,.35); }
 .lx-pb-header-row { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; }
+
+/* Page artwork (a decorative header frame). Zero-height and non-clipping, so its
+   children hang DOWN over the page that begins after this band; the band's own
+   bottom edge is that page's content-box origin. Never interactive and never
+   selectable — it is paper, not content.
+
+   z-index:-1 is what makes it Word's "Behind Text" rather than a sticker over
+   the student's writing: CSS paints a positioned element ABOVE inline text, so
+   document order alone would put the frame on top of every word. A negative
+   z-index drops it below text and block backgrounds — and .lx-root isolates so
+   that it stops there instead of sliding behind the paper itself and vanishing.
+   Left/top are PHYSICAL: page art is not mirrored for RTL (see page-layout). */
+.lx-pb-art { position: relative; height: 0; overflow: visible;
+  pointer-events: none; user-select: none; -webkit-user-select: none; }
+.lx-pb-art-img { position: absolute; z-index: -1; max-width: none; object-fit: fill;
+  -webkit-user-drag: none; user-drag: none; }
+/* Carrier for the duotone filter definitions — never painted itself. Absolute
+   so it cannot add a stray line box to the band's height. */
+.lx-pb-art-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
 `;
 
 /**
@@ -3300,6 +3327,24 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
           startBlockIndex: sec.startBlockIndex,
         };
       };
+      // Artwork behind the page BEGINNING after this band, as fractions of the
+      // sheet. Deliberately NOT resolved to px here: the band knows its own
+      // width and its page's measured height, and those are what Word's ratios
+      // have to be re-scaled against.
+      const artworkFor = (page: (typeof numbering)[number]) => {
+        const sec = sections[page.sectionIndex];
+        const drawings = sec?.headerDrawings ?? [];
+        if (!drawings.length || !sec?.chromeGeo) return undefined;
+        const geo = sec.chromeGeo;
+        const pageAspect = geo.pageWidthPx > 0 ? geo.pageHeightPx / geo.pageWidthPx : 1.414;
+        return drawings.map((d) => ({
+          dataUri: d.dataUri!, // buildPageSetup keeps only drawings that have one
+          ...chromeDrawingFractions(d, geo),
+          pageAspect,
+          duotone: duotoneStops(d.duotone),
+          alt: d.descr ?? "",
+        }));
+      };
       const gutterFor = (page: (typeof numbering)[number]) => {
         if (!page.unnumbered) return setup.gutterNumberTemplate.replace("{{n}}", page.text ?? "");
         return sections[page.sectionIndex]?.unnumberedKind === "divider"
@@ -3328,6 +3373,7 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
           gutterTarget: gutterTargetFor(numbering[p - 1]),
           remainderPx: remainderDisplay(p - 1),
           rtl: setup.rtl,
+          artwork: artworkFor(numbering[p]),
         });
       }
       // The edge nodes: a boundary separates two pages, so without these the
@@ -3335,10 +3381,14 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       const first = numbering[0];
       const last = numbering[numbering.length - 1];
       const firstHeader = headerFor(first);
+      const firstArtwork = artworkFor(first);
       const lastFooter = footerFor(last);
+      // The cover page's frame reaches the paper only through this leading band —
+      // there is no boundary above page 1 to carry it.
       const leading: PageBreakData | null = firstHeader
         ? { variant: "leading", endingPage: 0, footer: null, header: firstHeader,
-            gutterLabel: "", gutterTarget: null, remainderPx: 0, rtl: setup.rtl }
+            gutterLabel: "", gutterTarget: null, remainderPx: 0, rtl: setup.rtl,
+            artwork: firstArtwork }
         : null;
       const trailing: PageBreakData | null = lastFooter
         ? { variant: "trailing", endingPage: last.number ?? 0, footer: lastFooter, header: null,

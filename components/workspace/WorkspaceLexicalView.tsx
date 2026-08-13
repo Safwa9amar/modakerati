@@ -7,7 +7,7 @@ import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/comp
 // type-only — blockLexical is a web-only ('use dom') module; importing the type is
 // erased at compile time so no Lexical/DOM globals enter this native bundle.
 import type { ChromeData, ChromeKind } from "@/components/workspace/lexical/blockLexical";
-import { applyThesisOps, getAuthHeader, type DocBlockDTO, type DocSectionDTO, type DocumentDTO, type InlineMathDTO } from "@/lib/api";
+import { applyThesisOps, getAuthHeader, type ChromeDrawingDTO, type DocBlockDTO, type DocSectionDTO, type DocumentDTO, type InlineMathDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useEquationSheetStore } from "@/stores/equation-sheet-store";
 import { useHfSheetStore } from "@/stores/hf-sheet-store";
@@ -28,7 +28,7 @@ import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { pasteImageFromClipboard } from "@/lib/paste-image";
 import { useEditorScrollStore, type ScrollAnchor } from "@/stores/editor-scroll-store";
 import { hLight, hMedium, hSelection } from "@/lib/haptics";
-import { geometryFromSection, type AnchorSectionGeometry, type PageSectionInput , type BlockFmt } from "@/lib/page-layout";
+import { geometryFromSection, chromeGeometryFromSection, type AnchorSectionGeometry, type PageSectionInput , type BlockFmt, type ChromePageGeometry } from "@/lib/page-layout";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -115,6 +115,13 @@ export type PageSetup = {
     startsOnNewPage: boolean;
     header: { text: string; segments: string[]; border: { bottom: boolean; color: string | null } | null } | null;
     footer: { text: string; hasPageNumbers: boolean } | null;
+    /** Artwork painted behind every page of this section — a decorative cover
+     *  frame lives in the header part. Empty for the overwhelming majority of
+     *  sections. Only drawings with bytes to draw survive into this list. */
+    headerDrawings: ChromeDrawingDTO[];
+    /** This section's page geometry as chrome placement needs it (page edges and
+     *  the header distance, which `contentHeightPx` alone cannot give). */
+    chromeGeo: ChromePageGeometry;
   })[];
   /** "p. {n}" with {n} substituted by the DOM side. */
   gutterNumberTemplate: string;
@@ -186,6 +193,12 @@ function buildPageSetup(
           ? { text: s.header.text, segments: s.header.segments, border: s.header.border }
           : null,
         footer: s.footer ? { text: s.footer.text, hasPageNumbers: !!s.footer.pageNumbers } : null,
+        // Only anchored artwork belongs behind the page. An INLINE picture in a
+        // header (a university logo in the running head) sits in the header's own
+        // text flow, which the band renders — painting it over the page as well
+        // would double it.
+        headerDrawings: (s.header?.drawings ?? []).filter((d) => d.anchored && !!d.dataUri),
+        chromeGeo: chromeGeometryFromSection(s.page),
       };
     }),
     gutterNumberTemplate: t("workspace.pages.gutterPage", { defaultValue: "p. {{n}}" }),
