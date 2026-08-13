@@ -69,10 +69,17 @@ function buildChrome(
   blocks: DocBlockDTO[],
   rtl: boolean,
   t: (k: string, o?: Record<string, unknown>) => string,
-  /** When the page view is on it renders a header at every page top, so the
-   *  section-start copy is a duplicate — the footer band goes the same way. */
+  /**
+   * The page view supersedes ALL of this chrome, so when it is on none of it is
+   * built. The header and footer bands become literal duplicates — the page view
+   * draws the real ones at the top and foot of every page. The `§ New section
+   * starts here` marker goes too: a section break is already visible as the page
+   * boundary it produces, and showing both reads as two different things
+   * happening in the same place.
+   */
   pagesOn: boolean,
 ): ChromeData[] {
+  if (pagesOn) return [];
   if (!sections || sections.length === 0 || blocks.length === 0) return [];
   const lastIdx = blocks[blocks.length - 1].index;
   const out: ChromeData[] = [];
@@ -82,12 +89,12 @@ function buildChrome(
       out.push({ kind: "section", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: "",
         label: t("workspace.hf.newSectionHere", { defaultValue: "New section" }), rtl });
     }
-    if (s.header && !pagesOn) {
+    if (s.header) {
       out.push({ kind: "top", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: s.header.text,
         label: t("workspace.hf.topOfPage", { defaultValue: "Top of every page" }), rtl,
         segments: s.header.segments, border: s.header.border });
     }
-    if (s.footer && !pagesOn) {
+    if (s.footer) {
       const bottomText = s.footer.text || t("workspace.hf.pageNumberValue", { defaultValue: "page number" });
       out.push({ kind: "bottom", sectionIndex: si, startBlockIndex: Math.max(s.startBlockIndex, nextStart - 1),
         text: bottomText, label: t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" }), rtl });
