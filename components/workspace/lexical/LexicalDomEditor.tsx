@@ -3207,10 +3207,11 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       // re-laying out the measuring host per block. Page HEIGHT is per-section
       // below, which is the one that actually varies (landscape appendices).
       const columnPx = sections[0].textColumnPx;
-      // `fmts` comes from nowhere yet — Task 7 threads `blockFmts` through
-      // `pageSetup`. Until then every block falls back to today's
-      // getComputedStyle-margin path inside measureBlockHeights.
-      const results = measureBlockHeights(rows, columnPx, setup.rtl);
+      // Typography per block index, from the server's resolution of the OOXML
+      // cascade. A block without it (table, image, or a cache predating the
+      // field) falls back to the editor's own metrics inside measureBlockHeights.
+      const blockFmts = setup.blockFmts ?? [];
+      const results = measureBlockHeights(rows, columnPx, setup.rtl, blockFmts);
       const heights = results.map((r) => r.h);
       const spaceBefore = results.map((r) => r.before);
       const pageContentPx = rows.map((_, i) => sections[sectionForBlock(sections, i)].contentHeightPx);
@@ -3218,7 +3219,18 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
         sections.filter((s) => s.startsOnNewPage && s.startBlockIndex > 0).map((s) => s.startBlockIndex),
       );
       // `remainder` is deliberately unused until Task 8 renders the spacer.
-      const raw = paginate({ heights, spaceBefore, pageContentPx, forcedStarts });
+      const raw = paginate({
+        heights,
+        spaceBefore,
+        pageContentPx,
+        forcedStarts,
+        // A heading is never left at the bottom of a page — Word's built-in
+        // heading styles all carry keep-with-next.
+        keepWithNext: new Set(setup.keepWithNext ?? []),
+        // Only a paragraph splits across pages in Word; a table, an image or a
+        // text box moves whole. Having typography IS being a paragraph.
+        splittable: rows.map((_, i) => blockFmts[i] != null),
+      });
 
       // A page may only START where a root child does. Pagination works in block
       // space, where a list is many indices, so a break can land BETWEEN two list

@@ -28,7 +28,7 @@ import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { pasteImageFromClipboard } from "@/lib/paste-image";
 import { useEditorScrollStore, type ScrollAnchor } from "@/stores/editor-scroll-store";
 import { hLight, hMedium, hSelection } from "@/lib/haptics";
-import { geometryFromSection, type AnchorSectionGeometry, type PageSectionInput } from "@/lib/page-layout";
+import { geometryFromSection, type AnchorSectionGeometry, type PageSectionInput , type BlockFmt } from "@/lib/page-layout";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -122,6 +122,15 @@ export type PageSetup = {
   gutterDividerLabel: string;
   gutterOrnamentLabel: string;
   rtl: boolean;
+  /** Effective typography per BLOCK INDEX — what the measuring host paginates
+   *  with. null for anything that is not a paragraph (a table, an image) or for
+   *  a paragraph from a cache predating the field: those keep the legacy
+   *  measurement path. Doubles as the splittable flag on the DOM side — a block
+   *  with typography IS a paragraph, and only paragraphs split across pages. */
+  blockFmts: (BlockFmt | null)[];
+  /** Block indices Word would not leave at the bottom of a page: headings carry
+   *  keep-with-next in every built-in style. */
+  keepWithNext: number[];
 };
 
 /**
@@ -152,11 +161,14 @@ function buildAnchorGeometry(
 
 function buildPageSetup(
   sections: DocSectionDTO[] | undefined,
+  blocks: DocBlockDTO[],
   rtl: boolean,
   t: (k: string, o?: Record<string, unknown>) => string,
 ): PageSetup | null {
   if (!sections || sections.length === 0) return null;
   return {
+    blockFmts: blocks.map((b) => (b.kind === "paragraph" ? b.fmt ?? null : null)),
+    keepWithNext: blocks.flatMap((b, i) => (b.kind === "paragraph" && b.level > 0 ? [i] : [])),
     sections: sections.map((s) => {
       const g = geometryFromSection(s.page);
       return {
@@ -379,9 +391,9 @@ export function WorkspaceLexicalView({
       // A very large document paginates too slowly to be pleasant; the student
       // can still turn pages on explicitly from the ✦ dock.
       if (blocks.length > 4000) return null;
-      return buildPageSetup(doc?.available ? doc.sections : undefined, rtl, t);
+      return buildPageSetup(doc?.available ? doc.sections : undefined, blocks, rtl, t);
     },
-    [showPages, doc, blocks.length, rtl, t],
+    [showPages, doc, blocks, rtl, t],
   );
   // Geometry for the floating-shape overlay (a divider page's chapter title).
   // Unconditional — anchors are not part of the page view.
