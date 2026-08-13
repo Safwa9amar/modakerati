@@ -261,6 +261,14 @@ function Figure({ block }: { block: Extract<DocBlockDTO, { kind: "image" }> }) {
     const url = `${media.base}/api/thesis/${media.thesisId}/document/media/${block.index}?token=${encodeURIComponent(media.token)}&v=${encodeURIComponent(String(media.version))}`;
     return React.createElement("img", { src: url, style: figureStyle(block), alt: block.caption ?? "", referrerPolicy: "no-referrer" });
   }
+  // A drawing with no resolvable image BUT with floating anchors is not a broken
+  // figure — it is a carrier paragraph whose only content floats (a real thesis
+  // holds an empty, unfilled textbox anchored behind the text: Word paints
+  // nothing). The placeholder card here painted a dashed "figure" box AND stole
+  // the next heading as its caption. Render an empty-paragraph-sized spacer and
+  // let the AnchorLayer draw whatever the anchors actually are.
+  if (block.anchors?.length)
+    return React.createElement("div", { style: { minHeight: "1em" } as React.CSSProperties });
   return React.createElement("div", { style: PLACEHOLDER }, `🖼 figure${block.caption ? ` · ${block.caption}` : ""}`);
 }
 
@@ -432,6 +440,15 @@ function AnchorContent({ shape, scale }: { shape: AnchoredShape; scale: number }
             // The box is drawn at Word's size — unscaled type would overflow it.
             fontSize: `${(l.sizePt ?? 11) * PT_TO_PX * scale}px`,
             lineHeight: 1.25,
+            // Word sets these titles in Times; a serif stack closes most of the
+            // visual gap AND changes line-wrapping to match Word's more closely.
+            // GUARDED on the text containing no Arabic script: on this WebView a
+            // concrete-first font stack fails to chain to an Arabic fallback and
+            // renders tofu (verified on-device — see the CSS preamble), so Arabic
+            // lines keep the generic sans that is known to shape correctly.
+            fontFamily: /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/.test(l.text)
+              ? undefined
+              : "Georgia, 'Times New Roman', serif",
           } as React.CSSProperties,
         },
         l.text || " ",
