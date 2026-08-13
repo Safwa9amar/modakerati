@@ -28,8 +28,12 @@ Every `<wp:anchor>` in that thesis was surveyed (30 of them). This is what must 
 | Axis | Values present |
 |---|---|
 | wrap | `wrapNone` ×24, `wrapTight` ×4, `wrapTopAndBottom` ×1, `wrapSquare` ×1 |
-| positionH `relativeFrom` | `column` ×18, `page` ×7, `margin` ×3 (all `posOffset` but one `align:left`) |
-| positionV `relativeFrom` | `paragraph` ×21, `page` ×1 (all `posOffset` but one `align:top`) |
+| positionH `relativeFrom` | `column` ×19, `page` ×8, `margin` ×3 |
+| positionV `relativeFrom` | `paragraph` ×29, `page` ×1 |
+
+(Corrected 2026-08-13 against the real file — an earlier draft of this table
+undercounted, listing only 22 of the 30 anchors. Exactly ONE anchor uses `align`
+rather than `posOffset`, and it uses it on both axes: a floating native chart.)
 | `behindDoc` | `0` (in front) ×21, `1` (behind) ×9 |
 | shape kind | textbox ×13, picture ×10, other ×7 |
 
@@ -43,9 +47,15 @@ Two consequences:
 
 ## The `<mc:AlternateContent>` trap
 
-The file has **26 `<w:txbxContent>` for 13 shapes** — each is stored twice, as a modern `wps:wsp`
-(`mc:Choice`) and a VML `v:textbox` (`mc:Fallback`). A reader that takes both renders every title
-twice. **Always read `mc:Choice` and ignore `mc:Fallback`.**
+The file has 19 Choice/Fallback pairs, and 13 of the fallbacks are text boxes — hence 26
+`<w:txbxContent>` for 13 shapes.
+
+**But the duplicate is never a second `<wp:anchor>`.** The fallback is a VML `<w:pict>`/`<v:textbox>`,
+which contains no anchor element at all. So a reader scoped to `<wp:anchor>` is immune *by
+construction*; the doubling only bites a **document-level `<w:txbxContent>` scan** — which is exactly
+what the existing `parseShapeTextBox` does. Strip fallbacks up front anyway, belt and braces.
+
+Note also that **11 of the 30 anchors are bare** — never wrapped in `mc:AlternateContent` at all.
 
 ## Not a bug: the "ghost" text
 
@@ -112,6 +122,28 @@ what makes this tractable — without a true column width there is nothing to sc
 
 RTL: `x` is an **inline-start** offset, not a left offset, so an Arabic document mirrors correctly.
 Use logical `inset-inline-start`, never `left`.
+
+## Found while building the server half
+
+- **One of the 30 anchors lives in a table cell**, not a paragraph. The `table` DTO has no `anchors`,
+  so 29 of 30 reach the app and that shape stays invisible.
+- **`other` is not uniformly unknown decoration.** The 7 are 6 × `wordprocessingGroup` and **1 native
+  chart**. Painting a placeholder over `other` would cover a chart that already renders as `svg`.
+- **Double representation is emitted deliberately.** A floating textbox whose carrier holds no
+  picture already becomes `kind:"textbox"` and renders inline as a card — and now *also* carries
+  `anchors[0]` describing the same shape. Same for a lone floating picture (`kind:"image"`). Geometry
+  is not silently dropped; **the app must pick one representation or it renders twice.** The divider
+  case is clean: inline picture → `kind:"image"`, textbox → anchor, no overlap.
+- **Pre-existing sizing bug (not introduced here).** `engine.media.extractInlineImage` takes the
+  paragraph's FIRST `<wp:extent>`, which on a divider page belongs to the floating text box. So the
+  frame's block reports **318×175px instead of its true 538×345px — every divider frame renders at
+  ~59% size.**
+- **Picture anchors do not re-send bytes the block already carries.** All 9 floating pictures resolve
+  to the block's own image; sending them again cost 430KB, 26× the entire geometry payload, for zero
+  new information. `hasMedia` still marks that bytes exist.
+- ⚠️ `hasMedia` on an anchor has no addressable endpoint — `/document/media/:index` serves the block's
+  first resolvable image. Honest for every case here; a second picture anchor on one paragraph would
+  fetch the wrong bytes.
 
 ## Non-goals for v1
 
