@@ -86,7 +86,10 @@ import {
   $isBlockDataNode,
   ChromeNode,
   $isChromeNode,
+  PageBreakNode,
+  $createPageBreakNode,
   $isPageBreakNode,
+  type PageBreakData,
   // The ONE predicate that owns "this node exists only to be looked at" —
   // chrome bands AND page boundaries. Every block-INDEX walk skips it; only a
   // genuine "is this specifically a chrome band?" identity test uses
@@ -132,6 +135,9 @@ import {
   type BlockEntry,
 } from "./blockLexical";
 import { singleMoveTo } from "@/lib/reorder-range";
+// Pure geometry/pagination/numbering — no React, no RN, no DOM, so it is the one
+// piece of this feature verifiable off-device (scripts/verify-page-layout.mjs).
+import { paginate, numberPages, sectionForBlock } from "@/lib/page-layout";
 import type { DocBlockDTO } from "@/lib/api";
 import type { BlockKind } from "@/stores/insert-menu-store";
 // type-only — WorkspaceLexicalView is the native ('use dom' host) module; importing
@@ -583,6 +589,11 @@ html, body { max-width: 100vw; overflow-x: hidden; }
  *
  * Heights are cached under a content hash, so a keystroke re-measures exactly
  * one block. Never call this per keystroke regardless: the caller debounces.
+ *
+ * NOT exported, and it never can be: babel-preset-expo's use-dom-directive
+ * plugin throws "Modules with the 'use dom' directive only support a single
+ * default export" for any non-TYPE named export. tsc cannot see that — it is a
+ * bundle-time failure that takes the whole editor screen down with it.
  */
 const measureCache = new Map<string, number>();
 
@@ -590,7 +601,7 @@ function blockMeasureKey(el: HTMLElement, columnPx: number): string {
   return `${Math.round(columnPx)}|${el.className}|${el.innerHTML}`;
 }
 
-export function measureBlockHeights(
+function measureBlockHeights(
   sources: HTMLElement[],
   columnPx: number,
   rtl: boolean,
@@ -2944,6 +2955,214 @@ function DrawerSwipePlugin({ onOpen, rtl }: { onOpen?: () => void; rtl?: boolean
   return null;
 }
 
+// Marks the plugin's OWN writes below. Removing and re-inserting boundary nodes
+// is a dirty update like any other, so without a tag to recognise it by, the
+// plugin's update listener would re-trigger the plugin — forever, every 400ms,
+// for as long as the document stayed open. That is not merely wasted work: the
+// native side resets its 1500ms serialize timer on every editor report, so a
+// self-feeding loop would hold that timer permanently reset and the student's
+// writing would never be saved.
+const PAGES_TAG = "page-view";
+
+/**
+ * Insert one PageBreakNode per measured page boundary.
+ *
+ * Runs on idle, never per keystroke: measurement touches layout, and the
+ * Writer's rule is that nothing updates per input event (see createStreamPump's
+ * 90ms batching for the same discipline applied to streaming).
+ */
+function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    // Strip every band. Used when there is nothing to paginate — turning the page
+    // view off must take the paper away, not freeze the last layout on screen.
+    const dropAll = () => {
+      let any = false;
+      editor.getEditorState().read(() => {
+        any = $getRoot().getChildren().some((n) => $isPageBreakNode(n));
+      });
+      if (!any) return;
+      editor.update(() => {
+        $addUpdateTag(PAGES_TAG);
+        $getRoot().getChildren().forEach((n) => { if ($isPageBreakNode(n)) n.remove(); });
+      }, { tag: "history-merge" });
+    };
+
+    if (!setup || setup.sections.length === 0) { dropAll(); return; }
+    const sections = setup.sections;
+
+    const repaginate = () => {
+      if (cancelled) return;
+
+      // 1 ─ Collect the block-bearing DOM rows, in order, skipping display-only
+      //     nodes. Their positions ARE block indices — the same contract
+      //     $anyNodeAtBlockIndex relies on. The bands already in the tree are
+      //     recorded in the same walk, each keyed by the block index it sits
+      //     before, so an unchanged layout can skip the write entirely.
+      const rows: HTMLElement[] = [];
+      const current: string[] = [];
+      let desynced = false;
+      editor.getEditorState().read(() => {
+        const root = $getRoot();
+        let blockIndex = 0;
+        root.getChildren().forEach((node) => {
+          if ($isPageBreakNode(node)) { current.push(`${blockIndex}|${JSON.stringify(node.getData())}`); return; }
+          if ($isDisplayOnlyNode(node)) return;
+          const el = editor.getElementByKey(node.getKey());
+          // A block with no element yet would shift every index after it. Rather
+          // than measure the wrong paragraph, abandon this pass — the next edit
+          // (or the next scheduled run) will find the DOM settled.
+          if (!el) { desynced = true; return; }
+          rows.push(el);
+          blockIndex++;
+        });
+      });
+      if (desynced || rows.length === 0) return;
+
+      // 2 ─ Measure at true geometry and paginate.
+      // One column width for the whole document: a thesis mixing page sizes
+      // mid-document is vanishingly rare, and a per-section width would mean
+      // re-laying out the measuring host per block. Page HEIGHT is per-section
+      // below, which is the one that actually varies (landscape appendices).
+      const columnPx = sections[0].textColumnPx;
+      const heights = measureBlockHeights(rows, columnPx, setup.rtl);
+      const pageContentPx = rows.map((_, i) => sections[sectionForBlock(sections, i)].contentHeightPx);
+      const forcedStarts = new Set(
+        sections.filter((s) => s.startsOnNewPage && s.startBlockIndex > 0).map((s) => s.startBlockIndex),
+      );
+      const starts = paginate({ heights, pageContentPx, forcedStarts });
+      const numbering = numberPages(starts, sections);
+      if (cancelled || numbering.length === 0) return;
+
+      // 3 ─ Build the node data.
+      //     An unnumbered page shows NOTHING on the paper — that is the whole
+      //     point of a divider — so its footer is dropped even when the section
+      //     has one, and the gutter NAMES it rather than numbering it.
+      const footerFor = (page: (typeof numbering)[number]) => {
+        const sec = sections[page.sectionIndex];
+        if (!sec?.footer || page.unnumbered) return null;
+        return {
+          text: sec.footer.text,
+          pageText: sec.footer.hasPageNumbers ? page.text : null,
+          sectionIndex: page.sectionIndex,
+          startBlockIndex: sec.startBlockIndex,
+        };
+      };
+      const headerFor = (page: (typeof numbering)[number]) => {
+        const sec = sections[page.sectionIndex];
+        if (!sec?.header) return null;
+        return {
+          text: sec.header.text,
+          segments: sec.header.segments,
+          border: sec.header.border,
+          sectionIndex: page.sectionIndex,
+          startBlockIndex: sec.startBlockIndex,
+        };
+      };
+      const gutterFor = (page: (typeof numbering)[number]) => {
+        if (!page.unnumbered) return setup.gutterNumberTemplate.replace("{{n}}", page.text ?? "");
+        return sections[page.sectionIndex]?.unnumberedKind === "divider"
+          ? setup.gutterDividerLabel
+          : setup.gutterOrnamentLabel;
+      };
+      // Where a gutter tap goes. Nothing to offer on a page that is unnumbered
+      // by design — there is no page number to ask for.
+      const gutterTargetFor = (page: (typeof numbering)[number]) => {
+        if (page.unnumbered) return null;
+        const sec = sections[page.sectionIndex];
+        if (!sec) return null;
+        return { sectionIndex: page.sectionIndex, startBlockIndex: sec.startBlockIndex, text: sec.footer?.text ?? "" };
+      };
+
+      // Boundaries sit immediately BEFORE the first block of each page after
+      // the first.
+      const boundaries = new Map<number, PageBreakData>();
+      for (let p = 1; p < starts.length; p++) {
+        boundaries.set(starts[p], {
+          variant: "boundary",
+          endingPage: numbering[p - 1].number ?? 0,
+          footer: footerFor(numbering[p - 1]),
+          header: headerFor(numbering[p]),
+          gutterLabel: gutterFor(numbering[p]),
+          gutterTarget: gutterTargetFor(numbering[p - 1]),
+          rtl: setup.rtl,
+        });
+      }
+      // The edge nodes: a boundary separates two pages, so without these the
+      // FIRST page would have no header and the LAST no footer.
+      const first = numbering[0];
+      const last = numbering[numbering.length - 1];
+      const firstHeader = headerFor(first);
+      const lastFooter = footerFor(last);
+      const leading: PageBreakData | null = firstHeader
+        ? { variant: "leading", endingPage: 0, footer: null, header: firstHeader,
+            gutterLabel: "", gutterTarget: null, rtl: setup.rtl }
+        : null;
+      const trailing: PageBreakData | null = lastFooter
+        ? { variant: "trailing", endingPage: last.number ?? 0, footer: lastFooter, header: null,
+            gutterLabel: "", gutterTarget: null, rtl: setup.rtl }
+        : null;
+
+      // 4 ─ Apply, but only if anything actually moved. Re-creating identical
+      //     nodes would remount every band (a visible flicker) and dirty the
+      //     editor for nothing.
+      const next: string[] = [];
+      if (leading) next.push(`0|${JSON.stringify(leading)}`);
+      for (let p = 1; p < starts.length; p++) next.push(`${starts[p]}|${JSON.stringify(boundaries.get(starts[p]))}`);
+      if (trailing) next.push(`${rows.length}|${JSON.stringify(trailing)}`);
+      if (next.length === current.length && next.every((s, i) => s === current[i])) return;
+
+      editor.update(() => {
+        $addUpdateTag(PAGES_TAG);
+        const root = $getRoot();
+        // Drop the previous nodes wholesale, then re-insert. Simpler than
+        // diffing, and the node carries no state worth preserving.
+        root.getChildren().forEach((n) => { if ($isPageBreakNode(n)) n.remove(); });
+
+        // Two passes rather than one: the insertions below mutate the tree, and
+        // a block-index walk must not be reading a list it is changing.
+        const blockNodes: LexicalNode[] = [];
+        root.getChildren().forEach((n) => { if (!$isDisplayOnlyNode(n)) blockNodes.push(n); });
+        if (blockNodes.length === 0) return;
+        blockNodes.forEach((node, blockIndex) => {
+          const data = boundaries.get(blockIndex);
+          if (data) node.insertBefore($createPageBreakNode(data));
+        });
+        if (leading) blockNodes[0].insertBefore($createPageBreakNode(leading));
+        if (trailing) blockNodes[blockNodes.length - 1].insertAfter($createPageBreakNode(trailing));
+      }, { tag: "history-merge" });
+    };
+
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        // Pagination is a nicety; writing is not. A throw here must leave the
+        // student with a plain continuous flow, never a broken editor.
+        try { repaginate(); }
+        catch (err) { console.warn("[pages] pagination failed, continuing unpaginated", err); }
+      }, 400);
+    };
+
+    schedule();
+    const unregister = editor.registerUpdateListener(({ dirtyElements, dirtyLeaves, tags }) => {
+      // Our own insert/remove of boundary nodes fires this too. Re-scheduling on
+      // it would never converge — see PAGES_TAG above.
+      if (tags.has(PAGES_TAG)) return;
+      if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
+      schedule();
+    });
+
+    return () => { cancelled = true; if (timer) clearTimeout(timer); unregister(); };
+  }, [editor, setup]);
+
+  return null;
+}
+
 export default function LexicalDomEditor({
   command,
   onState,
@@ -3004,9 +3223,8 @@ export default function LexicalDomEditor({
   // the seed/reseed by BLOCK INDEX; carried alongside `initialBlocks` and `reseed`.
   chrome?: ChromeData[];
   // Serializable pagination input (geometry + section facts + pre-localized gutter
-  // strings) built natively by buildPageSetup — Task 10's PaginationPlugin consumes
-  // it to measure and insert PageBreakNodes. Unused for now; accepted so this task
-  // compiles and can be verified alone.
+  // strings) built natively by buildPageSetup. PaginationPlugin measures against it
+  // and inserts the PageBreakNodes; null/empty → the document stays continuous.
   pageSetup?: PageSetup | null;
   // In-place reconcile trigger: on nonce change, rebuild content from `blocks`
   // (+ its chrome) WITHOUT remounting (used to reflect external native/AI edits).
@@ -3106,7 +3324,10 @@ export default function LexicalDomEditor({
     namespace: "modakerati-lexical-lab",
     theme,
     onError: (error: Error) => console.error("[lexical]", error),
-    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode, RangeSuggestionNode, GhostCompletionNode, EquationNode, ChromeNode],
+    // Every node class that can appear in the tree MUST be listed here: Lexical
+    // throws at registration for an unregistered class and the editor then
+    // renders NOTHING — a blank white screen, not a partial failure.
+    nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode, BlockDataNode, SuggestionNode, RangeSuggestionNode, GhostCompletionNode, EquationNode, ChromeNode, PageBreakNode],
     editorState: () => (initialBlocks && initialBlocks.length ? $blocksToLexical(initialBlocks, chrome) : seed()),
   };
 
@@ -3171,6 +3392,7 @@ export default function LexicalDomEditor({
         <SelectionHighlightPlugin indices={selectedIndices} />
         <SearchHighlightPlugin search={search} />
         <ScrollSyncPlugin restore={scrollRestore} onScroll={onScroll} onRestored={onScrollRestored} />
+        <PaginationPlugin setup={pageSetup} />
       </div>
       </TableProposalContext.Provider>
       </WorkingLabelsContext.Provider>
