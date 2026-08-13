@@ -30,20 +30,20 @@ Every `<wp:anchor>` in that thesis was surveyed (30 of them). This is what must 
 | wrap | `wrapNone` ×24, `wrapTight` ×4, `wrapTopAndBottom` ×1, `wrapSquare` ×1 |
 | positionH `relativeFrom` | `column` ×19, `page` ×8, `margin` ×3 |
 | positionV `relativeFrom` | `paragraph` ×29, `page` ×1 |
-
-(Corrected 2026-08-13 against the real file — an earlier draft of this table
-undercounted, listing only 22 of the 30 anchors. Exactly ONE anchor uses `align`
-rather than `posOffset`, and it uses it on both axes: a floating native chart.)
 | `behindDoc` | `0` (in front) ×21, `1` (behind) ×9 |
 | shape kind | textbox ×13, picture ×10, other ×7 |
+
+Corrected 2026-08-13 against the real file: an earlier draft of this table undercounted, listing only
+22 of the 30 anchors. Exactly ONE anchor uses `align` rather than `posOffset`, and it uses it on both
+axes — a floating native chart.
 
 Two consequences:
 
 - **`wrapNone` dominates.** Those shapes do not reflow text, so they can be rendered as an absolute
   overlay without disturbing block layout at all. `wrapTight`/`wrapSquare` do reflow in Word; v1
   renders them as overlays too and accepts that text does not flow around them.
-- **Vertical is paragraph-relative in 21 of 22.** The editor knows each block's box, so V resolves
-  exactly. Only one anchor is page-relative.
+- **Vertical is paragraph-relative in 29 of 30.** The editor knows each block's box, so V resolves
+  exactly. Exactly one anchor is page-relative.
 
 ## The `<mc:AlternateContent>` trap
 
