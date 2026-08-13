@@ -337,6 +337,32 @@ picker, same `POST /api/thesis/:id/chrome-op` write path.
 The gutter carries `gutterLabel` in a muted app-chrome style. When the ending page has no footer,
 tapping the gutter opens the footer sheet, offering to add page numbers to that section.
 
+### 5b. Two constraints discovered during implementation
+
+**A `'use dom'` module permits exactly one export, and it must be the default.**
+`babel-preset-expo`'s `use-dom-directive-plugin` throws *"Modules with the 'use dom' directive
+only support a single default export"* on any non-`type` named export. `tsc` cannot see this —
+it surfaces only at bundle time, and it fails the whole editor screen, not just the feature. So
+`measureBlockHeights` and anything else new in `LexicalDomEditor.tsx` must stay module-private.
+`type` exports are explicitly permitted, which is why the file's existing named exports are fine.
+
+**Pagination must not be able to schedule itself.** The plugin writes nodes; those writes fire
+`registerUpdateListener`; that schedules the next pass. Nothing about a height cache stops that —
+it only makes each pass cheap. Left unguarded it re-paginates at 2.5 Hz forever, and the damage is
+not battery: `onState` has no dedupe, and `WorkspaceLexicalView.onState` *clears and re-arms* the
+1500ms save debounce, so a 400ms self-loop resets it before it can fire and **`send("serialize")`
+never runs — the student's writing is never saved.**
+
+Two guards, so termination holds by construction rather than by timing:
+
+1. `$addUpdateTag(PAGES_TAG)` inside the update, and `if (tags.has(PAGES_TAG)) return;` first in
+   the listener — the same pattern `GHOST_TAG` already uses in this file. The feedback edge is cut
+   at hop one.
+2. A signature comparison (`blockIndex|JSON(data)` for existing vs desired bands) before writing,
+   so a pass reached by any other path is a pure read.
+
+Both writes also carry `{ tag: "history-merge" }`, so band churn never becomes an undo step.
+
 ### 6. Performance
 
 - Measurement is debounced on idle, never per keystroke — the same discipline as `createStreamPump`'s
