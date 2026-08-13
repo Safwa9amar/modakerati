@@ -2591,12 +2591,14 @@ function SelectionHighlightPlugin({ indices }: { indices?: number[] }) {
       return;
     }
     const apply = () => {
-      // Resolve the target block KEYS from their root-child indices (canonical —
-      // survives DOM wrappers), then mark those elements.
+      // Resolve the target block KEYS from their BLOCK-MODEL indices — which is
+      // what these are: $selectRows produces them (display-only bands skipped,
+      // lists expanded one index per item) and the native store passes them back
+      // unchanged. Indexing root children RAW instead shifts the tint onto the
+      // wrong paragraphs as soon as any band sits above the selection.
       let keys: string[] = [];
       editor.getEditorState().read(() => {
-        const kids = $getRoot().getChildren();
-        keys = wanted.map((i) => kids[i]?.getKey()).filter((k): k is string => !!k);
+        keys = wanted.map((i) => $anyNodeAtBlockIndex(i)?.getKey()).filter((k): k is string => !!k);
       });
       clear();
       keys.forEach((k) => editor.getElementByKey(k)?.classList.add("lx-selected"));
