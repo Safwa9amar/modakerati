@@ -134,6 +134,11 @@ export type PageBreakData = {
    *  footer, so the sheet opens and the student can ask for page numbers. null
    *  when the page is deliberately unnumbered — there is nothing to offer. */
   gutterTarget: { sectionIndex: number; startBlockIndex: number; text: string } | null;
+  /** Unused space left at the bottom of the ENDING page, already scaled to
+   *  display px and capped. A short page — a divider, or one a heading was
+   *  pushed off — should show the room Word leaves on it rather than hugging its
+   *  content like a card. 0 renders nothing. */
+  remainderPx: number;
   rtl: boolean;
 };
 
@@ -1418,6 +1423,13 @@ function PageBreakBand({
     { className: "lx-pagebreak", dir: data.rtl ? "rtl" : "ltr" },
     // Foot of the ending page — omitted entirely when the document has no
     // footer there, so the paper only ever shows what Word will print.
+    // The room Word would leave at the foot of this page. Inside the paper and
+    // above the footer, so the sheet ends where Word's would. Never interactive.
+    data.remainderPx > 0
+      ? React.createElement("div", {
+          style: { height: `${data.remainderPx}px`, pointerEvents: "none", userSelect: "none" } as React.CSSProperties,
+        })
+      : null,
     data.footer
       ? React.createElement(
           "div",

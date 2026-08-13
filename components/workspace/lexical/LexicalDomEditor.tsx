@@ -3246,14 +3246,32 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       };
       const starts: number[] = [];
       const physPage: number[] = [];
+      // `raw.remainder` is parallel to `raw.starts` — entry k is the unused space
+      // at the foot of the page STARTING at starts[k]. It has to be carried
+      // through the snap in lockstep or a page inherits another page's whitespace.
+      const remainder: number[] = [];
       for (let k = 0; k < raw.starts.length; k++) {
         const s = k === 0 ? 0 : snapToChild(raw.starts[k]);
         // Snapping can collapse a boundary onto the page before it — that page
-        // simply absorbs the list rather than splitting it.
-        if (k > 0 && s <= starts[starts.length - 1]) continue;
+        // simply absorbs the list rather than splitting it. The merged page now
+        // ends where THIS one ended, so it takes this page's remainder; it still
+        // begins where the earlier one did, so its physical index is unchanged.
+        if (k > 0 && s <= starts[starts.length - 1]) {
+          remainder[remainder.length - 1] = raw.remainder[k] ?? 0;
+          continue;
+        }
         starts.push(s);
         physPage.push(raw.physPage[k]);
+        remainder.push(raw.remainder[k] ?? 0);
       }
+      // Measurement px → display px. The bands render in the editor's narrower
+      // column, so the room left on a page has to shrink by the same ratio the
+      // text did. Capped: a nearly-empty page would otherwise scroll for a screen
+      // and a half of blank paper, which reads as a bug rather than as Word.
+      const renderedColumnPx = editor.getRootElement()?.clientWidth ?? columnPx;
+      const displayScale = columnPx > 0 ? renderedColumnPx / columnPx : 1;
+      const remainderDisplay = (k: number) =>
+        Math.min(240, Math.round(((remainder[k] ?? 0) * displayScale) / 4) * 4);
       const numbering = numberPages(starts, physPage, sections);
       if (cancelled || numbering.length === 0) return;
 
@@ -3308,6 +3326,7 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
           header: headerFor(numbering[p]),
           gutterLabel: gutterFor(numbering[p]),
           gutterTarget: gutterTargetFor(numbering[p - 1]),
+          remainderPx: remainderDisplay(p - 1),
           rtl: setup.rtl,
         });
       }
@@ -3319,11 +3338,11 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       const lastFooter = footerFor(last);
       const leading: PageBreakData | null = firstHeader
         ? { variant: "leading", endingPage: 0, footer: null, header: firstHeader,
-            gutterLabel: "", gutterTarget: null, rtl: setup.rtl }
+            gutterLabel: "", gutterTarget: null, remainderPx: 0, rtl: setup.rtl }
         : null;
       const trailing: PageBreakData | null = lastFooter
         ? { variant: "trailing", endingPage: last.number ?? 0, footer: lastFooter, header: null,
-            gutterLabel: "", gutterTarget: null, rtl: setup.rtl }
+            gutterLabel: "", gutterTarget: null, remainderPx: remainderDisplay(numbering.length - 1), rtl: setup.rtl }
         : null;
 
       // 4 ─ Apply, but only if anything actually moved. Re-creating identical
