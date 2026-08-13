@@ -78,6 +78,11 @@ interface WorkspaceState {
   // the editor so the bands appear/disappear in place (keeps scroll).
   showChrome: boolean;
   toggleShowChrome: () => void;
+  // View toggle (default on) for the Word-like paginated page view — paper,
+  // running headers, page numbers. Escape hatch if a device paginates badly,
+  // and the switch a student flips from the global ✦ dock.
+  showPages: boolean;
+  toggleShowPages: () => void;
   // View-mode toggle (default off) for one-finger drag-to-reorder in the editor.
   // Flipped from the global ✦ dock's "Reorder" chip; does not itself change the
   // data model — a later task wires the editor's drag behavior to this flag.
@@ -207,6 +212,7 @@ const INITIAL = {
   composerInputFocused: false,
   focusMode: false,
   showChrome: true,
+  showPages: true,
   reorderMode: false,
   selectMode: false,
   headerVisible: true,
@@ -304,6 +310,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
 
   toggleShowChrome: () => set((s) => ({ showChrome: !s.showChrome })),
+
+  toggleShowPages: () => set((s) => ({ showPages: !s.showPages })),
 
   // The two gutter modes share the same leading strip (grip vs checkbox), so each
   // turns the other off rather than stacking two gutters on every block.

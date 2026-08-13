@@ -25,6 +25,7 @@ import {
   Plus,
   PanelTopClose,
   PanelTopOpen,
+  BookOpenText,
   type LucideIcon,
 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -58,7 +59,7 @@ const PAD = 16;
 const GRID_COLS = 4;
 const GRID_GAP = 8;
 /** Tools whose result lands INSIDE the sheet — picking them must not dismiss it. */
-const STAYS_OPEN = new Set(["selectMode", "reorderMode", "pageSetup"]);
+const STAYS_OPEN = new Set(["selectMode", "reorderMode", "pageSetup", "showPages"]);
 
 const ORIENTATIONS: { value: NonNullable<ThesisPageSetup["orientation"]>; key: string; defaultValue: string }[] = [
   { value: "portrait", key: "ribbon.opt.portrait", defaultValue: "Portrait" },
@@ -247,6 +248,7 @@ function ToolsPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gestu
   const headerVisible = useWorkspaceStore((s) => s.headerVisible);
   const selectMode = useWorkspaceStore((s) => s.selectMode);
   const reorderMode = useWorkspaceStore((s) => s.reorderMode);
+  const showPages = useWorkspaceStore((s) => s.showPages);
   const keyboardActive = useWorkspaceStore((s) => s.keyboardActive);
   const canUndo = useThesisDocStore((s) => s.history[thesisId]?.canUndo ?? false);
   const canRedo = useThesisDocStore((s) => s.history[thesisId]?.canRedo ?? false);
@@ -520,12 +522,21 @@ function ToolsPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gestu
       onPress: () => useWorkspaceStore.getState().toggleReorderMode(),
     },
     {
+      key: "showPages",
+      Icon: BookOpenText,
+      active: showPages,
+      label: t("workspace.pages.toggle", { defaultValue: "Show pages" }),
+      a11y: t("workspace.pages.toggle", { defaultValue: "Show pages" }),
+      enterIndex: 10,
+      onPress: () => useWorkspaceStore.getState().toggleShowPages(),
+    },
+    {
       key: "pageBreak",
       Icon: SquareSplitVertical,
       label: t("ribbon.tools.pageBreak", { defaultValue: "Page break" }),
       a11y: t("ribbon.tools.pageBreak", { defaultValue: "Page break" }),
       disabled: !pageBreakIndices.length,
-      enterIndex: 10,
+      enterIndex: 11,
       onPress: insertPageBreak,
     },
     {
@@ -535,7 +546,7 @@ function ToolsPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gestu
       // two lines in an 80px tile and pushes the row out of alignment.
       label: t("dockBar.insert", { defaultValue: "Insert" }),
       a11y: t("insertMenu.title", { defaultValue: "Insert into document" }),
-      enterIndex: 11,
+      enterIndex: 12,
       onPress: openInsert,
     },
     {
@@ -544,7 +555,7 @@ function ToolsPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gestu
       active: pageSetupOpen,
       label: t("ribbon.grp.pageSetup", { defaultValue: "Page setup" }),
       a11y: t("ribbon.grp.pageSetup", { defaultValue: "Page setup" }),
-      enterIndex: 12,
+      enterIndex: 13,
       onPress: () => setPageSetupOpen((v) => !v),
     },
   ];

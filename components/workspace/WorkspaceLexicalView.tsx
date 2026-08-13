@@ -316,6 +316,10 @@ export function WorkspaceLexicalView({
   // Global view toggle (from the ✦ dock): show/hide the document-structure indicators
   // (header/footer bands + section markers). Off → no bands, a clean writing view.
   const showChrome = useWorkspaceStore((s) => s.showChrome);
+  // Global view toggle (from the ✦ dock "Show pages" chip): the Word-like paginated
+  // page view — paper, running headers, page numbers. Also the escape hatch if a
+  // device paginates badly.
+  const showPages = useWorkspaceStore((s) => s.showPages);
   // Global view toggle (from the ✦ dock "Reorder" pill): arms the gutter-handle
   // one-finger drag-to-reorder gesture in the DOM editor.
   const reorderMode = useWorkspaceStore((s) => s.reorderMode);
@@ -333,11 +337,18 @@ export function WorkspaceLexicalView({
   const keyboardActive = useWorkspaceStore((s) => s.keyboardActive);
   // Display-only section chrome bands, interleaved into the initial seed (below) by
   // block index. Reseeds rebuild their own chrome from the reseeded blocks/sections.
-  // Serializable pagination input for the DOM side (Task 10 consumes it). Gated on
-  // `showChrome` only for now — `showPages` lands in a later task.
+  // Serializable pagination input for the DOM side (Task 10 consumes it). null when
+  // the student has turned pages off, or the document is too large to paginate
+  // pleasantly — either way the DOM side's pagination plugin dropAll()s.
   const pageSetup = useMemo(
-    () => buildPageSetup(doc?.available ? doc.sections : undefined, rtl, t),
-    [doc, rtl, t],
+    () => {
+      if (!showPages) return null;
+      // A very large document paginates too slowly to be pleasant; the student
+      // can still turn pages on explicitly from the ✦ dock.
+      if (blocks.length > 4000) return null;
+      return buildPageSetup(doc?.available ? doc.sections : undefined, rtl, t);
+    },
+    [showPages, doc, blocks.length, rtl, t],
   );
   const chrome = useMemo(
     () => (showChrome ? buildChrome(doc?.available ? doc.sections : undefined, blocks, rtl, t, !!pageSetup) : []),
