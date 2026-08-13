@@ -45,7 +45,8 @@ import {
   type HeadingTagType,
 } from "@lexical/rich-text";
 import { $isListNode, $isListItemNode, $createListNode, $createListItemNode, type ListNode } from "@lexical/list";
-import type { CellImageDTO, DocBlockDTO, DocListKind, InlineMathDTO, TextBoxLine } from "@/lib/api";
+import type { AnchoredShape, CellImageDTO, DocBlockDTO, DocListKind, InlineMathDTO, TextBoxLine } from "@/lib/api";
+import { placeAnchor, sectionForBlock, type AnchorSectionGeometry } from "@/lib/page-layout";
 // type-only — table-diff must never enter the web bundle by value.
 import type { TableDiff } from "@/lib/table-diff";
 import { visualTextAlign } from "@/lib/rtl-layout";
@@ -315,6 +316,192 @@ function ShapeTextBox({ block }: { block: Extract<DocBlockDTO, { kind: "textbox"
       },
       own,
     ),
+  );
+}
+
+// ── Floating shapes (`<wp:anchor>`) ─────────────────────────────────────────
+// Spec: docs/superpowers/specs/2026-08-13-floating-shapes-design.md
+//
+// A chapter divider page is ONE carrier paragraph holding two drawings: the
+// ornament frame (inline → the block's own `image` kind) and a floating text box
+// with the chapter title. The title is not part of the block — Word positions it
+// itself — so it draws as an absolutely-positioned overlay over the block's box.
+//
+// Per-section document geometry, in DOCUMENT px, so the overlay can scale EMU
+// against the page the shape was authored on. Empty → A4 at 1" (placeAnchor's
+// own fallback). Provided by LexicalDomEditor from a natively-built prop.
+export const AnchorGeometryContext = React.createContext<AnchorSectionGeometry[]>([]);
+
+/** Flat text of a set of text-box lines — the identity test for "same shape". */
+function linesText(lines: TextBoxLine[] | undefined): string {
+  return (lines ?? []).map((l) => l.text).join("\n").trim();
+}
+
+/**
+ * DOUBLE REPRESENTATION — THE RULE: a shape renders EXACTLY ONCE.
+ *
+ * The server deliberately emits both forms for a lone floating shape: a floating
+ * text box whose carrier holds no picture becomes `kind:"textbox"` (rendered
+ * inline as a card by ShapeTextBox) AND carries `anchors[0]` describing the same
+ * box; a lone floating picture becomes `kind:"image"` AND `anchors[0]`. Geometry
+ * is not dropped on the wire — but if the app drew both it would appear twice.
+ *
+ * So: the block's OWN kind wins, and an anchor is rendered only when it is
+ * ADDITIONAL to what the block already draws. The divider case is clean either
+ * way (inline picture → `image`, the title → an anchor, no overlap).
+ */
+function anchorIsBlocksOwnShape(block: DocBlockDTO, a: AnchoredShape): boolean {
+  if (block.kind === "image" && a.kind === "picture") {
+    // The server STRIPS an anchor's dataUri when it duplicates the block's own
+    // bytes (all 9 floating pictures in the surveyed thesis were that case), so
+    // a picture anchor with no bytes of its own IS this block's picture. One
+    // that kept its own dataUri is a genuinely different picture.
+    return !a.dataUri || a.dataUri === block.dataUri;
+  }
+  if (block.kind === "textbox" && a.kind === "textbox") {
+    return linesText(a.lines) === linesText(block.lines);
+  }
+  return false;
+}
+
+/**
+ * The anchors this block draws as an overlay, back to front.
+ *
+ * Two shapes are deliberately dropped:
+ * - `kind:"other"` renders NOTHING. Of the 7 in the surveyed thesis, 6 are
+ *   `wordprocessingGroup` and one is a NATIVE CHART that already renders as the
+ *   block's own `svg` — a placeholder box would paint over a working chart.
+ * - a picture with `hasMedia` but no `dataUri`. `/document/media/:index` serves
+ *   the block's FIRST resolvable image, not a specific anchor, so there is no
+ *   endpoint to ask for these bytes. Rendering nothing beats the wrong picture.
+ */
+function renderableAnchors(block: DocBlockDTO): AnchoredShape[] {
+  const all = (block as { anchors?: AnchoredShape[] }).anchors;
+  if (!all || all.length === 0) return [];
+  return all
+    .filter((a) => (a.kind === "textbox" ? linesText(a.lines).length > 0 : a.kind === "picture" && !!a.dataUri))
+    .filter((a) => !anchorIsBlocksOwnShape(block, a))
+    .sort((a, b) => a.z - b.z);
+}
+
+/** Word points → CSS px (72 per inch → 96 per inch). */
+const PT_TO_PX = 96 / 72;
+/** Word's default text-box insets: 0.1in left/right, 0.05in top/bottom. */
+const INSET_X_PX = 0.1 * 96;
+const INSET_Y_PX = 0.05 * 96;
+
+/** One floating shape's content, drawn inside its placed box at `scale`. */
+function AnchorContent({ shape, scale }: { shape: AnchoredShape; scale: number }): React.ReactElement | null {
+  if (shape.kind === "picture" && shape.dataUri) {
+    return React.createElement("img", {
+      src: shape.dataUri,
+      style: { width: "100%", height: "100%", objectFit: "contain", display: "block" } as React.CSSProperties,
+      alt: "",
+    });
+  }
+  const box = shape.box;
+  return React.createElement(
+    "div",
+    {
+      style: {
+        width: "100%",
+        height: "100%",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        border: box?.border ? `${Math.max(1, box.border.pt * scale)}px solid ${box.border.color}` : undefined,
+        borderRadius: box?.rounded ? `${14 * scale}px` : undefined,
+        background: box?.fill ?? undefined,
+        padding: `${INSET_Y_PX * scale}px ${INSET_X_PX * scale}px`,
+      } as React.CSSProperties,
+    },
+    (shape.lines ?? []).map((l, i) =>
+      React.createElement(
+        "div",
+        {
+          key: i,
+          style: {
+            // A floating text box has no alignment of its own to inherit and Word
+            // centres a divider title, so centre is the fallback.
+            textAlign: l.alignment === "both" ? "justify" : l.alignment ?? "center",
+            direction: l.direction ?? undefined,
+            fontWeight: l.bold ? 700 : undefined,
+            // Scaled with the box (unlike ShapeTextBox's inline card, which clamps
+            // to a phone reading size because it has no true geometry to honour).
+            // The box is drawn at Word's size — unscaled type would overflow it.
+            fontSize: `${(l.sizePt ?? 11) * PT_TO_PX * scale}px`,
+            lineHeight: 1.25,
+          } as React.CSSProperties,
+        },
+        l.text || " ",
+      ),
+    ),
+  );
+}
+
+/**
+ * The overlay layer for one block's floating shapes.
+ *
+ * Absolutely positioned over the carrier block's own box, so `y.from:
+ * "paragraph"` (29 of 30 anchors) resolves exactly. The scale factor needs the
+ * block's RENDERED width, which only the DOM knows — hence the measurement.
+ *
+ * `pointer-events: none` throughout: a shape must never swallow a tap meant for
+ * the text underneath it (which is how the block gets selected).
+ */
+function AnchorLayer({ shapes, blockIndex }: { shapes: AnchoredShape[]; blockIndex: number }): React.ReactElement {
+  const sections = React.useContext(AnchorGeometryContext);
+  const hostRef = React.useRef<HTMLDivElement | null>(null);
+  const [columnPx, setColumnPx] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const el = hostRef.current;
+    if (!el) return;
+    const read = () => setColumnPx(el.clientWidth);
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const section = sections.length ? sections[sectionForBlock(sections, blockIndex)] : undefined;
+  return React.createElement(
+    "div",
+    {
+      ref: hostRef,
+      // NOT aria-hidden: a divider page's chapter title is real content — the
+      // whole bug being fixed is that it was invisible. It is only untappable.
+      style: { position: "absolute", inset: 0, pointerEvents: "none" } as React.CSSProperties,
+    },
+    columnPx > 0
+      ? shapes.map((s, i) => {
+          const p = placeAnchor(s, columnPx, section);
+          const vertical: React.CSSProperties =
+            p.vAlign === "center"
+              ? { top: "50%", transform: "translateY(-50%)" }
+              : p.vAlign === "bottom"
+                ? { bottom: 0 }
+                : { top: `${p.topPx}px` };
+          return React.createElement(
+            "div",
+            {
+              key: i,
+              style: {
+                position: "absolute",
+                // LOGICAL, never `left`: `x` is an inline-START offset, so an
+                // Arabic document mirrors the shape the way Word does.
+                insetInlineStart: `${p.startPx}px`,
+                width: `${p.widthPx}px`,
+                height: `${p.heightPx}px`,
+                zIndex: p.zIndex,
+                pointerEvents: "none",
+                ...vertical,
+              } as React.CSSProperties,
+            },
+            React.createElement(AnchorContent, { shape: s, scale: p.scale }),
+          );
+        })
+      : null,
   );
 }
 
@@ -1094,7 +1281,20 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
     // caret-less contentEditable root — which scrolls the WebView to the document top on
     // iOS WKWebView. The previous caret is cleared inside pick() above.
     const noFocus = (e: { preventDefault: () => void }) => e.preventDefault();
-    return React.createElement("div", { className: "lx-blockpick", onMouseDown: noFocus, onClick: pick }, content);
+    const picker = React.createElement("div", { className: "lx-blockpick", onMouseDown: noFocus, onClick: pick }, content);
+    // Floating shapes are ADDITIVE: a block with none renders exactly the DOM it
+    // rendered before this existed — no wrapper, no layer, no measurement.
+    const shapes = renderableAnchors(b);
+    if (shapes.length === 0) return picker;
+    // The positioned container the overlay is placed against. The block's own
+    // content sits at z-index 1, between an anchor sent BEHIND the text (0) and
+    // one painted over it (2).
+    return React.createElement(
+      "div",
+      { style: { position: "relative" } as React.CSSProperties },
+      React.createElement("div", { style: { position: "relative", zIndex: 1 } as React.CSSProperties }, picker),
+      React.createElement(AnchorLayer, { shapes, blockIndex: b.index }),
+    );
   }
   exportJSON(): SerializedBlockDataNode {
     return { ...super.exportJSON(), type: "block-data", version: 1, block: this.__block };

@@ -1135,6 +1135,40 @@ export type TextBoxShape = {
   height?: number;
 };
 
+// One FLOATING drawing (`<wp:anchor>`) hanging off a paragraph — a chapter
+// divider's title box, a decorative picture behind the text, a grouped shape.
+// Mirror of the server's AnchoredShape (src/lib/docx-shapes.ts).
+//
+// Word positions these itself and paints them over/under the flow, so they are
+// NOT part of the block they hang off: the block keeps its own kind and carries
+// these beside it for the editor to draw as an absolutely-positioned overlay.
+// Everything is in EMU (914400 per inch) exactly as Word stored it — the app
+// scales them against the page's real text-column width (lib/page-layout.ts).
+export type AnchoredShape = {
+  /** What the shape is. `other` is a group OR a native chart — see the render rule. */
+  kind: "textbox" | "picture" | "other";
+  /** Text content, when it is a textbox. Same shape as the `textbox` block's. */
+  lines?: TextBoxLine[];
+  box?: TextBoxShape;
+  /** Picture bytes. The server DROPS this when it duplicates the carrier block's
+   *  own image, so "no dataUri on a picture anchor" means "the block already
+   *  renders these very bytes". `hasMedia` only marks that bytes exist — it has
+   *  NO addressable endpoint of its own (see anchorIsBlocksOwnShape). */
+  dataUri?: string;
+  hasMedia?: boolean;
+  /** Placement, in EMU (914400 per inch) — the app scales them. `x` is an
+   *  INLINE-START offset, so an RTL document mirrors correctly. */
+  x: { from: "column" | "page" | "margin"; offsetEmu?: number; align?: "left" | "center" | "right" };
+  y: { from: "paragraph" | "page" | "margin" | "line"; offsetEmu?: number; align?: "top" | "center" | "bottom" };
+  widthEmu: number;
+  heightEmu: number;
+  /** true = painted BEHIND the text (Word's "Send Behind Text"). */
+  behindDoc: boolean;
+  /** Word's z-order among floating shapes. */
+  z: number;
+  wrap: "none" | "square" | "tight" | "through" | "topAndBottom";
+};
+
 // A picture that lives INSIDE a table cell (a cover page's institution logos).
 // Same inline/on-demand split as an image block: small ones arrive as `dataUri`,
 // bigger ones set `hasMedia` and the bytes come from thesisCellImageUrl().
@@ -1164,7 +1198,7 @@ export type InlineMathDTO = {
 };
 
 export type DocBlockDTO =
-  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; alignment: "left" | "center" | "right" | "both" | null; direction: "rtl" | "ltr" | null; math?: InlineMathDTO[] }
+  | { index: number; kind: "paragraph"; text: string; styleId: string | null; level: 0 | 1 | 2 | 3 | 4 | 5 | 6; alignment: "left" | "center" | "right" | "both" | null; direction: "rtl" | "ltr" | null; math?: InlineMathDTO[]; anchors?: AnchoredShape[] }
   | {
       index: number;
       kind: "table";
@@ -1188,6 +1222,7 @@ export type DocBlockDTO =
       shape: TextBoxShape;
       alignment: "left" | "center" | "right" | "both" | null;
       direction: "rtl" | "ltr" | null;
+      anchors?: AnchoredShape[];
     }
   // L4c: image blocks (charts/figures). The server inlines small images (charts
   // ≤ ~200KB) as a base64 `dataUri` so the workspace can render the real image;
@@ -1217,6 +1252,10 @@ export type DocBlockDTO =
       // It still travels in the DTO: dropping the block would make the Lexical
       // write-back diff delete the ornament from the .docx.
       ornament?: boolean;
+      // Floating shapes anchored to this block's carrier paragraph. A chapter
+      // divider page is exactly this: the inline ornament frame IS the block, and
+      // the chapter title floats over it as anchors[0].
+      anchors?: AnchoredShape[];
     }
   | { index: number; kind: "other"; tag: string };
 

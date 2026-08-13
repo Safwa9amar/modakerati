@@ -28,7 +28,7 @@ import { useInsertMenuStore } from "@/stores/insert-menu-store";
 import { pasteImageFromClipboard } from "@/lib/paste-image";
 import { useEditorScrollStore, type ScrollAnchor } from "@/stores/editor-scroll-store";
 import { hLight, hMedium, hSelection } from "@/lib/haptics";
-import { geometryFromSection, type PageSectionInput } from "@/lib/page-layout";
+import { geometryFromSection, type AnchorSectionGeometry, type PageSectionInput } from "@/lib/page-layout";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -123,6 +123,32 @@ export type PageSetup = {
   gutterOrnamentLabel: string;
   rtl: boolean;
 };
+
+/**
+ * Per-section geometry for placing FLOATING shapes (`DocBlockDTO.anchors`), in
+ * DOCUMENT px. Deliberately NOT part of buildPageSetup: a chapter divider's
+ * title must show whether or not the student has the page view turned on, and
+ * however large the document is.
+ *
+ * `startMarginPx` is the margin on the INLINE-START side — the right margin in
+ * an RTL thesis — because the overlay places shapes with `inset-inline-start`.
+ * Only `x.from: "page"` reads it.
+ */
+function buildAnchorGeometry(
+  sections: DocSectionDTO[] | undefined,
+  rtl: boolean,
+): AnchorSectionGeometry[] {
+  if (!sections || sections.length === 0) return [];
+  return sections.map((s) => {
+    const m = s.page?.margins;
+    const startTwips = (rtl ? m?.right : m?.left) ?? 1440;
+    return {
+      startBlockIndex: s.startBlockIndex,
+      textColumnPx: geometryFromSection(s.page).textColumnPx,
+      startMarginPx: (startTwips * 96) / 1440,
+    };
+  });
+}
 
 function buildPageSetup(
   sections: DocSectionDTO[] | undefined,
@@ -356,6 +382,12 @@ export function WorkspaceLexicalView({
       return buildPageSetup(doc?.available ? doc.sections : undefined, rtl, t);
     },
     [showPages, doc, blocks.length, rtl, t],
+  );
+  // Geometry for the floating-shape overlay (a divider page's chapter title).
+  // Unconditional — anchors are not part of the page view.
+  const anchorGeometry = useMemo(
+    () => buildAnchorGeometry(doc?.available ? doc.sections : undefined, rtl),
+    [doc, rtl],
   );
   const chrome = useMemo(
     () => (showChrome ? buildChrome(doc?.available ? doc.sections : undefined, blocks, rtl, t, !!pageSetup) : []),
@@ -1137,6 +1169,7 @@ export function WorkspaceLexicalView({
           initialBlocks={seed}
           chrome={chrome}
           pageSetup={pageSetup}
+          anchorGeometry={anchorGeometry}
           command={command}
           keyboardActive={keyboardActive}
           onSwipeOpenDrawer={() => useNavDrawerStore.getState().openDrawer()}

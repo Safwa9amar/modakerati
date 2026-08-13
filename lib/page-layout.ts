@@ -7,12 +7,15 @@
 // bundler.
 //
 // Spec: docs/superpowers/specs/2026-08-12-page-view-in-writer-design.md
-import type { DocSectionDTO } from "@/lib/api";
+import type { AnchoredShape, DocSectionDTO } from "@/lib/api";
 
 /** Word measures in twips: 1440 per inch. CSS is 96px per inch. */
 const TWIPS_PER_INCH = 1440;
 const PX_PER_INCH = 96;
 const TWIPS_TO_PX = PX_PER_INCH / TWIPS_PER_INCH;
+/** Word measures DRAWINGS in EMU: 914400 per inch. */
+const EMU_PER_INCH = 914400;
+const EMU_TO_PX = PX_PER_INCH / EMU_PER_INCH;
 
 /** A4 portrait at 1-inch margins — the fallback when a cached DTO predates
  *  `page`, matching the engine's PAGE_SIZES.A4 and MARGIN_PRESETS.normal. */
@@ -106,8 +109,12 @@ export type PageNumbering = {
   text: string | null;
 };
 
-/** The section a block belongs to: the last one starting at or before it. */
-export function sectionForBlock(sections: PageSectionInput[], blockIndex: number): number {
+/** The section a block belongs to: the last one starting at or before it.
+ *  Takes only `startBlockIndex` so anchor geometry can reuse it. */
+export function sectionForBlock(
+  sections: ReadonlyArray<{ startBlockIndex: number }>,
+  blockIndex: number,
+): number {
   let found = 0;
   for (let i = 0; i < sections.length; i++) {
     if (sections[i].startBlockIndex <= blockIndex) found = i;
@@ -167,6 +174,97 @@ function toRoman(n: number): string {
 function toLetter(n: number): string {
   const i = n - 1;
   return String.fromCharCode(65 + (i % 26)).repeat(Math.floor(i / 26) + 1);
+}
+
+// ── Floating shapes (`<wp:anchor>`) ─────────────────────────────────────────
+// Spec: docs/superpowers/specs/2026-08-13-floating-shapes-design.md
+//
+// Word stores a floating shape's placement in EMU against a page-sized canvas.
+// The editor draws the same document into a phone-width column, so every number
+// is scaled by `renderedColumnPx / documentColumnPx` — the page view's own
+// factor, which is what makes true positioning tractable at all.
+
+/** EMU (914400 per inch) → CSS px (96 per inch), at 100% scale. */
+export function emuToPx(emu: number): number {
+  return emu * EMU_TO_PX;
+}
+
+/** One section's geometry as an anchor needs it, in DOCUMENT px (96dpi). Built
+ *  natively (it needs DocSectionDTO) and carried into the 'use dom' editor. */
+export type AnchorSectionGeometry = {
+  startBlockIndex: number;
+  /** `geometryFromSection(section.page).textColumnPx`. */
+  textColumnPx: number;
+  /** The page margin on the INLINE-START side (RTL → the right margin), which is
+   *  how far the text column's start sits from the page edge. Only `x.from:
+   *  "page"` needs it. */
+  startMarginPx: number;
+};
+
+/** What the overlay needs to place one shape over its carrier block's box. */
+export type AnchorPlacement = {
+  /** Offset from the content box's INLINE START, in rendered px. Applied as
+   *  `inset-inline-start` so an Arabic document mirrors (spec). */
+  startPx: number;
+  /** Offset from the carrier block's TOP, in rendered px. Meaningful only when
+   *  `vAlign` is "top". */
+  topPx: number;
+  /** Word's vertical alignment within the carrier block's box, when the anchor
+   *  aligns instead of offsetting. "top" = use `topPx`. */
+  vAlign: "top" | "center" | "bottom";
+  widthPx: number;
+  heightPx: number;
+  /** Behind the block's text (0) or over it (2); the text itself sits at 1. */
+  zIndex: number;
+  /** rendered ÷ document px. The BOX is drawn at this scale, so whatever is
+   *  inside it (a text box's type size, its insets) must scale by the same
+   *  factor or it overflows a box Word had it fitting inside. */
+  scale: number;
+};
+
+/**
+ * Place one floating shape inside its carrier block's box.
+ *
+ * `renderedColumnPx` is measured in the DOM (the block's own width); the rest is
+ * the document's true geometry. Degradation, all deliberate:
+ *
+ * - **`align` instead of `posOffset`** (exactly one anchor in the surveyed
+ *   thesis — a chart, on BOTH axes) resolves against the text column rather
+ *   than landing at 0. `align` is folded onto the same LOGICAL axis as the
+ *   offsets, so "left" means inline-start; an RTL document mirrors it.
+ * - **`y.from` other than paragraph/line** (one occurrence in a 123-page thesis)
+ *   pins to the block top. Applying a PAGE-origin offset to a PARAGRAPH origin
+ *   would push the shape hundreds of px down, over unrelated text — a
+ *   mispositioned shape is worse than one sitting on its own carrier.
+ * - **`x.from: "margin"`** is treated as "column": the body is single-column, so
+ *   the margin box and the text column start at the same place.
+ */
+export function placeAnchor(
+  a: AnchoredShape,
+  renderedColumnPx: number,
+  section: { textColumnPx: number; startMarginPx: number } | undefined,
+): AnchorPlacement {
+  const docColumnPx = section?.textColumnPx ?? geometryFromSection(undefined).textColumnPx;
+  const scale = docColumnPx > 0 ? renderedColumnPx / docColumnPx : 1;
+  const widthPx = emuToPx(a.widthEmu) * scale;
+  const heightPx = emuToPx(a.heightEmu) * scale;
+
+  // The page edge sits one start-margin BEFORE the text column's start.
+  const origin = a.x.from === "page" ? -(section?.startMarginPx ?? 0) * scale : 0;
+  const startPx =
+    a.x.offsetEmu != null
+      ? origin + emuToPx(a.x.offsetEmu) * scale
+      : a.x.align === "center"
+        ? (renderedColumnPx - widthPx) / 2
+        : a.x.align === "right"
+          ? renderedColumnPx - widthPx
+          : 0;
+
+  const vRelative = a.y.from === "paragraph" || a.y.from === "line";
+  const topPx = vRelative && a.y.offsetEmu != null ? emuToPx(a.y.offsetEmu) * scale : 0;
+  const vAlign = a.y.offsetEmu != null || !a.y.align ? "top" : a.y.align;
+
+  return { startPx, topPx, vAlign, widthPx, heightPx, zIndex: a.behindDoc ? 0 : 2, scale };
 }
 
 /** Render a page number in w:pgNumType vocabulary. Unknown formats → decimal. */

@@ -99,6 +99,7 @@ import {
   type ChromeData,
   type ChromeKind,
   MediaContext,
+  AnchorGeometryContext,
   EditCellContext,
   TableProposalContext,
   TABLE_AI_LABELS_EN,
@@ -137,7 +138,7 @@ import {
 import { singleMoveTo } from "@/lib/reorder-range";
 // Pure geometry/pagination/numbering — no React, no RN, no DOM, so it is the one
 // piece of this feature verifiable off-device (scripts/verify-page-layout.mjs).
-import { paginate, numberPages, sectionForBlock } from "@/lib/page-layout";
+import { paginate, numberPages, sectionForBlock, type AnchorSectionGeometry } from "@/lib/page-layout";
 import type { DocBlockDTO } from "@/lib/api";
 import type { BlockKind } from "@/stores/insert-menu-store";
 // type-only — WorkspaceLexicalView is the native ('use dom' host) module; importing
@@ -3225,6 +3226,12 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
   return null;
 }
 
+// Stable empty default for the anchor-geometry context: a fresh [] per render
+// would change the context value every render and re-render every overlay.
+// Module-private on purpose — a 'use dom' module may export ONE thing, the
+// default (scripts/verify-use-dom.mjs).
+const EMPTY_ANCHOR_GEOMETRY: AnchorSectionGeometry[] = [];
+
 export default function LexicalDomEditor({
   command,
   onState,
@@ -3232,6 +3239,7 @@ export default function LexicalDomEditor({
   initialBlocks,
   chrome,
   pageSetup,
+  anchorGeometry,
   reseed,
   scrollToIndex,
   scrollToChrome,
@@ -3288,6 +3296,11 @@ export default function LexicalDomEditor({
   // strings) built natively by buildPageSetup. PaginationPlugin measures against it
   // and inserts the PageBreakNodes; null/empty → the document stays continuous.
   pageSetup?: PageSetup | null;
+  // Per-section page geometry in DOCUMENT px, for placing FLOATING shapes
+  // (`DocBlockDTO.anchors`) over their carrier block. Independent of `pageSetup`:
+  // a divider page's title must show whether or not the page view is on.
+  // Spec: docs/superpowers/specs/2026-08-13-floating-shapes-design.md
+  anchorGeometry?: AnchorSectionGeometry[];
   // In-place reconcile trigger: on nonce change, rebuild content from `blocks`
   // (+ its chrome) WITHOUT remounting (used to reflect external native/AI edits).
   reseed?: { blocks: DocBlockDTO[]; chrome?: ChromeData[]; nonce: number };
@@ -3397,6 +3410,7 @@ export default function LexicalDomEditor({
     <LexicalComposer initialConfig={initialConfig}>
       <style>{CSS}</style>
       <MediaContext.Provider value={media ?? { base: "", token: "", thesisId: "", version: "" }}>
+      <AnchorGeometryContext.Provider value={anchorGeometry ?? EMPTY_ANCHOR_GEOMETRY}>
       <EditCellContext.Provider value={onEditCell ?? null}>
       <WorkingLabelsContext.Provider value={{ ...WORKING_LABELS_EN, ...(workingLabels ?? {}) }}>
       <TableProposalContext.Provider
@@ -3459,6 +3473,7 @@ export default function LexicalDomEditor({
       </TableProposalContext.Provider>
       </WorkingLabelsContext.Provider>
       </EditCellContext.Provider>
+      </AnchorGeometryContext.Provider>
       </MediaContext.Provider>
     </LexicalComposer>
   );
