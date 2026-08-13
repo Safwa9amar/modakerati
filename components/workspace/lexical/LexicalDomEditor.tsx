@@ -133,6 +133,7 @@ import {
   EQUATION_EDIT_COMMAND,
   $equationTarget,
   $blockEntries,
+  countListItems,
   type BlockEntry,
 } from "./blockLexical";
 import { singleMoveTo } from "@/lib/reorder-range";
@@ -3157,21 +3158,45 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       //     recorded in the same walk, each keyed by the block index it sits
       //     before, so an unchanged layout can skip the write entirely.
       const rows: HTMLElement[] = [];
+      // Block index at which each root child's rows begin. A band can only be
+      // inserted BETWEEN root children, so these are the only positions a page
+      // may legally start at (see the snap below).
+      const childStart: number[] = [];
       const current: string[] = [];
       let desynced = false;
       editor.getEditorState().read(() => {
         const root = $getRoot();
-        let blockIndex = 0;
-        root.getChildren().forEach((node) => {
-          if ($isPageBreakNode(node)) { current.push(`${blockIndex}|${JSON.stringify(node.getData())}`); return; }
-          if ($isDisplayOnlyNode(node)) return;
+        // A LIST is one root child but MANY block indices — one per leaf item, in
+        // the depth-first order pushListItems flattens them. Measuring the list as
+        // a single row would both attribute its whole height to one index and
+        // shift every index after it, which is how a section's forced page break
+        // stops matching and a page inherits the wrong header's chrome.
+        const pushLeafRows = (node: LexicalNode): boolean => {
+          if ($isListNode(node)) {
+            for (const item of node.getChildren()) {
+              if (!$isListItemNode(item)) continue;
+              const nested = item.getChildren().find($isListNode);
+              if (nested) { if (!pushLeafRows(nested as LexicalNode)) return false; continue; }
+              const li = editor.getElementByKey(item.getKey());
+              if (!li) return false;
+              rows.push(li);
+            }
+            return true;
+          }
           const el = editor.getElementByKey(node.getKey());
+          if (!el) return false;
+          rows.push(el);
+          return true;
+        };
+        root.getChildren().forEach((node) => {
+          if ($isPageBreakNode(node)) { current.push(`${rows.length}|${JSON.stringify(node.getData())}`); return; }
+          if ($isDisplayOnlyNode(node)) return;
+          const start = rows.length;
           // A block with no element yet would shift every index after it. Rather
           // than measure the wrong paragraph, abandon this pass — the next edit
           // (or the next scheduled run) will find the DOM settled.
-          if (!el) { desynced = true; return; }
-          rows.push(el);
-          blockIndex++;
+          if (!pushLeafRows(node)) { desynced = true; return; }
+          if (rows.length > start) childStart.push(start);
         });
       });
       if (desynced || rows.length === 0) return;
@@ -3193,13 +3218,30 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
         sections.filter((s) => s.startsOnNewPage && s.startBlockIndex > 0).map((s) => s.startBlockIndex),
       );
       // `remainder` is deliberately unused until Task 8 renders the spacer.
-      // Threading `keepWithNext`/`splittable` (F2/F4) through `pageSetup` is
-      // Task 7's job, but `spaceBefore` needs no new prop to be correct today
-      // — measureBlockHeights already keeps every block's `before` and `h`
-      // additive to its old single-number total, so passing it here only
-      // turns on F3 (a natural page top sheds the block's space-before)
-      // uniformly for fmt and non-fmt blocks alike; nothing else changes.
-      const { starts, physPage } = paginate({ heights, spaceBefore, pageContentPx, forcedStarts });
+      const raw = paginate({ heights, spaceBefore, pageContentPx, forcedStarts });
+
+      // A page may only START where a root child does. Pagination works in block
+      // space, where a list is many indices, so a break can land BETWEEN two list
+      // items — and a band inserted there would sit inside the <ul>, malforming
+      // it (the same structural rule that makes RangeSuggestionPlugin decline a
+      // list range). Snap such a boundary back to the list's first block: the
+      // list travels whole to the next page, which is also what Word does when
+      // its items are kept together.
+      const snapToChild = (b: number) => {
+        let s = 0;
+        for (const c of childStart) { if (c <= b) s = c; else break; }
+        return s;
+      };
+      const starts: number[] = [];
+      const physPage: number[] = [];
+      for (let k = 0; k < raw.starts.length; k++) {
+        const s = k === 0 ? 0 : snapToChild(raw.starts[k]);
+        // Snapping can collapse a boundary onto the page before it — that page
+        // simply absorbs the list rather than splitting it.
+        if (k > 0 && s <= starts[starts.length - 1]) continue;
+        starts.push(s);
+        physPage.push(raw.physPage[k]);
+      }
       const numbering = numberPages(starts, physPage, sections);
       if (cancelled || numbering.length === 0) return;
 
@@ -3292,10 +3334,15 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
         const blockNodes: LexicalNode[] = [];
         root.getChildren().forEach((n) => { if (!$isDisplayOnlyNode(n)) blockNodes.push(n); });
         if (blockNodes.length === 0) return;
-        blockNodes.forEach((node, blockIndex) => {
+        // Walk in BLOCK space, advancing by a list's item count — the same space
+        // `boundaries` is keyed in. Every key is a root-child start thanks to the
+        // snap above, so each lands exactly on one of these nodes.
+        let blockIndex = 0;
+        for (const node of blockNodes) {
           const data = boundaries.get(blockIndex);
           if (data) node.insertBefore($createPageBreakNode(data));
-        });
+          blockIndex += $isListNode(node) ? countListItems(node) : 1;
+        }
         if (leading) blockNodes[0].insertBefore($createPageBreakNode(leading));
         if (trailing) blockNodes[blockNodes.length - 1].insertAfter($createPageBreakNode(trailing));
       });

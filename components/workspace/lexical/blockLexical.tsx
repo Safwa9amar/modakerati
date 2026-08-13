@@ -2588,7 +2588,10 @@ export function $blockEntries(): BlockEntry[] {
 }
 
 // Count leaf list items the way pushListItems flattens them (nested lists included).
-function countListItems(list: ListNode): number {
+// Exported because a LIST is one root child but MANY block indices: anything that
+// walks root children while counting blocks (pagination) has to advance by this,
+// not by one, or every index after the first list is wrong.
+export function countListItems(list: ListNode): number {
   let n = 0;
   for (const item of list.getChildren()) {
     if (!$isListItemNode(item)) continue;
