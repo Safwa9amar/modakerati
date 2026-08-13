@@ -253,7 +253,18 @@ const theme = {
   text: { bold: "lx-bold", italic: "lx-italic", underline: "lx-underline" },
 };
 
+// Metric twin of Times New Roman (SIL OFL). MEASUREMENT ONLY — display keeps the
+// reading font. Imported here so the 'use dom' bundler carries it into www.bundle.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const LIBERATION_REGULAR = require("../../../assets/fonts/LiberationSerif-Regular.ttf");
+const LIBERATION_BOLD = require("../../../assets/fonts/LiberationSerif-Bold.ttf");
+
 const CSS = `
+/* Metric twin of Times New Roman, used ONLY by the offscreen .lx-measure host
+   (see below) so block heights match where Word would actually wrap — never
+   applied to the visible, readable-size editor content. */
+@font-face { font-family: "Liberation Serif"; src: url("${LIBERATION_REGULAR}"); font-weight: 400; }
+@font-face { font-family: "Liberation Serif"; src: url("${LIBERATION_BOLD}"); font-weight: 700; }
 /* Use the GENERIC sans-serif keyword, inherited by all content, NOT concrete
    font names: on this WebView a concrete-first stack (Roboto/-apple-system/…)
    fails to fall back to an Arabic font and renders .notdef tofu, whereas the
