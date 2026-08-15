@@ -893,7 +893,12 @@ export default function ThesisWorkspaceScreen() {
         onJump={(index) => {
           const doc = useThesisDocStore.getState().byId[thesisId];
           const text = doc && doc.available ? (doc.blocks[index] as { text?: string })?.text ?? "" : "";
-          useWorkspaceStore.getState().selectBlock(index, text);
+          const ws = useWorkspaceStore.getState();
+          // Select tints the landing spot; the scroll is what actually takes the
+          // student there. Selecting alone left the pill looking inert — the
+          // proposal was often pages away, and they had to go find it by hand.
+          ws.selectBlock(index, text);
+          ws.requestScrollToBlock(index);
         }}
       />
     </SafeAreaView>

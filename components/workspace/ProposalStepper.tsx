@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -32,6 +32,17 @@ export function ProposalStepper({ onJump }: { onJump: (index: number) => void })
     [byIndex],
   );
 
+  // Where the last tap landed, so tapping again moves ON rather than fighting to
+  // stay on the first one. Approving removes an index from the list, which walks
+  // the student forward on its own; this is for reading past one undecided.
+  const lastRef = useRef<number | null>(null);
+  const jumpNext = () => {
+    const last = lastRef.current;
+    const next = (last == null ? undefined : indices.find((i) => i > last)) ?? indices[0];
+    lastRef.current = next;
+    onJump(next);
+  };
+
   if (indices.length === 0) return null;
 
   return (
@@ -46,7 +57,7 @@ export function ProposalStepper({ onJump }: { onJump: (index: number) => void })
         {t("tasks.waitingForYou")}
       </Text>
       <Pressable
-        onPress={() => onJump(indices[0])}
+        onPress={jumpNext}
         hitSlop={8}
         accessibilityRole="button"
         accessibilityLabel={t("tasks.reviewNext")}
