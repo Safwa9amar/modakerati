@@ -12,7 +12,10 @@ import Animated, {
 // Tool rows use gesture-handler's ScrollView so they scroll even when nested inside
 // the reorderable list (RN's ScrollView loses the pan to the list's gesture handler).
 import { ScrollView } from "react-native-gesture-handler";
-import { ChevronsDownUp, ListTree, Sparkles, X } from "lucide-react-native";
+import { ChevronsDownUp, ListChecks, ListTree, Sparkles, X } from "lucide-react-native";
+import { AddBlockTaskSheet } from "@/components/tasks/AddBlockTaskSheet";
+import { useTasksStore } from "@/stores/tasks-store";
+import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -437,6 +440,48 @@ export function BlockContextBar({
     </Pressable>
   );
 
+  // "Add as task" — the one-tap path from a paragraph the student is looking at
+  // into Up next. Pinned beside the outline button so it is never scrolled off
+  // with the formatting tools. Hidden for a header/footer band and for a
+  // picture, for the same reasons the pinned sparkle is: neither has a
+  // paragraph to act on.
+  const canTask = !isHfBand && selectedBlock?.kind === "paragraph";
+  const taskSnippet = selectedBlock?.kind === "paragraph" ? selectedBlock.text : "";
+  const TaskBtn = canTask ? (
+    <Pressable
+      onPress={() => useBottomSheet.getState().openSheet("task-from-block")}
+      accessibilityRole="button"
+      accessibilityLabel={t("tasks.addFromBlock")}
+      style={[styles.pinnedChip, { backgroundColor: colors.bgCard, borderColor: colors.borderDefault }]}
+    >
+      <ListChecks size={18} color={colors.textPrimary} strokeWidth={2} />
+    </Pressable>
+  ) : null;
+
+  // Adding is the ONLY thing this sheet does — it never navigates, so the
+  // student stays on the paragraph they were reading.
+  const taskSheet = canTask ? (
+    <AddBlockTaskSheet
+      snippet={taskSnippet}
+      onAdd={({ request, mode }) => {
+        void (async () => {
+          const store = useTasksStore.getState();
+          // The Tasks screen may never have been opened, so there is no draft
+          // run loaded yet — load it first, then add.
+          if (store.thesisId !== thesisId) await store.load(thesisId);
+          await useTasksStore.getState().add({
+            kind: "custom_block_task",
+            params: { request, snippet: taskSnippet },
+            // Index AND snippet: the index is a hint, the text is the identity,
+            // because the document may move before the run fires.
+            target: { anchor: { index: selectedBlock!.index, snippet: taskSnippet } },
+            mode,
+          });
+        })();
+      }}
+    />
+  ) : null;
+
   // Interactive crop for the selected figure. Self-contained <Modal> (portals to root)
   // so it renders correctly from any form. On commit it uploads and we revalidate.
   const cropModal = (
@@ -514,9 +559,11 @@ export function BlockContextBar({
             </ScrollView>
             {AskAI}
             {OutlineBtn}
+            {TaskBtn}
           </View>
           {saving ? <PulsingDot color={colors.brandPrimary} /> : null}
           {cropModal}
+          {taskSheet}
         </View>
       ) : (
         <View
@@ -569,6 +616,7 @@ export function BlockContextBar({
                 <View style={[styles.sepV, { backgroundColor: colors.borderSubtle }]} />
                 {AskAI}
                 {OutlineBtn}
+                {TaskBtn}
               </>
             ) : full ? (
               <View style={[styles.fullRow, { flexDirection: visualRow(rtl) }]}>
@@ -587,6 +635,7 @@ export function BlockContextBar({
                 </ScrollView>
                 {AskAI}
                 {OutlineBtn}
+                {TaskBtn}
               </View>
             ) : (
               <>
@@ -606,11 +655,13 @@ export function BlockContextBar({
                 <View style={[styles.sep, { backgroundColor: colors.borderSubtle }]} />
                 {AskAI}
                 {OutlineBtn}
+                {TaskBtn}
               </>
             )}
             {full && saving ? <PulsingDot color={colors.brandPrimary} /> : null}
           </Animated.View>
           {cropModal}
+          {taskSheet}
         </View>
       )}
     </ToolbarProvider>
