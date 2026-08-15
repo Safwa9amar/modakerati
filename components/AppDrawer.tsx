@@ -44,10 +44,11 @@ import { ThesisOutlinePanel } from "@/components/workspace/ThesisOutlinePanel";
 import { listTheses } from "@/lib/api";
 
 // -----------------------------------------------------------------------------
-// The app's single index. Every page in Modakerati is a row in here — there is no
+// The app's single index. Every page in Kwill is a row in here — there is no
 // tab bar and no second front door. Bands are ordered by how often a hand reaches
 // for them, not by category: act, then tools, then the open thesis, then the rest
-// of your work. Only the last band scrolls.
+// of your work. The whole body scrolls — see the note on it for why nothing
+// between the brand and the account foot can be pinned.
 //
 // It is the "app" view of the root `PushDrawer`; the "outline" view is the thesis
 // structure, which used to own the drawer outright. Both stay mounted (state is
@@ -396,95 +397,103 @@ function AppIndex() {
         )}
       </View>
 
-      {/* Pinned bands. These never scroll away — only Recent does. */}
-      <View style={styles.pinned}>
-        {doRows.map((row) => (
-          <DrawerRow key={row.key} row={row} rtl={rtl} colors={colors} />
-        ))}
-
-        <Text style={[styles.bandLabel, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>
-          {t("drawer.tools")}
-        </Text>
-        {toolRows.map((row) => (
-          <DrawerRow key={row.key} row={row} rtl={rtl} colors={colors} />
-        ))}
-
-        {currentThesis && (
-          <>
-            <View style={[styles.rule, { backgroundColor: colors.borderSubtle }]} />
-            <Text style={[styles.bandLabel, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>
-              {t("drawer.currentThesis")}
-            </Text>
-            <DrawerRow
-              row={{
-                key: "contents",
-                icon: List,
-                label: t("drawer.contents"),
-                onPress: () => setView("outline"),
-              }}
-              rtl={rtl}
-              colors={colors}
-              trailing={<Chevron size={15} color={colors.textSecondary} />}
-            />
-          </>
-        )}
-      </View>
-
-      {/* Recent — the only scrolling band. */}
-      <View style={[styles.recentHead, { flexDirection: rtl.flexDirection }]}>
-        <Text style={[styles.bandLabel, { color: colors.textSecondary, flex: 1, textAlign: rtl.textAlign }]}>
-          {t("drawer.recent")}
-        </Text>
-        {loading && <ActivityIndicator size="small" color={colors.textSecondary} />}
-      </View>
+      {/* One scroll region for the whole body. The bands used to be pinned above a
+          Recent list that was the only thing allowed to scroll, which only held while
+          the bands fit: Arabic labels fall back to a font with a taller line box, so
+          every row grows and ten of them plus the head and foot outgrow the panel.
+          Flexbox then shrinks the flex:1 list to nothing and the overflow has nowhere
+          to go — the drawer reads as frozen. Scrolling the body instead costs the
+          pinning and survives any language. Only the brand and the account foot,
+          which are a fixed height in every language, stay put. */}
       <ScrollView
-        style={styles.recentList}
-        contentContainerStyle={styles.recentContent}
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {recent.length === 0 ? (
-          <Text style={[styles.empty, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>
-            {t("drawer.noTheses")}
+        <View style={styles.pinned}>
+          {doRows.map((row) => (
+            <DrawerRow key={row.key} row={row} rtl={rtl} colors={colors} />
+          ))}
+
+          <Text style={[styles.bandLabel, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>
+            {t("drawer.tools")}
           </Text>
-        ) : (
-          recent.map((th) => {
-            const isCurrent = th.id === currentThesisId;
-            return (
-              <Pressable
-                key={th.id}
-                onPress={() =>
-                  go(() =>
-                    router.replace({
-                      pathname: "/(app)/thesis-workspace",
-                      params: { thesisId: th.id },
-                    } as any),
-                  )
-                }
-                onLongPress={() => openThesisMenu(th.id, th.title)}
-                // Plain, like every other row: the brand dot at the end is what
-                // says "this is the one you're in".
-                style={[styles.row, { flexDirection: rtl.flexDirection }]}
-                accessibilityRole="button"
-              >
-                <Text
-                  style={[
-                    styles.rowLabel,
-                    {
-                      color: isCurrent ? colors.textPrimary : colors.textSecondary,
-                      textAlign: rtl.textAlign,
-                      fontFamily: isCurrent ? "Inter_600SemiBold" : "Inter_400Regular",
-                    },
-                  ]}
-                  numberOfLines={1}
+          {toolRows.map((row) => (
+            <DrawerRow key={row.key} row={row} rtl={rtl} colors={colors} />
+          ))}
+
+          {currentThesis && (
+            <>
+              <View style={[styles.rule, { backgroundColor: colors.borderSubtle }]} />
+              <Text style={[styles.bandLabel, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>
+                {t("drawer.currentThesis")}
+              </Text>
+              <DrawerRow
+                row={{
+                  key: "contents",
+                  icon: List,
+                  label: t("drawer.contents"),
+                  onPress: () => setView("outline"),
+                }}
+                rtl={rtl}
+                colors={colors}
+                trailing={<Chevron size={15} color={colors.textSecondary} />}
+              />
+            </>
+          )}
+        </View>
+
+        <View style={[styles.recentHead, { flexDirection: rtl.flexDirection }]}>
+          <Text style={[styles.bandLabel, { color: colors.textSecondary, flex: 1, textAlign: rtl.textAlign }]}>
+            {t("drawer.recent")}
+          </Text>
+          {loading && <ActivityIndicator size="small" color={colors.textSecondary} />}
+        </View>
+        <View style={styles.recentList}>
+          {recent.length === 0 ? (
+            <Text style={[styles.empty, { color: colors.textSecondary, textAlign: rtl.textAlign }]}>
+              {t("drawer.noTheses")}
+            </Text>
+          ) : (
+            recent.map((th) => {
+              const isCurrent = th.id === currentThesisId;
+              return (
+                <Pressable
+                  key={th.id}
+                  onPress={() =>
+                    go(() =>
+                      router.replace({
+                        pathname: "/(app)/thesis-workspace",
+                        params: { thesisId: th.id },
+                      } as any),
+                    )
+                  }
+                  onLongPress={() => openThesisMenu(th.id, th.title)}
+                  // Plain, like every other row: the brand dot at the end is what
+                  // says "this is the one you're in".
+                  style={[styles.row, { flexDirection: rtl.flexDirection }]}
+                  accessibilityRole="button"
                 >
-                  {th.title}
-                </Text>
-                {isCurrent && <View style={[styles.dot, { backgroundColor: colors.brandPrimary }]} />}
-              </Pressable>
-            );
-          })
-        )}
+                  <Text
+                    style={[
+                      styles.rowLabel,
+                      {
+                        color: isCurrent ? colors.textPrimary : colors.textSecondary,
+                        textAlign: rtl.textAlign,
+                        fontFamily: isCurrent ? "Inter_600SemiBold" : "Inter_400Regular",
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {th.title}
+                  </Text>
+                  {isCurrent && <View style={[styles.dot, { backgroundColor: colors.brandPrimary }]} />}
+                </Pressable>
+              );
+            })
+          )}
+        </View>
       </ScrollView>
 
       {/* Account sits at the foot, never in the list. */}
@@ -610,9 +619,12 @@ const styles = StyleSheet.create({
   rowAccent: { marginBottom: 10 },
   rowLabel: { flex: 1, fontSize: 14 },
   dot: { width: 6, height: 6, borderRadius: 3 },
+  body: { flex: 1 },
+  // flexGrow, not flex: the body has to fill the panel when the bands are short
+  // (so the foot stays at the bottom) and overflow it when they are not.
+  bodyContent: { flexGrow: 1, paddingBottom: 8 },
   recentHead: { alignItems: "center", paddingHorizontal: GUTTER, gap: 8 },
-  recentList: { flex: 1 },
-  recentContent: { paddingHorizontal: GUTTER, paddingBottom: 8 },
+  recentList: { paddingHorizontal: GUTTER },
   empty: { fontSize: 12.5, fontFamily: "Inter_400Regular", paddingHorizontal: ROW_PAD, paddingVertical: 12 },
   foot: {
     alignItems: "center",
