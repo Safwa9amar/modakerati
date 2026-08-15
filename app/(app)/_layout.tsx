@@ -38,6 +38,7 @@ export default function AppLayout() {
     <Stack.Screen name="combine-arrange" />
     {/* Former tab screens — every page is a push from the drawer now. */}
     <Stack.Screen name="chat" />
+    <Stack.Screen name="chat-guide" />
     <Stack.Screen name="notifications" />
     <Stack.Screen name="account" />
     <Stack.Screen name="library" />

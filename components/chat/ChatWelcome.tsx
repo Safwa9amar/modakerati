@@ -1,6 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Sparkles } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useRTL } from "@/hooks/useRTL";
 
 // The welcome artwork. Swap this one line for the robot illustration once it is
 // saved to assets/ — everything below is sized off the image's own aspect ratio,
@@ -19,6 +22,8 @@ const WELCOME_ART = require("../../assets/welcome-chat-avatar.png");
 export function ChatWelcome() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const router = useRouter();
+  const { flexDirection } = useRTL();
 
   return (
     <View style={styles.wrap}>
@@ -29,6 +34,27 @@ export function ChatWelcome() {
       <Text style={[styles.body, { color: colors.textSecondary }]}>
         {t("chat.welcome.body")}
       </Text>
+
+      {/* The one line above can only ever hint. This opens the full account of
+          what it can do and how to ask for it — an outline button, because the
+          composer below is where the student is meant to end up, not here.
+
+          A STATIC style array, and TouchableOpacity for the press feedback. NOT
+          `Pressable style={({pressed}) => …}` — under the New Architecture that
+          style function can silently apply NOTHING, which left this button as a
+          borderless column with the ✦ stacked on top of its own label. */}
+      <TouchableOpacity
+        onPress={() => router.push("/(app)/chat-guide" as any)}
+        style={[styles.cta, { flexDirection, borderColor: colors.borderDefault }]}
+        activeOpacity={0.6}
+        hitSlop={8}
+        accessibilityRole="button"
+      >
+        <Sparkles size={16} color={colors.brandPrimary} strokeWidth={2} />
+        <Text style={[styles.ctaLabel, { color: colors.brandPrimary }]}>
+          {t("chat.welcome.cta", { defaultValue: "See what Kwill can do" })}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -39,4 +65,8 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 20 },
   body: { fontSize: 15, fontFamily: "Inter_400Regular", lineHeight: 23, textAlign: "center" },
   art: { width: 200, height: 200 },
+  // alignSelf so the pill hugs its label instead of stretching across the
+  // column's full width the way a bare `alignItems: center` parent would.
+  cta: { alignSelf: "center", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 11 },
+  ctaLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

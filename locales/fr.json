@@ -624,7 +624,11 @@
     "listen": "Écouter",
     "stopAudio": "Arrêter",
     "welcome": {
-      "body": "Je suis votre assistant de mémoire. Je peux rédiger des chapitres, structurer votre plan, corriger la mise en forme et gérer les citations — en arabe, en français ou en anglais."
+      "body": "Je suis votre assistant de mémoire. Je peux rédiger des chapitres, structurer votre plan, corriger la mise en forme et gérer les citations — en arabe, en français ou en anglais.",
+      "cta": "Voir ce que Kwill peut faire"
+    },
+    "guide": {
+      "title": "Ce que Kwill peut faire"
     },
     "threads": {
       "title": "Conversations",
