@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RunningBanner } from "@/components/tasks/RunningBanner";
+import { useTasksStore } from "@/stores/tasks-store";
 import {
   View,
   Text,
@@ -171,6 +173,25 @@ export default function ThesisWorkspaceScreen() {
     const task = InteractionManager.runAfterInteractions(() => setHeavyReady(true));
     return () => task.cancel();
   }, []);
+
+  // A scheduled run can be editing this thesis while the student is in here.
+  // Check once on mount, then poll ONLY while one is live — and refetch the
+  // document the moment one finishes, so they see the result without pulling.
+  const liveRunId = useTasksStore((s) => s.liveRunId);
+  useEffect(() => {
+    if (!thesisId) return;
+    let cancelled = false;
+    const tick = async () => {
+      const justFinished = await useTasksStore.getState().watchLive(thesisId);
+      if (justFinished && !cancelled) void useThesisDocStore.getState().revalidate(thesisId);
+    };
+    void tick();
+    const id = setInterval(tick, 20000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [thesisId]);
 
   // Screen top-bar collapse (#6): a manual toggle from the ✦ dock hides the top bar
   // (back / title / undo-redo / ⋯) to give the writer more vertical space. Animate
@@ -654,6 +675,11 @@ export default function ThesisWorkspaceScreen() {
         </View>
         </Animated.View>
       </View>
+
+      {/* A scheduled run is editing this thesis right now. Not a lock — the run
+          interleaves exactly like an ordinary AI turn — but the student must
+          know it is happening. */}
+      {liveRunId ? <RunningBanner /> : null}
 
       {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}
       {PREVIEW_ENABLED && liveDoc && <PreviewBar />}
