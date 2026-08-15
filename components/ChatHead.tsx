@@ -1,5 +1,5 @@
-import { useCallback, useEffect } from "react";
-import { Alert, BackHandler, Image, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
+import { useEffect } from "react";
+import { BackHandler, Image, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated, {
   FadeIn,
   FadeOut,
@@ -10,13 +10,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSegments } from "expo-router";
-import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthStore } from "@/stores/auth-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useChatHead } from "@/stores/chat-head-store";
-import ModakeratiBubble from "@/modules/modakerati-bubble";
 import { ChatOverlayPanel } from "./ChatOverlayPanel";
 
 const LOGO = require("../assets/icon.png");
@@ -39,7 +37,6 @@ const SPRING = { damping: 18, stiffness: 180, mass: 0.6 } as const;
  */
 export function ChatHead() {
   const colors = useThemeColors();
-  const { t } = useTranslation();
   const { width, height } = useWindowDimensions();
   const segments = useSegments();
 
@@ -74,52 +71,6 @@ export function ChatHead() {
   const onChatTab = segments[segments.length - 1] === "chat";
   const mounted = isAuthed && !inAuth && !!thesisId;
 
-  // --- System-wide bubble (Android: float over OTHER apps) --------------------
-  // The native module shows a draggable bubble over other apps while the app is
-  // backgrounded, then deep-links back to the chat on tap. iOS can't do this, so
-  // there it stays a no-op and only the in-app bubble above is used.
-  const systemSupported = Platform.OS === "android" && ModakeratiBubble.isSupported();
-
-  // Enable the over-other-apps bubble whenever we're signed in with an active
-  // thesis. We do NOT gate on `overlayPerm` here: the native side re-checks the
-  // permission itself every time the app backgrounds, so granting it takes effect
-  // immediately on the next minimize — no foreground/background refresh needed.
-  useEffect(() => {
-    if (!systemSupported) return;
-    ModakeratiBubble.setEnabled(mounted);
-  }, [systemSupported, mounted]);
-
-  // Tapping the over-other-apps bubble brings the app forward and fires this
-  // event → open the in-app chat panel so the user lands straight in the chat.
-  useEffect(() => {
-    if (!systemSupported) return;
-    const sub = ModakeratiBubble.addListener("onBubblePress", () => {
-      useChatHead.getState().open();
-    });
-    return () => sub.remove();
-  }, [systemSupported]);
-
-  // Long-press the in-app bubble to turn the over-other-apps bubble on (opens the
-  // system permission screen the first time).
-  const requestSystemBubble = useCallback(() => {
-    if (!systemSupported) return;
-    if (ModakeratiBubble.hasOverlayPermission()) {
-      Alert.alert(
-        t("chatHead.enabledTitle", { defaultValue: "Chat bubble is on" }),
-        t("chatHead.enabledBody", { defaultValue: "The bubble will float over other apps when you leave Modakerati." }),
-      );
-      return;
-    }
-    Alert.alert(
-      t("chatHead.permTitle", { defaultValue: "Float over other apps" }),
-      t("chatHead.permBody", { defaultValue: "Allow Modakerati to display over other apps so the chat bubble follows you like Messenger." }),
-      [
-        { text: t("common.cancel", { defaultValue: "Cancel" }), style: "cancel" },
-        { text: t("common.continue", { defaultValue: "Continue" }), onPress: () => { void ModakeratiBubble.requestOverlayPermission(); } },
-      ],
-    );
-  }, [systemSupported, t]);
-
   // Drag the bubble; on release snap it to the nearest side and clamp vertically.
   const pan = Gesture.Pan()
     .onStart(() => {
@@ -143,14 +94,7 @@ export function ChatHead() {
       if (success) runOnJS(open)();
     });
 
-  // Long-press toggles the system-wide (over-other-apps) bubble on Android.
-  const longPress = Gesture.LongPress()
-    .minDuration(450)
-    .onStart(() => {
-      runOnJS(requestSystemBubble)();
-    });
-
-  const gesture = Gesture.Exclusive(pan, longPress, tap);
+  const gesture = Gesture.Exclusive(pan, tap);
 
   const bubbleStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }],
