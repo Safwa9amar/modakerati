@@ -1266,17 +1266,39 @@ function FloatingToolbar() {
     const el = editor.getElementByKey(chosen.key);
     if (!el) return setTb(null);
     const br = el.getBoundingClientRect();
-    setTb({ ...chosen, top: Math.max(6, br.top - 42), left: 6 });
+    const top = Math.max(6, br.top - 42);
+    // Bail when nothing actually moved. `setTb` was handed a fresh object literal on
+    // every scroll event, so React re-rendered the bubble (a fixed-position box with
+    // a shadow → repaint) at scroll frequency even while it sat perfectly still.
+    setTb((prev) =>
+      prev && prev.key === chosen.key && prev.top === top && prev.kind === chosen.kind &&
+      prev.block === chosen.block && prev.bold === chosen.bold && prev.italic === chosen.italic &&
+      prev.underline === chosen.underline
+        ? prev
+        : { ...chosen, top, left: 6 },
+    );
   }, [editor]);
 
   useEffect(() => {
-    const onScroll = () => compute();
+    // Coalesce to ONE compute per frame. This ran unthrottled on every scroll event,
+    // and compute() reads the editor state and calls getBoundingClientRect — a forced
+    // synchronous layout — then set React state. At scroll frequency that is a reflow
+    // and a re-render per event, which is what made scrolling feel heavy.
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; compute(); });
+    };
     const rootEl = editor.getRootElement();
-    rootEl?.addEventListener("scroll", onScroll, true);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onScroll);
+    // Passive: this handler never cancels the scroll, and saying so lets the WebView
+    // keep scrolling on the compositor instead of waiting on JS.
+    const opts = { passive: true, capture: true } as const;
+    rootEl?.addEventListener("scroll", onScroll, opts);
+    window.addEventListener("scroll", onScroll, opts);
+    window.addEventListener("resize", onScroll, { passive: true });
     const off = mergeRegister(editor.registerUpdateListener(() => compute()));
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       rootEl?.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onScroll);
@@ -1395,6 +1417,20 @@ function lxQuietCommand<P>(editor: LexicalEditor, command: LxCommand<P>, payload
   });
 }
 
+// Is a finger on the screen right now? Registered once, passively, so asking is
+// free on the hot path. A scroll pin must never run against a live drag.
+let lxTouching = false;
+// Cancels the pin currently re-applying across frames, so a burst of structural
+// updates supersedes rather than stacks.
+let lxPinCancel: (() => void) | null = null;
+if (typeof window !== "undefined") {
+  const down = () => { lxTouching = true; };
+  const up = () => { lxTouching = false; };
+  window.addEventListener("touchstart", down, { passive: true, capture: true });
+  window.addEventListener("touchend", up, { passive: true, capture: true });
+  window.addEventListener("touchcancel", up, { passive: true, capture: true });
+}
+
 // Run a Lexical mutation without letting the WebView jump: capture the page scroll
 // before the update and pin it back after the DOM reconciles. A node replace (a
 // suggestion appearing) or a full reseed (approve → doc rebuild) otherwise scrolls
@@ -1416,8 +1452,29 @@ function withScrollPinned(editor: LexicalEditor, mutator: () => void, _blurAfter
   // Anchor to a BLOCK instead, measured off getBoundingClientRect and put back with
   // scrollIntoView + scrollBy. It has to be the block INDEX and not a node key: a
   // reseed replaces every node, so the key captured beforehand resolves to nothing.
+  // THE FINGER OUTRANKS THE PIN. Re-applying an anchor while the student is
+  // scrolling is not a pin, it is a fight — and it looks like the editor shaking.
+  // A touch in progress skips the pin entirely; a touch that ARRIVES mid-pin calls
+  // off the remaining frames.
+  if (lxTouching) {
+    editor.update(mutator, { tag: SKIP_DOM_SELECTION_TAG });
+    return;
+  }
   const anchor = lxMeasureAnchor(editor);
-  const restore = () => lxApplyAnchor(editor, anchor);
+  lxPinCancel?.(); // supersede an in-flight pin rather than stacking restores
+  let cancelled = false;
+  let raf1 = 0, raf2 = 0;
+  const stop = () => {
+    if (cancelled) return;
+    cancelled = true;
+    cancelAnimationFrame(raf1);
+    cancelAnimationFrame(raf2);
+    if (typeof window !== "undefined") window.removeEventListener("touchstart", stop, true);
+    if (lxPinCancel === stop) lxPinCancel = null;
+  };
+  lxPinCancel = stop;
+  if (typeof window !== "undefined") window.addEventListener("touchstart", stop, { passive: true, capture: true });
+  const restore = () => { if (!cancelled) lxApplyAnchor(editor, anchor); };
   editor.update(mutator, {
     tag: SKIP_DOM_SELECTION_TAG,
     // Three passes over two frames: the DOM has reconciled by onUpdate, but a reseed
@@ -1425,7 +1482,10 @@ function withScrollPinned(editor: LexicalEditor, mutator: () => void, _blurAfter
     // land against the height that exists when it runs.
     onUpdate: () => {
       restore();
-      requestAnimationFrame(() => { restore(); requestAnimationFrame(restore); });
+      raf1 = requestAnimationFrame(() => {
+        restore();
+        raf2 = requestAnimationFrame(() => { restore(); stop(); });
+      });
     },
   });
 }
@@ -1553,8 +1613,11 @@ function ScrollSyncPlugin({
       throttle = setTimeout(() => { throttle = null; emit(); }, 200);
     };
     const root0 = lxGetRoot(editor);
-    window.addEventListener("scroll", onScrollEvt, true);
-    root0?.addEventListener("scroll", onScrollEvt, true);
+    // Passive — reporting the reading position never cancels a scroll, and declaring
+    // that keeps the scroll on the compositor instead of blocking on this handler.
+    const opts = { passive: true, capture: true } as const;
+    window.addEventListener("scroll", onScrollEvt, opts);
+    root0?.addEventListener("scroll", onScrollEvt, opts);
     const poll = setInterval(emit, 700);
     return () => {
       if (throttle) clearTimeout(throttle);
@@ -1959,8 +2022,21 @@ function SuggestionPlugin({
     // an in-place stream update (existing __sug) must not fight the user's scroll.
     // On the CLEAR path (approve/reject) also blur: tapping the pill button focused
     // it, and removing it drops the caret at the document end → iOS scroll.
+    //
+    // ⚠️ Ask the TREE whether the node exists (same as RangeSuggestionPlugin's
+    // `hasNode`). The old test — "no proposed text yet, so this must be the create"
+    // — holds only for the FIRST update: while the model is still thinking,
+    // `reasoning` streams and re-runs this effect many times a second with
+    // `proposed` still empty, so every one of those purely in-place re-renders took
+    // the structural path and re-pinned the scroll. The mutator below already knows
+    // better (`if (existing) … return // stream in place`); only this decision was
+    // guessing. It went unnoticed while the pin was a silent no-op; once the pin
+    // actually moved the view it became the editor shaking up and down under the
+    // student's finger for as long as the AI thought.
+    let hasNode = false;
+    editor.getEditorState().read(() => { hasNode = !!$getRoot().getChildren().find($isSuggestionNode); });
     const isClear = !suggestion || suggestion.index < 0;
-    const structural = isClear || !suggestion.proposed;
+    const structural = isClear || !hasNode;
     if (structural) withScrollPinned(editor, mutate, isClear);
     else editor.update(mutate, { tag: SKIP_DOM_SELECTION_TAG }); // stream in place — never touch focus/scroll
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2200,6 +2276,18 @@ function ReorderPlugin({
   useEffect(() => {
     const root = editor.getRootElement();
     if (!root) return;
+    // ⚠️ REGISTERED ONLY WHILE REORDER MODE IS ON. The drag needs a NON-PASSIVE
+    // touchmove (it calls preventDefault to keep the page still under a lift), and a
+    // non-passive touchmove on the editor root is the single most expensive listener
+    // a mobile WebView can carry: the browser can no longer scroll on the compositor
+    // thread, because every move must first go to JS in case it cancels. It has to
+    // wait for our handler before it may paint a scroll frame. This used to be armed
+    // ALL THE TIME — the handlers only checked `activeRef` once inside, which spares
+    // the work but not the cost, since the cost is the listener existing at all. So
+    // ordinary reading and scrolling paid a drag's price for a drag that could not
+    // happen. Gate on `active` only, NOT on `suppressed`: suppression can flip while
+    // a finger is down, and tearing the listeners out mid-gesture strands the lift.
+    if (!active) return;
     // The Writer scrolls the DOCUMENT, not an inner box: ScrollSyncPlugin reports
     // window.scrollY, restores via window.scrollTo, and the search overlay comment
     // calls it "document scroll". There is no .lx-scroll element, so resolve the
@@ -2518,7 +2606,7 @@ function ReorderPlugin({
       root.removeEventListener("touchend", onTouchEnd);
       root.removeEventListener("touchcancel", cleanup);
     };
-  }, [editor]);
+  }, [editor, active]);
 
   return null;
 }
