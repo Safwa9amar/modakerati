@@ -41,7 +41,7 @@ export const useOfflineStore = create<OfflineState>()(
       setLastSynced: () => set({ lastSyncedAt: new Date().toISOString() }),
     }),
     {
-      name: "modakerati-offline",
+      name: "kwill-offline",
       storage: createJSONStorage(() => AsyncStorage),
     }
   )

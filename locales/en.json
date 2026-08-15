@@ -221,9 +221,9 @@
   },
   "chatHead": {
     "permTitle": "Float over other apps",
-    "permBody": "Allow Modakerati to display over other apps so the chat bubble follows you like Messenger.",
+    "permBody": "Allow Kwill to display over other apps so the chat bubble follows you like Messenger.",
     "enabledTitle": "Chat bubble is on",
-    "enabledBody": "The bubble will float over other apps when you leave Modakerati."
+    "enabledBody": "The bubble will float over other apps when you leave Kwill."
   },
   "nav": {
     "home": "Home",
@@ -252,7 +252,7 @@
     "account": "Account"
   },
   "account": {
-    "mine": "My Modakerati",
+    "mine": "My Kwill",
     "aiKey": "AI key",
     "upgradePlan": "Upgrade plan",
     "about": "About"
@@ -268,11 +268,11 @@
   "writer": {
     "emptyTitle": "Start writing",
     "emptyHint": "Create a thesis, import a document, or start from a template.",
-    "askPlaceholder": "Ask Modakerati"
+    "askPlaceholder": "Ask Kwill"
   },
   "auth": {
     "welcomeTo": "Welcome to",
-    "appName": "Modakerati",
+    "appName": "Kwill",
     "signInSubtitle": "Sign in to continue building your thesis",
     "email": "Email",
     "password": "Password",
@@ -365,10 +365,10 @@
     "hoursAgo": "hours ago",
     "yesterday": "Yesterday",
     "daysAgo": "days ago",
-    "modakeratiNews": "Modakerati News"
+    "kwillNews": "Kwill News"
   },
   "news": {
-    "title": "Modakerati News",
+    "title": "Kwill News",
     "searchPlaceholder": "Search news...",
     "allCategories": "All",
     "empty": "No news yet",

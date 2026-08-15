@@ -8,6 +8,7 @@ import type * as NotificationsModule from "expo-notifications";
 import type { NotificationData } from "@/types/notification";
 import { registerPushToken, unregisterPushToken } from "@/lib/api";
 import { useNotificationStore } from "@/stores/notification-store";
+import { brand } from "@/constants/colors";
 
 // expo-notifications removed remote push from Expo Go in SDK 53 and THROWS on
 // import there (Android). So we never load it statically — instead require it
@@ -75,7 +76,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
         await Notifications.setNotificationChannelAsync("default", {
           name: "default",
           importance: Notifications.AndroidImportance.MAX,
-          lightColor: "#5C6BFF",
+          lightColor: brand.primary,
         });
       } catch (err) {
         console.warn("[push] setNotificationChannelAsync failed", err);

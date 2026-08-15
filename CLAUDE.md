@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## This repo is one of three
 
-Modakerati is an Expo app for Algerian university students writing their thesis (mémoire/مذكرة). It cannot be understood alone — three sibling repos under `~/` share **one Supabase project** (`janzgpfnjzihelcwmkkg`):
+Kwill (formerly Modakerati — the repo directories still carry the old name) is an Expo app for Algerian university students writing their thesis (mémoire/مذكرة). It cannot be understood alone — three sibling repos under `~/` share **one Supabase project** (`janzgpfnjzihelcwmkkg`):
 
 | Repo | What it owns |
 |---|---|

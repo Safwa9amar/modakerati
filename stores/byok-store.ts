@@ -85,7 +85,7 @@ export const useByokStore = create<ByokState>()(
       setLastError: (lastError) => set({ lastError }),
     }),
     {
-      name: "modakerati-byok",
+      name: "kwill-byok",
       storage: createJSONStorage(() => secureStoreAdapter),
       version: 1,
     },

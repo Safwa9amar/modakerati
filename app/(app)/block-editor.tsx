@@ -238,7 +238,7 @@ export default function BlockEditorScreen() {
                     accessibilityLabel={t("chat.send", { defaultValue: "Send" })}
                     style={[styles.aiBtn, { backgroundColor: colors.brandPrimary }]}
                   >
-                    <Send size={16} color="#FFFFFF" strokeWidth={2} />
+                    <Send size={16} color={colors.brandOnPrimary} strokeWidth={2} />
                   </Pressable>
                 ) : null}
               </View>

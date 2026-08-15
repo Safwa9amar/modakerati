@@ -20,7 +20,7 @@ if [ "${1:-}" = "bundle" ]; then
 fi
 
 [ -f .env.production ] || { echo "✗ .env.production is missing"; exit 1; }
-grep -q "MODAKERATI_UPLOAD_STORE_FILE" ~/.gradle/gradle.properties 2>/dev/null \
+grep -q "KWILL_UPLOAD_STORE_FILE" ~/.gradle/gradle.properties 2>/dev/null \
   || { echo "✗ signing credentials not in ~/.gradle/gradle.properties — the build would be DEBUG-signed"; exit 1; }
 
 # A binary shipped without the OTA config can NEVER be updated over the air — the

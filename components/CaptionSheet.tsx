@@ -463,7 +463,7 @@ function CaptionPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ges
                       style={[styles.labelInput, { color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgPrimary, textAlign }]}
                     />
                     <Pressable onPress={addLabel} style={[styles.addBtn, { backgroundColor: colors.brandPrimary }]} accessibilityRole="button">
-                      <Check size={17} color={colors.bgPrimary} strokeWidth={2.6} />
+                      <Check size={17} color={colors.brandOnPrimary} strokeWidth={2.6} />
                     </Pressable>
                   </View>
                 ) : null}
@@ -607,11 +607,11 @@ function CaptionPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ges
               accessibilityRole="button"
             >
               {saving ? (
-                <ActivityIndicator size="small" color={colors.bgPrimary} />
+                <ActivityIndicator size="small" color={colors.brandOnPrimary} />
               ) : (
-                <Check size={17} color={colors.bgPrimary} strokeWidth={2.4} />
+                <Check size={17} color={colors.brandOnPrimary} strokeWidth={2.4} />
               )}
-              <Text style={[styles.btnText, { color: colors.bgPrimary }]}>
+              <Text style={[styles.btnText, { color: colors.brandOnPrimary }]}>
                 {editing ? t("common.save", { defaultValue: "Save" }) : t("workspace.caption.insert", { defaultValue: "Insert" })}
               </Text>
             </Pressable>

@@ -70,7 +70,7 @@ export const useProfileStore = create<ProfileState>()(
       reset: () => set({ profile: null, isLoading: false, isSaving: false, loadError: null }),
     }),
     {
-      name: "modakerati-profile",
+      name: "kwill-profile",
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({ profile: state.profile }),
     }

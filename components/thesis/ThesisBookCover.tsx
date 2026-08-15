@@ -6,11 +6,14 @@ import { getTextDirection } from "@/lib/text-direction";
 import { ribbonDrop, pageEdgeThickness } from "@/lib/thesis-book";
 import { useCoverParallax } from "./useCoverParallax";
 import { visualTextAlign } from "@/lib/rtl-layout";
+import { brand } from "@/constants/colors";
 
 const RIBBON_COLOR = "#2FCF9E";
+/** Cover gradient: the brand, deepened toward the spine. */
+const COVER_GRADIENT = [brand.primaryLight, "#A8500A"] as const;
 
 /**
- * The animated faux-3D thesis "book". Brand-indigo cover with a bookmark
+ * The animated faux-3D thesis "book". Brand-orange cover with a bookmark
  * ribbon whose drop length encodes progress. Tilts on drag and phone motion
  * (see useCoverParallax). Title renders in its own script direction.
  */
@@ -38,7 +41,7 @@ export function ThesisBookCover({
           <View style={[styles.pageEdges, { width: edge }]} />
 
           <LinearGradient
-            colors={["#6675FF", "#3B2F8F"]}
+            colors={COVER_GRADIENT}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.cover}
@@ -81,7 +84,7 @@ const styles = StyleSheet.create({
     width: 150,
     height: 26,
     borderRadius: 13,
-    backgroundColor: "#5C6BFF",
+    backgroundColor: brand.primary,
     opacity: 0.28,
   },
   book: { width: COVER_W, height: COVER_H },
@@ -102,7 +105,7 @@ const styles = StyleSheet.create({
     padding: 16,
     justifyContent: "space-between",
     overflow: "hidden",
-    shadowColor: "#5C6BFF",
+    shadowColor: brand.primary,
     shadowOpacity: 0.55,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 20 },

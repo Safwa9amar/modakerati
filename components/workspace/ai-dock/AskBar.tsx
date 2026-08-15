@@ -57,7 +57,7 @@ export function AskBar({ placeholder, autoFocus, disabled, onSend }: Props) {
         accessibilityLabel={t("chat.send", { defaultValue: "Send" })}
         style={[s.sendBtn, { backgroundColor: colors.brandPrimary }, (empty || disabled) && s.dim]}
       >
-        <Send size={15} color={colors.bgPrimary} strokeWidth={2.2} />
+        <Send size={15} color={colors.brandOnPrimary} strokeWidth={2.2} />
       </Pressable>
     </View>
   );

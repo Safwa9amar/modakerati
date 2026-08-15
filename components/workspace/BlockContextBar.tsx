@@ -405,7 +405,7 @@ export function BlockContextBar({
       style={[styles.askBtn, { backgroundColor: colors.brandPrimary }]}
     >
       <AskAIGlow trigger={selectedIndices.join(",")} color={colors.brandPrimary} />
-      <Sparkles size={18} color={colors.bgPrimary} strokeWidth={2.2} />
+      <Sparkles size={18} color={colors.brandOnPrimary} strokeWidth={2.2} />
     </Pressable>
   );
 

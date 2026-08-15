@@ -18,6 +18,7 @@ import {
 } from "lucide-react-native";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useToolbarStore } from "@/stores/toolbar-store";
+import { brand } from "@/constants/colors";
 import { useCaptionSheetStore } from "@/stores/caption-sheet-store";
 import { updateThesisChart, type ChartKind, type ThesisChartPatch } from "@/lib/api";
 import { AnimatedChip } from "../AnimatedChip";
@@ -59,7 +60,7 @@ const LEGEND_POS = [
 /** Recolour presets. Applied across the slices/series from the first entry on. */
 const PALETTES: { key: string; colors: string[] }[] = [
   { key: "office", colors: ["#4F81BD", "#C0504D", "#9BBB59", "#8064A2", "#4BACC6", "#F79646"] },
-  { key: "brand", colors: ["#5C6BFF", "#33D6A6", "#FF9933", "#FF5959", "#7A8CFF", "#9C6BFF"] },
+  { key: "brand", colors: [brand.primary, "#33D6A6", "#4C8DFF", "#FF5959", brand.primaryLight, "#9C6BFF"] },
   { key: "cool", colors: ["#2E5A88", "#3F8EA8", "#63B7B0", "#98D6C4", "#C9E9DB", "#E8F5EE"] },
   { key: "warm", colors: ["#8C2F1E", "#C1502E", "#E08B3C", "#EFBB57", "#F5DC9A", "#FAEFD3"] },
   { key: "mono", colors: ["#1F2933", "#3E4C59", "#616E7C", "#9AA5B1", "#CBD2D9", "#E4E7EB"] },

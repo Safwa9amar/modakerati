@@ -166,7 +166,7 @@ export function ComposerInput({
           accessibilityLabel={sendLabel}
           style={[styles.actionBtn, { backgroundColor: colors.brandPrimary }]}
         >
-          <Send size={16} color="#FFFFFF" strokeWidth={2} />
+          <Send size={16} color={colors.brandOnPrimary} strokeWidth={2} />
         </AnimatedPressable>
       ) : null}
     </View>

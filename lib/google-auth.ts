@@ -9,7 +9,7 @@ import { supabase } from "./supabase";
  *   Google → https://<project>.supabase.co/auth/v1/callback → back to our scheme
  *   exchangeCodeForSession          → a real session in SecureStore
  *
- * Google never redirects to `modakerati://` itself — custom schemes are not
+ * Google never redirects to `kwill://` itself — custom schemes are not
  * allowed as Google redirect URIs. It only ever calls Supabase back, and
  * Supabase is what bounces to the app, which is why the app needs no client
  * secret and no Google Cloud entry of its own.
@@ -17,7 +17,7 @@ import { supabase } from "./supabase";
  * Dashboard setup this depends on (Authentication → Providers → Google, and
  * → URL Configuration → Redirect URLs):
  *   - the Web OAuth client's ID + secret on the Google provider
- *   - `modakerati://*` in the redirect allow-list (plus `exp://` for Expo Go)
+ *   - `kwill://*` in the redirect allow-list (plus `exp://` for Expo Go)
  */
 
 type WebBrowserModule = typeof import("expo-web-browser");

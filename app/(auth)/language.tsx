@@ -54,13 +54,10 @@ export default function LanguageScreen() {
       <View style={styles.content}>
         <View style={styles.header}>
           <View style={[styles.logo, { backgroundColor: colors.brandPrimary }]}>
-            <GraduationCap size={40} color="#FFFFFF" strokeWidth={1.5} />
+            <GraduationCap size={40} color={colors.brandOnPrimary} strokeWidth={1.5} />
           </View>
           <Text style={[styles.appName, { color: colors.textPrimary }]}>
-            Modakerati
-          </Text>
-          <Text style={[styles.appNameAr, { color: colors.brandPrimaryLight }]}>
-            {"\u0645\u0630\u0643\u0631\u062A\u064A"}
+            Kwill
           </Text>
           <Text style={[styles.tagline, { color: colors.textSecondary }]}>
             {t("auth.appTagline", { defaultValue: "Your AI-powered thesis companion" })}
@@ -148,11 +145,6 @@ const styles = StyleSheet.create({
   appName: {
     fontSize: 32,
     fontFamily: "Inter_700Bold",
-    marginBottom: 4,
-  },
-  appNameAr: {
-    fontSize: 22,
-    fontFamily: "Inter_500Medium",
     marginBottom: 8,
   },
   tagline: {

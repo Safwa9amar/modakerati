@@ -460,8 +460,8 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
                 accessibilityLabel={t("common.approve", { defaultValue: "Approve" })}
                 style={[styles.primaryBtn, { backgroundColor: colors.brandPrimary }]}
               >
-                <Check size={17} color={colors.bgPrimary} strokeWidth={2.4} />
-                <Text style={[styles.primaryBtnText, { color: colors.bgPrimary }]}>{t("common.approve", { defaultValue: "Approve" })}</Text>
+                <Check size={17} color={colors.brandOnPrimary} strokeWidth={2.4} />
+                <Text style={[styles.primaryBtnText, { color: colors.brandOnPrimary }]}>{t("common.approve", { defaultValue: "Approve" })}</Text>
               </Pressable>
               <Pressable
                 onPress={reject}
@@ -499,7 +499,7 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
               accessibilityLabel={t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" })}
               style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}
             >
-              <Send size={18} color={colors.bgPrimary} strokeWidth={2.2} style={appRtl ? { transform: [{ scaleX: -1 }] } : undefined} />
+              <Send size={18} color={colors.brandOnPrimary} strokeWidth={2.2} style={appRtl ? { transform: [{ scaleX: -1 }] } : undefined} />
             </Pressable>
           </View>
         )}
@@ -591,8 +591,8 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
                       accessibilityLabel={t("workspace.hf.applyTemplate", { defaultValue: "Apply {{name}}", name: tpl.name })}
                       style={[styles.primaryBtn, { backgroundColor: colors.brandPrimary, opacity: applyingTplId && !applying ? 0.6 : 1 }]}
                     >
-                      {applying ? <ActivityIndicator size="small" color={colors.bgPrimary} /> : <Check size={17} color={colors.bgPrimary} strokeWidth={2.4} />}
-                      <Text style={[styles.primaryBtnText, { color: colors.bgPrimary }]}>{t("workspace.hf.apply", { defaultValue: "Apply" })}</Text>
+                      {applying ? <ActivityIndicator size="small" color={colors.brandOnPrimary} /> : <Check size={17} color={colors.brandOnPrimary} strokeWidth={2.4} />}
+                      <Text style={[styles.primaryBtnText, { color: colors.brandOnPrimary }]}>{t("workspace.hf.apply", { defaultValue: "Apply" })}</Text>
                     </Pressable>
                   </View>
                 ) : null}

@@ -1,3 +1,27 @@
+/**
+ * The brand color, theme-independent. `useThemeColors()` is the way to reach it
+ * from a component; this literal exists for the places a hook can't go —
+ * StyleSheet.create at module scope, WebView CSS strings, Reanimated worklets,
+ * native channel config. Never re-type the hex at a call site.
+ */
+export const brand = {
+  primary: "#F59433",
+  /** Lighter tint — safe as ink on a DARK surface, and as a low-alpha wash. */
+  primaryLight: "#FFB166",
+  /** Deeper shade — brand ink that stays readable on a LIGHT surface. */
+  primaryDeep: "#C2670C",
+  /** Ink that sits ON a brand fill — button labels, the ✦ bubble's glyph.
+   *  One place to flip if the fill ever wants dark ink instead. */
+  onPrimary: "#FFFFFF",
+} as const;
+
+/** "#F59433" → "245,148,51", for rgba() strings whose alpha is animated. */
+export function rgbTriplet(hex: string): string {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.replace(/./g, (c) => c + c) : h, 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
+
 export const colors = {
   dark: {
     bgPrimary: "#121220",
@@ -8,14 +32,15 @@ export const colors = {
     textPrimary: "#FFFFFF",
     textSecondary: "#9999AE",
     textPlaceholder: "#666678",
-    brandPrimary: "#5C6BFF",
-    brandPrimaryLight: "#7A8CFF",
+    brandPrimary: brand.primary,
+    brandPrimaryLight: brand.primaryLight,
+    brandOnPrimary: brand.onPrimary,
     brandAccent: "#33D6A6",
     semanticSuccess: "#33D6A6",
     semanticWarning: "#FF9933",
     semanticError: "#FF5959",
     chatAiBubble: "#1E2138",
-    chatUserBubble: "#5C6BFF",
+    chatUserBubble: brand.primary,
     chatUserText: "#FFFFFF",
     navBar: "#212133",
     navInactive: "#8D8D9E",
@@ -32,14 +57,17 @@ export const colors = {
     textPrimary: "#1A1A26",
     textSecondary: "#737385",
     textPlaceholder: "#A6A6B3",
-    brandPrimary: "#4D5CEB",
-    brandPrimaryLight: "#5C6BFF",
+    brandPrimary: brand.primary,
+    // The "light" variant is the brand *ink* — links, action labels. On a white
+    // card the tint is unreadable, so the light theme darkens instead.
+    brandPrimaryLight: brand.primaryDeep,
+    brandOnPrimary: brand.onPrimary,
     brandAccent: "#26B88C",
     semanticSuccess: "#26B88C",
     semanticWarning: "#E69919",
     semanticError: "#E64040",
     chatAiBubble: "#EDEEF8",
-    chatUserBubble: "#4D5CEB",
+    chatUserBubble: brand.primary,
     chatUserText: "#FFFFFF",
     navBar: "#FFFFFF",
     navInactive: "#8D8D9E",

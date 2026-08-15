@@ -58,7 +58,7 @@ export const useThesisWizard = create<WizardState>()(
       reset: () => set({ ...INITIAL, brief: { ...EMPTY_BRIEF } }),
     }),
     {
-      name: "modakerati-thesis-wizard",
+      name: "kwill-thesis-wizard",
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (s) => ({
         step: s.step,

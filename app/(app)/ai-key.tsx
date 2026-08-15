@@ -210,13 +210,13 @@ export default function AiKeyScreen() {
           >
             {justSaved ? (
               <View style={[styles.savedRow, { flexDirection }]}>
-                <Check size={18} color={colors.bgPrimary} strokeWidth={3} />
-                <Text style={[styles.saveButtonText, { color: colors.bgPrimary }]}>
+                <Check size={18} color={colors.brandOnPrimary} strokeWidth={3} />
+                <Text style={[styles.saveButtonText, { color: colors.brandOnPrimary }]}>
                   {t("aiKey.saved", { defaultValue: "Saved" })}
                 </Text>
               </View>
             ) : (
-              <Text style={[styles.saveButtonText, { color: colors.bgPrimary }]}>
+              <Text style={[styles.saveButtonText, { color: colors.brandOnPrimary }]}>
                 {t("common.save", { defaultValue: "Save" })}
               </Text>
             )}

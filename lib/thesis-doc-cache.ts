@@ -9,7 +9,7 @@ import type { DocumentDTO } from "@/lib/api";
 //
 // SQLite (not AsyncStorage) so a large document — hundreds of blocks, inline
 // figure data URIs — isn't capped by the key-value store's size limit. We reuse
-// the same `modakerati.db` file the chat cache opens (a second connection is fine
+// the same `kwill.db` file the chat cache opens (a second connection is fine
 // under WAL) and keep one row per thesis.
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
@@ -17,7 +17,7 @@ let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
-      const db = await SQLite.openDatabaseAsync("modakerati.db");
+      const db = await SQLite.openDatabaseAsync("kwill.db");
       await db.execAsync(`
         PRAGMA journal_mode = WAL;
         CREATE TABLE IF NOT EXISTS thesis_doc (

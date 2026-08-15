@@ -564,7 +564,7 @@ export default function VoiceLabScreen() {
               onPress={() => void previewVoice()}
               style={[styles.action, { backgroundColor: colors.brandPrimary }]}
             >
-              <Volume2 size={16} color="#FFFFFF" />
+              <Volume2 size={16} color={colors.brandOnPrimary} />
               <Text style={styles.actionText}>Speak</Text>
             </Pressable>
             <Pressable

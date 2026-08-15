@@ -57,7 +57,7 @@ export function LexicalBubble({
         isActive && { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
       ]}
     >
-      <Icon size={17} color={isActive ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
+      <Icon size={17} color={isActive ? colors.brandOnPrimary : colors.textPrimary} strokeWidth={2} />
     </Pressable>
   );
 
@@ -113,7 +113,7 @@ export function LexicalBubble({
       </View>
       {onAskAI ? (
         <Pressable onPress={onAskAI} accessibilityRole="button" accessibilityLabel="Ask AI" style={[styles.ask, { backgroundColor: colors.brandPrimary }]}>
-          <Sparkles size={18} color={colors.bgPrimary} strokeWidth={2.2} />
+          <Sparkles size={18} color={colors.brandOnPrimary} strokeWidth={2.2} />
         </Pressable>
       ) : null}
     </View>

@@ -14,7 +14,7 @@ import { supabase } from "./supabase";
  *
  * Dashboard setup this depends on (Authentication → Providers → Apple):
  *   - enable the provider
- *   - put `com.modakerati.app` in **Client IDs**
+ *   - put `com.kwill.app` in **Client IDs**
  *   - leave the OAuth half (Services ID, Team ID, Key ID, .p8 secret) EMPTY —
  *     that is only for the web flow, which we deliberately do not use
  *

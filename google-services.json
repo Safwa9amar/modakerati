@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:491738218959:android:4d6d32b4e487d6a5c4d2ba",
+        "mobilesdk_app_id": "1:491738218959:android:b954acc4c745e569c4d2ba",
         "android_client_info": {
-          "package_name": "com.modakerati.app"
+          "package_name": "com.kwill.app"
         }
       },
       "oauth_client": [

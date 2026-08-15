@@ -5,9 +5,10 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Mirror of `brand` in constants/colors.ts — keep the two in step.
         brand: {
-          primary: "#5C6BFF",
-          "primary-light": "#7A8CFF",
+          primary: "#F59433",
+          "primary-light": "#FFB166",
           accent: "#33D6A6",
         },
         semantic: {

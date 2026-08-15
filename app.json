@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Modakerati",
+    "name": "Kwill",
     "slug": "modakerati",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "modakerati",
+    "scheme": "kwill",
     "userInterfaceStyle": "automatic",
     "runtimeVersion": {
       "policy": "fingerprint"
@@ -18,26 +18,23 @@
         "expo-channel-name": "production"
       }
     },
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#121220"
-    },
     "ios": {
+      "icon": "./assets/AppIcon.icon",
       "supportsTablet": false,
-      "bundleIdentifier": "com.modakerati.app",
+      "bundleIdentifier": "com.kwill.app",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "NSSpeechRecognitionUsageDescription": "Modakerati uses speech recognition to turn your voice into text in your thesis.",
-        "NSMicrophoneUsageDescription": "Modakerati uses your microphone to dictate text into your thesis."
-      }
+        "NSSpeechRecognitionUsageDescription": "Kwill uses speech recognition to turn your voice into text in your thesis.",
+        "NSMicrophoneUsageDescription": "Kwill uses your microphone to dictate text into your thesis."
+      },
+      "appleTeamId": "VM5A7U2YT2"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#121220"
+        "backgroundColor": "#FFFFFF"
       },
-      "package": "com.modakerati.app",
+      "package": "com.kwill.app",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -54,15 +51,30 @@
       [
         "expo-notifications",
         {
-          "color": "#5C6BFF"
+          "color": "#F59433"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 260,
+          "resizeMode": "contain",
+          "backgroundColor": "#121220",
+          "android": {
+            "image": "./assets/splash-icon-android.png",
+            "imageWidth": 200,
+            "resizeMode": "contain",
+            "backgroundColor": "#121220"
+          }
         }
       ],
       "expo-sharing",
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Modakerati uses your microphone to dictate text into your thesis.",
-          "speechRecognitionPermission": "Modakerati uses speech recognition to turn your voice into text in your thesis."
+          "microphonePermission": "Kwill uses your microphone to dictate text into your thesis.",
+          "speechRecognitionPermission": "Kwill uses speech recognition to turn your voice into text in your thesis."
         }
       ],
       "expo-audio",

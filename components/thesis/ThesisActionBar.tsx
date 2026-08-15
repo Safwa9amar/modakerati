@@ -33,7 +33,7 @@ export function ThesisActionBar({
           onPress={onOpenWorkspace}
           style={[styles.primary, { backgroundColor: colors.brandPrimary }]}
         >
-          <FileText size={18} color="#FFFFFF" strokeWidth={2} />
+          <FileText size={18} color={colors.brandOnPrimary} strokeWidth={2} />
           <Text style={styles.primaryText}>{t("workspace.open", { defaultValue: "Open workspace" })}</Text>
         </Pressable>
         <Pressable

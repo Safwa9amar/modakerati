@@ -9,7 +9,7 @@ import en from "@/locales/en.json";
 import fr from "@/locales/fr.json";
 import ar from "@/locales/ar.json";
 
-const LANGUAGE_KEY = "modakerati-language";
+const LANGUAGE_KEY = "kwill-language";
 
 export const RTL_LANGUAGES = ["ar"];
 

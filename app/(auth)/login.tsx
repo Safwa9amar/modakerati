@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   Pressable,
@@ -13,14 +14,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { isAppleSignInAvailable } from "@/lib/apple-auth";
 import { userFacingError } from "@/lib/safe-error";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 
+const WORDMARK = require("../../assets/wordmark.png");
+
 export default function LoginScreen() {
   const colors = useThemeColors();
+  const theme = useSettingsStore((s) => s.theme);
   const router = useRouter();
   const { t } = useTranslation();
   const signInWithEmail = useAuthStore((s) => s.signInWithEmail);
@@ -97,9 +102,20 @@ export default function LoginScreen() {
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               {t("auth.welcomeTo")}
             </Text>
-            <Text style={[styles.title, { color: colors.textPrimary }]}>
-              {t("auth.appName")}
-            </Text>
+            {/* The wordmark is emissive art — its "will" is white with a glow, so
+                it only reads on the dark ground. The light theme keeps the type. */}
+            {theme === "dark" ? (
+              <Image
+                source={WORDMARK}
+                style={styles.wordmark}
+                resizeMode="contain"
+                accessibilityLabel={t("auth.appName")}
+              />
+            ) : (
+              <Text style={[styles.title, { color: colors.textPrimary }]}>
+                {t("auth.appName")}
+              </Text>
+            )}
             <Text style={[styles.tagline, { color: colors.textSecondary }]}>
               {t("auth.signInSubtitle")}
             </Text>
@@ -224,12 +240,22 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     fontFamily: "Inter_400Regular",
-    marginBottom: 4,
+    marginBottom: 10,
   },
   title: {
     fontSize: 32,
     fontFamily: "Inter_700Bold",
     marginBottom: 6,
+  },
+  // The art carries its own glow padding, so it sits on negative margins to keep
+  // the optical spacing the type had.
+  wordmark: {
+    width: 232,
+    height: 146, // the art's own 1.585 aspect, so `contain` letterboxes nothing
+    alignSelf: "flex-start",
+    marginTop: -20,
+    marginBottom: -16,
+    marginStart: -18,
   },
   tagline: {
     fontSize: 14,

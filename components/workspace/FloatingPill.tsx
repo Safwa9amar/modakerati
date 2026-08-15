@@ -924,7 +924,7 @@ function Bubble({
         accessibilityLabel={label}
         style={[styles.bubble, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
       >
-        <Icon size={22} color={colors.bgPrimary} strokeWidth={2.2} />
+        <Icon size={22} color={colors.brandOnPrimary} strokeWidth={2.2} />
         {unread && (
           <Animated.View
             entering={FadeIn}

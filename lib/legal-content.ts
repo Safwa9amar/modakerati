@@ -20,12 +20,12 @@ export const TERMS: Record<Lang, LegalDoc> = {
   en: {
     updated: "Last updated: June 2026",
     intro:
-      "Welcome to Modakerati. By creating an account or using the app you agree to these Terms of Service. Please read them carefully.",
+      "Welcome to Kwill. By creating an account or using the app you agree to these Terms of Service. Please read them carefully.",
     sections: [
       {
         heading: "1. The service",
         body: [
-          "Modakerati is an AI-assisted writing tool that helps students structure, draft and format academic theses and dissertations. It provides suggestions, formatting and document tools; it does not write your thesis for you or guarantee any academic outcome.",
+          "Kwill is an AI-assisted writing tool that helps students structure, draft and format academic theses and dissertations. It provides suggestions, formatting and document tools; it does not write your thesis for you or guarantee any academic outcome.",
         ],
       },
       {
@@ -39,7 +39,7 @@ export const TERMS: Record<Lang, LegalDoc> = {
         heading: "3. Academic integrity",
         body: [
           "You are solely responsible for the work you submit to your institution. AI-generated suggestions are drafts that you must review, verify and adapt.",
-          "You agree to follow your university's rules on plagiarism, citation and the permitted use of AI tools. Modakerati is a writing aid, not a substitute for your own scholarship.",
+          "You agree to follow your university's rules on plagiarism, citation and the permitted use of AI tools. Kwill is a writing aid, not a substitute for your own scholarship.",
         ],
       },
       {
@@ -76,7 +76,7 @@ export const TERMS: Record<Lang, LegalDoc> = {
       {
         heading: "9. Contact",
         body: [
-          "For any question about these Terms, contact us at support@modakerati.app.",
+          "For any question about these Terms, contact us at support@kwill.app.",
         ],
       },
     ],
@@ -84,12 +84,12 @@ export const TERMS: Record<Lang, LegalDoc> = {
   fr: {
     updated: "Dernière mise à jour : juin 2026",
     intro:
-      "Bienvenue sur Modakerati. En créant un compte ou en utilisant l'application, vous acceptez les présentes Conditions d'utilisation. Veuillez les lire attentivement.",
+      "Bienvenue sur Kwill. En créant un compte ou en utilisant l'application, vous acceptez les présentes Conditions d'utilisation. Veuillez les lire attentivement.",
     sections: [
       {
         heading: "1. Le service",
         body: [
-          "Modakerati est un outil de rédaction assistée par IA qui aide les étudiants à structurer, rédiger et mettre en forme des mémoires et des thèses. Il fournit des suggestions et des outils de mise en forme ; il ne rédige pas votre travail à votre place et ne garantit aucun résultat académique.",
+          "Kwill est un outil de rédaction assistée par IA qui aide les étudiants à structurer, rédiger et mettre en forme des mémoires et des thèses. Il fournit des suggestions et des outils de mise en forme ; il ne rédige pas votre travail à votre place et ne garantit aucun résultat académique.",
         ],
       },
       {
@@ -103,7 +103,7 @@ export const TERMS: Record<Lang, LegalDoc> = {
         heading: "3. Intégrité académique",
         body: [
           "Vous êtes seul responsable du travail que vous soumettez à votre établissement. Les suggestions générées par l'IA sont des brouillons que vous devez relire, vérifier et adapter.",
-          "Vous vous engagez à respecter les règles de votre université concernant le plagiat, la citation et l'usage autorisé des outils d'IA. Modakerati est une aide à la rédaction, non un substitut à votre propre travail.",
+          "Vous vous engagez à respecter les règles de votre université concernant le plagiat, la citation et l'usage autorisé des outils d'IA. Kwill est une aide à la rédaction, non un substitut à votre propre travail.",
         ],
       },
       {
@@ -140,7 +140,7 @@ export const TERMS: Record<Lang, LegalDoc> = {
       {
         heading: "9. Contact",
         body: [
-          "Pour toute question sur ces Conditions, contactez-nous à support@modakerati.app.",
+          "Pour toute question sur ces Conditions, contactez-nous à support@kwill.app.",
         ],
       },
     ],
@@ -204,7 +204,7 @@ export const TERMS: Record<Lang, LegalDoc> = {
       {
         heading: "٩. التواصل",
         body: [
-          "لأي استفسار حول هذه الشروط، تواصل معنا عبر support@modakerati.app.",
+          "لأي استفسار حول هذه الشروط، تواصل معنا عبر support@kwill.app.",
         ],
       },
     ],
@@ -218,7 +218,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
   en: {
     updated: "Last updated: June 2026",
     intro:
-      "This Privacy Policy explains what data Modakerati collects, why, and the choices you have. We collect only what we need to run the app.",
+      "This Privacy Policy explains what data Kwill collects, why, and the choices you have. We collect only what we need to run the app.",
     sections: [
       {
         heading: "1. Data we collect",
@@ -267,7 +267,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
       {
         heading: "8. Contact",
         body: [
-          "For privacy questions or requests, contact us at privacy@modakerati.app.",
+          "For privacy questions or requests, contact us at privacy@kwill.app.",
         ],
       },
     ],
@@ -275,7 +275,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
   fr: {
     updated: "Dernière mise à jour : juin 2026",
     intro:
-      "Cette Politique de confidentialité explique quelles données Modakerati collecte, pourquoi, et les choix dont vous disposez. Nous ne collectons que ce qui est nécessaire au fonctionnement de l'application.",
+      "Cette Politique de confidentialité explique quelles données Kwill collecte, pourquoi, et les choix dont vous disposez. Nous ne collectons que ce qui est nécessaire au fonctionnement de l'application.",
     sections: [
       {
         heading: "1. Données collectées",
@@ -324,7 +324,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
       {
         heading: "8. Contact",
         body: [
-          "Pour toute question ou demande relative à la confidentialité, contactez-nous à privacy@modakerati.app.",
+          "Pour toute question ou demande relative à la confidentialité, contactez-nous à privacy@kwill.app.",
         ],
       },
     ],
@@ -381,7 +381,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
       {
         heading: "٨. التواصل",
         body: [
-          "للأسئلة أو الطلبات المتعلقة بالخصوصية، تواصل معنا عبر privacy@modakerati.app.",
+          "للأسئلة أو الطلبات المتعلقة بالخصوصية، تواصل معنا عبر privacy@kwill.app.",
         ],
       },
     ],

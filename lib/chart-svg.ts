@@ -1,3 +1,5 @@
+import { brand } from "@/constants/colors";
+
 export interface ChartSpec {
   type: "bar" | "line" | "pie";
   title?: string;
@@ -5,7 +7,9 @@ export interface ChartSpec {
   values: number[];
 }
 
-const PALETTE = ["#5C6BFF", "#33D6A6", "#FF9933", "#FF5959", "#7A8CFF", "#9C6BFF", "#2DB6C9", "#E0529C"];
+// Series colors, brand first. The old third slot was an orange (#FF9933) that
+// the brand now sits on top of — it's a blue so eight series stay tellable apart.
+const PALETTE = [brand.primary, "#33D6A6", "#4C8DFF", "#FF5959", brand.primaryLight, "#9C6BFF", "#2DB6C9", "#E0529C"];
 
 function esc(s: unknown): string {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

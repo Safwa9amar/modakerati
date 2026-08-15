@@ -52,7 +52,7 @@ export const useSettingsStore = create<SettingsState>()(
       setLastThesisId: (id) => set({ lastThesisId: id }),
     }),
     {
-      name: "modakerati-settings",
+      name: "kwill-settings",
       storage: createJSONStorage(() => AsyncStorage),
       // v2: autocompleteEnabled introduced, default ON.
       // v4: the "sync while editing" toggle was removed — the Lexical Writer now

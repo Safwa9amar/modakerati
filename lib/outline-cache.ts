@@ -8,7 +8,7 @@ import type { OutlineDTO } from "@/lib/api";
 // source of truth; this is best-effort and every failure is swallowed so it can
 // never break the sheet.
 //
-// We reuse the same `modakerati.db` file the chat / doc caches open (a second
+// We reuse the same `kwill.db` file the chat / doc caches open (a second
 // connection is fine under WAL) and keep one row per thesis.
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
@@ -16,7 +16,7 @@ let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
-      const db = await SQLite.openDatabaseAsync("modakerati.db");
+      const db = await SQLite.openDatabaseAsync("kwill.db");
       await db.execAsync(`
         PRAGMA journal_mode = WAL;
         CREATE TABLE IF NOT EXISTS thesis_outline (

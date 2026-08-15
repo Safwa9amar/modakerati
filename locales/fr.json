@@ -221,9 +221,9 @@
   },
   "chatHead": {
     "permTitle": "Afficher par-dessus les autres applis",
-    "permBody": "Autorisez Modakerati à s'afficher par-dessus les autres applications pour que la bulle de chat vous suive comme Messenger.",
+    "permBody": "Autorisez Kwill à s'afficher par-dessus les autres applications pour que la bulle de chat vous suive comme Messenger.",
     "enabledTitle": "Bulle de chat activée",
-    "enabledBody": "La bulle flottera par-dessus les autres applications quand vous quittez Modakerati."
+    "enabledBody": "La bulle flottera par-dessus les autres applications quand vous quittez Kwill."
   },
   "nav": {
     "home": "Accueil",
@@ -252,7 +252,7 @@
     "account": "Compte"
   },
   "account": {
-    "mine": "Mon Modakerati",
+    "mine": "Mon Kwill",
     "aiKey": "Clé IA",
     "upgradePlan": "Passer à l'offre supérieure",
     "about": "À propos"
@@ -268,11 +268,11 @@
   "writer": {
     "emptyTitle": "Commencez à écrire",
     "emptyHint": "Créez un mémoire, importez un document ou partez d'un modèle.",
-    "askPlaceholder": "Demandez à Modakerati"
+    "askPlaceholder": "Demandez à Kwill"
   },
   "auth": {
     "welcomeTo": "Bienvenue sur",
-    "appName": "Modakerati",
+    "appName": "Kwill",
     "signInSubtitle": "Connectez-vous pour continuer votre mémoire",
     "email": "E-mail",
     "password": "Mot de passe",
@@ -365,10 +365,10 @@
     "hoursAgo": "heures",
     "yesterday": "Hier",
     "daysAgo": "jours",
-    "modakeratiNews": "Actualités Modakerati"
+    "kwillNews": "Actualités Kwill"
   },
   "news": {
-    "title": "Actualités Modakerati",
+    "title": "Actualités Kwill",
     "searchPlaceholder": "Rechercher des actualités...",
     "allCategories": "Tout",
     "empty": "Aucune actualité pour l'instant",

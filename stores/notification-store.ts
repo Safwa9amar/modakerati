@@ -225,7 +225,7 @@ export const useNotificationStore = create<NotificationState>()(
         }),
     }),
     {
-      name: "modakerati-notifications",
+      name: "kwill-notifications",
       storage: createJSONStorage(() => AsyncStorage),
       // Persist ONLY preferences — the list is always refetched from server.
       partialize: (state) => ({ preferences: state.preferences }),

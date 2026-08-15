@@ -37,7 +37,7 @@ let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
-      const db = await SQLite.openDatabaseAsync("modakerati.db");
+      const db = await SQLite.openDatabaseAsync("kwill.db");
       await db.execAsync(`PRAGMA journal_mode = WAL;`);
 
       // Meta table must exist before we can read a version out of it. Safe to

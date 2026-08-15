@@ -282,7 +282,7 @@ export default function LexicalWritebackScreen() {
           const on = selectedId === t.id;
           return (
             <Pressable key={t.id} onPress={() => void select(t)} style={[styles.chip, { borderColor: colors.borderDefault, backgroundColor: on ? colors.brandPrimary : colors.bgCard }]}>
-              <Text numberOfLines={1} style={[styles.chipText, { color: on ? colors.bgPrimary : colors.textPrimary }]}>{t.title || "Untitled"}</Text>
+              <Text numberOfLines={1} style={[styles.chipText, { color: on ? colors.brandOnPrimary : colors.textPrimary }]}>{t.title || "Untitled"}</Text>
             </Pressable>
           );
         })}
@@ -310,7 +310,7 @@ export default function LexicalWritebackScreen() {
         </View>
         <LexicalBubble active={active} onCommand={send} />
         <Pressable onPress={runSave} disabled={saving || blocks.length === 0} style={[styles.runBtn, { backgroundColor: blocks.length > 0 && !saving ? colors.brandPrimary : colors.borderDefault }]}>
-          <Text style={[styles.runText, { color: colors.bgPrimary }]}>{saving ? "Saving…" : "Save to thesis  ↑"}</Text>
+          <Text style={[styles.runText, { color: colors.brandOnPrimary }]}>{saving ? "Saving…" : "Save to thesis  ↑"}</Text>
         </Pressable>
       </KeyboardAvoidingView>
 

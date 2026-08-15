@@ -397,9 +397,9 @@ function EquationPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ge
               accessibilityLabel={t("workspace.equation.ask", { defaultValue: "Ask AI" })}
             >
               {asking ? (
-                <ActivityIndicator size="small" color={colors.bgPrimary} />
+                <ActivityIndicator size="small" color={colors.brandOnPrimary} />
               ) : (
-                <Sparkles size={17} color={colors.bgPrimary} strokeWidth={2.2} />
+                <Sparkles size={17} color={colors.brandOnPrimary} strokeWidth={2.2} />
               )}
             </Pressable>
           </View>
@@ -479,11 +479,11 @@ function EquationPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ge
             accessibilityRole="button"
           >
             {saving ? (
-              <ActivityIndicator size="small" color={colors.bgPrimary} />
+              <ActivityIndicator size="small" color={colors.brandOnPrimary} />
             ) : (
-              <Check size={17} color={colors.bgPrimary} strokeWidth={2.4} />
+              <Check size={17} color={colors.brandOnPrimary} strokeWidth={2.4} />
             )}
-            <Text style={[styles.btnText, { color: colors.bgPrimary }]}>
+            <Text style={[styles.btnText, { color: colors.brandOnPrimary }]}>
               {editing ? t("common.save", { defaultValue: "Save" }) : t("workspace.equation.insert", { defaultValue: "Insert" })}
             </Text>
           </Pressable>

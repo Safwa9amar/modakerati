@@ -52,7 +52,7 @@ export const useEditorScrollStore = create<EditorScrollState>()(
       get: (thesisId) => get().byThesis[thesisId] ?? null,
     }),
     {
-      name: "modakerati-editor-scroll",
+      name: "kwill-editor-scroll",
       storage: createJSONStorage(() => AsyncStorage),
       // Only the map is persisted; the methods come from the initializer on rehydrate.
       partialize: (s) => ({ byThesis: s.byThesis }),

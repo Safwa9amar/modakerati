@@ -1302,7 +1302,7 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
                 // The send has begun — the document is going to the sources
                 // before the turn opens. Not a Stop: there is no turn yet.
                 <View style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={colors.brandOnPrimary} />
                 </View>
               ) : canSend ? (
                 <AnimatedPressable
@@ -1311,7 +1311,7 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
                   onPress={handleSend}
                   style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}
                 >
-                  <Send size={16} color="#FFFFFF" strokeWidth={2} />
+                  <Send size={16} color={colors.brandOnPrimary} strokeWidth={2} />
                 </AnimatedPressable>
               ) : null}
             </View>

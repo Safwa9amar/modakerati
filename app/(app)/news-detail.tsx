@@ -109,7 +109,7 @@ export default function NewsDetailScreen() {
           {article.ctaLabel ? (
             <Pressable onPress={onCta} style={[styles.cta, { backgroundColor: colors.brandPrimary }]}>
               <Text style={styles.ctaText}>{article.ctaLabel}</Text>
-              {article.ctaHref ? <ExternalLink size={16} color="#FFFFFF" strokeWidth={2} /> : null}
+              {article.ctaHref ? <ExternalLink size={16} color={colors.brandOnPrimary} strokeWidth={2} /> : null}
             </Pressable>
           ) : null}
         </ScrollView>

@@ -25,6 +25,11 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { hLight, hMedium } from "@/lib/haptics";
+import { brand, rgbTriplet } from "@/constants/colors";
+
+// The flash pulse animates its alpha, so it needs the brand as rgb channels —
+// resolved once here because a worklet can't call back into JS per frame.
+const FLASH_RGB = rgbTriplet(brand.primary);
 
 // One outline row: a drag handle (long-press to lift) + the block. The handle
 // owns the drag so DocBlock keeps its tap-to-select / long-press-multi-select.
@@ -97,7 +102,7 @@ const Row = memo(function Row({
     flash.value = withSequence(withTiming(1, { duration: 160 }), withTiming(0, { duration: 780 }));
   }, [flashNonce]);
   const flashStyle = useAnimatedStyle(() => ({
-    backgroundColor: `rgba(92,107,255,${flash.value * 0.16})`,
+    backgroundColor: `rgba(${FLASH_RGB},${flash.value * 0.16})`,
     borderRadius: 8,
   }));
 

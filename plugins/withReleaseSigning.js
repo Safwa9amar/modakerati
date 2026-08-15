@@ -8,27 +8,27 @@ const { withAppBuildGradle } = require("expo/config-plugins");
 //
 // Credentials are NOT stored here or anywhere in the repo. Gradle reads them
 // from ~/.gradle/gradle.properties:
-//   MODAKERATI_UPLOAD_STORE_FILE, _STORE_PASSWORD, _KEY_ALIAS, _KEY_PASSWORD
+//   KWILL_UPLOAD_STORE_FILE, _STORE_PASSWORD, _KEY_ALIAS, _KEY_PASSWORD
 // A machine without them still builds — it just falls back to debug signing.
 
 const SIGNING_CONFIG = `
         release {
-            if (project.hasProperty('MODAKERATI_UPLOAD_STORE_FILE')) {
-                storeFile file(MODAKERATI_UPLOAD_STORE_FILE)
-                storePassword MODAKERATI_UPLOAD_STORE_PASSWORD
-                keyAlias MODAKERATI_UPLOAD_KEY_ALIAS
-                keyPassword MODAKERATI_UPLOAD_KEY_PASSWORD
+            if (project.hasProperty('KWILL_UPLOAD_STORE_FILE')) {
+                storeFile file(KWILL_UPLOAD_STORE_FILE)
+                storePassword KWILL_UPLOAD_STORE_PASSWORD
+                keyAlias KWILL_UPLOAD_KEY_ALIAS
+                keyPassword KWILL_UPLOAD_KEY_PASSWORD
             }
         }`;
 
 const RELEASE_SIGNING_CONFIG_LINE =
-  "            signingConfig project.hasProperty('MODAKERATI_UPLOAD_STORE_FILE') ? signingConfigs.release : signingConfigs.debug";
+  "            signingConfig project.hasProperty('KWILL_UPLOAD_STORE_FILE') ? signingConfigs.release : signingConfigs.debug";
 
 module.exports = function withReleaseSigning(config) {
   return withAppBuildGradle(config, (cfg) => {
     let src = cfg.modResults.contents;
 
-    if (src.includes("MODAKERATI_UPLOAD_STORE_FILE")) return cfg; // already applied
+    if (src.includes("KWILL_UPLOAD_STORE_FILE")) return cfg; // already applied
 
     // 1. Add a `release` entry to signingConfigs, right after the debug one.
     const debugSigningBlock = `        debug {

@@ -187,7 +187,7 @@ export default function LexicalRoundtripScreen() {
           onPress={() => blocks.length > 0 && send("serialize")}
           style={[styles.runBtn, { backgroundColor: blocks.length > 0 ? colors.brandPrimary : colors.borderDefault }]}
         >
-          <Text style={[styles.runText, { color: colors.bgPrimary }]}>Run round-trip  ✓</Text>
+          <Text style={[styles.runText, { color: colors.brandOnPrimary }]}>Run round-trip  ✓</Text>
         </Pressable>
       </KeyboardAvoidingView>
 
