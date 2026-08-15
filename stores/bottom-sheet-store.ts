@@ -2,7 +2,11 @@ import { create } from "zustand";
 
 // One name per globally-controlled bottom sheet. Add new sheets here as they're
 // migrated to the store so any screen can open them without prop plumbing.
-export type SheetName = "structure" | "ask" | "new-thesis" | "thesis-sources" | "thesis-attach";
+export type SheetName =
+  | "structure" | "ask" | "new-thesis" | "thesis-sources" | "thesis-attach"
+  // Scheduled tasks: pick a job, choose when it runs, or turn the selected
+  // paragraph into a task without leaving the Writer.
+  | "task-job" | "task-schedule" | "task-from-block";
 
 interface BottomSheetState {
   openSheets: Set<SheetName>;
