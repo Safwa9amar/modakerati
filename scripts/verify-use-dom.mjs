@@ -55,5 +55,46 @@ for (const file of targets) {
   }
 }
 
-console.log(failures ? `\n${failures} FAILED` : `\nAll ${targets.length} 'use dom' module(s) bundle cleanly`);
-process.exit(failures ? 1 : 0);
+// ── Second check: every relative specifier REACHABLE from a 'use dom' entry ──
+//
+// The transform above only sees the entry file. Once that entry's code lives in
+// a folder of modules beside it, a wrong relative path is the same blank screen
+// and NOTHING else catches it: `tsc` resolves .ts/.tsx but says nothing about
+// `require("../../assets/fonts/x.ttf")`, and a bad asset path throws at module
+// init, so the whole editor renders white.
+//
+// That is not hypothetical — splitting LexicalDomEditor.tsx into
+// editor-components/ moved the Liberation Serif require two directories deeper
+// and its `../` count was adjusted by one. Both gates passed; the editor was blank.
+const EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", "/index.ts", "/index.tsx", "/index.js", ""];
+const SPEC_RE = /(?:from|require\()\s*["'](\.[^"']+)["']/g;
+
+function resolveModule(file, spec) {
+  const base = path.resolve(path.dirname(file), spec);
+  for (const ext of EXTS) if (fs.existsSync(base + ext)) return base + ext;
+  return null;
+}
+
+const visited = new Set();
+let unresolved = 0;
+function checkGraph(file, viaChain) {
+  if (visited.has(file) || !/\.(tsx?|jsx?)$/.test(file)) return;
+  visited.add(file);
+  const src = fs.readFileSync(file, "utf8");
+  for (const [, spec] of src.matchAll(SPEC_RE)) {
+    const hit = resolveModule(file, spec);
+    if (!hit) {
+      unresolved++;
+      console.log(`FAIL  ${path.relative(ROOT, file)}\n        unresolved "${spec}"`);
+      if (viaChain.length) console.log(`        reached from ${viaChain.map((f) => path.relative(ROOT, f)).join(" → ")}`);
+      continue;
+    }
+    checkGraph(hit, [...viaChain, file]);
+  }
+}
+for (const file of targets) checkGraph(file, []);
+console.log(`\n  ok  ${visited.size} module(s) reachable from a 'use dom' entry; every relative path resolves`);
+
+const total = failures + unresolved;
+console.log(total ? `\n${total} FAILED` : `\nAll ${targets.length} 'use dom' module(s) bundle cleanly`);
+process.exit(total ? 1 : 0);

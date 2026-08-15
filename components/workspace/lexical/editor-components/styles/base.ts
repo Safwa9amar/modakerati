@@ -7,8 +7,8 @@ import { BRAND, BRAND_RGB } from "./brand";
 // Metric twin of Times New Roman (SIL OFL). MEASUREMENT ONLY — display keeps the
 // reading font. Required here so the 'use dom' bundler carries it into www.bundle.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const LIBERATION_REGULAR = require("../../../../assets/fonts/LiberationSerif-Regular.ttf");
-const LIBERATION_BOLD = require("../../../../assets/fonts/LiberationSerif-Bold.ttf");
+const LIBERATION_REGULAR = require("../../../../../assets/fonts/LiberationSerif-Regular.ttf");
+const LIBERATION_BOLD = require("../../../../../assets/fonts/LiberationSerif-Bold.ttf");
 
 export const CSS_BASE = `
 /* Metric twin of Times New Roman, used ONLY by the offscreen .lx-measure host
