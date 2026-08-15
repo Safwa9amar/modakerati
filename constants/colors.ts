@@ -40,7 +40,11 @@ export const colors = {
     semanticWarning: "#FF9933",
     semanticError: "#FF5959",
     chatAiBubble: "#1E2138",
-    chatUserBubble: brand.primary,
+    // Deliberately NOT the brand: a brand-filled bubble turns every message the
+    // student sends into an accent, and white on the brand orange is only 2.3:1.
+    // A neutral slate instead — lifted far enough off chatAiBubble to tell the
+    // two speakers apart on a dark ground, and 8.9:1 under the white text.
+    chatUserBubble: "#414962",
     chatUserText: "#FFFFFF",
     navBar: "#212133",
     navInactive: "#8D8D9E",
@@ -67,7 +71,9 @@ export const colors = {
     semanticWarning: "#E69919",
     semanticError: "#E64040",
     chatAiBubble: "#EDEEF8",
-    chatUserBubble: brand.primary,
+    // The same slate family, darker: on a white page the user's bubble is the
+    // filled one against the AI's pale one, with no brand fill in the thread.
+    chatUserBubble: "#343A4D",
     chatUserText: "#FFFFFF",
     navBar: "#FFFFFF",
     navInactive: "#8D8D9E",
