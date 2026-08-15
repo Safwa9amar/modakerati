@@ -252,28 +252,8 @@ export function PushDrawer({ children }: { children: React.ReactNode }) {
           </Animated.View>
         </GestureDetector>
 
-        {/* The drawer panel, parked just off the leading edge until the track slides.
-            `left` is PHYSICAL here — the track's children are placed in track space
-            and the track's own translateX is what reveals them, so the same
-            arithmetic has to hold in both directions:
-
-              LTR  drawer [0, DW]      app [DW, DW+W]   track parks at -DW
-              RTL  drawer [W, W+DW]    app [0, W]       track parks at 0
-
-            which is exactly `drawerLeft` (0 in LTR, `width` in RTL) — what the
-            comment above and the variable's own definition both say.
-
-            ⚠️ This was `IS_LEFT ? drawerLeft : -DRAWER_W`, changed in 9c84db2 as a
-            single undocumented line inside a 19-file batch. That is the commit that
-            added the language-switch RESTART, i.e. the first time Arabic genuinely
-            got I18nManager.forceRTL(true) — so the geometry moved underneath and the
-            offset was trimmed until it LOOKED right, leaving drawerLeft's RTL value
-            computed and dead. `-DRAWER_W` puts the panel at track [-DW, 0]: it lands
-            on the far side of the app, so the coordinates a finger touches belong to
-            the app underneath, not to the drawer's ScrollView. The panel paints, and
-            drags on it go somewhere else — the reported "drawer won't scroll in
-            Arabic". LTR is untouched by this: IS_LEFT already chose `drawerLeft`. */}
-        <View style={[styles.drawer, { left: drawerLeft, width: DRAWER_W }]}>
+        {/* The drawer panel, parked just off the leading edge until the track slides. */}
+        <View style={[styles.drawer, { left: IS_LEFT ? drawerLeft : -DRAWER_W, width: DRAWER_W }]}>
           <AppDrawer />
         </View>
       </Animated.View>
