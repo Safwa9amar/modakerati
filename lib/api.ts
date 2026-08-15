@@ -93,7 +93,7 @@ export async function ttsCapabilities(): Promise<TtsCapabilities> {
   }
 }
 
-async function apiGet<T>(path: string): Promise<T> {
+export async function apiGet<T>(path: string): Promise<T> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${path}`, { headers });
   if (!response.ok) {
@@ -234,7 +234,7 @@ async function apiPostLong<T>(path: string, body: any, opts: LongPostOptions = {
   });
 }
 
-async function apiPost<T>(path: string, body: any, signal?: AbortSignal): Promise<T> {
+export async function apiPost<T>(path: string, body: any, signal?: AbortSignal): Promise<T> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
@@ -261,7 +261,7 @@ async function apiPut<T>(path: string, body: any): Promise<T> {
   return response.json();
 }
 
-async function apiPatch<T>(path: string, body: any): Promise<T> {
+export async function apiPatch<T>(path: string, body: any): Promise<T> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${path}`, {
     method: "PATCH",
@@ -274,7 +274,7 @@ async function apiPatch<T>(path: string, body: any): Promise<T> {
   return response.json();
 }
 
-async function apiDelete(path: string): Promise<void> {
+export async function apiDelete(path: string): Promise<void> {
   const headers = await getAuthHeaders();
   const response = await fetch(`${API_URL}${path}`, { method: "DELETE", headers });
   if (!response.ok) {
