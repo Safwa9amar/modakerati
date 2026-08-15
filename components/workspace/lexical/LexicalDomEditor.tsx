@@ -12,7 +12,7 @@
 // Nothing here is wired to the thesis doc/op-queue yet — it's a feasibility test.
 
 import * as React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -34,9 +34,6 @@ import {
   ListItemNode,
   $isListNode,
   $isListItemNode,
-  INSERT_UNORDERED_LIST_COMMAND,
-  INSERT_ORDERED_LIST_COMMAND,
-  REMOVE_LIST_COMMAND,
   $insertList,
   $removeList,
 } from "@lexical/list";
@@ -407,19 +404,6 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 .lx-hl-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; overflow: visible; }
 .lx-hl { position: absolute; background: rgba(255, 213, 79, 0.45); border-radius: 2px; }
 .lx-hl-cur { background: rgba(255, 138, 0, 0.55); }
-/* Floating per-block bubble — a kind-icon bubble that expands to the pill of that
-   block's tools (mirrors the native FloatingPill → BlockContextBar). */
-.lx-tb-anchor { position: fixed; z-index: 40; }
-.lx-tb-bubble { width: 34px; height: 34px; border: none; border-radius: 50%; background: ${BRAND}; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px -4px rgba(${BRAND_RGB},.5); }
-.lx-tb-bubble:active { transform: scale(.92); }
-.lx-tb { display: flex; gap: 3px; align-items: center; background: #ffffff; border: 1px solid #d8d8de; border-radius: 12px; padding: 4px 5px; box-shadow: 0 8px 22px -6px rgba(20,22,40,.30); max-width: calc(100vw - 12px); overflow-x: auto; scrollbar-width: none; }
-.lx-tb::-webkit-scrollbar { display: none; }
-.lx-tb-b { min-width: 30px; height: 30px; border: none; background: transparent; border-radius: 7px; font-size: 13px; color: #333; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0 7px; font-weight: 600; flex: 0 0 auto; }
-.lx-tb-b:active { transform: scale(.9); }
-.lx-tb-b.on { background: ${BRAND}; color: #fff; }
-.lx-tb-sep { width: 1px; height: 18px; background: #e4e5ee; margin: 0 2px; flex: 0 0 auto; }
-.lx-tb-sw { width: 16px; height: 16px; border-radius: 8px; border: 1px solid #d8d8de; display: block; }
-.lx-tb-lbl { font-size: 11px; color: #8a8a8a; padding: 0 6px; flex: 0 0 auto; }
 /* Inline AI suggestion — a faithful web port of the native InlineSuggestion: an
    instruction chip, "Thought for Xs" trace, the proposal AS the paragraph with a
    green logical-edge bar + word add-marks, an expandable original teaser, and a
@@ -1214,171 +1198,6 @@ function EditorBridge({
   }, [editor, onState, isUserDriven]);
 
   return null;
-}
-
-// The per-block floating toolbar: appears anchored ABOVE the selected block and
-// shows tools for THAT block's kind — text blocks (paragraph/heading/list/quote)
-// get formatting; structural blocks (image/table/other, selected as a node) get
-// move/delete. Lives inside the WebView so anchoring is just web positioning.
-type TbInfo = { key: string; kind: "text" | "block"; block: string; bold: boolean; italic: boolean; underline: boolean };
-
-// Collapsed-bubble glyph for the selected block's kind (like the native bubble icon).
-function kindIcon(kind: "text" | "block", block: string): string {
-  if (kind === "block") return block === "image" ? "🖼" : block === "table" ? "▦" : "⋯";
-  if (block === "h1" || block === "h2" || block === "h3") return "H";
-  if (block === "bullet") return "•";
-  if (block === "number") return "1.";
-  if (block === "quote") return "❝";
-  return "¶";
-}
-
-function FloatingToolbar() {
-  const [editor] = useLexicalComposerContext();
-  const [tb, setTb] = useState<(TbInfo & { top: number; left: number }) | null>(null);
-  const [expanded, setExpanded] = useState(false);
-
-  const compute = useCallback(() => {
-    const rootEl = editor.getRootElement();
-    if (!rootEl) return setTb(null);
-    let info: TbInfo | null = null;
-    editor.getEditorState().read(() => {
-      const sel = $getSelection();
-      if ($isRangeSelection(sel)) {
-        const anchor = sel.anchor.getNode();
-        const top = anchor.getKey() === "root" ? null : anchor.getTopLevelElementOrThrow();
-        if (top) {
-          const block = $isHeadingNode(top) ? top.getTag() : $isListNode(top) ? (top.getListType() === "bullet" ? "bullet" : "number") : top.getType();
-          info = { key: top.getKey(), kind: "text", block, bold: sel.hasFormat("bold"), italic: sel.hasFormat("italic"), underline: sel.hasFormat("underline") };
-        }
-      } else if ($isNodeSelection(sel)) {
-        const ns = sel.getNodes();
-        // Display-only nodes — chrome bands (section header/footer/section-break)
-        // and page boundaries — have their bubble owned by the native side; never
-        // surface the web fallback toolbar for them (leave `info` null → the
-        // toolbar renders nothing).
-        if (ns.length === 1 && $isDisplayOnlyNode(ns[0])) return;
-        if (ns.length === 1 && $isBlockDataNode(ns[0])) info = { key: ns[0].getKey(), kind: "block", block: (ns[0] as BlockDataNode).getBlock().kind, bold: false, italic: false, underline: false };
-      }
-    });
-    // Cast: TS can't track the assignment made inside the read() callback above.
-    const chosen = info as TbInfo | null;
-    if (!chosen) return setTb(null);
-    const el = editor.getElementByKey(chosen.key);
-    if (!el) return setTb(null);
-    const br = el.getBoundingClientRect();
-    const top = Math.max(6, br.top - 42);
-    // Bail when nothing actually moved. `setTb` was handed a fresh object literal on
-    // every scroll event, so React re-rendered the bubble (a fixed-position box with
-    // a shadow → repaint) at scroll frequency even while it sat perfectly still.
-    setTb((prev) =>
-      prev && prev.key === chosen.key && prev.top === top && prev.kind === chosen.kind &&
-      prev.block === chosen.block && prev.bold === chosen.bold && prev.italic === chosen.italic &&
-      prev.underline === chosen.underline
-        ? prev
-        : { ...chosen, top, left: 6 },
-    );
-  }, [editor]);
-
-  useEffect(() => {
-    // Coalesce to ONE compute per frame. This ran unthrottled on every scroll event,
-    // and compute() reads the editor state and calls getBoundingClientRect — a forced
-    // synchronous layout — then set React state. At scroll frequency that is a reflow
-    // and a re-render per event, which is what made scrolling feel heavy.
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => { raf = 0; compute(); });
-    };
-    const rootEl = editor.getRootElement();
-    // Passive: this handler never cancels the scroll, and saying so lets the WebView
-    // keep scrolling on the compositor instead of waiting on JS.
-    const opts = { passive: true, capture: true } as const;
-    rootEl?.addEventListener("scroll", onScroll, opts);
-    window.addEventListener("scroll", onScroll, opts);
-    window.addEventListener("resize", onScroll, { passive: true });
-    const off = mergeRegister(editor.registerUpdateListener(() => compute()));
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      rootEl?.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onScroll);
-      off();
-    };
-  }, [editor, compute]);
-
-  // Collapse back to the kind-icon bubble whenever the selected block changes.
-  useEffect(() => { setExpanded(false); }, [tb?.key]);
-
-  if (!tb) return null;
-
-  // Every one of these is a TAP on the bubble, not the caret moving — so none of
-  // them may scroll the page (lxQuietUpdate / lxQuietCommand). `move` is the one
-  // that made this obvious: nudging a block up flung the view to wherever Lexical
-  // decided the caret had ended up.
-  const fmt = (f: TextFormatType) => lxQuietCommand(editor, FORMAT_TEXT_COMMAND, f);
-  const align = (a: ElementFormatType) => lxQuietCommand(editor, FORMAT_ELEMENT_COMMAND, a);
-  const setBlock = (make: () => HeadingNode | QuoteNode | ReturnType<typeof $createParagraphNode>) =>
-    lxQuietUpdate(editor, () => { const s = $getSelection(); if ($isRangeSelection(s)) $setBlocksType(s, make); });
-  const list = (t: "ul" | "ol" | "none") =>
-    lxQuietCommand(editor, t === "ul" ? INSERT_UNORDERED_LIST_COMMAND : t === "ol" ? INSERT_ORDERED_LIST_COMMAND : REMOVE_LIST_COMMAND, undefined);
-  const color = (hex: string) => lxQuietUpdate(editor, () => { const s = $getSelection(); if ($isRangeSelection(s)) $patchStyleText(s, { color: `#${hex}` }); });
-  const move = (dir: -1 | 1) => lxQuietUpdate(editor, () => {
-    const n = $getNodeByKey(tb.key); if (!n) return;
-    const sib = dir === -1 ? n.getPreviousSibling() : n.getNextSibling(); if (!sib) return;
-    if (dir === -1) sib.insertBefore(n); else sib.insertAfter(n);
-  });
-  const del = () => lxQuietUpdate(editor, () => { const n = $getNodeByKey(tb.key); if (n) n.remove(); });
-
-  const B = (props: { on?: boolean; onClick: () => void; children: React.ReactNode }) =>
-    React.createElement("button", { className: "lx-tb-b" + (props.on ? " on" : ""), onClick: props.onClick }, props.children);
-  const sep = (k: string) => React.createElement("span", { key: k, className: "lx-tb-sep" });
-
-  const isH = (t: string) => tb.block === t;
-  return (
-    <div className="lx-tb-anchor" style={{ top: tb.top, left: tb.left }}>
-      {!expanded ? (
-        <button className="lx-tb-bubble" onClick={() => setExpanded(true)} aria-label={`Edit ${tb.block}`}>{kindIcon(tb.kind, tb.block)}</button>
-      ) : (
-        <div className="lx-tb" onMouseDown={(e) => e.preventDefault()}>
-          <B onClick={() => setExpanded(false)}>‹</B>
-          {sep("sx")}
-          {tb.kind === "text" ? (
-        <>
-          <B on={tb.bold} onClick={() => fmt("bold")}><b>B</b></B>
-          <B on={tb.italic} onClick={() => fmt("italic")}><i>I</i></B>
-          <B on={tb.underline} onClick={() => fmt("underline")}><u>U</u></B>
-          {sep("s1")}
-          <B on={isH("h1")} onClick={() => setBlock(() => (isH("h1") ? $createParagraphNode() : $createHeadingNode("h1")))}>H1</B>
-          <B on={isH("h2")} onClick={() => setBlock(() => (isH("h2") ? $createParagraphNode() : $createHeadingNode("h2")))}>H2</B>
-          <B on={isH("h3")} onClick={() => setBlock(() => (isH("h3") ? $createParagraphNode() : $createHeadingNode("h3")))}>H3</B>
-          <B on={isH("quote")} onClick={() => setBlock(() => (isH("quote") ? $createParagraphNode() : $createQuoteNode()))}>❝</B>
-          {sep("s2")}
-          <B on={isH("bullet")} onClick={() => list(isH("bullet") ? "none" : "ul")}>•</B>
-          <B on={isH("number")} onClick={() => list(isH("number") ? "none" : "ol")}>1.</B>
-          {sep("s3")}
-          <B onClick={() => align("left")}>L</B>
-          <B onClick={() => align("center")}>C</B>
-          <B onClick={() => align("right")}>R</B>
-          <B onClick={() => align("justify")}>J</B>
-          {sep("s4")}
-          {["C0392B", "E67E22", "27AE60", "2980B9", "8E44AD"].map((h) =>
-            React.createElement("button", { key: h, className: "lx-tb-b", onClick: () => color(h) },
-              React.createElement("span", { className: "lx-tb-sw", style: { background: `#${h}` } })),
-          )}
-        </>
-      ) : (
-        <>
-          <span className="lx-tb-lbl">{tb.block}</span>
-          {sep("s1")}
-          <B onClick={() => move(-1)}>↑</B>
-          <B onClick={() => move(1)}>↓</B>
-          <B onClick={del}>🗑</B>
-        </>
-      )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // Every mutation the APP drives — a pill tap, the in-editor bubble, a plugin
