@@ -28,6 +28,7 @@ import {
   List,
   ChevronRight,
   ChevronLeft,
+  ListChecks,
   type LucideIcon,
 } from "lucide-react-native";
 
@@ -272,6 +273,22 @@ function AppIndex() {
     //       } as any);
     //     }),
     // },
+    {
+      key: "tasks",
+      icon: ListChecks,
+      label: t("tasks.title"),
+      // Tasks act ON a thesis, so this must not open an empty screen. Same
+      // guard the export entry above uses.
+      onPress: () =>
+        go(() => {
+          if (currentThesis) {
+            router.push({
+              pathname: "/(app)/tasks",
+              params: { thesisId: currentThesis.id },
+            } as any);
+          }
+        }),
+    },
     {
       key: "library",
       icon: Library,
