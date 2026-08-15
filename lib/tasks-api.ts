@@ -55,6 +55,8 @@ export interface TaskRun {
   scheduledAt: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+  /** thesis_doc_history.seq taken before the first task — the run's undo point. */
+  historyCheckpoint: number | null;
   summary: RunSummary | null;
   createdAt: string;
 }

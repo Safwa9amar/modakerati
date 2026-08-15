@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { BackButton } from "@/components/BackButton";
 import { TaskRow } from "@/components/tasks/TaskRow";
-import { getRun, type TaskRun, type TaskItem, type TaskProposal } from "@/lib/tasks-api";
+import { getRun, decideAllProposals, undoRun, type TaskRun, type TaskItem, type TaskProposal } from "@/lib/tasks-api";
 import { useTasksStore } from "@/stores/tasks-store";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
 
 /**
  * What one run did. Owns the things the document itself cannot show: what was
  * applied, what is waiting, what failed and WHY, and cancelling a run that is
  * still going.
  *
- * Reviewing the proposals happens in the Writer, not here — that is phase 3.
- * This screen only counts them.
+ * Reviewing a proposal happens in the WRITER, not here: a rewrite is only
+ * judgeable with the page around it. This screen is the way in — it counts
+ * what is waiting, hands the student over to the document, and owns the two
+ * things the document cannot do: deciding them all at once, and undoing the
+ * whole run.
  */
 export default function TaskRunScreen() {
   const { t } = useTranslation();
@@ -24,12 +28,14 @@ export default function TaskRunScreen() {
   const { textAlign, flexDirection } = useRTL();
   const bottomPad = useSafeAreaInsets().bottom + 24;
   const { runId } = useLocalSearchParams<{ runId: string }>();
+  const router = useRouter();
   const cancel = useTasksStore((s) => s.cancel);
 
   const [run, setRun] = useState<TaskRun | null>(null);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [proposals, setProposals] = useState<TaskProposal[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [working, setWorking] = useState(false);
 
   const fetchRun = useCallback(async () => {
     if (!runId) return;
@@ -109,6 +115,95 @@ export default function TaskRunScreen() {
           <TaskRow key={task.id} task={task} />
         ))}
 
+        {run && pending > 0 ? (
+          <>
+            {/* The report counts; the document reviews. Tapping through is the
+                whole point — a rewrite is only judgeable in context. */}
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: "/(app)/thesis-workspace",
+                  params: { thesisId: run.thesisId },
+                } as any)
+              }
+              style={[styles.review, { backgroundColor: colors.brandPrimary }]}
+            >
+              <Text style={{ color: colors.brandOnPrimary, fontWeight: "600" }}>
+                {t("tasks.reviewInDocument", { count: pending })}
+              </Text>
+            </Pressable>
+
+            <View style={[styles.bulkRow, { flexDirection }]}>
+              <Pressable
+                disabled={working}
+                onPress={async () => {
+                  setWorking(true);
+                  try {
+                    await decideAllProposals(run.id, "reject");
+                    await fetchRun();
+                  } finally {
+                    setWorking(false);
+                  }
+                }}
+                style={[styles.bulk, { borderColor: colors.borderDefault }]}
+              >
+                <Text style={{ color: colors.textSecondary, fontSize: 13 }}>{t("tasks.rejectAll")}</Text>
+              </Pressable>
+
+              {/* Approve all must APPLY the text, not just mark the rows
+                  accepted — marking them would drop them out of the pending
+                  list the Writer hydrates from, and the student would be told
+                  "approved" over text that never changed. */}
+              <Pressable
+                disabled={working}
+                onPress={async () => {
+                  setWorking(true);
+                  try {
+                    await useTasksStore.getState().approveAllPending(run.thesisId);
+                    await fetchRun();
+                  } finally {
+                    setWorking(false);
+                  }
+                }}
+                style={[styles.bulk, { borderColor: colors.semanticSuccess }]}
+              >
+                <Text style={{ color: colors.semanticSuccess, fontSize: 13 }}>{t("tasks.approveAll")}</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
+
+        {run && run.status === "done" && run.historyCheckpoint != null ? (
+          <Pressable
+            disabled={working}
+            onPress={() => {
+              // Undo takes back MORE than this run's own edits once proposals
+              // have been accepted — those are ordinary text by then. Say so
+              // before they tap, not after.
+              Alert.alert(t("tasks.undoTitle"), t("tasks.undoBody"), [
+                { text: t("common.cancel", { defaultValue: "Cancel" }), style: "cancel" },
+                {
+                  text: t("tasks.undoConfirm"),
+                  style: "destructive",
+                  onPress: async () => {
+                    setWorking(true);
+                    try {
+                      await undoRun(run.id);
+                      await useThesisDocStore.getState().revalidate(run.thesisId);
+                      await fetchRun();
+                    } finally {
+                      setWorking(false);
+                    }
+                  },
+                },
+              ]);
+            }}
+            style={[styles.undo, { borderColor: colors.semanticError }]}
+          >
+            <Text style={{ color: colors.semanticError, fontWeight: "600" }}>{t("tasks.undoRun")}</Text>
+          </Pressable>
+        ) : null}
+
         {run && (run.status === "scheduled" || run.status === "running") ? (
           <Pressable
             onPress={() => void cancel(run.id).then(fetchRun)}
@@ -130,4 +225,8 @@ const styles = StyleSheet.create({
   summaryText: { fontSize: 14, fontWeight: "600" },
   note: { fontSize: 12, marginTop: 6 },
   cancel: { marginTop: 18, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: "center" },
+  review: { paddingVertical: 14, borderRadius: 12, alignItems: "center", marginTop: 6 },
+  bulkRow: { gap: 8, marginTop: 8 },
+  bulk: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: "center" },
+  undo: { marginTop: 18, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: "center" },
 });
