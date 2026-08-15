@@ -257,6 +257,58 @@
     "upgradePlan": "Passer à l'offre supérieure",
     "about": "À propos"
   },
+  "tasks": {
+    "title": "T\u00e2ches",
+    "upNext": "\u00c0 suivre",
+    "earlier": "Pr\u00e9c\u00e9dentes",
+    "needsYou": "\u00c0 votre attention",
+    "empty": "Rien en attente",
+    "emptyHint": "Ajoutez quelque chose \u00e0 faire pendant votre absence.",
+    "addTask": "Ajouter une t\u00e2che",
+    "addFromBlock": "Ajouter comme t\u00e2che",
+    "scheduleRun": "Planifier",
+    "runNow": "Lancer maintenant",
+    "cancel": "Annuler",
+    "cancelling": "Arr\u00eat apr\u00e8s la t\u00e2che en cours",
+    "remove": "Retirer",
+    "modeApply": "appliquer",
+    "modePropose": "proposer",
+    "running": "En cours\u2026",
+    "scheduled": "Planifi\u00e9e",
+    "done": "Termin\u00e9",
+    "failed": "Impossible",
+    "skipped": "Non tent\u00e9e",
+    "waitingForYou": "en attente de vous",
+    "ranLate": "Ex\u00e9cut\u00e9e en retard",
+    "stoppedEarly": "Arr\u00eat\u00e9e avant la fin",
+    "when": {
+      "heading": "Quand faut-il l'ex\u00e9cuter ?",
+      "inAnHour": "Dans une heure",
+      "tonight": "Ce soir",
+      "lateTonight": "Cette nuit",
+      "tomorrowMorning": "Demain matin"
+    },
+    "jobs": {
+      "fix_captions": "Corriger les l\u00e9gendes",
+      "rebuild_toc": "Reconstruire la table des mati\u00e8res",
+      "build_figure_and_table_lists": "Cr\u00e9er les listes des figures et tableaux",
+      "apply_norms": "Appliquer les normes de mon universit\u00e9",
+      "fix_heading_levels": "Corriger les niveaux de titres",
+      "unify_typography": "Uniformiser polices et espacements",
+      "proofread": "Relire",
+      "remove_repetition": "Supprimer les r\u00e9p\u00e9titions",
+      "write_abstract": "R\u00e9diger le r\u00e9sum\u00e9",
+      "draft_section": "R\u00e9diger une section",
+      "custom_block_task": "Autre chose"
+    },
+    "params": {
+      "scope": "Quelle partie ?",
+      "scopePlaceholder": "ex. chapitre 2",
+      "normProfile": "Quelles normes ?",
+      "languages": "Quelles langues ?",
+      "request": "Que doit faire Kwill ?"
+    }
+  },
   "library": {
     "all": "Tout",
     "figures": "Figures",

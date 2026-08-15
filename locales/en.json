@@ -257,6 +257,58 @@
     "upgradePlan": "Upgrade plan",
     "about": "About"
   },
+  "tasks": {
+    "title": "Tasks",
+    "upNext": "Up next",
+    "earlier": "Earlier",
+    "needsYou": "Needs you",
+    "empty": "Nothing queued yet",
+    "emptyHint": "Add something for Kwill to do while you're away.",
+    "addTask": "Add a task",
+    "addFromBlock": "Add as task",
+    "scheduleRun": "Schedule this run",
+    "runNow": "Run now",
+    "cancel": "Cancel run",
+    "cancelling": "Stopping after the current task",
+    "remove": "Remove",
+    "modeApply": "apply",
+    "modePropose": "propose",
+    "running": "Working\u2026",
+    "scheduled": "Scheduled",
+    "done": "Done",
+    "failed": "Couldn't be done",
+    "skipped": "Not attempted",
+    "waitingForYou": "waiting for you",
+    "ranLate": "Ran late",
+    "stoppedEarly": "Stopped early",
+    "when": {
+      "heading": "When should this run?",
+      "inAnHour": "In an hour",
+      "tonight": "Tonight",
+      "lateTonight": "Late tonight",
+      "tomorrowMorning": "Tomorrow morning"
+    },
+    "jobs": {
+      "fix_captions": "Fix captions",
+      "rebuild_toc": "Rebuild the table of contents",
+      "build_figure_and_table_lists": "Build the lists of figures and tables",
+      "apply_norms": "Apply my university's norms",
+      "fix_heading_levels": "Fix heading levels",
+      "unify_typography": "Unify fonts and spacing",
+      "proofread": "Proofread",
+      "remove_repetition": "Remove repetition",
+      "write_abstract": "Write the abstract",
+      "draft_section": "Draft a section",
+      "custom_block_task": "Something else"
+    },
+    "params": {
+      "scope": "Which part?",
+      "scopePlaceholder": "e.g. chapter 2",
+      "normProfile": "Which norms?",
+      "languages": "Which languages?",
+      "request": "What should Kwill do?"
+    }
+  },
   "library": {
     "all": "All",
     "figures": "Figures",
