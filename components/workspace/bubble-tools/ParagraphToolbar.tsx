@@ -11,6 +11,7 @@ import {
   Italic,
   List,
   Palette,
+  Pilcrow,
   PilcrowLeft,
   Sigma,
   Tag,
@@ -133,21 +134,31 @@ export function ParagraphTools({ full }: { full: boolean }) {
 
 /**
  * Heading — the same block family as body text, but its compact set puts the LEVELS
- * up front (H1…Hn, tapping the active one demotes back to Normal) instead of the
- * inline marks: changing level is what you almost always came for. Expanding hands
- * over to the full paragraph set.
+ * up front (Normal, H1…Hn) instead of the inline marks: changing level is what you
+ * almost always came for. Expanding hands over to the full paragraph set.
+ *
+ * Level 0 leads the row, exactly as it leads the Style panel's `styleLevels` — turning
+ * a heading back into body text is one tap here rather than a trip through (+) → Style.
+ * It wears the ¶ glyph because "Normal" cannot fit a 40pt chip in either form (the same
+ * trade the Style panel makes in its column). Tapping the ACTIVE level demotes too, so
+ * both routes back to body text still work.
  */
 export function HeadingTools({ full }: { full: boolean }) {
-  const { moreChip, colors } = useChipKit();
-  const { rtl, headingLevels, allLevel, canFormat, apply } = useTools();
+  const { moreChip, colors, t } = useChipKit();
+  const { rtl, vertical, headingLevels, allLevel, canFormat, apply } = useTools();
 
   if (full) return <ParagraphTools full />;
 
+  const levels = [0, ...headingLevels];
+  // Only the ROW form mirrors — a column reads top→bottom in every language.
+  const ordered = rtl && !vertical ? [...levels].reverse() : levels;
+  const normalLabel = t("composer.edit.normal", { defaultValue: "Normal" });
+
   return (
     <>
-      {(rtl ? [...headingLevels].reverse() : headingLevels).map((l, i) => {
+      {ordered.map((l, i) => {
         const active = allLevel(l);
-        const enterIndex = rtl ? headingLevels.length - 1 - i : i;
+        const enterIndex = rtl && !vertical ? levels.length - 1 - i : i;
         return (
           <AnimatedChip
             key={"h-" + l}
@@ -155,7 +166,7 @@ export function HeadingTools({ full }: { full: boolean }) {
             onPress={() => apply({ level: active ? 0 : l })}
             disabled={!canFormat}
             active={active}
-            accessibilityLabel={`H${l}`}
+            accessibilityLabel={l === 0 ? normalLabel : `H${l}`}
             style={[
               toolStyles.chip,
               { borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
@@ -163,13 +174,20 @@ export function HeadingTools({ full }: { full: boolean }) {
               !canFormat && toolStyles.chipDim,
             ]}
           >
-            <Text style={[toolStyles.optText, { color: active ? colors.bgPrimary : colors.textPrimary, fontWeight: "bold" }]}>
-              {`H${l}`}
-            </Text>
+            {l === 0 ? (
+              <Pilcrow size={17} color={active ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
+            ) : (
+              <Text
+                numberOfLines={1}
+                style={[toolStyles.optText, { color: active ? colors.bgPrimary : colors.textPrimary, fontWeight: "bold" }]}
+              >
+                {`H${l}`}
+              </Text>
+            )}
           </AnimatedChip>
         );
       })}
-      {moreChip("h-more", headingLevels.length)}
+      {moreChip("h-more", levels.length)}
     </>
   );
 }

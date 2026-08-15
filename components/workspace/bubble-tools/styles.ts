@@ -31,6 +31,12 @@ export const toolStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  /** The same option inside the ONE-chip-wide COLUMN fly-out, where the roomy pill
+   *  does not fit: it spends 24pt of its 42pt minimum on side padding, leaving under
+   *  19pt of text box — enough for "H1", not for "H2", which wrapped to a second line
+   *  that the fixed 34pt height then clipped. Here it takes the tool chip's square
+   *  footprint instead, so a two-glyph label has the full 40pt to sit on. */
+  optPillNarrow: { minWidth: CHIP, width: CHIP, height: CHIP, paddingHorizontal: 0, borderRadius: 12 },
   optText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   swatch: { width: 18, height: 18, borderRadius: 9, borderWidth: StyleSheet.hairlineWidth },
   soonCaption: { fontSize: 11, fontFamily: "Inter_500Medium", alignSelf: "center", marginLeft: 6 },

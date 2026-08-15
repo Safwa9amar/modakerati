@@ -20,6 +20,20 @@ export type ToolbarCategory =
 export type BorderStyleKey = "single" | "double" | "dashed" | "dotted" | "thick";
 
 /**
+ * Categories whose options are WORDS rather than glyphs. They only matter in the
+ * COLUMN form, where the fly-out opens beside a one-chip-wide strip: at that width a
+ * worded option has ~19pt of text box and wraps onto lines the pill's fixed height
+ * then clips. These get the wide fly-out instead.
+ *
+ * One list, two readers — BlockContextBar sizes the panel from it and useChipKit picks
+ * the option's shape from it — so the panel's width and its contents can never
+ * disagree about which one is being drawn.
+ */
+export function isWidePanel(category: ToolbarCategory | null): boolean {
+  return category === "hfLink" || category === "chartLegend" || category === "chartLabels";
+}
+
+/**
  * THE SWITCH — pure, so both the collapsed bubble's icon and the expanded toolbar can
  * resolve the same answer synchronously during render (a store round-trip would show
  * one frame of the previous kind on every selection change).

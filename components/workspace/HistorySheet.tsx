@@ -103,7 +103,11 @@ export function HistorySheet({ thesisId, onClose }: Props) {
               <View style={[styles.row, { borderColor: colors.borderDefault }]}>
                 <Icon size={16} color={colors.textPlaceholder} />
                 <View style={styles.rowBody}>
-                  <Text style={[styles.rowLabel, { color: colors.textPrimary }]} numberOfLines={1}>
+                  {/* Two lines, not one: an AI edit now labels its own version
+                      with a sentence about what it changed (the server's
+                      changeNote), and those read as prose in the student's
+                      language — a one-line clamp cut most of them mid-word. */}
+                  <Text style={[styles.rowLabel, { color: colors.textPrimary }]} numberOfLines={2}>
                     {item.label || t(`history.source.${item.source}`, { defaultValue: item.source })}
                   </Text>
                   <Text style={[styles.rowTime, { color: colors.textPlaceholder }]}>

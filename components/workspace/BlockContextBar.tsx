@@ -21,7 +21,7 @@ import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSearchStore } from "@/stores/search-store";
-import { useToolbarStore, resolveToolbarKind, ownsCategory } from "@/stores/toolbar-store";
+import { useToolbarStore, resolveToolbarKind, ownsCategory, isWidePanel } from "@/stores/toolbar-store";
 import { pickAndInsertImage } from "@/lib/insert-image";
 import { pasteImageFromClipboard } from "@/lib/paste-image";
 import type { DocBlockDTO } from "@/lib/api";
@@ -217,10 +217,12 @@ export function BlockContextBar({
   const panelOpen = category != null && Panel != null && ownsCategory(kind, category);
 
   // ── Column form: strip + (optional) fly-out panel side by side ──
-  // The link panel labels its choices in words ("Same as previous section"), so it
-  // needs the wide fly-out; every other panel is icon chips.
-  const isHfCat = category === "hfLink";
-  const columnPanelW = isHfCat ? VERTICAL_PANEL_WIDE_W : VERTICAL_PANEL_W;
+  // A panel whose options are WORDS ("Same as previous section", "Percent") needs the
+  // wide fly-out; the glyph panels stay one chip wide. isWidePanel is the single rule —
+  // useChipKit shapes the options from the same call, so the width and its contents
+  // always agree.
+  const wideCat = isWidePanel(category);
+  const columnPanelW = wideCat ? VERTICAL_PANEL_WIDE_W : VERTICAL_PANEL_W;
   const columnW = !vertical
     ? 0
     : panelOpen
@@ -397,25 +399,35 @@ export function BlockContextBar({
   // generate panel) — the generic pinned Ask-AI would be a second, redundant sparkle
   // right next to it. Hidden for exactly those two bands; every other kind keeps it.
   const isHfBand = chrome?.kind === "top" || chrome?.kind === "bottom";
+  // A selected picture is not something the generic ✦ can act on — it would open the
+  // dock scoped to a block with no text to work with. The chip stays in place (dropping
+  // it would reshuffle the strip on every figure tap) but reads and behaves as disabled:
+  // dimmed to the same 0.4 as a disabled tool chip, no press, no attention glow.
+  const askDisabled = kind === "image";
   const AskAI = isHfBand ? null : (
     <Pressable
       onPress={onAskAI}
+      disabled={askDisabled}
       accessibilityRole="button"
+      accessibilityState={{ disabled: askDisabled }}
       accessibilityLabel={t("blockBar.askAi", { defaultValue: "Ask AI" })}
-      style={[styles.askBtn, { backgroundColor: colors.brandPrimary }]}
+      style={[styles.askBtn, { backgroundColor: colors.brandPrimary }, askDisabled && toolStyles.chipDim]}
     >
-      <AskAIGlow trigger={selectedIndices.join(",")} color={colors.brandPrimary} />
+      {askDisabled ? null : <AskAIGlow trigger={selectedIndices.join(",")} color={colors.brandPrimary} />}
       <Sparkles size={18} color={colors.brandOnPrimary} strokeWidth={2.2} />
     </Pressable>
   );
 
   // Pinned beside ✦ Ask AI so the outline is always one tap away (never scrolled off
   // with the formatting tools). The drawer dismisses the keyboard itself on open.
+  // openView — NOT openDrawer: the panel hosts two views and opens on "app" (the global
+  // command list) by default, so a plain open landed the student on the command index
+  // and made them tap through to the structure this button is named for.
   const OutlineBtn = (
     <Pressable
       onPress={() => {
         Keyboard.dismiss();
-        useNavDrawerStore.getState().openDrawer();
+        useNavDrawerStore.getState().openView("outline");
       }}
       accessibilityRole="button"
       accessibilityLabel={t("workspace.outline", { defaultValue: "Outline" })}
@@ -453,7 +465,7 @@ export function BlockContextBar({
         styles.expansion,
         vertical && [
           styles.expansionV,
-          { width: columnPanelW, maxHeight: isHfCat ? VERTICAL_PANEL_WIDE_MAX_H : VERTICAL_TOOLS_MAX_H },
+          { width: columnPanelW, maxHeight: wideCat ? VERTICAL_PANEL_WIDE_MAX_H : VERTICAL_TOOLS_MAX_H },
         ],
         { backgroundColor: colors.bgSurface, borderColor: colors.borderSubtle },
       ]}

@@ -80,7 +80,10 @@ export function FormatPanel() {
               {l === 0 && vertical ? (
                 <Pilcrow size={16} color={active ? colors.bgPrimary : colors.textPrimary} strokeWidth={2} />
               ) : (
-                <Text style={[toolStyles.optText, { color: active ? colors.bgPrimary : colors.textPrimary }]}>
+                <Text
+                  numberOfLines={1}
+                  style={[toolStyles.optText, { color: active ? colors.bgPrimary : colors.textPrimary }]}
+                >
                   {l === 0 ? normalLabel : `H${l}`}
                 </Text>
               )}

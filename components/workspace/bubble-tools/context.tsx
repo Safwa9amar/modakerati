@@ -3,7 +3,7 @@ import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Plus, type LucideIcon } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import { useToolbarStore, type ToolbarCategory } from "@/stores/toolbar-store";
+import { isWidePanel, useToolbarStore, type ToolbarCategory } from "@/stores/toolbar-store";
 import type { DocBlockDTO } from "@/lib/api";
 import type { FormatChange } from "@/lib/thesis-ops";
 import { AnimatedChip } from "../AnimatedChip";
@@ -159,9 +159,14 @@ export function useChipKit() {
     <View key={k} style={[vertical ? toolStyles.sepV : toolStyles.sep, { backgroundColor: colors.borderSubtle }]} />
   );
 
-  /** Option pill inside a sub-panel (a level, an alignment, a swatch…). */
+  /** Option pill inside a sub-panel (a level, an alignment, a swatch…). In the column
+   *  form the fly-out is one chip wide, so its options wear the chip's square footprint
+   *  rather than the roomy pill — see optPillNarrow. The wide-fly-out categories (their
+   *  options are words) keep the pill in both forms. */
+  const narrowPanel = vertical && !isWidePanel(category);
   const optPill = (active: boolean, disabled?: boolean) => [
     toolStyles.optPill,
+    narrowPanel && toolStyles.optPillNarrow,
     { borderColor: colors.borderDefault, backgroundColor: colors.bgCard },
     active && { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
     disabled && toolStyles.chipDim,

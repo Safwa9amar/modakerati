@@ -78,6 +78,22 @@ function blockTapText(b: DocBlockDTO): string {
   return "";
 }
 
+/**
+ * The read-only preview (the eye button → Word / PDF) is OFF for now.
+ *
+ * One constant rather than deleted code, because it is coming back: the button
+ * was only the way IN, and everything behind it keeps costing whether or not
+ * anyone can open it — the Word layer mounts a hidden OnlyOffice WebView as soon
+ * as the screen settles, and the PDF layer warms itself with a server-side
+ * conversion on every new document version. So the flag gates the entry points
+ * AND the work: the header button, the in-preview bar, both layers, the PDF
+ * warm, and the editor-config fetch that exists only to feed them.
+ *
+ * The Writer (previewMode === null) is unaffected — it is the layer that is
+ * always active anyway.
+ */
+const PREVIEW_ENABLED: boolean = false;
+
 export default function ThesisWorkspaceScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -236,6 +252,9 @@ export default function ThesisWorkspaceScreen() {
   // Fetch the OnlyOffice editor config (only meaningful for live docs). On any
   // failure we fall back to docx-preview by marking the editor disabled.
   const refreshEditorCfg = useCallback(async () => {
+    // Nothing reads the editor config while the preview is off: it feeds the
+    // OnlyOffice layer and the PDF's version key, and both are unreachable.
+    if (!PREVIEW_ENABLED) return;
     if (!thesisId) return;
     try {
       setEditorCfg(await getThesisEditorConfig(thesisId));
@@ -526,6 +545,7 @@ export default function ThesisWorkspaceScreen() {
   // edit settling and guarded on the version key, so it converts at most once per
   // real doc version — the same server cost as the user opening it, front-loaded.
   useEffect(() => {
+    if (!PREVIEW_ENABLED) return; // nothing can open it — don't pay for the conversion
     if (!isLiveDoc || previewMode === "pdf") return;
     if (isGenerating || pendingOps > 0) return;
     if (docVersionKey === undefined) return;
@@ -628,14 +648,15 @@ export default function ThesisWorkspaceScreen() {
               </Pressable>
             </>
           )}
-          {/* Read-only preview (Word / PDF), live docs only — editing is the Writer. */}
-          {liveDoc && <PreviewButton />}
+          {/* Read-only preview (Word / PDF), live docs only — editing is the Writer.
+              Switched off for now; see PREVIEW_ENABLED atop this file. */}
+          {PREVIEW_ENABLED && liveDoc && <PreviewButton />}
         </View>
         </Animated.View>
       </View>
 
       {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}
-      {liveDoc && <PreviewBar />}
+      {PREVIEW_ENABLED && liveDoc && <PreviewBar />}
 
       {/* Top-pinned document search (find/replace + semantic). Sits between the
           header and the doc area so it survives keyboard dismissal. Mounted OUTSIDE
@@ -673,6 +694,7 @@ export default function ThesisWorkspaceScreen() {
                 via find). OnlyOffice only on REAL devices: its heavy WASM/JS editor
                 crashes the iOS Simulator's WebContent process (and is unreliable in
                 emulators), so simulators/emulators fall back to docx-preview. */}
+            {PREVIEW_ENABLED && (
             <View
               style={[styles.docLayer, previewMode === "docx" ? styles.layerActive : styles.layerHidden]}
               pointerEvents={previewMode === "docx" ? "auto" : "none"}
@@ -723,6 +745,7 @@ export default function ThesisWorkspaceScreen() {
                 />
               )}
             </View>
+            )}
 
             {/* Outline layer: the same .docx blocks as lightweight editable text on
                 white "paper" — native render (no WebView). Tap a block to select it
@@ -751,7 +774,7 @@ export default function ThesisWorkspaceScreen() {
                 (conversion is server-side). Mounted lazily on first open, then kept
                 warm so returning preserves its scroll; re-converts only after a real
                 edit (see the effect above). */}
-            {(pdfMounted || previewMode === "pdf") && (
+            {PREVIEW_ENABLED && (pdfMounted || previewMode === "pdf") && (
               <View
                 style={[styles.docLayer, previewMode === "pdf" ? styles.layerActive : styles.layerHidden]}
                 pointerEvents={previewMode === "pdf" ? "auto" : "none"}
