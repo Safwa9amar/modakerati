@@ -12,7 +12,7 @@
 // Nothing here is wired to the thesis doc/op-queue yet — it's a feasibility test.
 
 import * as React from "react";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -24,10 +24,6 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import {
   HeadingNode,
   QuoteNode,
-  $createHeadingNode,
-  $createQuoteNode,
-  $isHeadingNode,
-  type HeadingTagType,
 } from "@lexical/rich-text";
 import {
   ListNode,
@@ -35,44 +31,17 @@ import {
   $isListNode,
   $isListItemNode,
   $insertList,
-  $removeList,
 } from "@lexical/list";
-import { $setBlocksType, $patchStyleText } from "@lexical/selection";
-import { mergeRegister } from "@lexical/utils";
 import {
   $getRoot,
-  $getNodeByKey,
   $addUpdateTag,
-  $getSelection,
-  $setSelection,
-  $isRangeSelection,
-  $isNodeSelection,
-  $createParagraphNode,
-  FORMAT_TEXT_COMMAND,
-  FORMAT_ELEMENT_COMMAND,
-  UNDO_COMMAND,
-  REDO_COMMAND,
-  INDENT_CONTENT_COMMAND,
-  OUTDENT_CONTENT_COMMAND,
-  CAN_UNDO_COMMAND,
-  CAN_REDO_COMMAND,
-  CLEAR_HISTORY_COMMAND,
-  COMMAND_PRIORITY_LOW,
   SKIP_DOM_SELECTION_TAG,
-  type ElementFormatType,
-  type ElementNode,
   type LexicalNode,
-  type TextFormatType,
-  // Aliased: this file already declares its own local `LexicalCommand` (the
-  // native command envelope type below) — the alias avoids shadowing it.
 } from "lexical";
 import {
   $blocksToLexical,
-  $lexicalToBlocks,
   BlockDataNode,
-  $isBlockDataNode,
   ChromeNode,
-  $isChromeNode,
   PageBreakNode,
   $createPageBreakNode,
   $isPageBreakNode,
@@ -83,8 +52,6 @@ import {
   // $isChromeNode. Getting that backwards puts every index past the node off
   // by N, which is exactly how c28d406 and 6eae8ee both shipped.
   $isDisplayOnlyNode,
-  type ChromeData,
-  type ChromeKind,
   MediaContext,
   AnchorGeometryContext,
   EditCellContext,
@@ -111,7 +78,6 @@ import {
   duotoneStops,
   type AnchorSectionGeometry,
 } from "@/lib/page-layout";
-import type { DocBlockDTO } from "@/lib/api";
 // type-only — WorkspaceLexicalView is the native ('use dom' host) module; importing
 // just the type is erased at compile time, same contract as ChromeData above.
 import type { PageSetup } from "../WorkspaceLexicalView";
@@ -122,16 +88,12 @@ import type { PageSetup } from "../WorkspaceLexicalView";
 // modules, free to export as they like). Gate: node scripts/verify-use-dom.mjs.
 import {
   $anyNodeAtBlockIndex,
-  $blockIndexOfNode,
-  $nodeAtBlockIndex,
-  $rootChildBlockIndex,
 } from "./editor-components/block-index";
-import { applyBlockFormat } from "./editor-components/block-format";
-import { INSERT_BLOCK_COMMAND } from "./editor-components/commands";
-import { lxQuietCommand, lxQuietUpdate, withScrollPinned } from "./editor-components/lexical-updates";
+import { withScrollPinned } from "./editor-components/lexical-updates";
 import { measureBlockHeights, measureCacheClear } from "./editor-components/measure";
 import { CompletionPlugin } from "./editor-components/plugins/CompletionPlugin";
 import { DrawerSwipePlugin } from "./editor-components/plugins/DrawerSwipePlugin";
+import { EditorBridge } from "./editor-components/plugins/editor-bridge/EditorBridge";
 import { EquationTapPlugin } from "./editor-components/plugins/EquationTapPlugin";
 import { KeyboardModePlugin } from "./editor-components/plugins/KeyboardModePlugin";
 import { PasteImagePlugin } from "./editor-components/plugins/PasteImagePlugin";
@@ -145,473 +107,8 @@ import { SuggestionPlugin } from "./editor-components/plugins/SuggestionPlugin";
 import { seed } from "./editor-components/seed";
 import { CSS } from "./editor-components/styles";
 import { theme } from "./editor-components/theme";
-import type {
-  InsertBlockPayload,
-  LexicalCommand,
-  LexicalState,
-} from "./editor-components/types";
 import type { LexicalDomEditorProps } from "./editor-components/props";
 
-// A touch/keystroke on the editor counts as the student driving it for this long,
-// covering the window where the gesture is over but the focus bookkeeping (or a
-// mid-gesture ActionMode) hasn't settled yet.
-const DRIVING_MS = 700;
-// The events that mean a finger or a key is on the editor itself. Captured, so a
-// plugin that stops propagation can't hide the interaction from us.
-const DRIVING_EVENTS = ["pointerdown", "touchstart", "mousedown", "keydown", "beforeinput"] as const;
-
-// Bridge between the native props and the Lexical editor instance: apply an
-// incoming command, and report the active formats out on every update.
-function EditorBridge({
-  command,
-  onState,
-  onBlocks,
-  reseed,
-  scrollToIndex,
-  scrollToChrome,
-  chromePreview,
-}: {
-  command?: LexicalCommand | null;
-  onState: (s: LexicalState) => void;
-  onBlocks?: (blocks: DocBlockDTO[]) => void;
-  reseed?: { blocks: DocBlockDTO[]; chrome?: ChromeData[]; nonce: number };
-  scrollToIndex?: { index: number; nonce: number };
-  scrollToChrome?: { kind: ChromeKind; index: number; nonce: number; offset?: number };
-  chromePreview?: { kind: ChromeKind; index: number; segments: string[]; text: string; nonce: number } | null;
-}) {
-  const [editor] = useLexicalComposerContext();
-
-  // In-place reconcile from the block model when an external edit (native pill /
-  // AI dock / undo-redo) changed the doc — rebuilds the content on the SAME editor
-  // instance (no WebView remount, no flicker) instead of re-keying the component.
-  useEffect(() => {
-    if (!reseed) return;
-    // Clear the selection after rebuilding AND blur the editor (blurAfter): the
-    // rebuild otherwise leaves the caret at the document END and the WebView
-    // re-focuses + scrolls it into view (the reported "Approve jumps to the
-    // bottom"). No focus, no caret → nothing to scroll to.
-    withScrollPinned(editor, () => { $blocksToLexical(reseed.blocks, reseed.chrome); $setSelection(null); }, true);
-    // An authoritative external apply (AI turn, server restore, table op) replaced
-    // the content — undoing PAST it would silently revert that apply and sync the
-    // reversion. Drop the in-editor stack; the server history ring covers those
-    // steps. (In-place pill edits skip the reseed, so typing history survives them.)
-    editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reseed?.nonce]);
-
-  // Outline-drawer navigation: scroll the block at `index` into view.
-  useEffect(() => {
-    if (!scrollToIndex || scrollToIndex.index < 0) return;
-    let key: string | null = null;
-    editor.getEditorState().read(() => {
-      // Resolve ANY block kind — a table/figure is a structural node, not a
-      // heading/paragraph, so $nodeAtBlockIndex would return null and never scroll.
-      const n = $anyNodeAtBlockIndex(scrollToIndex.index);
-      key = n ? n.getKey() : null;
-    });
-    if (key) editor.getElementByKey(key)?.scrollIntoView({ block: "start" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollToIndex?.nonce]);
-
-  // Reveal a running header / footer band — its editor opens as a bottom sheet that
-  // covers the lower two-thirds of the screen, so the band has to come up into the
-  // strip that's still visible or the student is editing something they can't see.
-  // A band is identified by (kind, startBlockIndex), the same pair onState reports.
-  useEffect(() => {
-    if (!scrollToChrome) return;
-    const findBand = () => {
-      let key: string | null = null;
-      editor.getEditorState().read(() => {
-        for (const child of $getRoot().getChildren()) {
-          if (!$isChromeNode(child)) continue;
-          const d = child.getData();
-          if (d.kind === scrollToChrome.kind && d.startBlockIndex === scrollToChrome.index) {
-            key = child.getKey();
-            break;
-          }
-        }
-      });
-      if (!key) return false;
-      const el = editor.getElementByKey(key);
-      if (!el) return false;
-      // scrollIntoView + scrollBy, NOT scrollTo — the same pair ScrollSyncPlugin's
-      // restore uses, because `window.scrollTo` is unreliable inside this WebView.
-      // "start" alone parks the band hard against the top edge, half under the status
-      // bar (the sheet's app-recede transform shifts everything up), so back it off by
-      // the offset native computed from the strip left visible above the sheet.
-      el.scrollIntoView({ block: "start" });
-      if (scrollToChrome.offset) window.scrollBy(0, -scrollToChrome.offset);
-      return true;
-    };
-    if (findBand()) return;
-    // A band CREATED from the sheet ("add header") isn't in the tree until the echoed
-    // document reseeds the editor — retry once that has had a chance to land.
-    const timer = setTimeout(findBand, 400);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollToChrome?.nonce]);
-
-  // LIVE PREVIEW of a header/footer template or AI proposal, rendered on the REAL band
-  // so the student sees the result in the document before committing. Purely visual:
-  // the band's data is swapped in place and the original is kept here to be written
-  // back on clear. Chrome bands are display-only (skipped by $lexicalToBlocks), so a
-  // preview can never reach a save — but it MUST be restored, or the band would keep
-  // showing a template the student walked away from.
-  const previewOriginal = useRef<{ key: string; data: ChromeData } | null>(null);
-  useEffect(() => {
-    const findKey = (kind: ChromeKind, index: number) => {
-      let key: string | null = null;
-      editor.getEditorState().read(() => {
-        for (const child of $getRoot().getChildren()) {
-          if (!$isChromeNode(child)) continue;
-          const d = child.getData();
-          if (d.kind === kind && d.startBlockIndex === index) { key = child.getKey(); break; }
-        }
-      });
-      return key;
-    };
-    const restore = () => {
-      const saved = previewOriginal.current;
-      previewOriginal.current = null;
-      if (!saved) return;
-      lxQuietUpdate(editor, () => {
-        const n = $getNodeByKey(saved.key);
-        if (n && $isChromeNode(n)) n.setData(saved.data);
-      });
-    };
-    if (!chromePreview) {
-      restore();
-      return;
-    }
-    const key = findKey(chromePreview.kind, chromePreview.index);
-    if (!key) return;
-    // Moved to a different band → put the previous one back before taking this one over.
-    if (previewOriginal.current && previewOriginal.current.key !== key) restore();
-    // Browsing header templates repaints a band the student is watching; the sheet
-    // already scrolled it into view, so this must not move the page again.
-    lxQuietUpdate(editor, () => {
-      const n = $getNodeByKey(key);
-      if (!n || !$isChromeNode(n)) return;
-      const cur = n.getData();
-      if (!previewOriginal.current) previewOriginal.current = { key, data: cur };
-      const base = previewOriginal.current.data;
-      n.setData({ ...base, text: chromePreview.text, segments: chromePreview.segments });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chromePreview?.nonce, chromePreview == null]);
-
-  // Never leave a preview behind if the editor goes away mid-browse.
-  useEffect(() => {
-    return () => {
-      const saved = previewOriginal.current;
-      previewOriginal.current = null;
-      if (!saved) return;
-      lxQuietUpdate(editor, () => {
-        const n = $getNodeByKey(saved.key);
-        if (n && $isChromeNode(n)) n.setData(saved.data);
-      });
-    };
-  }, [editor]);
-
-  // Apply the latest command. Keyed on nonce so a repeated tap re-fires.
-  useEffect(() => {
-    if (!command) return;
-    // Don't focus for the block-scoped pill format or serialize — focusing the
-    // content-editable pops the keyboard and scrolls (the pill applies formatting
-    // without moving the caret). The lab's selection commands still focus. Undo/
-    // redo also skip focus: tapped from the dock with the keyboard closed, they
-    // must not pop it (Lexical's history doesn't need a live selection).
-    if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list" && command.type !== "undo" && command.type !== "redo" && command.type !== "insert" && command.type !== "blur") editor.focus();
-    switch (command.type) {
-      case "bold":
-      case "italic":
-      case "underline":
-        lxQuietCommand(editor, FORMAT_TEXT_COMMAND, command.type as TextFormatType);
-        break;
-      case "align":
-        if (command.value) lxQuietCommand(editor, FORMAT_ELEMENT_COMMAND, command.value as ElementFormatType);
-        break;
-      case "blockFormat":
-        // Whole-block formatting from the native pill: apply to every selected
-        // block (matches the server's whole-paragraph `format` op). Tagged
-        // SKIP_DOM_SELECTION so it never focuses/scrolls the WebView.
-        editor.update(() => applyBlockFormat(command.value), { tag: SKIP_DOM_SELECTION_TAG });
-        break;
-      case "heading":
-        lxQuietUpdate(editor, () => {
-          const sel = $getSelection();
-          if (!$isRangeSelection(sel)) return;
-          $setBlocksType(sel, () =>
-            command.value === "paragraph" || !command.value ? $createParagraphNode() : $createHeadingNode(command.value as HeadingTagType),
-          );
-        });
-        break;
-      case "quote":
-        lxQuietUpdate(editor, () => {
-          const sel = $getSelection();
-          if ($isRangeSelection(sel)) $setBlocksType(sel, () => $createQuoteNode());
-        });
-        break;
-      case "list":
-        // Indent/outdent nest a list item one level (promote/demote). They're
-        // editor COMMANDS (not selection mutations) — dispatch straight through so
-        // Lexical's list logic handles the nesting + renumbering, then stop.
-        if (command.value === "indent") { lxQuietCommand(editor, INDENT_CONTENT_COMMAND, undefined); break; }
-        if (command.value === "outdent") { lxQuietCommand(editor, OUTDENT_CONTENT_COMMAND, undefined); break; }
-        // Apply on the preserved selection inside a tagged update (no focus/scroll,
-        // like blockFormat). ul→bullet, ol→number, check→checklist, else remove.
-        editor.update(
-          () => {
-            const sel = $getSelection();
-            if (!$isRangeSelection(sel)) return;
-            if (command.value === "none") $removeList();
-            else if (command.value === "check") $insertList("check");
-            else $insertList(command.value === "ol" ? "number" : "bullet");
-          },
-          { tag: SKIP_DOM_SELECTION_TAG },
-        );
-        break;
-      case "undo":
-        editor.dispatchCommand(UNDO_COMMAND, undefined);
-        break;
-      case "redo":
-        editor.dispatchCommand(REDO_COMMAND, undefined);
-        break;
-      case "color":
-        lxQuietUpdate(editor, () => {
-          const sel = $getSelection();
-          if ($isRangeSelection(sel)) $patchStyleText(sel, { color: !command.value || command.value === "clear" ? "" : `#${command.value.replace(/^#/, "")}` });
-        });
-        break;
-      case "clearFormatting":
-        lxQuietUpdate(editor, () => {
-          const sel = $getSelection();
-          if (!$isRangeSelection(sel)) return;
-          $patchStyleText(sel, { color: "" });
-          (["bold", "italic", "underline"] as const).forEach((f) => { if (sel.hasFormat(f)) sel.formatText(f); });
-        });
-        break;
-      case "serialize":
-        if (onBlocks) editor.getEditorState().read(() => onBlocks($lexicalToBlocks()));
-        break;
-      case "insert":
-        // value = JSON { kind }. Delegate to SlashPlugin's command (owns the /query
-        // deletion + placement). No focus() side-effect needed — the caret is live.
-        if (command.value) editor.dispatchCommand(INSERT_BLOCK_COMMAND, JSON.parse(command.value) as InsertBlockPayload);
-        break;
-      case "blur":
-        // Close the OS keyboard. RN's Keyboard.dismiss() can't reach the caret
-        // inside the WebView, so the surface that wants the keyboard gone (the
-        // Insert drawer) dispatches this instead. `editor.blur()` only drops the
-        // DOM range — the editor-state selection survives, so the /slash insert
-        // still lands on the right block afterwards.
-        editor.blur();
-        break;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [command?.nonce]);
-
-  // HistoryPlugin availability, merged into every state report below. The plugin
-  // fires CAN_UNDO/CAN_REDO on empty↔non-empty stack transitions; we also push a
-  // minimal report right away so the native buttons update even when the
-  // transition isn't followed by a selection change (e.g. the very last undo).
-  const canUndoRef = useRef(false);
-  const canRedoRef = useRef(false);
-  useEffect(() => {
-    const report = () =>
-      onState({ bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, alignment: null, index: -1, text: "", y: -1, canUndo: canUndoRef.current, canRedo: canRedoRef.current });
-    return mergeRegister(
-      editor.registerCommand(CAN_UNDO_COMMAND, (v) => { canUndoRef.current = v; report(); return false; }, COMMAND_PRIORITY_LOW),
-      editor.registerCommand(CAN_REDO_COMMAND, (v) => { canRedoRef.current = v; report(); return false; }, COMMAND_PRIORITY_LOW),
-    );
-  }, [editor, onState]);
-
-  // ── Is the STUDENT driving this report? ──
-  // The OS drops the WebView's text selection the moment the WebView stops being
-  // the focused view — which is exactly what tapping ✦ Ask AI does (the dock's
-  // input takes focus, the keyboard comes up). Lexical then rebuilds its selection
-  // from the leftover caret on its very next update, so the editor reports ONE
-  // block: a "selection change" the student never made. Native can't tell that
-  // report from a real tap on its own, so we label it here. Two independent
-  // signals, because neither alone is trustworthy on both platforms: the editor
-  // holds focus AND the page owns the window's focus, or a finger/key was on the
-  // editor a moment ago.
-  const drivenAt = useRef(0);
-  // Event-tracked focus, cross-checked below against activeElement/hasFocus: each
-  // signal is unreliable on its own (the page can keep `activeElement` after the
-  // native view hands focus away; `hasFocus()` can lag a WebView focus change), so
-  // "focused" means every signal agrees. Only a lost focus can veto anything, and
-  // only a shrink, so an over-cautious false here costs nothing.
-  const pageFocused = useRef(true);
-  useEffect(() => {
-    const stamp = () => { drivenAt.current = Date.now(); pageFocused.current = true; };
-    const gained = () => { pageFocused.current = true; };
-    const lost = () => { pageFocused.current = false; };
-    let bound: HTMLElement | null = null;
-    const bind = (el: HTMLElement | null) => {
-      if (bound) {
-        for (const e of DRIVING_EVENTS) bound.removeEventListener(e, stamp, true);
-        bound.removeEventListener("focus", gained, true);
-        bound.removeEventListener("blur", lost, true);
-      }
-      bound = el;
-      if (bound) {
-        for (const e of DRIVING_EVENTS) bound.addEventListener(e, stamp, true);
-        bound.addEventListener("focus", gained, true);
-        bound.addEventListener("blur", lost, true);
-      }
-    };
-    const off = editor.registerRootListener((root) => bind(root));
-    // The window pair, not the root's — the root may not be attached yet on the
-    // first pass, and losing the WebView's focus is a window-level event anyway.
-    const win = typeof window !== "undefined" ? window : null;
-    win?.addEventListener("focus", gained);
-    win?.addEventListener("blur", lost);
-    return () => {
-      off();
-      bind(null);
-      win?.removeEventListener("focus", gained);
-      win?.removeEventListener("blur", lost);
-    };
-  }, [editor]);
-  const isUserDriven = useCallback(() => {
-    const root = editor.getRootElement();
-    const doc = root?.ownerDocument;
-    if (!root || !doc) return true; // nothing to interrogate — never veto on a guess
-    const focused =
-      pageFocused.current &&
-      (doc.activeElement === root || root.contains(doc.activeElement)) &&
-      (typeof doc.hasFocus !== "function" || doc.hasFocus());
-    return focused || Date.now() - drivenAt.current < DRIVING_MS;
-  }, [editor]);
-
-  // Report the focused block (formats, index, text, screen-Y) to the native side
-  // so the reused native pill / AI dock can attach to the Lexical selection.
-  useEffect(() => {
-    return editor.registerUpdateListener(({ editorState }) => {
-      let key: string | null = null;
-      let payload: LexicalState = { bold: false, italic: false, underline: false, blockType: "paragraph", isRTL: false, alignment: null, index: -1, text: "", y: -1 };
-      editorState.read(() => {
-        const sel = $getSelection();
-        // A structural block (table/image/other) tapped → NodeSelection on its
-        // BlockDataNode. Report it as a single-block selection of THAT block's kind
-        // so the native pill shows the image/table/… toolset.
-        if ($isNodeSelection(sel)) {
-          const nodes = sel.getNodes();
-          // A tapped chrome band (section header/footer/section-break) → NodeSelection
-          // on its display-only ChromeNode. Report it with a "chrome:"-prefixed
-          // blockType so the native side shows the chrome bubble (not a block toolset).
-          // Mutually exclusive with the page-band and BlockDataNode paths below (a
-          // selection is ONE node): check chrome first, then the page band, else
-          // the structural block.
-          const cn = nodes.length === 1 && $isChromeNode(nodes[0]) ? nodes[0] : null;
-          const pb = nodes.length === 1 && $isPageBreakNode(nodes[0]) ? nodes[0] : null;
-          const bd = nodes.length === 1 && $isBlockDataNode(nodes[0]) ? nodes[0] : null;
-          if (cn) {
-            const cd = cn.getData();
-            key = cn.getKey();
-            payload = {
-              bold: false, italic: false, underline: false,
-              blockType: "chrome:" + cd.kind, // "chrome:top" | "chrome:bottom" | "chrome:section"
-              isRTL: cd.rtl, alignment: null,
-              index: cd.startBlockIndex, text: cd.text,
-              blocks: [{ index: cd.startBlockIndex, text: cd.text }],
-              y: -1,
-            };
-          } else if (pb) {
-            // A tapped page band. It carries BOTH a header and a footer, so the
-            // side the student actually touched decides which we report — then
-            // it rides the EXISTING chrome path, so the native sheet, the ✦
-            // panel and the template picker all work with no native change.
-            const d = pb.getData();
-            const side = pb.getPick();
-            // A gutter tap on a footerless page falls back to gutterTarget, so
-            // the footer sheet still opens and can offer page numbers.
-            const part = side === "top" ? d.header : (d.footer ?? d.gutterTarget);
-            if (part) {
-              key = pb.getKey();
-              payload = {
-                bold: false, italic: false, underline: false,
-                blockType: "chrome:" + side,   // "chrome:top" | "chrome:bottom"
-                isRTL: d.rtl, alignment: null,
-                index: part.startBlockIndex, text: part.text,
-                blocks: [{ index: part.startBlockIndex, text: part.text }],
-                y: -1,
-              };
-            }
-          } else if (bd) {
-            const idx = $rootChildBlockIndex(bd);
-            key = bd.getKey();
-            payload = { bold: false, italic: false, underline: false, blockType: bd.getBlock().kind, isRTL: false, alignment: null, index: idx, text: "", blocks: [{ index: idx, text: "" }], y: -1 };
-          }
-          return;
-        }
-        if (!$isRangeSelection(sel)) return;
-        const anchor = sel.anchor.getNode();
-        const top = anchor.getKey() === "root" ? null : anchor.getTopLevelElement();
-        if (anchor.getKey() !== "root" && !top) return; // selection detached (e.g. mid-suggestion)
-        let blockType = "paragraph";
-        if (top) {
-          if ($isHeadingNode(top)) blockType = top.getTag();
-          else if ($isListNode(top)) { const lt = top.getListType(); blockType = lt === "bullet" ? "bullet" : lt === "check" ? "check" : "number"; }
-          else blockType = top.getType(); // "paragraph" | "quote"
-        }
-        key = top ? top.getKey() : null;
-        // Alignment + direction live on the LIST ITEM (applyBlockFormat targets it),
-        // NOT the top-level ListNode — so read the element format from the nearest
-        // list-item ancestor when the caret is inside a list, else from `top` itself.
-        // Otherwise the align sub-pill's active highlight / RTL state would read the
-        // list's (always-unset) format and never reflect the item's real alignment.
-        let fmtNode: ElementNode | null = top;
-        if (top && $isListNode(top)) {
-          let li: LexicalNode | null = anchor;
-          while (li && !$isListItemNode(li)) li = li.getParent();
-          if ($isListItemNode(li)) fmtNode = li;
-        }
-        // ElementNode.getFormatType() → "" | "left" | "center" | "right" | "justify" | "start" | "end"
-        const fmt = fmtNode ? fmtNode.getFormatType() : "";
-        // Every top-level block the selection spans, in document order. A caret or an
-        // in-paragraph selection yields ONE entry; a cross-paragraph drag lists them
-        // all. We walk the selected nodes (not just the anchor, which stays put while
-        // the focus extends downward) so extending a selection grows the set — that's
-        // what lets the native side build a MULTI-block selection instead of
-        // collapsing everything to the anchor block.
-        const spanned: { index: number; text: string }[] = [];
-        const seen = new Set<number>();
-        for (const n of sel.getNodes()) {
-          if (n.getKey() === "root") continue;
-          // block-model index (lists expanded), so a list ITEM counts as its own
-          // block — not the whole list collapsed to one entry.
-          const idx = $blockIndexOfNode(n);
-          if (idx < 0 || seen.has(idx)) continue;
-          seen.add(idx);
-          const node = $nodeAtBlockIndex(idx);
-          spanned.push({ index: idx, text: node ? node.getTextContent() : "" });
-        }
-        spanned.sort((a, b) => a.index - b.index);
-        payload = {
-          bold: sel.hasFormat("bold"),
-          italic: sel.hasFormat("italic"),
-          underline: sel.hasFormat("underline"),
-          blockType,
-          isRTL: !!fmtNode && fmtNode.getDirection() === "rtl",
-          alignment: fmt === "left" || fmt === "center" || fmt === "right" || fmt === "justify" ? fmt : null,
-          index: $blockIndexOfNode(anchor),
-          text: (spanned.find((s) => s.index === $blockIndexOfNode(anchor))?.text) ?? (top ? top.getTextContent() : ""),
-          blocks: spanned,
-          y: -1,
-        };
-      });
-      if (key) {
-        const el = editor.getElementByKey(key);
-        if (el) payload = { ...payload, y: el.getBoundingClientRect().top };
-      }
-      onState({ ...payload, canUndo: canUndoRef.current, canRedo: canRedoRef.current, userDriven: isUserDriven() });
-    });
-  }, [editor, onState, isUserDriven]);
-
-  return null;
-}
 
 // One-finger gutter-handle drag-to-reorder, gated by reorder MODE (`active`). When
 // the mode is on a gutter with a grip (⠿) appears beside each draggable block; a
