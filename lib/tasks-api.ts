@@ -117,3 +117,56 @@ export async function getRun(
 ): Promise<{ run: TaskRun; tasks: TaskItem[]; proposals: TaskProposal[] }> {
   return apiGet(`/api/tasks/runs/${runId}`);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reviewing proposals
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A proposal as the review flow needs it — with the run it came from. */
+export interface PendingProposal {
+  id: string;
+  taskId: string;
+  runId: string;
+  anchor: { index: number; snippet: string; label?: string };
+  beforeText: string;
+  afterText: string;
+  note: string;
+  status: "pending";
+}
+
+/** Everything still waiting on this thesis, whichever run produced it. */
+export async function listPendingProposals(thesisId: string): Promise<PendingProposal[]> {
+  const r = await apiGet<{ proposals: PendingProposal[] }>(
+    `/api/tasks/proposals?thesisId=${encodeURIComponent(thesisId)}`,
+  );
+  return r.proposals;
+}
+
+export async function decideProposal(
+  proposalId: string,
+  decision: "accept" | "reject" | "stale",
+): Promise<void> {
+  await apiPost(`/api/tasks/proposals/${proposalId}/${decision}`, {});
+}
+
+/**
+ * Decide every still-pending proposal in a run, server-side. Returns how many
+ * changed.
+ *
+ * Used for REJECT ALL. Accept-all deliberately does not go through here — see
+ * tasks-store.approveAllPending: marking rows accepted without applying them
+ * would drop them out of the pending list the Writer hydrates from, leaving the
+ * student told "approved" over text that never changed.
+ */
+export async function decideAllProposals(
+  runId: string,
+  decision: "accept" | "reject",
+): Promise<number> {
+  const r = await apiPost<{ changed: number }>(`/api/tasks/runs/${runId}/proposals/${decision}`, {});
+  return r.changed;
+}
+
+/** Restore the document to the checkpoint taken before this run started. */
+export async function undoRun(runId: string): Promise<void> {
+  await apiPost(`/api/tasks/runs/${runId}/undo`, {});
+}

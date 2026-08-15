@@ -19,6 +19,7 @@ import {
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { type ThesisOp } from "@/lib/thesis-ops";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
+import { decideProposal } from "@/lib/tasks-api";
 import i18n from "@/lib/i18n";
 
 // The block kind the caller asks a suggestion for — decides the initial action
@@ -58,6 +59,15 @@ export interface PendingSuggestion {
   action: SuggestAction;
   // Localised label for `action`, rendered at the top of the inline card.
   label: string;
+  /**
+   * Set when this card came from a scheduled task's proposal rather than a live
+   * ask. Approve/reject then also tell the server what the student decided —
+   * without it the row would sit "pending" for ever and the Needs-you band
+   * would never clear.
+   */
+  proposalId?: string;
+  /** The run that produced it, for the stepper's count. */
+  runId?: string;
   // action "insertTable": the proposed table grid (rendered as a preview in the
   // inline card; applied via the insertTable op on approve). Absent for text/caption.
   proposedRows?: string[][];
@@ -466,6 +476,10 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
   approve: (thesisId, index) => {
     const cur = get().byIndex[index];
     if (!cur || cur.status !== "ready") return;
+    // A task proposal is decided server-side too. Fire-and-forget on purpose:
+    // the document edit below must not wait on a round trip, and a lost status
+    // update only means the card can reappear — never that the wrong text lands.
+    if (cur.proposalId) void decideProposal(cur.proposalId, "accept").catch(() => {});
     // Dispatch by action: a paragraph rewrite → editText; a figure caption →
     // setCaption; a filled empty paragraph → insertTable (inserts a real Word table
     // so it occupies this block) or insertImage (embeds the figure copied from the
@@ -515,7 +529,11 @@ export const useSuggestionStore = create<SuggestionState>((set, get) => ({
     set((s) => ({ byIndex: without(s.byIndex, index), justApplied: index }));
   },
 
-  reject: (index) => set((s) => ({ byIndex: without(s.byIndex, index) })),
+  reject: (index) => {
+    const cur = get().byIndex[index];
+    if (cur?.proposalId) void decideProposal(cur.proposalId, "reject").catch(() => {});
+    set((s) => ({ byIndex: without(s.byIndex, index) }));
+  },
 
   again: async (thesisId, index) => {
     const cur = get().byIndex[index];

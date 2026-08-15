@@ -1,6 +1,11 @@
 import { create } from "zustand";
+import i18n from "@/lib/i18n";
+import { resolveBlockIndexStrict } from "@/lib/block-links";
+import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { useSuggestionStore, type PendingSuggestion } from "@/stores/suggestion-store";
 import {
   listJobs, nextRun, addTask, removeTask, scheduleRun, runNow, cancelRun, listRuns,
+  listPendingProposals, decideProposal,
   type JobDef, type TaskRun, type TaskItem, type TaskTarget, type TaskMode,
 } from "@/lib/tasks-api";
 
@@ -43,6 +48,13 @@ interface TasksState {
   cancel: (runId: string) => Promise<void>;
   /** Poll for a live run. Cheap: one request, and only while one is live. */
   watchLive: (thesisId: string) => Promise<boolean>;
+  /**
+   * Put every pending proposal for this thesis onto its paragraph, as an
+   * ordinary inline suggestion. Returns how many are now showing.
+   */
+  hydrateProposals: (thesisId: string) => Promise<number>;
+  /** Hydrate, then approve every pending proposal. Returns how many applied. */
+  approveAllPending: (thesisId: string) => Promise<number>;
 }
 
 export const useTasksStore = create<TasksState>((set, get) => ({
@@ -158,6 +170,72 @@ export const useTasksStore = create<TasksState>((set, get) => ({
     } finally {
       set({ busy: false });
     }
+  },
+
+  hydrateProposals: async (thesisId) => {
+    let pending: Awaited<ReturnType<typeof listPendingProposals>>;
+    try {
+      pending = await listPendingProposals(thesisId);
+    } catch {
+      return 0;
+    }
+    if (!pending.length) return 0;
+
+    // DocumentDTO is a union — the unavailable arm carries no blocks at all.
+    const doc = useThesisDocStore.getState().byId[thesisId];
+    const blocks = doc && doc.available ? doc.blocks : undefined;
+    const cards: Record<number, PendingSuggestion> = {};
+    let shown = 0;
+
+    for (const p of pending) {
+      // Re-resolved against the LIVE document: the run happened hours ago and
+      // the student may have edited since.
+      const at = resolveBlockIndexStrict(blocks, p.anchor.index, p.anchor.snippet || p.beforeText);
+      if (at === null) {
+        // Do not guess, and do not leave it pending for ever — void it so the
+        // Needs-you band can empty rather than the student chasing a ghost.
+        void decideProposal(p.id, "stale").catch(() => {});
+        continue;
+      }
+      // byIndex is keyed by block, so two proposals on one paragraph cannot both
+      // show. Keep the first; the second stays pending for the next pass.
+      if (cards[at]) continue;
+
+      cards[at] = {
+        index: at,
+        original: p.beforeText,
+        proposed: p.afterText,
+        instruction: p.note,
+        status: "ready",
+        action: "rewrite",
+        // No live model call produced this — the thinking happened during the
+        // run, hours ago, and is not what the student is judging now.
+        reasoning: "",
+        label: i18n.t("tasks.proposedRewrite", { defaultValue: "Proposed rewrite" }),
+        proposalId: p.id,
+        runId: p.runId,
+      };
+      shown++;
+    }
+
+    if (shown > 0) {
+      useSuggestionStore.setState((s) => ({ byIndex: { ...s.byIndex, ...cards } }));
+    }
+    return shown;
+  },
+
+  approveAllPending: async (thesisId) => {
+    // Hydrate FIRST. Marking the rows accepted server-side would drop them out
+    // of the pending list this reads from, and the document would never change
+    // — the student would be told "approved" over untouched text.
+    await get().hydrateProposals(thesisId);
+    const cards = Object.values(useSuggestionStore.getState().byIndex).filter((c) => !!c.proposalId);
+    // Descending: approve() dispatches an editText per block, and working from
+    // the end means an edit cannot shift a block this loop has not reached yet.
+    for (const card of cards.sort((a, b) => b.index - a.index)) {
+      useSuggestionStore.getState().approve(thesisId, card.index);
+    }
+    return cards.length;
   },
 
   watchLive: async (thesisId) => {

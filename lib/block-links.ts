@@ -100,3 +100,35 @@ const BLOCK_LINK_MD_RE = /\[([^\]]*)\]\(modk:\/\/b\/\d+(?:[-–]\d+)?\/?\)/gi;
 export function stripBlockLinks(text: string): string {
   return text.replace(BLOCK_LINK_MD_RE, "$1");
 }
+
+/**
+ * Like resolveBlockIndex, but returns null rather than guessing.
+ *
+ * resolveBlockIndex falls back to the requested index when the text cannot be
+ * found, which is right for a deep link — landing near the right place beats
+ * doing nothing. It is exactly wrong for a scheduled proposal: the fallback
+ * would apply a rewrite to whatever paragraph now happens to sit at that
+ * number. A miss here must mark the proposal stale instead.
+ */
+export function resolveBlockIndexStrict(
+  blocks: DocBlockDTO[] | undefined,
+  index: number,
+  snippet: string,
+): number | null {
+  if (!blocks?.length) return null;
+  const needle = normalize(snippet ?? "").slice(0, LABEL_HEAD).trim();
+  if (needle.length < MIN_LABEL) return null;
+
+  const max = blocks.length - 1;
+  const textAt = (i: number) => normalize(blockSearchText(blocks[i] ?? ({} as DocBlockDTO)));
+
+  // Index AND text agreeing is the strongest evidence available; a duplicate
+  // elsewhere in the document does not weaken it.
+  if (index >= 0 && index <= max && textAt(index).includes(needle)) return index;
+
+  const hits: number[] = [];
+  for (let i = 0; i <= max; i++) if (textAt(i).includes(needle)) hits.push(i);
+  // Only the fallback search can be ambiguous — the hint has already failed, so
+  // nothing is left to break a tie.
+  return hits.length === 1 ? hits[0] : null;
+}
