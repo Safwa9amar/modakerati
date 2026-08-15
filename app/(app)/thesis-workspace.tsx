@@ -180,12 +180,17 @@ export default function ThesisWorkspaceScreen() {
   // document the moment one finishes, so they see the result without pulling.
   const liveRunId = useTasksStore((s) => s.liveRunId);
 
-  // Bring any waiting proposals onto the page when the Writer opens, and again
-  // whenever a run finishes — that is exactly when new ones appear.
+  // Bring any waiting proposals onto the page once the document is HERE, and
+  // again whenever a run finishes — that is exactly when new ones appear.
+  //
+  // Gated on the document, not on mount: a proposal can only be matched to a
+  // paragraph that exists, so hydrating early found nothing and voided the lot.
+  // A boolean selector is safe to subscribe to — it flips once, on load.
+  const docReady = useThesisDocStore((s) => !!s.byId[thesisId ?? ""]?.available);
   useEffect(() => {
-    if (!thesisId) return;
+    if (!thesisId || !docReady) return;
     void useTasksStore.getState().hydrateProposals(thesisId);
-  }, [thesisId, liveRunId]);
+  }, [thesisId, liveRunId, docReady]);
   useEffect(() => {
     if (!thesisId) return;
     let cancelled = false;

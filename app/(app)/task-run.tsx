@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, Alert } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -37,6 +37,32 @@ export default function TaskRunScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [working, setWorking] = useState(false);
 
+  /**
+   * Runs one action, then refreshes. Every call here can fail on the network,
+   * and an async onPress that throws in React Native fails SILENTLY — which is
+   * precisely what made these buttons look dead. A failure now says so, and an
+   * action that legitimately changed nothing says that too rather than leaving
+   * the student tapping a button that appears broken.
+   */
+  const act = useCallback(
+    async (fn: () => Promise<string | null>) => {
+      setWorking(true);
+      try {
+        const note = await fn();
+        if (note) Alert.alert("", note);
+      } catch (e: unknown) {
+        Alert.alert(
+          t("common.somethingWrong", { defaultValue: "Something went wrong" }),
+          e instanceof Error ? e.message : String(e),
+        );
+      } finally {
+        setWorking(false);
+        void fetchRunRef.current?.();
+      }
+    },
+    [t],
+  );
+
   const fetchRun = useCallback(async () => {
     if (!runId) return;
     try {
@@ -48,6 +74,11 @@ export default function TaskRunScreen() {
       // Keep whatever is on screen; pull-to-refresh is the retry.
     }
   }, [runId]);
+
+  // `act` is defined above fetchRun so the handlers can use it; this ref is how
+  // it reaches the current fetchRun without a circular dependency.
+  const fetchRunRef = useRef<(() => Promise<void>) | null>(null);
+  fetchRunRef.current = fetchRun;
 
   useEffect(() => {
     void fetchRun();
@@ -121,7 +152,11 @@ export default function TaskRunScreen() {
                 whole point — a rewrite is only judgeable in context. */}
             <Pressable
               onPress={() =>
-                router.push({
+                // navigate, NOT push: the Writer is normally already in the
+                // stack, and pushing a second copy remounts it and reloads the
+                // document — which is exactly when proposals have no blocks to
+                // attach to. Returning to the live one lands on a loaded page.
+                router.navigate({
                   pathname: "/(app)/thesis-workspace",
                   params: { thesisId: run.thesisId },
                 } as any)
@@ -136,15 +171,12 @@ export default function TaskRunScreen() {
             <View style={[styles.bulkRow, { flexDirection }]}>
               <Pressable
                 disabled={working}
-                onPress={async () => {
-                  setWorking(true);
-                  try {
-                    await decideAllProposals(run.id, "reject");
-                    await fetchRun();
-                  } finally {
-                    setWorking(false);
-                  }
-                }}
+                onPress={() =>
+                  act(async () => {
+                    const n = await decideAllProposals(run.id, "reject");
+                    return n === 0 ? t("tasks.nothingWaiting") : null;
+                  })
+                }
                 style={[styles.bulk, { borderColor: colors.borderDefault }]}
               >
                 <Text style={{ color: colors.textSecondary, fontSize: 13 }}>{t("tasks.rejectAll")}</Text>
@@ -156,15 +188,14 @@ export default function TaskRunScreen() {
                   "approved" over text that never changed. */}
               <Pressable
                 disabled={working}
-                onPress={async () => {
-                  setWorking(true);
-                  try {
-                    await useTasksStore.getState().approveAllPending(run.thesisId);
-                    await fetchRun();
-                  } finally {
-                    setWorking(false);
-                  }
-                }}
+                onPress={() =>
+                  act(async () => {
+                    const n = await useTasksStore.getState().approveAllPending(run.thesisId);
+                    // Zero here means the proposals could not be matched to a
+                    // paragraph — say so instead of reporting a silent success.
+                    return n === 0 ? t("tasks.nothingWaiting") : null;
+                  })
+                }
                 style={[styles.bulk, { borderColor: colors.semanticSuccess }]}
               >
                 <Text style={{ color: colors.semanticSuccess, fontSize: 13 }}>{t("tasks.approveAll")}</Text>
@@ -185,16 +216,12 @@ export default function TaskRunScreen() {
                 {
                   text: t("tasks.undoConfirm"),
                   style: "destructive",
-                  onPress: async () => {
-                    setWorking(true);
-                    try {
+                  onPress: () =>
+                    act(async () => {
                       await undoRun(run.id);
                       await useThesisDocStore.getState().revalidate(run.thesisId);
-                      await fetchRun();
-                    } finally {
-                      setWorking(false);
-                    }
-                  },
+                      return null;
+                    }),
                 },
               ]);
             }}

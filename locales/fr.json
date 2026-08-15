@@ -288,6 +288,7 @@
     "reviewNext": "Examiner",
     "reviewInDocument": "Examiner {{count}} dans le document",
     "approveAll": "Tout accepter",
+    "nothingWaiting": "Plus rien \u00e0 appliquer \u2014 d\u00e9j\u00e0 trait\u00e9, ou les paragraphes ont trop chang\u00e9 pour \u00eatre retrouv\u00e9s.",
     "rejectAll": "Tout refuser",
     "undoRun": "Annuler cette ex\u00e9cution",
     "undoTitle": "Annuler cette ex\u00e9cution ?",

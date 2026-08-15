@@ -184,6 +184,14 @@ export const useTasksStore = create<TasksState>((set, get) => ({
     // DocumentDTO is a union — the unavailable arm carries no blocks at all.
     const doc = useThesisDocStore.getState().byId[thesisId];
     const blocks = doc && doc.available ? doc.blocks : undefined;
+
+    // ⚠️ Without loaded blocks NOTHING resolves, and every proposal looks like it
+    // has lost its paragraph. Voiding them here DESTROYED real work: the Writer
+    // hydrated on mount, before the document had arrived, and marked an entire
+    // run stale before the student ever saw it. No document, no verdict — leave
+    // them pending and hydrate again once it lands.
+    if (!blocks?.length) return 0;
+
     const cards: Record<number, PendingSuggestion> = {};
     let shown = 0;
 

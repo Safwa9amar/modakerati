@@ -288,6 +288,7 @@
     "reviewNext": "Review",
     "reviewInDocument": "Review {{count}} in the document",
     "approveAll": "Approve all",
+    "nothingWaiting": "Nothing left to apply \u2014 these were already handled, or their paragraphs have changed too much to match.",
     "rejectAll": "Reject all",
     "undoRun": "Undo this run",
     "undoTitle": "Undo this run?",
