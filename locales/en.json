@@ -675,6 +675,11 @@
     "errorGeneric": "Something went wrong on our side. Tap Regenerate to try again.",
     "listen": "Listen",
     "stopAudio": "Stop",
+    "copy": "Copy",
+    "copied": "Copied",
+    "share": "Share",
+    "today": "Today",
+    "yesterday": "Yesterday",
     "welcome": {
       "body": "I'm your thesis assistant. I can draft chapters, structure your plan, fix formatting and handle citations — in Arabic, French or English.",
       "cta": "See what Kwill can do"

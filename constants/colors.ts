@@ -39,12 +39,15 @@ export const colors = {
     semanticSuccess: "#33D6A6",
     semanticWarning: "#FF9933",
     semanticError: "#FF5959",
+    // Only the TYPING indicator and the loading skeleton still draw an assistant
+    // surface — a finished answer sits on the page itself (components/chat/MessageBubble).
     chatAiBubble: "#1E2138",
     // Deliberately NOT the brand: a brand-filled bubble turns every message the
     // student sends into an accent, and white on the brand orange is only 2.3:1.
-    // A neutral slate instead — lifted far enough off chatAiBubble to tell the
-    // two speakers apart on a dark ground, and 8.9:1 under the white text.
-    chatUserBubble: "#414962",
+    // A neutral slate instead — a soft lift off bgPrimary rather than the heavy
+    // chip it used to be (#414962), since it is now the only tinted surface in
+    // the transcript and has nothing to be told apart FROM. 10.7:1 under white.
+    chatUserBubble: "#282E42",
     chatUserText: "#FFFFFF",
     navBar: "#212133",
     navInactive: "#8D8D9E",
@@ -71,10 +74,12 @@ export const colors = {
     semanticWarning: "#E69919",
     semanticError: "#E64040",
     chatAiBubble: "#EDEEF8",
-    // The same slate family, darker: on a white page the user's bubble is the
-    // filled one against the AI's pale one, with no brand fill in the thread.
-    chatUserBubble: "#343A4D",
-    chatUserText: "#FFFFFF",
+    // A WASH, not a fill. The dark slate this replaces (#343A4D) was the only
+    // heavy block on a white page and it made a one-line question shout louder
+    // than the answer under it. Same cool family, now a tint the answer's own
+    // ink reads comfortably on (14.6:1).
+    chatUserBubble: "#E8ECF8",
+    chatUserText: "#1A1A26",
     navBar: "#FFFFFF",
     navInactive: "#8D8D9E",
     navInactiveLabel: "#737385",

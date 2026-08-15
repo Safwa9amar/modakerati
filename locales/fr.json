@@ -675,6 +675,11 @@
     "errorGeneric": "Un problème est survenu de notre côté. Appuyez sur « Régénérer » pour réessayer.",
     "listen": "Écouter",
     "stopAudio": "Arrêter",
+    "copy": "Copier",
+    "copied": "Copié",
+    "share": "Partager",
+    "today": "Aujourd'hui",
+    "yesterday": "Hier",
     "welcome": {
       "body": "Je suis votre assistant de mémoire. Je peux rédiger des chapitres, structurer votre plan, corriger la mise en forme et gérer les citations — en arabe, en français ou en anglais.",
       "cta": "Voir ce que Kwill peut faire"

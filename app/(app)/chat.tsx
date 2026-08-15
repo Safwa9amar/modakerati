@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput as RNTextInput, KeyboardAvoidingView, Platform, Keyboard, Image, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut, cancelAnimation, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming } from "react-native-reanimated";
 import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useBottomInset, useKeyboardLift } from "@/hooks/useBottomInset";
@@ -12,40 +12,36 @@ import { useBottomSheet } from "@/stores/bottom-sheet-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import { sendMessageToAI, loadInitialMessages, loadOlderMessages, regenerateLastResponse, retryFailedMessage, approvePendingAction, declinePendingAction } from "@/lib/ai-service";
 import { ComposerConfirm } from "@/components/workspace/ComposerConfirm";
-import { Send, Plus, Menu, Paperclip, Image as ImageIcon, Camera, ClipboardPaste, ChevronDown, ChevronUp, Square, Maximize2, X, FileText, RotateCcw, Volume2, AlertCircle, History } from "lucide-react-native";
+import { ArrowUp, Plus, Mic, Paperclip, Image as ImageIcon, Camera, ClipboardPaste, ChevronDown, Square, X, FileText, SquarePen, History } from "lucide-react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { AskBottomSheet } from "@/components/AskBottomSheet";
 import { DrawerMenuButton } from "@/components/DrawerMenuButton";
-import { Markdown } from "@/components/Markdown";
 import { MessageViewer } from "@/components/MessageViewer";
 import { ChatSkeleton } from "@/components/ChatSkeleton";
-import { FileCard } from "@/components/FileCard";
-import { splitFileFrames } from "@/lib/file-frames";
 import { resolveBlockIndex, type BlockLink } from "@/lib/block-links";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { ComposerQuickActions } from "@/components/workspace/ComposerQuickActions";
 import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { useSpeakMessage } from "@/hooks/useSpeakMessage";
-import { getTextDirection } from "@/lib/text-direction";
 import { TypingIndicator } from "@/components/TypingIndicator";
-import { ThinkingTrace } from "@/components/ThinkingTrace";
 import { AiWorkingNote } from "@/components/AiWorkingNote";
-import { deriveThinkingMs } from "@/lib/thinking";
+import { useVoiceDictation } from "@/lib/voice";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { Alert } from "react-native";
-import { ChatImageGrid, ChatImageViewer } from "@/components/ChatImages";
-import { splitImageFrames, pickChatImages, captureChatImage, pasteChatImage, MAX_CHAT_IMAGES, type StagedImage } from "@/lib/chat-images";
+import { ChatImageViewer } from "@/components/ChatImages";
+import { pickChatImages, captureChatImage, pasteChatImage, MAX_CHAT_IMAGES, type StagedImage } from "@/lib/chat-images";
 import { ChatHistoryPanel } from "@/components/chat/ChatHistoryPanel";
 import { ChatWelcome } from "@/components/chat/ChatWelcome";
+import { MessageBubble } from "@/components/chat/MessageBubble";
+import { TimeDivider, shouldShowTime } from "@/components/chat/TimeDivider";
 import { downloadExport } from "@/lib/download-export";
 import { ThesisAttachSheet } from "@/components/chat/ThesisAttachSheet";
 import { addSource, patchThread } from "@/lib/api";
 import { useSourceStore } from "@/stores/source-store";
 import type { ThesisSource } from "@/types/source";
-import type { ChatMessage, ChatImage, FilePayload } from "@/types/chat";
-import { visualTextAlign } from "@/lib/rtl-layout";
+import type { ChatImage, FilePayload } from "@/types/chat";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -78,8 +74,6 @@ function threadHasHistory(threadId: string): boolean {
 function hasConversationToResume(thesisId: string | null): boolean {
   return !!thesisId || !!useChatThreadsStore.getState().currentThreadId;
 }
-
-const LOGO = require("../../assets/icon.png");
 
 // A picked-but-not-yet-sent document. Staged in the composer so the user can add
 // a prompt (or remove it) before it goes to the AI. Images are staged separately
@@ -141,12 +135,6 @@ async function uploadAttachmentAsSource(thesisId: string, att: Attachment, note:
   return src;
 }
 
-// Above this length, an assistant answer is collapsed to a clipped preview with
-// "View more" (expand inline) / "View full" (open the full-screen viewer)
-// affordances — long answers otherwise dominate the scroll inside a 75%-width bubble.
-const EXPAND_THRESHOLD = 280;
-// Height of the clipped preview shown before the reader expands the message.
-const COLLAPSED_HEIGHT = 220;
 // Composer auto-grow bounds (one line … ~6 lines, then it scrolls internally).
 // Belt-and-suspenders so it grows whichever mechanism the New Architecture honors:
 //   • minHeight/maxHeight in the style bound the input's INTRINSIC auto-sizing, and
@@ -155,216 +143,6 @@ const COLLAPSED_HEIGHT = 220;
 // intrinsic path still governs (we never pin the box to one line).
 const INPUT_MIN_HEIGHT = 28;
 const INPUT_MAX_HEIGHT = 120;
-
-/**
- * Gradient-style fade from transparent to the bubble color, masking the hard
- * clip at the bottom of a collapsed message. Built from stacked opacity bands so
- * we don't need a gradient dependency.
- */
-function FadeOverlay({ color }: { color: string }) {
-  const SLICES = 10;
-  const H = 56;
-  return (
-    <View pointerEvents="none" style={[styles.fadeOverlay, { height: H }]}>
-      {Array.from({ length: SLICES }).map((_, i) => (
-        <View key={i} style={{ height: H / SLICES, backgroundColor: color, opacity: (i + 1) / SLICES }} />
-      ))}
-    </View>
-  );
-}
-
-const Bubble = memo(({ item, colors, isStreaming, isLiveTurn, isLastAssistant, isUnanswered, isSpeaking, onExpand, onPreviewFile, onRegenerate, onRetryMessage, onSpeak, onViewImage, onBlockPress }: { item: ChatMessage; colors: any; isStreaming?: boolean; isLiveTurn?: boolean; isLastAssistant?: boolean; isUnanswered?: boolean; isSpeaking?: boolean; onExpand?: (content: string) => void; onPreviewFile?: (file: FilePayload) => void; onRegenerate?: () => void; onRetryMessage?: (id: string) => void; onSpeak?: (id: string, text: string) => void; onViewImage?: (image: ChatImage) => void; onBlockPress?: (link: BlockLink, label: string) => void }) => {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const isUser = item.role === "user";
-  // Both roles can carry frames in `content`, and neither may ever render one as
-  // text. Assistant: [[MODK_FILE]] artifacts (an export) → file cards. User:
-  // [[MODK_IMG]] attachments → thumbnails. Live sends arrive on item.files /
-  // item.images with the frame already handled; a message reloaded from history
-  // still holds it, so parse here too and prefer the live copy when there is one.
-  const { text: bodyText, files: framedFiles, images: framedImages } = isUser
-    ? { ...splitImageFrames(item.content), files: [] as FilePayload[] }
-    : { ...splitFileFrames(item.content), images: [] as ChatImage[] };
-  const files = item.files?.length ? item.files : framedFiles;
-  const images = item.images?.length ? item.images : framedImages;
-  // Whether there's answer text below the thinking block. While the model is
-  // still reasoning, content is empty — so the thinking wrapper must not draw
-  // its separator/spacing or it renders as an empty framed box.
-  const hasContent = bodyText.trim().length > 0;
-  // Only completed assistant answers collapse — streaming text stays fully visible.
-  const isLong = !isUser && !isStreaming && bodyText.length > EXPAND_THRESHOLD;
-  const collapsed = isLong && !expanded;
-  // The most recent assistant reply gets a "Regenerate" affordance — re-runs the
-  // last user turn for a different answer (ChatGPT-style). Hidden while streaming.
-  // Deliberately NOT gated on there being answer text: a turn that ends with only
-  // a thinking trace (or nothing at all) is exactly when the student needs to
-  // retry, and gating on content made that bubble a dead end.
-  const canRegenerate = !!isLastAssistant && !isStreaming;
-  // The student's own last message never got an answer (they hit Stop, or the turn
-  // died before a bubble existed). Offer the same retry there — otherwise the only
-  // way back is retyping the question.
-  // A send whose turn never landed is marked failed by ai-service, wherever it
-  // sits in the list — not only when it happens to be last. `isUnanswered` still
-  // covers the softer case (the student hit Stop, or the turn ended with no
-  // bubble), so both routes to a dead end offer the same way out.
-  const sendFailed = isUser && !!item.failed;
-  const canRetryOwn = isUser && (sendFailed || !!isUnanswered);
-  // Read-aloud is offered on every finished assistant answer, not just the last
-  // one — the reason to tap it is usually a long reply further up. Dev-only
-  // while the neural voice is still being evaluated on real devices.
-  const canSpeak = __DEV__ && !isUser && !isStreaming && hasContent && !!onSpeak;
-  // The reasoning is still streaming (no answer text yet) → the "Thinking" toggle
-  // shows live bouncing dots so it reads as active, replacing the separate typing
-  // indicator. Once the answer starts (or the turn ends) the dots stop and it
-  // stays as a collapsed, tappable toggle for reviewing the reasoning.
-  const thinkingActive = !!isStreaming && !hasContent;
-  // Direction follows the message's own language so a mix of Arabic/English/French
-  // chats each align correctly regardless of the app's locale.
-  const dir = getTextDirection(bodyText);
-  const textDirStyle = { textAlign: visualTextAlign(dir === "rtl"), writingDirection: dir } as const;
-  return (
-    <View style={[styles.messageRow, isUser ? styles.userRow : styles.aiRow]}>
-      {!isUser && <Image source={LOGO} style={styles.aiAvatar} />}
-      <View style={[styles.bubble, isUser ? { backgroundColor: colors.chatUserBubble, borderTopRightRadius: 4 } : { backgroundColor: colors.chatAiBubble, borderTopLeftRadius: 4 }]}>
-        {!isUser && item.thinking ? (
-          <ThinkingTrace
-            text={item.thinking}
-            streaming={thinkingActive}
-            durationMs={deriveThinkingMs(item)}
-            dividerBelow={hasContent}
-            rtl={dir === "rtl"}
-            surfaceColor={colors.chatAiBubble}
-          />
-        ) : null}
-        {/* Attachments sit ABOVE the caption, the way every messaging app puts
-            them — the picture is the subject, the text is what's being asked
-            about it. */}
-        {isUser && images.length > 0 && (
-          <View style={hasContent ? styles.bubbleImagesSpaced : undefined}>
-            <ChatImageGrid images={images} onPress={onViewImage} />
-          </View>
-        )}
-        {isUser ? (
-          hasContent ? (
-            <Text selectable style={[styles.messageText, { color: colors.chatUserText }, textDirStyle]}>{bodyText}</Text>
-          ) : null
-        ) : hasContent ? (
-          // Markdown renders live while streaming too — <Markdown streaming> re-parses
-          // on a timer instead of per token, so headings/tables/lists appear as they
-          // are written without the O(n²) re-lex that made per-token parsing janky.
-          <View style={collapsed ? styles.collapsedWrap : undefined}>
-            <Markdown content={bodyText} color={colors.textPrimary} direction={dir} streaming={isStreaming} onBlockPress={onBlockPress} />
-            {collapsed && <FadeOverlay color={colors.chatAiBubble} />}
-          </View>
-        ) : null}
-        {/* The turn is still running but nothing has streamed for a while — the
-            AI is off running tools (reading the source .docx, writing blocks).
-            Mounted for the whole live turn; it stays invisible until the stream
-            actually goes quiet. */}
-        {isLiveTurn && <AiWorkingNote rtl={dir === "rtl"} />}
-        {canRetryOwn && (
-          <View style={[styles.bubbleActions, { borderTopColor: colors.chatUserText + "33" }]}>
-            {/* Say it plainly. A failed send that looks delivered is what makes a
-                student send the same request again — the retry below exists so
-                they never have to retype it. */}
-            {sendFailed && (
-              <View style={styles.actionBtn}>
-                <AlertCircle size={13} color={colors.chatUserText} strokeWidth={2} />
-                <Text style={[styles.actionLabel, { color: colors.chatUserText }]}>
-                  {t("chat.notSent", { defaultValue: "Not sent" })}
-                </Text>
-              </View>
-            )}
-            <Pressable
-              // A FAILED send re-runs this exact row (no new bubble, and no
-              // server-side regenerate — that path deletes the reply it replaces).
-              // The unanswered case keeps the old regenerate behaviour.
-              onPress={() => (sendFailed ? onRetryMessage?.(item.id) : onRegenerate?.())}
-              hitSlop={6}
-              accessibilityRole="button"
-              accessibilityLabel={t("chat.tryAgain", { defaultValue: "Try again" })}
-              style={styles.actionBtn}
-            >
-              <RotateCcw size={13} color={colors.chatUserText} strokeWidth={2} />
-              <Text style={[styles.actionLabel, { color: colors.chatUserText }]}>{t("chat.tryAgain", { defaultValue: "Try again" })}</Text>
-            </Pressable>
-          </View>
-        )}
-        {(isLong || canRegenerate || canSpeak) && (
-          <View style={[styles.bubbleActions, { borderTopColor: colors.borderDefault }]}>
-            {isLong && (
-              <>
-                <Pressable
-                  onPress={() => setExpanded((e) => !e)}
-                  hitSlop={6}
-                  accessibilityRole="button"
-                  accessibilityLabel={expanded ? t("chat.showLess", { defaultValue: "Show less" }) : t("chat.viewMore", { defaultValue: "View more" })}
-                  style={styles.actionBtn}
-                >
-                  {expanded ? (
-                    <ChevronUp size={14} color={colors.brandPrimaryLight} strokeWidth={2} />
-                  ) : (
-                    <ChevronDown size={14} color={colors.brandPrimaryLight} strokeWidth={2} />
-                  )}
-                  <Text style={[styles.actionLabel, { color: colors.brandPrimaryLight }]}>
-                    {expanded ? t("chat.showLess", { defaultValue: "Show less" }) : t("chat.viewMore", { defaultValue: "View more" })}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => onExpand?.(item.content)}
-                  hitSlop={6}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("chat.viewFull", { defaultValue: "View full response" })}
-                  style={styles.actionBtn}
-                >
-                  <Maximize2 size={13} color={colors.brandPrimaryLight} strokeWidth={2} />
-                  <Text style={[styles.actionLabel, { color: colors.brandPrimaryLight }]}>{t("chat.viewFull", { defaultValue: "View full" })}</Text>
-                </Pressable>
-              </>
-            )}
-            {canSpeak && (
-              <Pressable
-                onPress={() => onSpeak?.(item.id, bodyText)}
-                hitSlop={6}
-                accessibilityRole="button"
-                accessibilityLabel={isSpeaking ? t("chat.stopAudio", { defaultValue: "Stop" }) : t("chat.listen", { defaultValue: "Listen" })}
-                style={styles.actionBtn}
-              >
-                {isSpeaking ? (
-                  <Square size={11} color={colors.brandPrimaryLight} strokeWidth={2} fill={colors.brandPrimaryLight} />
-                ) : (
-                  <Volume2 size={13} color={colors.brandPrimaryLight} strokeWidth={2} />
-                )}
-                <Text style={[styles.actionLabel, { color: colors.brandPrimaryLight }]}>
-                  {isSpeaking ? t("chat.stopAudio", { defaultValue: "Stop" }) : t("chat.listen", { defaultValue: "Listen" })}
-                </Text>
-              </Pressable>
-            )}
-            {canRegenerate && (
-              <Pressable
-                onPress={() => onRegenerate?.()}
-                hitSlop={6}
-                accessibilityRole="button"
-                accessibilityLabel={t("chat.regenerate", { defaultValue: "Regenerate" })}
-                style={styles.actionBtn}
-              >
-                <RotateCcw size={13} color={colors.brandPrimaryLight} strokeWidth={2} />
-                <Text style={[styles.actionLabel, { color: colors.brandPrimaryLight }]}>{t("chat.regenerate", { defaultValue: "Regenerate" })}</Text>
-              </Pressable>
-            )}
-          </View>
-        )}
-        {!isUser && files.length > 0 && (
-          <View style={[styles.fileCards, hasContent && styles.fileCardsSpaced]}>
-            {files.map((f, i) => (
-              <FileCard key={(f.url || "file") + i} file={f} onPress={() => onPreviewFile?.(f)} />
-            ))}
-          </View>
-        )}
-      </View>
-    </View>
-  );
-});
 
 // The full thesis chat UI, reusable in two places: as the Chat TAB (variant
 // "screen", with a Home button) and inside the floating chat-head OVERLAY
@@ -475,6 +253,13 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   const streamingId = useChatStore((s) => s.streamingId);
   const loadedRef = useRef(false);
   const rotation = useSharedValue(0);
+  const micPulse = useSharedValue(1);
+  // Voice-to-text for the composer. `supported` stays false until the native
+  // module is linked, and the mic falls back to "coming soon" (see handleMic).
+  const { supported, listening, start: startDictation, stop: stopDictation } = useVoiceDictation();
+  // The text that was in the box when dictation began — the transcript is
+  // appended to it, never over it.
+  const dictationBaseRef = useRef("");
   // True while the initial history is being pulled from cache/server. Starts true
   // only when nothing is in memory yet — a thesis revisited this session already
   // has its messages and shouldn't flash a skeleton.
@@ -876,6 +661,11 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     const outgoing = staged;
     // A new turn takes the floor — don't keep reading the previous answer over it.
     stopSpeaking();
+    // …and stop LISTENING. A recognizer left running past the send delivers its
+    // final transcript afterwards, and the handler appends it to the text that was
+    // in the box when dictation started — which would refill the composer with the
+    // message that just went out.
+    stopDictation();
     setInputText("");
     // Also clear the native buffer: a controlled value="" set in the same tick as
     // the editable flip / keyboard dismiss can be dropped on Fabric, leaving the
@@ -974,6 +764,26 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     rotation.value = withSpring(next ? 45 : 0, { damping: 12, stiffness: 200 });
   }
 
+  // ——— Dictation ———
+  // Speaking a question is how a student writes a long Arabic prompt on a phone,
+  // and the workspace composer has had this for a while (ComposerInput); chat is
+  // where it is actually wanted. The transcript APPENDS to whatever was in the
+  // box when dictation began, so it never eats text they had already typed.
+  //
+  // `supported` is false until a native rebuild links expo-speech-recognition —
+  // the mic then falls back to the same "coming soon" the workspace shows,
+  // rather than looking broken.
+  async function handleMic() {
+    if (listening) return void stopDictation();
+    if (!supported) return void Alert.alert(t("composer.voiceComingSoon"));
+    dictationBaseRef.current = inputText;
+    const ok = await startDictation((transcript) => {
+      const base = dictationBaseRef.current;
+      setInputText(base ? `${base} ${transcript}` : transcript);
+    });
+    if (!ok) Alert.alert(t("composer.micDenied", { defaultValue: "Microphone/speech permission is needed to dictate." }));
+  }
+
   async function handleToolPress(tool: string) {
     setToolsExpanded(false);
     rotation.value = withTiming(0, { duration: 200 });
@@ -1030,6 +840,18 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     transform: [{ rotate: `${rotation.value}deg` }],
   }));
 
+  // Pulse the mic while it is listening, so it reads as a live recording
+  // indicator rather than a button stuck in its pressed state.
+  useEffect(() => {
+    if (listening) {
+      micPulse.value = withRepeat(withTiming(0.4, { duration: 700 }), -1, true);
+    } else {
+      cancelAnimation(micPulse);
+      micPulse.value = 1;
+    }
+  }, [listening, micPulse]);
+  const micStyle = useAnimatedStyle(() => ({ opacity: micPulse.value }));
+
   const hasText = inputText.trim().length > 0;
   // The send button appears whenever there's something to send — text or a
   // staged attachment (so an image can be sent with no caption).
@@ -1044,7 +866,11 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-      <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.bgCard }}>
+      {/* The bar shares the page's own background — no card, no border. The
+          transcript now runs from under the title straight down to the composer
+          as one continuous sheet, which is the point of taking the bubbles off
+          the assistant's answers. */}
+      <SafeAreaView edges={["top"]} style={{ backgroundColor: colors.bgPrimary }}>
         <View style={styles.topBar}>
           {variant === "overlay" ? (
             <Pressable onPress={onClose} hitSlop={8} style={{ padding: 4 }} accessibilityRole="button" accessibilityLabel={t("common.close", { defaultValue: "Close" })}>
@@ -1062,15 +888,30 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
           <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
             {(thesisId ? thesisTitle : "") || t("auth.appName")}
           </Text>
-          <Pressable
-            onPress={() => setHistoryOpen(true)}
-            hitSlop={8}
-            style={{ padding: 4 }}
-            accessibilityRole="button"
-            accessibilityLabel={t("chat.threads.title")}
-          >
-            <History size={22} color={colors.textPrimary} strokeWidth={1.8} />
-          </Pressable>
+          <View style={styles.topActions}>
+            {/* Start a fresh conversation without going through the history
+                panel first — the same intent its ＋ carries, one tap closer.
+                It keeps the thesis attached: the student is mid-document, and a
+                new chat about nothing would strand them. */}
+            <Pressable
+              onPress={() => handleNewThread(thesisId)}
+              hitSlop={8}
+              style={{ padding: 4 }}
+              accessibilityRole="button"
+              accessibilityLabel={t("chat.threads.new")}
+            >
+              <SquarePen size={21} color={colors.textPrimary} strokeWidth={1.8} />
+            </Pressable>
+            <Pressable
+              onPress={() => setHistoryOpen(true)}
+              hitSlop={8}
+              style={{ padding: 4 }}
+              accessibilityRole="button"
+              accessibilityLabel={t("chat.threads.title")}
+            >
+              <History size={22} color={colors.textPrimary} strokeWidth={1.8} />
+            </Pressable>
+          </View>
         </View>
       </SafeAreaView>
 
@@ -1099,7 +940,31 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
           <FlatList
             ref={flatListRef}
             data={messages}
-            renderItem={({ item, index }) => <Bubble item={item} colors={colors} isStreaming={item.id === streamingId} isLiveTurn={item.id === liveTurnId} isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1} isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating} isSpeaking={item.id === speakingId} onExpand={setViewerContent} onPreviewFile={handleDownloadFile} onRegenerate={handleRegenerate} onRetryMessage={handleRetryMessage} onSpeak={toggleSpeak} onViewImage={setViewerImage} onBlockPress={openThesisBlock} />}
+            renderItem={({ item, index }) => (
+              <>
+                {/* The stamp belongs to the message under it, so it rides inside
+                    the same row rather than as its own list entry — nothing else
+                    in here (keyExtractor, onStartReached, the index maths above)
+                    has to learn about a second kind of item. */}
+                {shouldShowTime(messages[index - 1]?.createdAt, item.createdAt) && <TimeDivider iso={item.createdAt} />}
+                <MessageBubble
+                  item={item}
+                  colors={colors}
+                  isStreaming={item.id === streamingId}
+                  isLiveTurn={item.id === liveTurnId}
+                  isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1}
+                  isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating}
+                  isSpeaking={item.id === speakingId}
+                  onExpand={setViewerContent}
+                  onPreviewFile={handleDownloadFile}
+                  onRegenerate={handleRegenerate}
+                  onRetryMessage={handleRetryMessage}
+                  onSpeak={toggleSpeak}
+                  onViewImage={setViewerImage}
+                  onBlockPress={openThesisBlock}
+                />
+              </>
+            )}
             keyExtractor={(item) => item.id}
             // The live-turn flag lives outside `data`, so tell the list about it —
             // otherwise the last bubble can keep its working note after the turn ends.
@@ -1186,7 +1051,7 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
             under it and `composerInset` is the padding that keeps the input
             clear of it, whichever navigation the phone uses. `keyboardLift`
             replaces that with the keyboard's height while typing. */}
-        <View style={[styles.inputContainer, { backgroundColor: colors.bgCard, paddingBottom: composerInset + keyboardLift }]}>
+        <View style={[styles.inputContainer, { backgroundColor: colors.bgPrimary, paddingBottom: composerInset + keyboardLift }]}>
           {/* Tools tray */}
           {toolsExpanded && (
             <View style={styles.toolsRow}>
@@ -1274,7 +1139,9 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
           {!thesisId && (
             <Pressable
               onPress={() => useBottomSheet.getState().openSheet("thesis-attach")}
-              style={[styles.attachRow, { borderColor: colors.borderDefault, backgroundColor: colors.bgPrimary }]}
+              // bgSurface, not bgPrimary: the composer's own ground is the page
+              // colour now, so a row filled with it read as a floating border.
+              style={[styles.attachRow, { borderColor: colors.borderDefault, backgroundColor: colors.bgSurface }]}
               accessibilityRole="button"
               accessibilityLabel={t("chat.threads.attach")}
             >
@@ -1300,86 +1167,112 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
             </View>
           )}
 
-          {/* Input row: + button on left, input with embedded send on right */}
-          <View style={styles.inputRow}>
-            {/* Plus button — always visible on the left */}
+          {/* ONE pill holds the lot: ＋, the text, the mic and the send circle.
+              The ＋ used to be a brand-filled disc of its own outside the box,
+              which made two competing round buttons at either end of the row and
+              read as the loudest thing on the screen. Inside the pill and
+              unfilled, it is what it is — a way to add something. */}
+          <View
+            style={[
+              styles.composerPill,
+              { backgroundColor: colors.bgCard, borderColor: colors.borderDefault },
+            ]}
+          >
             <Pressable
               onPress={toggleTools}
-              style={[styles.plusBtn, { backgroundColor: toolsExpanded ? colors.bgSurface : colors.brandPrimary }]}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={t("chat.toolAttach", { defaultValue: "Attach" })}
+              style={styles.plusBtn}
             >
               <Animated.View style={plusStyle}>
-                <Plus size={20} color={toolsExpanded ? colors.textSecondary : "#FFFFFF"} strokeWidth={2.5} />
+                <Plus size={22} color={toolsExpanded ? colors.brandPrimary : colors.textSecondary} strokeWidth={2.2} />
               </Animated.View>
             </Pressable>
 
-            {/* Input wrapper with send inside */}
-            <View style={[styles.inputWrapper, { backgroundColor: colors.bgSurface }]}>
-              <RNTextInput
-                ref={inputRef}
-                style={[styles.input, { color: colors.textPrimary }, inputHeight != null && { height: inputHeight }]}
-                placeholder={t("chat.askPlaceholder")}
-                placeholderTextColor={colors.textPlaceholder}
-                value={inputText}
-                onChangeText={setInputText}
-                // The measurement feeds back into the height we just set, so a
-                // sub-pixel difference between what we wrote and what the native
-                // side measures back would setState forever — a native-event loop
-                // React eventually kills with "Maximum update depth exceeded",
-                // taking the whole JS thread (and every tap) with it. Ignore
-                // anything under a point: no layout depends on that much.
-                onContentSizeChange={(e) => {
-                  const measured = Math.min(
-                    INPUT_MAX_HEIGHT,
-                    Math.max(INPUT_MIN_HEIGHT, e.nativeEvent.contentSize.height)
-                  );
-                  setInputHeight((prev) => (prev != null && Math.abs(prev - measured) < 1 ? prev : measured));
-                }}
-                onSubmitEditing={handleSend}
-                onFocus={() => {
-                  if (toolsExpanded) {
-                    setToolsExpanded(false);
-                    rotation.value = withTiming(0, { duration: 200 });
-                  }
-                }}
-                returnKeyType="send"
-                // The text is read once, when the send starts, and becomes the
-                // source's description — so it must not keep changing while the
-                // file is being stored under it.
-                editable={!isGenerating && !uploadingSource}
-                multiline
-                maxLength={2000}
-              />
-              {/* While generating, the send button becomes a Stop button that
-                  cancels the in-flight AI turn; otherwise it appears on text. */}
-              {isGenerating ? (
-                <AnimatedPressable
-                  entering={FadeIn.duration(150)}
-                  exiting={FadeOut.duration(100)}
-                  onPress={() => useChatStore.getState().stopGenerating()}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("chat.stop")}
-                  style={[styles.sendBtn, { backgroundColor: colors.semanticError }]}
-                >
-                  <Square size={12} color="#FFFFFF" fill="#FFFFFF" />
-                </AnimatedPressable>
-              ) : uploadingSource ? (
-                // The send has begun — the document is going to the sources
-                // before the turn opens. Not a Stop: there is no turn yet.
-                <View style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}>
-                  <ActivityIndicator size="small" color={colors.brandOnPrimary} />
-                </View>
-              ) : canSend ? (
-                <AnimatedPressable
-                  entering={FadeIn.duration(150)}
-                  exiting={FadeOut.duration(100)}
-                  onPress={handleSend}
-                  style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}
-                >
-                  <Send size={16} color={colors.brandOnPrimary} strokeWidth={2} />
-                </AnimatedPressable>
-              ) : null}
-            </View>
+            <RNTextInput
+              ref={inputRef}
+              style={[styles.input, { color: colors.textPrimary }, inputHeight != null && { height: inputHeight }]}
+              placeholder={listening ? t("composer.listening", { defaultValue: "Listening…" }) : t("chat.askPlaceholder")}
+              placeholderTextColor={colors.textPlaceholder}
+              value={inputText}
+              onChangeText={setInputText}
+              // The measurement feeds back into the height we just set, so a
+              // sub-pixel difference between what we wrote and what the native
+              // side measures back would setState forever — a native-event loop
+              // React eventually kills with "Maximum update depth exceeded",
+              // taking the whole JS thread (and every tap) with it. Ignore
+              // anything under a point: no layout depends on that much.
+              onContentSizeChange={(e) => {
+                const measured = Math.min(
+                  INPUT_MAX_HEIGHT,
+                  Math.max(INPUT_MIN_HEIGHT, e.nativeEvent.contentSize.height)
+                );
+                setInputHeight((prev) => (prev != null && Math.abs(prev - measured) < 1 ? prev : measured));
+              }}
+              onSubmitEditing={handleSend}
+              onFocus={() => {
+                if (toolsExpanded) {
+                  setToolsExpanded(false);
+                  rotation.value = withTiming(0, { duration: 200 });
+                }
+              }}
+              returnKeyType="send"
+              // The text is read once, when the send starts, and becomes the
+              // source's description — so it must not keep changing while the
+              // file is being stored under it.
+              editable={!isGenerating && !uploadingSource}
+              multiline
+              maxLength={2000}
+            />
+            {/* Dictation. Gone while a turn runs — there is nothing to dictate
+                into an input that isn't editable. */}
+            {!isGenerating && !uploadingSource && (
+              <AnimatedPressable
+                onPress={handleMic}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={listening ? t("composer.listening", { defaultValue: "Listening…" }) : t("composer.micLabel", { defaultValue: "Voice input" })}
+                accessibilityState={{ selected: listening }}
+                style={[styles.micBtn, listening && micStyle]}
+              >
+                <Mic size={20} color={listening ? colors.brandPrimary : colors.textSecondary} strokeWidth={2} />
+              </AnimatedPressable>
+            )}
+
+            {/* The circle is the primary action, and it is ALWAYS the same
+                circle: it sends, it spins while a document is being stored, and
+                it stops a running turn. Only its fill and glyph change. */}
+            {isGenerating ? (
+              <AnimatedPressable
+                entering={FadeIn.duration(150)}
+                exiting={FadeOut.duration(100)}
+                onPress={() => useChatStore.getState().stopGenerating()}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={t("chat.stop")}
+                style={[styles.sendBtn, { backgroundColor: colors.semanticError }]}
+              >
+                <Square size={13} color="#FFFFFF" fill="#FFFFFF" />
+              </AnimatedPressable>
+            ) : uploadingSource ? (
+              // The send has begun — the document is going to the sources
+              // before the turn opens. Not a Stop: there is no turn yet.
+              <View style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}>
+                <ActivityIndicator size="small" color={colors.brandOnPrimary} />
+              </View>
+            ) : canSend ? (
+              <AnimatedPressable
+                entering={FadeIn.duration(150)}
+                exiting={FadeOut.duration(100)}
+                onPress={handleSend}
+                accessibilityRole="button"
+                accessibilityLabel={t("chat.send")}
+                style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}
+              >
+                <ArrowUp size={19} color={colors.brandOnPrimary} strokeWidth={2.6} />
+              </AnimatedPressable>
+            ) : null}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -1477,24 +1370,12 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
   topTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", flex: 1, textAlign: "center" },
-  messageList: { padding: 16, paddingBottom: 10, gap: 14, flexGrow: 1 },
+  topActions: { flexDirection: "row", alignItems: "center", gap: 14 },
+  // Roomier than the old 14: with no bubble around an answer, the gap between
+  // turns is the ONLY thing separating one speaker from the next.
+  messageList: { padding: 16, paddingBottom: 10, gap: 20, flexGrow: 1 },
   loadOlder: { paddingVertical: 10, alignItems: "center" },
-  // Indented to the typing indicator's bubble (avatar 28 + gap 8) so the note
-  // reads as part of it rather than as a stray row under the list.
-  footerNote: { marginHorizontal: 36 },
-  messageRow: { flexDirection: "row", gap: 8 },
-  userRow: { justifyContent: "flex-end" },
-  aiRow: { justifyContent: "flex-start", alignItems: "flex-start" },
-  aiAvatar: { width: 28, height: 28, borderRadius: 14, marginTop: 2 },
-  bubble: { maxWidth: "75%", borderRadius: 16, padding: 12 },
-  messageText: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 22 },
-  collapsedWrap: { maxHeight: COLLAPSED_HEIGHT, overflow: "hidden" },
-  fadeOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, justifyContent: "flex-end" },
-  bubbleActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 16, rowGap: 8, marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
-  fileCards: { gap: 8 },
-  fileCardsSpaced: { marginTop: 10 },
-  actionBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
-  actionLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  footerNote: { marginHorizontal: 4 },
   scrollDownFab: {
     position: "absolute",
     right: 16,
@@ -1545,7 +1426,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  bubbleImagesSpaced: { marginBottom: 8 },
   stagedRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10, marginHorizontal: 2 },
   // Padded on the top/right so the remove button, which overhangs the thumbnail,
   // isn't clipped by the row.
@@ -1571,11 +1451,28 @@ const styles = StyleSheet.create({
   toolBtn: { flex: 1, alignItems: "center", gap: 6, paddingVertical: 12, borderRadius: 14 },
   toolIconBg: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   toolLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
-  inputRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  plusBtn: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
-  inputWrapper: { flex: 1, flexDirection: "row", alignItems: "flex-end", borderRadius: 22, paddingLeft: 16, paddingRight: 6, paddingVertical: 6 },
-  input: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", paddingVertical: 4, minHeight: INPUT_MIN_HEIGHT, maxHeight: INPUT_MAX_HEIGHT },
-  sendBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", marginLeft: 6 },
+  // One floating pill. The hairline plus a whisper of shadow is what lifts it off
+  // a page that is now the same colour behind it — a borderless box on bgPrimary
+  // in the light theme has nothing to be seen against.
+  composerPill: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 6,
+    borderRadius: 26,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  // Ghost buttons: no fill, sized for the thumb, aligned with the input's last line.
+  plusBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  micBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  input: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", paddingVertical: 7, minHeight: INPUT_MIN_HEIGHT, maxHeight: INPUT_MAX_HEIGHT },
+  sendBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   noThesis: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
   noThesisText: { fontSize: 16, fontFamily: "Inter_400Regular", textAlign: "center" },
   homeBtn: {

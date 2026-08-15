@@ -52,9 +52,13 @@ export function ThinkingDots({ color }: { color: string }) {
 }
 
 /**
- * Messaging-style typing indicator: an AI avatar followed by a bubble with three
- * bouncing dots and an optional state label ("Thinking", etc.). Rendered as a
- * normal chat row so it reads like a real incoming message.
+ * The "an answer is coming" row: three bouncing dots and an optional state label
+ * ("Thinking", etc.).
+ *
+ * Bare, on the page — no avatar and no bubble, because the answer it stands in
+ * for has neither (see components/chat/MessageBubble). A tinted card here would
+ * be the only bubble on the assistant's side of the transcript, and it would pop
+ * out of existence the moment the first token replaced it with plain prose.
  */
 export function TypingIndicator({ label }: { label?: string }) {
   const colors = useThemeColors();
@@ -65,29 +69,16 @@ export function TypingIndicator({ label }: { label?: string }) {
       exiting={FadeOut.duration(150)}
       style={styles.row}
     >
-      <View style={[styles.avatar, { backgroundColor: colors.brandAccent }]} />
-      <View style={[styles.bubble, { backgroundColor: colors.chatAiBubble }]}>
-        <ThinkingDots color={colors.textSecondary} />
-        {label ? (
-          <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text>
-        ) : null}
-      </View>
+      <ThinkingDots color={colors.textSecondary} />
+      {label ? (
+        <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text>
+      ) : null}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
-  avatar: { width: 28, height: 28, borderRadius: 14, marginTop: 2 },
-  bubble: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 16,
-    borderTopLeftRadius: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
+  row: { flexDirection: "row", gap: 10, alignItems: "center", paddingVertical: 6 },
   dots: { flexDirection: "row", alignItems: "center", gap: 5 },
   dot: { width: 7, height: 7, borderRadius: 3.5 },
   label: { fontSize: 13, fontFamily: "Inter_500Medium" },
