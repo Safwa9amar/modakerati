@@ -1,18 +1,24 @@
 'use dom';
 
-// Lexical rich-text editor rendered as an Expo DOM component ('use dom' →
-// @expo/dom-webview). This is a SPIKE: an isolated proof that our NATIVE bubble
-// can drive a web rich-text editor while keeping RTL + rich formatting for free.
+// The thesis editor: Lexical rendered as an Expo DOM component ('use dom' →
+// @expo/dom-webview). This file is the COMPOSITION SHELL and nothing else —
+// every plugin, helper, contract and stylesheet lives in ./editor-components/.
 //
 // Data flow (per the Expo DOM-components contract — serializable props only):
 //   • native → web:  `command` (a serializable {type,value,nonce} object). The
 //     nonce forces a re-apply even when the same command repeats.
-//   • web → native:  `onState` (a top-level async function prop) reports the
-//     active formats so the native bubble can highlight B/I/U/heading/direction.
-// Nothing here is wired to the thesis doc/op-queue yet — it's a feasibility test.
+//   • web → native:  `onState` and the other top-level async function props.
+// See ./editor-components/props for the full contract, with a note per prop.
+//
+// ⚠️ THE RULE THIS FILE LIVES BY: babel-preset-expo's use-dom-directive plugin
+// allows a 'use dom' module exactly ONE export, and it must be the default. A
+// named non-type export here is a BUNDLE-time failure that renders the writer
+// screen blank — and `npx tsc --noEmit` cannot see it. That is why everything
+// below is imported rather than declared, and why the gate before believing any
+// change to this subsystem works is:
+//
+//     node scripts/verify-use-dom.mjs
 
-import * as React from "react";
-import { useEffect, useRef } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -20,79 +26,32 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
 import { CheckListPlugin } from "@lexical/react/LexicalCheckListPlugin";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import {
-  HeadingNode,
-  QuoteNode,
-} from "@lexical/rich-text";
-import {
-  ListNode,
-  ListItemNode,
-  $isListNode,
-  $isListItemNode,
-  $insertList,
-} from "@lexical/list";
-import {
-  $getRoot,
-  $addUpdateTag,
-  SKIP_DOM_SELECTION_TAG,
-  type LexicalNode,
-} from "lexical";
+import { HeadingNode, QuoteNode } from "@lexical/rich-text";
+import { ListNode, ListItemNode } from "@lexical/list";
+
+import type { AnchorSectionGeometry } from "@/lib/page-layout";
 import {
   $blocksToLexical,
+  AnchorGeometryContext,
   BlockDataNode,
   ChromeNode,
-  PageBreakNode,
-  $createPageBreakNode,
-  $isPageBreakNode,
-  type PageBreakData,
-  // The ONE predicate that owns "this node exists only to be looked at" —
-  // chrome bands AND page boundaries. Every block-INDEX walk skips it; only a
-  // genuine "is this specifically a chrome band?" identity test uses
-  // $isChromeNode. Getting that backwards puts every index past the node off
-  // by N, which is exactly how c28d406 and 6eae8ee both shipped.
-  $isDisplayOnlyNode,
-  MediaContext,
-  AnchorGeometryContext,
   EditCellContext,
-  TableProposalContext,
-  TABLE_AI_LABELS_EN,
-  WorkingLabelsContext,
-  WORKING_LABELS_EN,
-  SuggestionNode,
-  RangeSuggestionNode,
-  GhostCompletionNode,
   EquationNode,
-  $blockEntries,
-  countListItems,
-  type BlockEntry,
+  GhostCompletionNode,
+  MediaContext,
+  PageBreakNode,
+  RangeSuggestionNode,
+  SuggestionNode,
+  TABLE_AI_LABELS_EN,
+  TableProposalContext,
+  WORKING_LABELS_EN,
+  WorkingLabelsContext,
 } from "./blockLexical";
-import { singleMoveTo } from "@/lib/reorder-range";
-// Pure geometry/pagination/numbering — no React, no RN, no DOM, so it is the one
-// piece of this feature verifiable off-device (scripts/verify-page-layout.mjs).
-import {
-  paginate,
-  numberPages,
-  sectionForBlock,
-  chromeDrawingFractions,
-  duotoneStops,
-  type AnchorSectionGeometry,
-} from "@/lib/page-layout";
-// type-only — WorkspaceLexicalView is the native ('use dom' host) module; importing
-// just the type is erased at compile time, same contract as ChromeData above.
-import type { PageSetup } from "../WorkspaceLexicalView";
-// ── ./editor-components ──────────────────────────────────────────────────────
-// This module carries the 'use dom' directive, so babel-preset-expo allows it
-// exactly ONE export and it must be the default. Every contract, helper, plugin
-// and stylesheet therefore lives beside it in editor-components/ (plain web-bundle
-// modules, free to export as they like). Gate: node scripts/verify-use-dom.mjs.
-import {
-  $anyNodeAtBlockIndex,
-} from "./editor-components/block-index";
-import { withScrollPinned } from "./editor-components/lexical-updates";
-import { measureBlockHeights, measureCacheClear } from "./editor-components/measure";
+import type { LexicalDomEditorProps } from "./editor-components/props";
+import { seed } from "./editor-components/seed";
+import { CSS } from "./editor-components/styles";
+import { theme } from "./editor-components/theme";
 import { CompletionPlugin } from "./editor-components/plugins/CompletionPlugin";
-import { ReorderPlugin } from "./editor-components/plugins/reorder/ReorderPlugin";
 import { DrawerSwipePlugin } from "./editor-components/plugins/DrawerSwipePlugin";
 import { EditorBridge } from "./editor-components/plugins/editor-bridge/EditorBridge";
 import { EquationTapPlugin } from "./editor-components/plugins/EquationTapPlugin";
@@ -100,21 +59,16 @@ import { KeyboardModePlugin } from "./editor-components/plugins/KeyboardModePlug
 import { PaginationPlugin } from "./editor-components/plugins/pagination/PaginationPlugin";
 import { PasteImagePlugin } from "./editor-components/plugins/PasteImagePlugin";
 import { RangeSuggestionPlugin } from "./editor-components/plugins/RangeSuggestionPlugin";
+import { ReorderPlugin } from "./editor-components/plugins/reorder/ReorderPlugin";
 import { ScrollSyncPlugin } from "./editor-components/plugins/ScrollSyncPlugin";
 import { SearchHighlightPlugin } from "./editor-components/plugins/SearchHighlightPlugin";
 import { SelectPlugin } from "./editor-components/plugins/SelectPlugin";
 import { SelectionHighlightPlugin } from "./editor-components/plugins/SelectionHighlightPlugin";
 import { SlashPlugin } from "./editor-components/plugins/SlashPlugin";
 import { SuggestionPlugin } from "./editor-components/plugins/SuggestionPlugin";
-import { seed } from "./editor-components/seed";
-import { CSS } from "./editor-components/styles";
-import { theme } from "./editor-components/theme";
-import type { LexicalDomEditorProps } from "./editor-components/props";
 
 // Stable empty default for the anchor-geometry context: a fresh [] per render
 // would change the context value every render and re-render every overlay.
-// Module-private on purpose — a 'use dom' module may export ONE thing, the
-// default (scripts/verify-use-dom.mjs).
 const EMPTY_ANCHOR_GEOMETRY: AnchorSectionGeometry[] = [];
 
 export default function LexicalDomEditor({
@@ -176,6 +130,9 @@ export default function LexicalDomEditor({
     editorState: () => (initialBlocks && initialBlocks.length ? $blocksToLexical(initialBlocks, chrome) : seed()),
   };
 
+  // ⚠️ Plugin ORDER below is behaviour, not layout. Lexical resolves command
+  // listeners registered at equal priority in registration order, so moving a
+  // plugin up or down this list can change which one wins a command.
   return (
     <LexicalComposer initialConfig={initialConfig}>
       <style>{CSS}</style>
