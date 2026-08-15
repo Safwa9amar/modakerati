@@ -7,7 +7,7 @@ import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/comp
 // type-only — blockLexical is a web-only ('use dom') module; importing the type is
 // erased at compile time so no Lexical/DOM globals enter this native bundle.
 import type { ChromeData, ChromeKind } from "@/components/workspace/lexical/blockLexical";
-import { applyThesisOps, getAuthHeader, type ChromeDrawingDTO, type DocBlockDTO, type DocSectionDTO, type DocumentDTO, type InlineMathDTO } from "@/lib/api";
+import { applyThesisOps, getAuthHeader, type AnchoredShape, type ChromeDrawingDTO, type DocBlockDTO, type DocSectionDTO, type DocumentDTO, type InlineMathDTO } from "@/lib/api";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useEquationSheetStore } from "@/stores/equation-sheet-store";
 import { useHfSheetStore } from "@/stores/hf-sheet-store";
@@ -138,6 +138,14 @@ export type PageSetup = {
   /** Block indices Word would not leave at the bottom of a page: headings carry
    *  keep-with-next in every built-in style. */
   keepWithNext: number[];
+  /** Block indices whose picture is CENTRED ON THE PAGE vertically — a floating
+   *  drawing with `positionV relativeFrom="page"` and `align: center`, which is
+   *  what set_image_layout writes for "I want the image in the middle of the
+   *  page". Word does not lay these out in the flow at all, so the paginator
+   *  moves half the page's leftover room ABOVE the block; without that the app
+   *  drew the picture hard against the top of the page while Word centred it,
+   *  and the student saw nothing happen. */
+  pageCentered: number[];
 };
 
 /**
@@ -176,6 +184,15 @@ function buildPageSetup(
   return {
     blockFmts: blocks.map((b) => (b.kind === "paragraph" ? b.fmt ?? null : null)),
     keepWithNext: blocks.flatMap((b, i) => (b.kind === "paragraph" && b.level > 0 ? [i] : [])),
+    // A picture Word centres on the PAGE, not in the flow. Read off the block's
+    // own anchors: set_image_layout floats the drawing and writes
+    // positionV relativeFrom="page" align="center", which arrives here as
+    // `y: { from: "page", align: "center" }`.
+    pageCentered: blocks.flatMap((b, i) =>
+      (b as { anchors?: AnchoredShape[] }).anchors?.some((a) => a.y.from === "page" && a.y.align === "center")
+        ? [i]
+        : [],
+    ),
     sections: sections.map((s) => {
       const g = geometryFromSection(s.page);
       return {

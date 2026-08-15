@@ -50,6 +50,7 @@ import { placeAnchor, sectionForBlock, type AnchorSectionGeometry } from "@/lib/
 // type-only — table-diff must never enter the web bundle by value.
 import type { TableDiff } from "@/lib/table-diff";
 import { visualTextAlign } from "@/lib/rtl-layout";
+import { brand } from "@/constants/colors";
 
 // The inline-run extension the paragraph DTO carries (not in the base type).
 export type ParaRun = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; color?: string };
@@ -256,6 +257,11 @@ export type PageBreakData = {
    *  pushed off — should show the room Word leaves on it rather than hugging its
    *  content like a card. 0 renders nothing. */
   remainderPx: number;
+  /** Room to leave at the TOP of the page BEGINNING after this band. Non-zero
+   *  only for a page holding a picture Word centres on the page: half its
+   *  leftover room goes above the picture and half below, which is what
+   *  vertical centring looks like on paper. 0 renders nothing. */
+  leadPx: number;
   rtl: boolean;
 };
 
@@ -826,8 +832,10 @@ function AIChip({ label, open, onToggle }: { label: string; open?: boolean; onTo
         gap: "6px",
         font: "inherit", // buttons don't inherit — UA font tofus Arabic
         fontSize: "11.5px",
-        color: "#4f46e5",
-        background: "#eef2ff",
+        // Brand ink on a brand wash — the chip sits on white paper, so the ink
+        // is the deep variant.
+        color: brand.primaryDeep,
+        background: "#FEF3E6",
         border: "none",
         borderRadius: "999px",
         padding: "3px 10px",
@@ -1253,7 +1261,7 @@ function EditableTable({
                     width: "100%",
                     boxSizing: "border-box",
                     border: "none",
-                    outline: "2px solid #5b6cff",
+                    outline: `2px solid ${brand.primary}`,
                     borderRadius: "3px",
                     padding: "2px 4px",
                     font: "inherit",
@@ -1629,6 +1637,14 @@ function PageBreakBand({
             });
           }),
         )
+      : null,
+    // Room at the TOP of the page that begins here — the other half of the
+    // leftover space on a page whose picture Word centres vertically. Last in
+    // the band, so it lands below the header and above the page's first block.
+    data.leadPx > 0
+      ? React.createElement("div", {
+          style: { height: `${data.leadPx}px`, pointerEvents: "none", userSelect: "none" } as React.CSSProperties,
+        })
       : null,
   );
 }

@@ -152,6 +152,7 @@ import {
 } from "@/lib/page-layout";
 import type { DocBlockDTO } from "@/lib/api";
 import type { BlockKind } from "@/stores/insert-menu-store";
+import { brand, rgbTriplet } from "@/constants/colors";
 // type-only — WorkspaceLexicalView is the native ('use dom' host) module; importing
 // just the type is erased at compile time, same contract as ChromeData above.
 import type { PageSetup } from "../WorkspaceLexicalView";
@@ -270,6 +271,11 @@ const theme = {
 const LIBERATION_REGULAR = require("../../../assets/fonts/LiberationSerif-Regular.ttf");
 const LIBERATION_BOLD = require("../../../assets/fonts/LiberationSerif-Bold.ttf");
 
+// The editor's chrome accents (quote rule, checked box, toolbar bubble) are the
+// brand — pulled from the token so a rebrand never has to visit this stylesheet.
+const BRAND = brand.primary;
+const BRAND_RGB = rgbTriplet(brand.primary);
+
 const CSS = `
 /* Metric twin of Times New Roman, used ONLY by the offscreen .lx-measure host
    (see below) so block heights match where Word would actually wrap — never
@@ -299,7 +305,7 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 .lx-h1 { font-size: 24px; font-weight: 700; margin: 6px 0 10px; }
 .lx-h2 { font-size: 20px; font-weight: 700; margin: 6px 0 8px; }
 .lx-h3 { font-size: 17px; font-weight: 600; margin: 4px 0 8px; }
-.lx-quote { margin: 0 0 10px; border-inline-start: 3px solid #4b57c4; padding-inline-start: 12px; color: #555; font-style: italic; }
+.lx-quote { margin: 0 0 10px; border-inline-start: 3px solid ${BRAND}; padding-inline-start: 12px; color: #555; font-style: italic; }
 .lx-ul { margin: 0 0 10px; padding-inline-start: 26px; list-style: disc; }
 .lx-ol { margin: 0 0 10px; padding-inline-start: 26px; list-style: decimal; }
 .lx-li { margin: 2px 0; }
@@ -318,7 +324,7 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 }
 .lx-li-checked { text-decoration: line-through; color: #8a8a8a; }
 .lx-li-checked:before {
-  border-color: #4b57c4; background-color: #4b57c4;
+  border-color: ${BRAND}; background-color: ${BRAND};
 }
 .lx-li-checked:after {
   content: ''; position: absolute; inset-inline-start: 5px; top: 5px;
@@ -403,13 +409,13 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 /* Floating per-block bubble — a kind-icon bubble that expands to the pill of that
    block's tools (mirrors the native FloatingPill → BlockContextBar). */
 .lx-tb-anchor { position: fixed; z-index: 40; }
-.lx-tb-bubble { width: 34px; height: 34px; border: none; border-radius: 50%; background: #4b57c4; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px -4px rgba(75,87,196,.5); }
+.lx-tb-bubble { width: 34px; height: 34px; border: none; border-radius: 50%; background: ${BRAND}; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px -4px rgba(${BRAND_RGB},.5); }
 .lx-tb-bubble:active { transform: scale(.92); }
 .lx-tb { display: flex; gap: 3px; align-items: center; background: #ffffff; border: 1px solid #d8d8de; border-radius: 12px; padding: 4px 5px; box-shadow: 0 8px 22px -6px rgba(20,22,40,.30); max-width: calc(100vw - 12px); overflow-x: auto; scrollbar-width: none; }
 .lx-tb::-webkit-scrollbar { display: none; }
 .lx-tb-b { min-width: 30px; height: 30px; border: none; background: transparent; border-radius: 7px; font-size: 13px; color: #333; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0 7px; font-weight: 600; flex: 0 0 auto; }
 .lx-tb-b:active { transform: scale(.9); }
-.lx-tb-b.on { background: #4b57c4; color: #fff; }
+.lx-tb-b.on { background: ${BRAND}; color: #fff; }
 .lx-tb-sep { width: 1px; height: 18px; background: #e4e5ee; margin: 0 2px; flex: 0 0 auto; }
 .lx-tb-sw { width: 16px; height: 16px; border-radius: 8px; border: 1px solid #d8d8de; display: block; }
 .lx-tb-lbl { font-size: 11px; color: #8a8a8a; padding: 0 6px; flex: 0 0 auto; }
@@ -512,8 +518,8 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   content: "⠿"; position: absolute; left: 8px; top: 1px;
   width: 24px; height: 24px; box-sizing: border-box;
   display: flex; align-items: center; justify-content: center;
-  color: rgba(75,87,196,.62); font-size: 15px; line-height: 1;
-  background: rgba(75,87,196,.09); border-radius: 8px;
+  color: rgba(${BRAND_RGB},.62); font-size: 15px; line-height: 1;
+  background: rgba(${BRAND_RGB},.09); border-radius: 8px;
   transition: background .12s ease, color .12s ease, transform .12s ease;
   animation: lxGripIn .18s ease; /* NO fill-mode: a held end state would outrank the press transform below */
   -webkit-user-select: none; user-select: none; pointer-events: none;
@@ -521,7 +527,7 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 .lx-content.lx-reorder-on.lx-reorder-rtl > .lx-drag-ok::before { left: auto; right: 8px; }
 @keyframes lxGripIn { from { opacity: 0; transform: scale(.72); } to { opacity: 1; transform: scale(1); } }
 /* finger down on a handle, before the lift arms */
-.lx-content.lx-reorder-on > .lx-drag-hot::before { background: rgba(75,87,196,.2); color: #4b57c4; transform: scale(1.06); }
+.lx-content.lx-reorder-on > .lx-drag-hot::before { background: rgba(${BRAND_RGB},.2); color: ${BRAND}; transform: scale(1.06); }
 /* The lifted block leaves NO hole: it hides, and its neighbours slide across it,
    so the page previews exactly the post-drop order. Transforms only → no reflow,
    so the rects cached at lift time stay valid for the whole drag. */
@@ -530,8 +536,8 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 /* A thin rule down the middle of the opened slot — the slot itself is the loud
    signal, so this stays quiet instead of a glowing full-bleed bar. */
 .lx-drop-slot { position: fixed; z-index: 9998; height: 2px; border-radius: 2px; pointer-events: none;
-  background: rgba(75,87,196,.85); transition: top .12s cubic-bezier(.2,0,0,1); }
-.lx-drop-slot::before, .lx-drop-slot::after { content: ""; position: absolute; top: -2px; width: 6px; height: 6px; border-radius: 50%; background: rgba(75,87,196,.85); }
+  background: rgba(${BRAND_RGB},.85); transition: top .12s cubic-bezier(.2,0,0,1); }
+.lx-drop-slot::before, .lx-drop-slot::after { content: ""; position: absolute; top: -2px; width: 6px; height: 6px; border-radius: 50%; background: rgba(${BRAND_RGB},.85); }
 .lx-drop-slot::before { left: 0; }
 .lx-drop-slot::after { right: 0; }
 /* The moving sign — a small pill of the block's text that follows the finger and
@@ -539,11 +545,11 @@ html, body { max-width: 100vw; overflow-x: hidden; }
 .lx-drag-pill { position: fixed; z-index: 9999; pointer-events: none; box-sizing: border-box;
   display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px;
   font-size: 12.5px; font-weight: 600; background: rgba(255,255,255,.97); color: #2a2d3d;
-  border: 1px solid rgba(75,87,196,.35); border-radius: 999px; white-space: nowrap;
+  border: 1px solid rgba(${BRAND_RGB},.35); border-radius: 999px; white-space: nowrap;
   max-width: 62vw; overflow: hidden;
   box-shadow: 0 10px 24px -10px rgba(20,22,40,.5), 0 2px 6px -2px rgba(20,22,40,.18);
   animation: lxPillIn .16s cubic-bezier(.34,1.5,.64,1); }
-.lx-drag-pill-grip { color: rgba(75,87,196,.7); flex: 0 0 auto; }
+.lx-drag-pill-grip { color: rgba(${BRAND_RGB},.7); flex: 0 0 auto; }
 .lx-drag-pill-txt { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .lx-drag-pill-drop { transition: top .18s cubic-bezier(.3,0,.2,1), opacity .18s ease, transform .18s ease; }
 @keyframes lxPillIn { from { transform: scale(.7); opacity: .3; } to { transform: scale(1); opacity: 1; } }
@@ -577,9 +583,9 @@ html, body { max-width: 100vw; overflow-x: hidden; }
   pointer-events: none;
 }
 .lx-content.lx-select-on.lx-select-rtl .lx-selrow::before { left: auto; right: 8px; }
-.lx-content.lx-select-on .lx-selrow.lx-selon { background-color: rgba(75,87,196,.11); }
+.lx-content.lx-select-on .lx-selrow.lx-selon { background-color: rgba(${BRAND_RGB},.11); }
 .lx-content.lx-select-on .lx-selrow.lx-selon::before {
-  border-color: #4b57c4; background-color: #4b57c4;
+  border-color: ${BRAND}; background-color: ${BRAND};
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.2 8.4l3.1 3.1 6.5-6.5'/%3E%3C/svg%3E");
 }
 
@@ -3299,6 +3305,24 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       const displayScale = columnPx > 0 ? renderedColumnPx / columnPx : 1;
       const remainderDisplay = (k: number) =>
         Math.min(240, Math.round(((remainder[k] ?? 0) * displayScale) / 4) * 4);
+      // A page whose picture Word centres ON THE PAGE (set_image_layout with
+      // vertical:"center") does not lay that picture out in the flow at all, so
+      // the flow's own answer — hard against the top, all the leftover room
+      // below — is the one thing it certainly is not. Split that room in two and
+      // put half of it above: the SAME total blank the page already showed, just
+      // distributed the way Word distributes it. The 240px cap above is left
+      // exactly as it is; halving a capped remainder still reads as centred, and
+      // uncapping it here would bring back the screen and a half of blank paper
+      // that cap exists to prevent.
+      const pageCentered = new Set(setup.pageCentered ?? []);
+      const centredPage = (k: number) => {
+        if (pageCentered.size === 0) return false;
+        const end = k + 1 < starts.length ? starts[k + 1] : rows.length;
+        for (let b = starts[k]; b < end; b++) if (pageCentered.has(b)) return true;
+        return false;
+      };
+      const leadDisplay = (k: number) => (centredPage(k) ? Math.round(remainderDisplay(k) / 2 / 4) * 4 : 0);
+      const tailDisplay = (k: number) => remainderDisplay(k) - leadDisplay(k);
       const numbering = numberPages(starts, physPage, sections);
       if (cancelled || numbering.length === 0) return;
 
@@ -3371,7 +3395,8 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
           header: headerFor(numbering[p]),
           gutterLabel: gutterFor(numbering[p]),
           gutterTarget: gutterTargetFor(numbering[p - 1]),
-          remainderPx: remainderDisplay(p - 1),
+          remainderPx: tailDisplay(p - 1),
+          leadPx: leadDisplay(p),
           rtl: setup.rtl,
           artwork: artworkFor(numbering[p]),
         });
@@ -3385,14 +3410,17 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       const lastFooter = footerFor(last);
       // The cover page's frame reaches the paper only through this leading band —
       // there is no boundary above page 1 to carry it.
-      const leading: PageBreakData | null = firstHeader
+      // …and the leading band is also the only place page ONE's top padding can
+      // go, so a first page that centres a picture needs one even with no header.
+      const firstLead = leadDisplay(0);
+      const leading: PageBreakData | null = firstHeader || firstLead > 0
         ? { variant: "leading", endingPage: 0, footer: null, header: firstHeader,
-            gutterLabel: "", gutterTarget: null, remainderPx: 0, rtl: setup.rtl,
+            gutterLabel: "", gutterTarget: null, remainderPx: 0, leadPx: firstLead, rtl: setup.rtl,
             artwork: firstArtwork }
         : null;
       const trailing: PageBreakData | null = lastFooter
         ? { variant: "trailing", endingPage: last.number ?? 0, footer: lastFooter, header: null,
-            gutterLabel: "", gutterTarget: null, remainderPx: remainderDisplay(numbering.length - 1), rtl: setup.rtl }
+            gutterLabel: "", gutterTarget: null, remainderPx: tailDisplay(numbering.length - 1), leadPx: 0, rtl: setup.rtl }
         : null;
 
       // 4 ─ Apply, but only if anything actually moved. Re-creating identical
@@ -3625,7 +3653,7 @@ export default function LexicalDomEditor({
   dom?: import("expo/dom").DOMProps;
 }) {
   const initialConfig = {
-    namespace: "modakerati-lexical-lab",
+    namespace: "kwill-lexical-lab",
     theme,
     onError: (error: Error) => console.error("[lexical]", error),
     // Every node class that can appear in the tree MUST be listed here: Lexical
