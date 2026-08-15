@@ -28,6 +28,7 @@ export default function TasksScreen() {
   const runs = useTasksStore((s) => s.runs);
   const loading = useTasksStore((s) => s.loading);
   const busy = useTasksStore((s) => s.busy);
+  const failed = useTasksStore((s) => s.failed);
   const load = useTasksStore((s) => s.load);
   const add = useTasksStore((s) => s.add);
   const remove = useTasksStore((s) => s.remove);
@@ -67,6 +68,17 @@ export default function TasksScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.textSecondary} />
           }
         >
+          {/* The server could not be reached. Said out loud rather than left to
+              look like an empty queue — those are very different things. */}
+          {failed ? (
+            <View style={[styles.offline, { backgroundColor: colors.bgCard, borderColor: colors.semanticError }]}>
+              <Text style={[styles.offlineText, { color: colors.textPrimary, textAlign }]}>{t("tasks.offline")}</Text>
+              <Text style={[styles.offlineHint, { color: colors.textSecondary, textAlign }]}>
+                {t("tasks.offlineHint")}
+              </Text>
+            </View>
+          ) : null}
+
           {/* Only present when something is actually waiting. It collapses away
               rather than sitting there empty. */}
           {attention.length > 0 ? (
@@ -157,6 +169,9 @@ const styles = StyleSheet.create({
   section: { fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", marginTop: 18, marginBottom: 8 },
   runCard: { alignItems: "center", gap: 8, padding: 12, borderRadius: 12, borderWidth: 1, marginBottom: 8 },
   runText: { fontSize: 13, flex: 1 },
+  offline: { padding: 12, borderRadius: 12, borderWidth: 1, marginTop: 14, gap: 4 },
+  offlineText: { fontSize: 14, fontWeight: "600" },
+  offlineHint: { fontSize: 12 },
   empty: { paddingVertical: 24, alignItems: "center", gap: 6 },
   emptyTitle: { fontSize: 15, fontWeight: "600" },
   emptyHint: { fontSize: 13 },

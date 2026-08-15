@@ -49,6 +49,19 @@ export function JobPickerSheet({
         {selected === null ? (
           <>
             <Text style={[styles.heading, { color: colors.textPrimary, textAlign }]}>{t("tasks.addTask")}</Text>
+            {/* A menu with nothing in it is the worst possible answer: the
+                student taps Add and gets a heading over blank space. Say what
+                happened instead. */}
+            {jobs.length === 0 ? (
+              <View style={styles.emptyJobs}>
+                <Text style={[styles.emptyJobsText, { color: colors.textSecondary, textAlign }]}>
+                  {t("tasks.noJobs")}
+                </Text>
+                <Text style={[styles.emptyJobsHint, { color: colors.textPlaceholder, textAlign }]}>
+                  {t("tasks.offlineHint")}
+                </Text>
+              </View>
+            ) : null}
             {jobs.map((job) => (
               <Pressable key={job.id} onPress={() => choose(job)} style={[styles.jobRow, { borderColor: colors.borderSubtle }]}>
                 <Text style={[styles.jobLabel, { color: colors.textPrimary, textAlign }]}>
@@ -123,4 +136,7 @@ const styles = StyleSheet.create({
   modeRow: { flexDirection: "row", gap: 8, marginBottom: 18 },
   modeChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   cta: { paddingVertical: 14, borderRadius: 12, alignItems: "center" },
+  emptyJobs: { paddingVertical: 20, gap: 6 },
+  emptyJobsText: { fontSize: 14, fontWeight: "600" },
+  emptyJobsHint: { fontSize: 12 },
 });

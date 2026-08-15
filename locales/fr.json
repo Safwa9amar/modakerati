@@ -281,6 +281,9 @@
     "waitingForYou": "en attente de vous",
     "ranLate": "Ex\u00e9cut\u00e9e en retard",
     "stoppedEarly": "Arr\u00eat\u00e9e avant la fin",
+    "offline": "Serveur injoignable",
+    "offlineHint": "Tirez vers le bas pour r\u00e9essayer.",
+    "noJobs": "La liste des t\u00e2ches n'a pas pu \u00eatre charg\u00e9e.",
     "when": {
       "heading": "Quand faut-il l'ex\u00e9cuter ?",
       "inAnHour": "Dans une heure",

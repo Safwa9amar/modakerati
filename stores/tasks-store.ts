@@ -29,6 +29,8 @@ interface TasksState {
   runs: TaskRun[];
   loading: boolean;
   busy: boolean;
+  /** The last load could not reach the server. Surfaced, never swallowed. */
+  failed: boolean;
   /** The run currently executing on this thesis, if any. Drives the Writer banner. */
   liveRunId: string | null;
 
@@ -51,27 +53,47 @@ export const useTasksStore = create<TasksState>((set, get) => ({
   runs: EMPTY_RUNS,
   loading: false,
   busy: false,
+  failed: false,
   liveRunId: null,
 
   load: async (thesisId) => {
-    set({ loading: true, thesisId });
-    try {
-      const [jobs, next, runs] = await Promise.all([listJobs(), nextRun(thesisId), listRuns(thesisId)]);
-      set({
-        jobs,
-        draft: next.run,
-        tasks: next.tasks,
-        // Newest first; the draft is shown separately as "Up next".
-        runs: runs
-          .filter((r) => r.status !== "draft")
-          .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")),
-        loading: false,
+    set({ loading: true, thesisId, failed: false });
+
+    // allSettled, NOT all: these are three independent questions, and a single
+    // Promise.all rejection used to blank all three — which is how tapping
+    // "Add a task" produced a sheet with a heading and nothing under it, with
+    // no explanation at all. Each answer now stands or falls on its own.
+    const [jobsR, nextR, runsR] = await Promise.allSettled([
+      listJobs(),
+      nextRun(thesisId),
+      listRuns(thesisId),
+    ]);
+
+    const failed = [jobsR, nextR, runsR].some((r) => r.status === "rejected");
+    if (failed) {
+      console.warn("[tasks] load partially failed", {
+        jobs: jobsR.status,
+        next: nextR.status,
+        runs: runsR.status,
       });
-    } catch {
-      // Best-effort: the last good list stays on screen, same convention as
-      // outline-store.sync and chat-threads-store.load.
-      set({ loading: false });
     }
+
+    set({
+      // Keep the last good value rather than blanking on a transient failure —
+      // the same convention as outline-store.sync.
+      jobs: jobsR.status === "fulfilled" ? jobsR.value : get().jobs,
+      draft: nextR.status === "fulfilled" ? nextR.value.run : null,
+      tasks: nextR.status === "fulfilled" ? nextR.value.tasks : EMPTY_TASKS,
+      runs:
+        runsR.status === "fulfilled"
+          ? runsR.value
+              .filter((r) => r.status !== "draft")
+              // Newest first; the draft is shown separately as "Up next".
+              .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
+          : get().runs,
+      loading: false,
+      failed,
+    });
   },
 
   refresh: async () => {
