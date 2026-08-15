@@ -44,8 +44,10 @@ yarn-error.*
 # Visual brainstorming companion (local mockups)
 .superpowers/
 
-# env backups (may contain secrets)
+# env backups (may contain secrets). Both spellings: .env.cloud.bak and
+# .env.devbackup are the same thing, and only one of them matched before.
 .env*.bak
+.env*backup*
 
 # gradle build cache (native modules)
 **/.gradle/
