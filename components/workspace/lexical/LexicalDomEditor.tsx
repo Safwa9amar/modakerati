@@ -69,6 +69,7 @@ import {
   COMMAND_PRIORITY_LOW,
   COMMAND_PRIORITY_HIGH,
   SKIP_DOM_SELECTION_TAG,
+  SKIP_SCROLL_INTO_VIEW_TAG,
   type ElementFormatType,
   type ElementNode,
   type LexicalNode,
@@ -876,7 +877,7 @@ function EditorBridge({
       const saved = previewOriginal.current;
       previewOriginal.current = null;
       if (!saved) return;
-      editor.update(() => {
+      lxQuietUpdate(editor, () => {
         const n = $getNodeByKey(saved.key);
         if (n && $isChromeNode(n)) n.setData(saved.data);
       });
@@ -889,7 +890,9 @@ function EditorBridge({
     if (!key) return;
     // Moved to a different band → put the previous one back before taking this one over.
     if (previewOriginal.current && previewOriginal.current.key !== key) restore();
-    editor.update(() => {
+    // Browsing header templates repaints a band the student is watching; the sheet
+    // already scrolled it into view, so this must not move the page again.
+    lxQuietUpdate(editor, () => {
       const n = $getNodeByKey(key);
       if (!n || !$isChromeNode(n)) return;
       const cur = n.getData();
@@ -906,7 +909,7 @@ function EditorBridge({
       const saved = previewOriginal.current;
       previewOriginal.current = null;
       if (!saved) return;
-      editor.update(() => {
+      lxQuietUpdate(editor, () => {
         const n = $getNodeByKey(saved.key);
         if (n && $isChromeNode(n)) n.setData(saved.data);
       });
@@ -926,10 +929,10 @@ function EditorBridge({
       case "bold":
       case "italic":
       case "underline":
-        editor.dispatchCommand(FORMAT_TEXT_COMMAND, command.type as TextFormatType);
+        lxQuietCommand(editor, FORMAT_TEXT_COMMAND, command.type as TextFormatType);
         break;
       case "align":
-        if (command.value) editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, command.value as ElementFormatType);
+        if (command.value) lxQuietCommand(editor, FORMAT_ELEMENT_COMMAND, command.value as ElementFormatType);
         break;
       case "blockFormat":
         // Whole-block formatting from the native pill: apply to every selected
@@ -938,7 +941,7 @@ function EditorBridge({
         editor.update(() => applyBlockFormat(command.value), { tag: SKIP_DOM_SELECTION_TAG });
         break;
       case "heading":
-        editor.update(() => {
+        lxQuietUpdate(editor, () => {
           const sel = $getSelection();
           if (!$isRangeSelection(sel)) return;
           $setBlocksType(sel, () =>
@@ -947,7 +950,7 @@ function EditorBridge({
         });
         break;
       case "quote":
-        editor.update(() => {
+        lxQuietUpdate(editor, () => {
           const sel = $getSelection();
           if ($isRangeSelection(sel)) $setBlocksType(sel, () => $createQuoteNode());
         });
@@ -956,8 +959,8 @@ function EditorBridge({
         // Indent/outdent nest a list item one level (promote/demote). They're
         // editor COMMANDS (not selection mutations) — dispatch straight through so
         // Lexical's list logic handles the nesting + renumbering, then stop.
-        if (command.value === "indent") { editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined); break; }
-        if (command.value === "outdent") { editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined); break; }
+        if (command.value === "indent") { lxQuietCommand(editor, INDENT_CONTENT_COMMAND, undefined); break; }
+        if (command.value === "outdent") { lxQuietCommand(editor, OUTDENT_CONTENT_COMMAND, undefined); break; }
         // Apply on the preserved selection inside a tagged update (no focus/scroll,
         // like blockFormat). ul→bullet, ol→number, check→checklist, else remove.
         editor.update(
@@ -978,13 +981,13 @@ function EditorBridge({
         editor.dispatchCommand(REDO_COMMAND, undefined);
         break;
       case "color":
-        editor.update(() => {
+        lxQuietUpdate(editor, () => {
           const sel = $getSelection();
           if ($isRangeSelection(sel)) $patchStyleText(sel, { color: !command.value || command.value === "clear" ? "" : `#${command.value.replace(/^#/, "")}` });
         });
         break;
       case "clearFormatting":
-        editor.update(() => {
+        lxQuietUpdate(editor, () => {
           const sel = $getSelection();
           if (!$isRangeSelection(sel)) return;
           $patchStyleText(sel, { color: "" });
@@ -1286,19 +1289,23 @@ function FloatingToolbar() {
 
   if (!tb) return null;
 
-  const fmt = (f: TextFormatType) => editor.dispatchCommand(FORMAT_TEXT_COMMAND, f);
-  const align = (a: ElementFormatType) => editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, a);
+  // Every one of these is a TAP on the bubble, not the caret moving — so none of
+  // them may scroll the page (lxQuietUpdate / lxQuietCommand). `move` is the one
+  // that made this obvious: nudging a block up flung the view to wherever Lexical
+  // decided the caret had ended up.
+  const fmt = (f: TextFormatType) => lxQuietCommand(editor, FORMAT_TEXT_COMMAND, f);
+  const align = (a: ElementFormatType) => lxQuietCommand(editor, FORMAT_ELEMENT_COMMAND, a);
   const setBlock = (make: () => HeadingNode | QuoteNode | ReturnType<typeof $createParagraphNode>) =>
-    editor.update(() => { const s = $getSelection(); if ($isRangeSelection(s)) $setBlocksType(s, make); });
+    lxQuietUpdate(editor, () => { const s = $getSelection(); if ($isRangeSelection(s)) $setBlocksType(s, make); });
   const list = (t: "ul" | "ol" | "none") =>
-    editor.dispatchCommand(t === "ul" ? INSERT_UNORDERED_LIST_COMMAND : t === "ol" ? INSERT_ORDERED_LIST_COMMAND : REMOVE_LIST_COMMAND, undefined);
-  const color = (hex: string) => editor.update(() => { const s = $getSelection(); if ($isRangeSelection(s)) $patchStyleText(s, { color: `#${hex}` }); });
-  const move = (dir: -1 | 1) => editor.update(() => {
+    lxQuietCommand(editor, t === "ul" ? INSERT_UNORDERED_LIST_COMMAND : t === "ol" ? INSERT_ORDERED_LIST_COMMAND : REMOVE_LIST_COMMAND, undefined);
+  const color = (hex: string) => lxQuietUpdate(editor, () => { const s = $getSelection(); if ($isRangeSelection(s)) $patchStyleText(s, { color: `#${hex}` }); });
+  const move = (dir: -1 | 1) => lxQuietUpdate(editor, () => {
     const n = $getNodeByKey(tb.key); if (!n) return;
     const sib = dir === -1 ? n.getPreviousSibling() : n.getNextSibling(); if (!sib) return;
     if (dir === -1) sib.insertBefore(n); else sib.insertAfter(n);
   });
-  const del = () => editor.update(() => { const n = $getNodeByKey(tb.key); if (n) n.remove(); });
+  const del = () => lxQuietUpdate(editor, () => { const n = $getNodeByKey(tb.key); if (n) n.remove(); });
 
   const B = (props: { on?: boolean; onClick: () => void; children: React.ReactNode }) =>
     React.createElement("button", { className: "lx-tb-b" + (props.on ? " on" : ""), onClick: props.onClick }, props.children);
@@ -1352,6 +1359,42 @@ function FloatingToolbar() {
   );
 }
 
+// Every mutation the APP drives — a pill tap, the in-editor bubble, a plugin
+// rewrite, a preview swap, a completion ghost — goes through here rather than
+// calling editor.update directly.
+//
+// Lexical's reconciler ends each update by scrolling the collapsed caret into view
+// (LexicalSelection: `!tags.has(SKIP_SCROLL_INTO_VIEW_TAG) && isCollapsed &&
+// rootElement === activeElement`). That is a browser-shaped default this editor
+// must not have: nothing should move this WebView except our own deliberate
+// triggers — scrollToIndex, scrollToChrome, ScrollSyncPlugin's restore, and
+// withScrollPinned's pin. A student who taps Bold, or whose autocomplete ghost
+// lands, did not ask the page to move.
+//
+// The student's own TYPING is deliberately left alone: Lexical's input path keeps
+// the line being written above the on-screen keyboard (the visualViewport branch
+// in scrollIntoViewIfNeeded). That is the one autoscroll a writing app wants, and
+// silencing it would let the caret slide under the keyboard.
+//
+// `alsoSkipSelection` additionally suppresses the whole DOM-selection reconcile —
+// stronger, and needed where the update must not touch focus either (it re-focuses
+// the root, which pops the keyboard on iOS).
+function lxQuietUpdate(editor: LexicalEditor, mutator: () => void, alsoSkipSelection = false): void {
+  editor.update(mutator, {
+    tag: alsoSkipSelection ? [SKIP_SCROLL_INTO_VIEW_TAG, SKIP_DOM_SELECTION_TAG] : SKIP_SCROLL_INTO_VIEW_TAG,
+  });
+}
+
+// Dispatch a built-in Lexical command without its autoscroll. `dispatchCommand`
+// takes no update options, but a command dispatched from INSIDE an active update
+// is processed within it — so the tag added here covers the listener's own work.
+function lxQuietCommand<P>(editor: LexicalEditor, command: LxCommand<P>, payload: P): void {
+  editor.update(() => {
+    $addUpdateTag(SKIP_SCROLL_INTO_VIEW_TAG);
+    editor.dispatchCommand(command, payload);
+  });
+}
+
 // Run a Lexical mutation without letting the WebView jump: capture the page scroll
 // before the update and pin it back after the DOM reconciles. A node replace (a
 // suggestion appearing) or a full reseed (approve → doc rebuild) otherwise scrolls
@@ -1364,11 +1407,26 @@ function withScrollPinned(editor: LexicalEditor, mutator: () => void, _blurAfter
   // SKIP_SCROLL_INTO_VIEW_TAG alone wasn't enough: it stopped the scroll but the
   // re-focus still fired and iOS scrolled the focused editable into view. A light
   // 2-frame scroll restore stays as a backstop for plain reflow.
-  const y = typeof window !== "undefined" ? window.scrollY : 0;
-  const restore = () => { if (typeof window !== "undefined") window.scrollTo(0, y); };
+  //
+  // That backstop used to be a raw `window.scrollY` → `window.scrollTo` round-trip,
+  // which pinned NOTHING: both halves are unreliable inside this WebView (the same
+  // reason ScrollSyncPlugin below was rewritten to stop using them). So whenever the
+  // tag alone didn't hold — a full reseed rebuilds every node and there is no
+  // selection left to skip — the student was dropped at the top of the document.
+  // Anchor to a BLOCK instead, measured off getBoundingClientRect and put back with
+  // scrollIntoView + scrollBy. It has to be the block INDEX and not a node key: a
+  // reseed replaces every node, so the key captured beforehand resolves to nothing.
+  const anchor = lxMeasureAnchor(editor);
+  const restore = () => lxApplyAnchor(editor, anchor);
   editor.update(mutator, {
     tag: SKIP_DOM_SELECTION_TAG,
-    onUpdate: () => { restore(); requestAnimationFrame(restore); },
+    // Three passes over two frames: the DOM has reconciled by onUpdate, but a reseed
+    // of a long document is still growing its layout, and scrollIntoView can only
+    // land against the height that exists when it runs.
+    onUpdate: () => {
+      restore();
+      requestAnimationFrame(() => { restore(); requestAnimationFrame(restore); });
+    },
   });
 }
 
@@ -1396,6 +1454,55 @@ function lxFirstVisible(kids: HTMLCollection): number {
     else lo = mid + 1;
   }
   return ans;
+}
+
+// Read the current reading position as a block anchor. Shared by the scroll-sync
+// reporter (which hands it to native to keep across a re-entry) and by
+// withScrollPinned (which hands it straight back after a mutation).
+//
+// The index is a BLOCK index — display-only nodes skipped, lists expanded — and not
+// the raw DOM child index, because chrome bands and page boundaries are top-level
+// root children that the block model excludes; a raw index would be off by their
+// count for every block below the first one. `y` is kept only as the last-resort
+// fallback for when no block can be resolved.
+function lxMeasureAnchor(editor: LexicalEditor): ScrollAnchor {
+  const y = typeof window !== "undefined" ? window.scrollY : 0;
+  const kids = lxGetRoot(editor)?.children;
+  if (!kids || !kids.length) return { y, index: -1, delta: 0 };
+  const i = lxFirstVisible(kids);
+  if (i < 0) return { y, index: -1, delta: 0 };
+  const el = kids[i] as HTMLElement;
+  const r = el.getBoundingClientRect();
+  let index = -1;
+  // editor.read (NOT getEditorState().read): $getNearestNodeFromDOMNode maps a DOM
+  // node → Lexical node via the editor's key↔DOM map, so it needs the active EDITOR
+  // bound, not just the active state (getEditorState().read binds only the state →
+  // getActiveEditor() throws "no active editor").
+  editor.read(() => {
+    let node = $getNearestNodeFromDOMNode(el);
+    // The first-visible element can be a band; anchor to the block it precedes.
+    while (node && $isDisplayOnlyNode(node)) node = node.getNextSibling();
+    if (node) index = $blockIndexOfNode(node);
+  });
+  return { y, index, delta: Math.max(0, Math.round(-r.top)) };
+}
+
+// Put a measured anchor back. scrollIntoView + scrollBy is the ONE pair proven to
+// move this WebView; window.scrollTo appears only as the fallback for when the
+// block can't be resolved, where there is nothing better to try.
+function lxApplyAnchor(editor: LexicalEditor, a: ScrollAnchor): void {
+  if (typeof window === "undefined") return;
+  let key: string | null = null;
+  if (a.index >= 0) {
+    editor.getEditorState().read(() => {
+      const node = $anyNodeAtBlockIndex(a.index);
+      key = node ? node.getKey() : null;
+    });
+  }
+  const el = key ? editor.getElementByKey(key) : null;
+  if (!el) { window.scrollTo(0, a.y); return; }
+  el.scrollIntoView({ block: "start" });
+  if (a.delta > 0) window.scrollBy(0, a.delta);
 }
 
 // Persist + restore the reading position so the user re-enters the document where
@@ -1428,36 +1535,9 @@ function ScrollSyncPlugin({
   // ── Reporting (mount-lifetime): capture-phase events + a poll backstop. ──
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const measure = (): ScrollAnchor => {
-      const kids = lxGetRoot(editor)?.children;
-      if (kids && kids.length) {
-        const i = lxFirstVisible(kids);
-        if (i >= 0) {
-          const el = kids[i] as HTMLElement;
-          const r = el.getBoundingClientRect();
-          // Report a BLOCK index (display-only nodes skipped, lists expanded), NOT
-          // the raw DOM child index. Chrome bands (section header/footer/break) and
-          // page boundaries render as top-level root DOM children but are excluded
-          // from the block model, so a raw DOM index wouldn't line up with the
-          // display-only-aware $anyNodeAtBlockIndex used on restore — it'd be off by
-          // their count for every block below the first one. Map the first-visible
-          // element → its Lexical node → block index; if that element is a band,
-          // anchor to the block it precedes.
-          let index = -1;
-          // editor.read (NOT getEditorState().read): $getNearestNodeFromDOMNode maps a
-          // DOM node → Lexical node via the editor's key↔DOM map, so it needs the active
-          // EDITOR bound, not just the active state (getEditorState().read binds only the
-          // state → getActiveEditor() throws "no active editor").
-          editor.read(() => {
-            let node = $getNearestNodeFromDOMNode(el);
-            while (node && $isDisplayOnlyNode(node)) node = node.getNextSibling();
-            if (node) index = $blockIndexOfNode(node);
-          });
-          return { y: window.scrollY, index, delta: Math.max(0, Math.round(-r.top)) };
-        }
-      }
-      return { y: window.scrollY, index: -1, delta: 0 };
-    };
+    // Shared with withScrollPinned's pin — one measurement, so the position a
+    // mutation restores is read exactly the way the one native keeps is.
+    const measure = (): ScrollAnchor => lxMeasureAnchor(editor);
     let lastKey = "";
     const emit = () => {
       if (!armedRef.current) return;
@@ -1922,6 +2002,9 @@ function CompletionPlugin({
     if (!key) return;
     editor.update(() => {
       $addUpdateTag(GHOST_TAG);
+      // The ghost is OUR write, not the student's — appearing and disappearing must
+      // never move the page under the line they are writing.
+      $addUpdateTag(SKIP_SCROLL_INTO_VIEW_TAG);
       const g = $getNodeByKey(key);
       if (g && $isGhostCompletionNode(g)) g.remove();
     }, { tag: "history-merge" });
@@ -1983,6 +2066,7 @@ function CompletionPlugin({
     if (completion.index != null && completion.index !== t.index) return;
     editor.update(() => {
       $addUpdateTag(GHOST_TAG);
+      $addUpdateTag(SKIP_SCROLL_INTO_VIEW_TAG); // streaming text is ours, not a caret move
       const node = $nodeAtBlockIndex(t.index);
       if (!node) return;
       const existingKey = ghostKeyRef.current;

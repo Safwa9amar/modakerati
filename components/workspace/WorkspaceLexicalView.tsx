@@ -685,11 +685,23 @@ export function WorkspaceLexicalView({
 
   // Toggling the structure indicators reseeds the editor so the bands appear/disappear
   // in place (no remount → scroll + undo preserved). Skips the initial mount.
+  //
+  // ⚠️ Keyed on `showChrome` ALONE, and `reseedFromCurrentDoc` is read through a ref.
+  // Listing the callback as a dependency looked harmless but leaked an identity chain
+  // straight into this effect: it closes over `pageSetup`, `pageSetup` is a useMemo on
+  // `doc`, and every auto-save ends in setDoc — so each sync minted a new doc, a new
+  // pageSetup, a new callback, and this effect fired a FULL reseed the student never
+  // asked for. They saw it as the document jumping back to the top a second after they
+  // stopped typing (only with page view on: with it off `pageSetup` is a stable null,
+  // which is why this survived until pages shipped). Rebuilding every node on every
+  // pause was the cost even when the scroll happened to survive.
   const chromeToggleMount = useRef(true);
+  const reseedRef = useRef(reseedFromCurrentDoc);
+  reseedRef.current = reseedFromCurrentDoc;
   useEffect(() => {
     if (chromeToggleMount.current) { chromeToggleMount.current = false; return; }
-    reseedFromCurrentDoc();
-  }, [showChrome, reseedFromCurrentDoc]);
+    reseedRef.current();
+  }, [showChrome]);
 
   // Approve/reject/again/edit from the in-editor RANGE node → the native store.
   // Approve applies the replace-range (server echoes the doc → the sync layer reseeds
