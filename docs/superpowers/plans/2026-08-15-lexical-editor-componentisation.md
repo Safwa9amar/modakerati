@@ -268,6 +268,23 @@ Keep phase 2 out of phase 1: the two files' import graphs cross at ~50 symbols, 
 
 ---
 
+## 6b. What actually landed (2026-08-15)
+
+Executed on `refactor/lexical-editor-components`, nine commits, both gates green after every one. `LexicalDomEditor.tsx` **3 909 → 207 lines**; 45 modules under `editor-components/`; nothing over 355 lines.
+
+Where execution departed from the plan above:
+
+- **`commands.ts` moved up into step 2.** Removing the type block took `INSERT_BLOCK_COMMAND` with it, and leaving a step that does not compile is worse than resequencing.
+- **CSS split into 10 chunks, not 7.** The stylesheet's own section boundaries did not line up with the seven names guessed here. Order is preserved exactly; the rebuilt string was verified **byte-identical** to the literal it replaced. One rule is out of place (`.lx-ghost` sits in `chrome.ts`) *because* order was preserved over tidiness — documented in the file.
+- **`reorder/autoscroll.ts` was not extractable.** §2.5 called it self-contained; it is not — it closes over the mutable lift `L`, the scroller and `track`. Pulling it out would mean threading that state through parameters, which is not a separation of concerns. `constants.ts` and a real `geometry.ts` (the pure reads) came out instead, and `ReorderPlugin.tsx` stays 355 lines by design.
+- **The shell is 207 lines, not ~70.** The 47-prop destructure stayed, so the JSX tree could be copied verbatim — `initialConfig` and the whole tree are byte-identical to the pre-split file.
+- **`measureCacheClear` now clears both caches.** `PaginationPlugin` was reaching into `singleLineCache` directly; it was the only caller and always cleared both, so folding it in keeps the private cache private with no behaviour change.
+- **`FloatingToolbar`'s stylesheet went too** — 13 `.lx-tb-*` rules that only it used.
+
+**A real defect was caught by the line-by-line diff, not by the gates:** in the pagination split, `if (trailing) next.push(…)` fell one line outside the extracted range. `tsc` was clean and both gates passed. The effect would have been that on any document with a final footer, the "did anything actually move?" comparison could never match — so every 400ms pass would tear down and rewrite the whole run of bands. Verifying each split against `git show HEAD:` earned its keep; do it for phase 2 as well.
+
+**Still outstanding: the device pass in §5.** No automated check in this repo can see a reordered cascade, a mis-mounted plugin, or a WebView scroll regression.
+
 ## 7. Risks
 
 | Risk | Why it bites | Mitigation |
