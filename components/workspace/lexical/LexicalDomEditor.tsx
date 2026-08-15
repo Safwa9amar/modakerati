@@ -52,7 +52,6 @@ import {
   $isTextNode,
   $createParagraphNode,
   $createTextNode,
-  createCommand,
   FORMAT_TEXT_COMMAND,
   FORMAT_ELEMENT_COMMAND,
   UNDO_COMMAND,
@@ -103,9 +102,6 @@ import {
   TABLE_AI_LABELS_EN,
   WorkingLabelsContext,
   WORKING_LABELS_EN,
-  type TableProposalData,
-  type TableAILabels,
-  type WorkingLabels,
   SuggestionNode,
   $createSuggestionNode,
   $isSuggestionNode,
@@ -149,102 +145,27 @@ import {
   type BlockFmt,
 } from "@/lib/page-layout";
 import type { DocBlockDTO } from "@/lib/api";
-import type { BlockKind } from "@/stores/insert-menu-store";
 import { brand, rgbTriplet } from "@/constants/colors";
 // type-only — WorkspaceLexicalView is the native ('use dom' host) module; importing
 // just the type is erased at compile time, same contract as ChromeData above.
 import type { PageSetup } from "../WorkspaceLexicalView";
-
-// Payload the native Insert menu sends back in: which block to produce (or
-// clearSlash = just remove the /query, used before a native structural op).
-// NOTE: file-local (no `export`) — this is a "use dom" module, which the Expo
-// babel plugin restricts to a SINGLE default export. Both are only used inside
-// this file (the native side dispatches the string "insert" command, not this
-// Lexical command object), so they never need to be exported.
-type InsertBlockPayload = { kind: BlockKind | "clearSlash" };
-const INSERT_BLOCK_COMMAND: LxCommand<InsertBlockPayload> = createCommand("INSERT_BLOCK_COMMAND");
-
-// The pending AI proposal handed to the editor from the native suggestion store.
-export type SuggestionInput = {
-  index: number;
-  original: string;
-  proposed: string;
-  status: string;
-  instruction: string;
-  label: string;
-  reasoning: string;
-  reasoningMs?: number;
-  // action "insertTable": render the proposed grid as a table preview instead of
-  // proposed text (SuggestionView branches on proposedRows). Applied via the
-  // insertTable op on approve. Absent for a text rewrite / caption.
-  action?: string;
-  proposedRows?: string[][];
-  tableHeader?: boolean;
-  tableRtl?: boolean;
-  // action "insertSourceImage": a figure copied out of one of the student's uploaded
-  // sources — previewed here as a self-contained data: URI; approve inserts the same
-  // bytes via the insertImage op (they never enter the WebView). `hasImage` stays true
-  // when the bytes were too big to send across the bridge for preview.
-  hasImage?: boolean;
-  // action "setChart": the PROPOSED chart as SVG source, plus the chart it would
-  // replace (the card's peek). Both are a few KB of text across the bridge.
-  chartSvg?: string;
-  chartOriginalSvg?: string;
-  imageDataUri?: string;
-  imageWidth?: number;
-  imageHeight?: number;
-  // Why the ask couldn't be fulfilled (e.g. no matching figure in the attachments) —
-  // replaces the generic error line when present.
-  errorText?: string;
-};
-
-// The pending RANGE proposal (multi-block dynamic rewrite) handed to the editor.
-export type RangeSuggestionInput = {
-  start: number;
-  end: number;
-  originalBlocks: RangeOriginal[];
-  original: string;
-  proposed: string;
-  status: string;
-  instruction: string;
-  reasoning: string;
-  reasoningMs?: number;
-};
-
-// The serializable command the native bubble/pill sends in. `nonce` bumps per tap.
-// Generic (a plain {type,value?} bag) so both the lab bubble's typed commands and
-// the workspace pill's `blockFormat` (JSON value) / `direction` flow through it.
-// Known types: bold | italic | underline | undo | redo | align | heading | quote |
-// list | color | clearFormatting | serialize | direction | blockFormat.
-export type LexicalCommand = { type: string; value?: string; nonce: number };
-
-// The active-format snapshot reported back to the native bubble.
-export type LexicalState = {
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  blockType: string; // paragraph | h1 | h2 | h3 | quote | bullet | number
-  isRTL: boolean;
-  alignment: string | null; // left | center | right | justify | null (element format)
-  index: number; // position of the focused top-level block (-1 if none)
-  text: string; // the focused block's text (for the selection chip / AI targeting)
-  // Every top-level block the current selection spans, in document order. Length 1
-  // for a caret / in-paragraph selection; >1 for a cross-paragraph drag — lets the
-  // native side build a MULTI-block selection instead of collapsing to the anchor.
-  // Optional so the lab screens' bare initial-state literals still type-check.
-  blocks?: { index: number; text: string }[];
-  y?: number; // the block's top in WebView-viewport px (for anchoring the native pill)
-  // In-editor HistoryPlugin availability — lets the native undo/redo buttons step
-  // Lexical's own history (instant, offline) before falling back to the op queue /
-  // server snapshots. Optional so the lab screens' bare literals still type-check.
-  canUndo?: boolean;
-  canRedo?: boolean;
-  // False when the report was NOT produced by the student working in the editor:
-  // focus has left the WebView, so whatever the browser left of the DOM selection
-  // is an artifact, not a choice. Native uses it to refuse a report that would
-  // shrink a multi-block selection — see WorkspaceLexicalView's onState.
-  userDriven?: boolean;
-};
+// ── ./editor-components ──────────────────────────────────────────────────────
+// This module carries the 'use dom' directive, so babel-preset-expo allows it
+// exactly ONE export and it must be the default. Every contract, helper, plugin
+// and stylesheet therefore lives beside it in editor-components/ (plain web-bundle
+// modules, free to export as they like). Gate: node scripts/verify-use-dom.mjs.
+import { INSERT_BLOCK_COMMAND } from "./editor-components/commands";
+import type {
+  BlockFmtChange,
+  InsertBlockPayload,
+  LexicalCommand,
+  LexicalState,
+  RangeSuggestionInput,
+  ScrollAnchor,
+  SearchInput,
+  SuggestionInput,
+} from "./editor-components/types";
+import type { LexicalDomEditorProps } from "./editor-components/props";
 
 // A touch/keystroke on the editor counts as the student driving it for this long,
 // covering the window where the gesture is over but the focus bookkeeping (or a
@@ -1309,13 +1230,6 @@ function withScrollPinned(editor: LexicalEditor, mutator: () => void, _blurAfter
   });
 }
 
-// A saved reading position: the top-level block that was at the top of the
-// viewport (by DOM child index) + how far it was scrolled past, with a raw pixel
-// fallback. Anchoring to a BLOCK (not a pixel) survives figures loading in and
-// reflowing the page after a fresh mount — we re-align that block once its images,
-// and the ones above it, have laid out. Mirrors `ScrollAnchor` in editor-scroll-store.
-type ScrollAnchor = { y: number; index: number; delta: number };
-
 function lxGetRoot(editor: LexicalEditor): HTMLElement | null {
   // .lx-content — its children are the top-level block elements.
   return editor.getRootElement() ?? (typeof document !== "undefined" ? (document.querySelector(".lx-content") as HTMLElement | null) : null);
@@ -1530,14 +1444,6 @@ function ScrollSyncPlugin({
   return null;
 }
 
-// Whole-block formatting from the native pill (mirror of the server's
-// whole-paragraph `format` op): inline marks to every text child, level via a
-// paragraph⇄heading swap, alignment/direction on the element. Call inside update().
-type BlockFmtChange = {
-  bold?: boolean; italic?: boolean; underline?: boolean;
-  color?: string | null; clearFormatting?: boolean;
-  level?: number; alignment?: string; direction?: "rtl" | "ltr";
-};
 // ── Block-model ⇄ Lexical index mapping ──────────────────────────────────────
 // A Lexical LIST groups N item-paragraphs into ONE root child, but the block model
 // (and $lexicalToBlocks) keeps them SEPARATE — so a node's block-model index ≠ its
@@ -2922,8 +2828,6 @@ function SelectPlugin({
 // Range by walking the block element's text nodes. Recomputed after every reconcile.
 // If the API is unavailable (older WebView), search still SCROLLS to the match — only
 // the tint is skipped.
-export type SearchInput = { matches: { blockIndex: number; start: number; end: number }[]; current: number };
-
 function charPosInEl(el: Element, offset: number): [Text, number] | null {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   let acc = 0;
@@ -3527,122 +3431,7 @@ export default function LexicalDomEditor({
   keyboardActive,
   onSwipeOpenDrawer,
   appRtl,
-}: {
-  command?: LexicalCommand | null;
-  onState: (s: LexicalState) => void;
-  // Serialized blocks emitted in response to a `serialize` command (round-trip test).
-  onBlocks?: (blocks: DocBlockDTO[]) => void;
-  // A tapped equation, as JSON: { index, math }. Opens the native equation sheet —
-  // an equation is not text, so this is the only gesture that can reach one.
-  onEquationTap?: (payload: string) => void;
-  // When provided, the editor is seeded FROM these blocks instead of the demo text.
-  initialBlocks?: DocBlockDTO[];
-  // Display-only section chrome (header/footer/section-break bands) interleaved into
-  // the seed/reseed by BLOCK INDEX; carried alongside `initialBlocks` and `reseed`.
-  chrome?: ChromeData[];
-  // Serializable pagination input (geometry + section facts + pre-localized gutter
-  // strings) built natively by buildPageSetup. PaginationPlugin measures against it
-  // and inserts the PageBreakNodes; null/empty → the document stays continuous.
-  pageSetup?: PageSetup | null;
-  // Per-section page geometry in DOCUMENT px, for placing FLOATING shapes
-  // (`DocBlockDTO.anchors`) over their carrier block. Independent of `pageSetup`:
-  // a divider page's title must show whether or not the page view is on.
-  // Spec: docs/superpowers/specs/2026-08-13-floating-shapes-design.md
-  anchorGeometry?: AnchorSectionGeometry[];
-  // In-place reconcile trigger: on nonce change, rebuild content from `blocks`
-  // (+ its chrome) WITHOUT remounting (used to reflect external native/AI edits).
-  reseed?: { blocks: DocBlockDTO[]; chrome?: ChromeData[]; nonce: number };
-  // Outline-drawer navigation: on nonce change, scroll the block at `index` into view.
-  scrollToIndex?: { index: number; nonce: number };
-  // Header/footer sheet: on nonce change, scroll that BAND into view — the sheet
-  // covers the lower two-thirds, so the band being edited has to be visible above it.
-  scrollToChrome?: { kind: ChromeKind; index: number; nonce: number; offset?: number };
-  // Header/footer sheet: render a template / AI proposal ON the real band while the
-  // student browses. Display-only and reverted on clear — never saved.
-  chromePreview?: { kind: ChromeKind; index: number; segments: string[]; text: string; nonce: number } | null;
-  // Pending AI proposal to render in-flow, and its approve/reject callback.
-  suggestion?: SuggestionInput;
-  onSuggestAction?: (action: string, text?: string) => void;
-  // AI inline autocomplete (ghost text). completionEnabled gates the plugin;
-  // `completion` is the streamed continuation for the pending request; the callbacks
-  // request / commit (accept) / cancel (dismiss) round-trip to the native store.
-  completionEnabled?: boolean;
-  completion?: { text: string; nonce: number; status: "idle" | "loading" | "done" | "error"; index?: number };
-  onRequestCompletion?: (ctx: { index: number; text: string }) => void;
-  onCommitCompletion?: (index: number, fullText: string) => void;
-  onCancelCompletion?: () => void;
-  // Pending RANGE proposal (multi-block dynamic rewrite) + its approve/reject/again/edit callback.
-  rangeSuggestion?: RangeSuggestionInput;
-  onRangeAction?: (action: string, text?: string) => void;
-  // Top-level block indices to keep highlighted (the native MULTI-block selection),
-  // so the chosen blocks stay marked after the OS text selection is dismissed.
-  selectedIndices?: number[];
-  // Figure media resolution: authed base URL + token so large figures (no inline
-  // dataUri) load in the WebView via <img src=".../media/:index?token=...">.
-  media?: { base: string; token: string; thesisId: string; version: string | number };
-  // Document-search matches to tint (+ the current one), driven by the search store.
-  search?: SearchInput;
-  // Commit an in-cell table edit → native routes it through the silent table-op
-  // sync (a DOM→native async function prop, like onState).
-  onEditCell?: (blockIndex: number, row: number, col: number, text: string) => void;
-  // AI table proposal (in-place diff): while set, the targeted table renders the
-  // diff view; the pill's approve/reject/again round-trips through the native
-  // function prop. tableLoadingIndex dims the table while the model thinks.
-  // Spec: docs/superpowers/specs/2026-07-23-ai-table-proposals-design.md
-  tableProposal?: TableProposalData | null;
-  tableLoadingIndex?: number | null;
-  // The reasoning streamed so far (live thinking under the dimmed table) and the
-  // block index of a failed request (inline error + retry strip).
-  tableThinking?: string;
-  tableErrorIndex?: number | null;
-  // Proposal UI strings resolved native-side via i18next (the DOM bundle has no
-  // i18n instance) — the app is trilingual ar/fr/en. Defaults to English.
-  tableLabels?: Partial<TableAILabels>;
-  // "Still working" wait lines, shared by all three inline AI surfaces (table
-  // proposal, paragraph suggestion, range rewrite). Same native-side i18next
-  // arrangement as tableLabels; defaults to English.
-  workingLabels?: Partial<WorkingLabels>;
-  onTableProposalAction?: (action: string, note?: string) => void;
-  // Notion-style Insert menu: fires when a "/query" is detected/cleared at the
-  // caret (active + block index + query text) so native can bloom the menu.
-  onInsertTrigger?: (t: { active: boolean; index: number; query: string }) => void;
-  // An OS paste carrying an image: native reads the system clipboard itself and
-  // inserts a figure AFTER this block index (see PasteImagePlugin).
-  onPasteImage?: (index: number) => void;
-  // Scroll persistence: `scrollRestore` requests a restore to `anchor` whenever its
-  // `nonce` changes (native bumps it on focus / preview-return); `onScroll` reports
-  // the live position out (throttled) so native keeps it; `onScrollRestored` fires
-  // when a restore reaches its target (→ native hides the loading overlay).
-  scrollRestore?: { anchor: ScrollAnchor; nonce: number } | null;
-  onScroll?: (anchor: ScrollAnchor) => void;
-  onScrollRestored?: () => void;
-  // One-finger gutter-handle drag-to-reorder: `onReorder(from, to)` commits a block
-  // move once the gesture drops; `onLift` fires when the hold arms the drag (native
-  // haptic pop). `reorderActive` reflects the AIDock "Reorder" toggle — the plugin is
-  // fully inert (no gutter grips, no gesture) until a later task passes it true.
-  onReorder?: (from: number, to: number) => void;
-  onLift?: () => void;
-  reorderActive?: boolean;
-  // Checkbox select mode (the ✦ dock's "Select" chip): every block grows a leading
-  // checkbox and the editor goes read-only, so a multi-block selection is built by
-  // TAPPING blocks instead of dragging the OS text-selection handles across them.
-  // `selectedForCheck` are the block indices to draw checked (the native store's
-  // selection); `onToggleSelect` reports a tapped block back to it.
-  selectActive?: boolean;
-  selectedForCheck?: number[];
-  onToggleSelect?: (index: number, text: string) => void;
-  // Block-editing keyboard mode: false → inputmode="none" (select a block WITHOUT
-  // opening the keyboard); true → inputmode="text" (a tap/focus opens it). Issue #6.
-  keyboardActive?: boolean;
-  // Fast right→left fling over plain text (not tables/images) → open the structure
-  // drawer (issue #4, option C). Bridged out to native, which flips the drawer store.
-  onSwipeOpenDrawer?: () => void;
-  // App-UI direction: flips the fling-to-open direction (RTL = right→left, LTR = left→right).
-  appRtl?: boolean;
-  // Consumed by the Expo DOM runtime (WebView config); declared so native call
-  // sites can pass it. Not read inside the component.
-  dom?: import("expo/dom").DOMProps;
-}) {
+}: LexicalDomEditorProps) {
   const initialConfig = {
     namespace: "kwill-lexical-lab",
     theme,

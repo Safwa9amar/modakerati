@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, KeyboardAvoidingView, Platform } from "react-na
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { BackButton } from "@/components/BackButton";
-import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
+import LexicalDomEditor from "@/components/workspace/lexical/LexicalDomEditor";
+import type { LexicalCommand, LexicalState } from "@/components/workspace/lexical/editor-components/types";
 import { LexicalBubble } from "@/components/workspace/lexical/LexicalBubble";
 
 // SPIKE screen: test the Lexical rich-text editor (in an Expo DOM component)

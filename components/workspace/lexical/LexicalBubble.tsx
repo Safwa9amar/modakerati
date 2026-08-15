@@ -23,7 +23,7 @@ import {
 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { hSelection } from "@/lib/haptics";
-import type { LexicalState } from "./LexicalDomEditor";
+import type { LexicalState } from "./editor-components/types";
 import { visualRow } from "@/lib/rtl-layout";
 
 // Text-colour swatches (6-hex, no '#'), mirroring BlockContextBar's palette; the

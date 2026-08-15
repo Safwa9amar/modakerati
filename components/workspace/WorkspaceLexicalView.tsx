@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { View, Text, StyleSheet, AppState, ActivityIndicator, Dimensions, Keyboard, I18nManager } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useThemeColors } from "@/hooks/useThemeColors";
-import LexicalDomEditor, { type LexicalCommand, type LexicalState } from "@/components/workspace/lexical/LexicalDomEditor";
+import LexicalDomEditor from "@/components/workspace/lexical/LexicalDomEditor";
+import type { LexicalCommand, LexicalState } from "@/components/workspace/lexical/editor-components/types";
 // type-only — blockLexical is a web-only ('use dom') module; importing the type is
 // erased at compile time so no Lexical/DOM globals enter this native bundle.
 import type { ChromeData, ChromeKind } from "@/components/workspace/lexical/blockLexical";
