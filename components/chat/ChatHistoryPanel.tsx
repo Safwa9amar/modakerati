@@ -66,12 +66,15 @@ export function ChatHistoryPanel({
   thesisId,
   onClose,
   onPick,
+  onNew,
 }: {
   visible: boolean;
-  /** Used only to pre-attach a thread created with ＋. */
+  /** Used only to offer "about this thesis" as one reading of ＋. */
   thesisId: string | null;
   onClose: () => void;
   onPick: (threadId: string) => void;
+  /** ＋ — see the note on the panel body: this only announces the intent. */
+  onNew: (thesisId: string | null) => void;
 }) {
   return (
     <Modal
@@ -82,7 +85,7 @@ export function ChatHistoryPanel({
       statusBarTranslucent
     >
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <PanelBody visible={visible} thesisId={thesisId} onClose={onClose} onPick={onPick} />
+        <PanelBody visible={visible} thesisId={thesisId} onClose={onClose} onPick={onPick} onNew={onNew} />
       </SafeAreaProvider>
     </Modal>
   );
@@ -93,11 +96,13 @@ function PanelBody({
   thesisId,
   onClose,
   onPick,
+  onNew,
 }: {
   visible: boolean;
   thesisId: string | null;
   onClose: () => void;
   onPick: (threadId: string) => void;
+  onNew: (thesisId: string | null) => void;
 }) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -112,7 +117,6 @@ function PanelBody({
   const loading = useChatThreadsStore((s) => s.loading);
   const results = useChatThreadsStore((s) => s.results);
   const load = useChatThreadsStore((s) => s.load);
-  const newThread = useChatThreadsStore((s) => s.newThread);
   const rename = useChatThreadsStore((s) => s.rename);
   const setPinned = useChatThreadsStore((s) => s.setPinned);
   const setArchived = useChatThreadsStore((s) => s.setArchived);
@@ -122,7 +126,6 @@ function PanelBody({
   const theses = useThesisStore((s) => s.theses);
 
   const [queryInput, setQueryInput] = useState("");
-  const [creating, setCreating] = useState(false);
   const [menuThread, setMenuThread] = useState<ChatThread | null>(null);
   const [renameThread, setRenameThread] = useState<ChatThread | null>(null);
   const [renameText, setRenameText] = useState("");
@@ -222,20 +225,17 @@ function PanelBody({
     [onPick, onClose],
   );
 
-  const createThreadFor = useCallback(
-    async (attachTo: string | null) => {
-      if (creating) return;
-      setCreating(true);
-      try {
-        const id = await newThread(attachTo);
-        pick(id);
-      } catch {
-        Alert.alert(t("common.error"), t("thesis.genericError"));
-      } finally {
-        setCreating(false);
-      }
+  // ＋ deliberately creates NOTHING. It hands the chat screen an intent — "open
+  // a blank conversation, attached to this thesis or to none" — and that screen
+  // creates the real thread on the first message. Creating it here is what
+  // filled the panel with rows of "Untitled conversation": every tap of ＋,
+  // every change of mind, every back-out left a permanent empty thread behind.
+  const startNewThread = useCallback(
+    (attachTo: string | null) => {
+      onNew(attachTo);
+      onClose();
     },
-    [creating, newThread, pick, t]
+    [onNew, onClose]
   );
 
   // With no thesis in context there is only one thing ＋ can mean, so don't make
@@ -245,15 +245,15 @@ function PanelBody({
   const handleNewThread = useCallback(() => {
     const thesisTitle = thesisId ? theses.find((th) => th.id === thesisId)?.title : undefined;
     if (!thesisId || !thesisTitle) {
-      void createThreadFor(null);
+      startNewThread(null);
       return;
     }
     Alert.alert(t("chat.threads.new"), undefined, [
-      { text: t("chat.threads.newAboutThesis", { title: thesisTitle }), onPress: () => void createThreadFor(thesisId) },
-      { text: t("chat.threads.newPlain"), onPress: () => void createThreadFor(null) },
+      { text: t("chat.threads.newAboutThesis", { title: thesisTitle }), onPress: () => startNewThread(thesisId) },
+      { text: t("chat.threads.newPlain"), onPress: () => startNewThread(null) },
       { text: t("common.cancel"), style: "cancel" },
     ]);
-  }, [thesisId, theses, createThreadFor, t]);
+  }, [thesisId, theses, startNewThread, t]);
 
   const menuTitle = menuThread ? menuThread.title?.trim() || t("chat.threads.untitled") : "";
   const menuTitleDir = firstStrongDirection(menuTitle, ambientDir);
@@ -301,8 +301,7 @@ function PanelBody({
 
       <Pressable
         onPress={handleNewThread}
-        disabled={creating}
-        style={[styles.newRow, { flexDirection: rtl.flexDirection, opacity: creating ? 0.6 : 1 }]}
+        style={[styles.newRow, { flexDirection: rtl.flexDirection }]}
         accessibilityRole="button"
       >
         <View style={[styles.newIconBox, { backgroundColor: colors.brandPrimary + "1A" }]}>

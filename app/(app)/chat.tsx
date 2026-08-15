@@ -449,6 +449,18 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   // It owns its own list/search/loading state and only needs to know whether
   // it's open, so its own `visible` effect fetches the list — nothing to load here.
   const [historyOpen, setHistoryOpen] = useState(false);
+  // A ＋ that hasn't been typed into yet. The panel's ＋ creates nothing; it just
+  // leaves this behind, and the first message turns it into a real thread. A ref
+  // rather than state because nothing renders off it — and because
+  // createThreadForSend must read the value the tap wrote, not one a render
+  // hasn't flushed yet. `thesisId` is carried INSIDE it so the intent survives
+  // even if the state setter below hasn't landed.
+  //
+  // It also outranks ensureThreadFor at send time: the student asked for a NEW
+  // conversation about this thesis, and ensureThreadFor answers the opposite
+  // question ("the one it's already in"), which would silently drop them back
+  // into the thread they just chose to leave.
+  const pendingNewThreadRef = useRef<{ thesisId: string | null } | null>(null);
   // AI-generated quick-action chips from the recent conversation + RAG. Only the
   // visible instance fetches, and not while an ask sheet is open. No block
   // selection in plain chat, so it grounds on the conversation alone. Declared
@@ -566,6 +578,9 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
       isNearBottomRef.current = true;
       userHasScrolledRef.current = false;
       setShowScrollDown(false);
+      // Opening an existing conversation abandons an untyped ＋ — otherwise the
+      // next send would fork a new thread instead of continuing this one.
+      pendingNewThreadRef.current = null;
       // Same rule as the initial resolve: a conversation with prior messages is
       // worth waiting for, one just created with ＋ is not.
       setLoadingHistory(threadHasHistory(picked));
@@ -591,16 +606,52 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     [stopSpeaking]
   );
 
+  // ＋ from the history panel. Nothing is created here and nothing is created
+  // server-side: the screen simply empties out into a blank conversation the
+  // student can type into, and handleSend makes the thread real on the first
+  // message. That is the whole fix for the history filling up with untitled
+  // empty conversations — a ＋ they never used now costs nothing and leaves no
+  // trace. Scroll pins and read-aloud are reset exactly as on a thread switch.
+  const handleNewThread = useCallback(
+    (attachTo: string | null) => {
+      stopSpeaking();
+      isNearBottomRef.current = true;
+      userHasScrolledRef.current = false;
+      setShowScrollDown(false);
+      pendingNewThreadRef.current = { thesisId: attachTo };
+      setLoadingHistory(false); // nothing to fetch — a blank chat, not a resume
+      setThreadId(null);
+      setHistoryOpen(false);
+      setThesisId(attachTo);
+      // The selected thesis follows the conversation in both directions, same as
+      // handlePickThread — a blank chat about nothing must not leave the drawer
+      // and the Writer still claiming a document is open.
+      useThesisStore.getState().setCurrentThesis(attachTo);
+      // No thread is current until one exists. Leaving the previous id here would
+      // point every other surface (the pill, the dock) at a conversation this
+      // screen has already left.
+      useChatThreadsStore.getState().setCurrent(null);
+    },
+    [stopSpeaking]
+  );
+
   // Attach a thesis to this conversation. The server records WHEN, and tells the
   // model on the next turn that the earlier exchanges happened without document
   // access — so it can't describe them as though it had been reading along.
   const handleAttachThesis = useCallback(
     (picked: string) => {
-      if (!threadId) return;
       // Optimistic: the composer's doc affordances should appear on the tap, not
       // after a round-trip. A failure rolls it back rather than leaving the
       // student a chat that looks attached and behaves otherwise.
       setThesisId(picked);
+      if (!threadId) {
+        // A blank ＋ conversation — there is no row to PATCH yet. Record the
+        // choice on the pending intent so the thread the first message creates
+        // is born attached, rather than silently ignoring the pick (which is
+        // what a bare `if (!threadId) return` did once ＋ stopped creating).
+        if (pendingNewThreadRef.current) pendingNewThreadRef.current.thesisId = picked;
+        return;
+      }
       void patchThread(threadId, { thesisId: picked })
         .then((row) => useChatThreadsStore.getState().applyThread(row))
         .catch(() => {
@@ -862,10 +913,24 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   async function createThreadForSend(): Promise<{ id: string; thesisId: string | null } | null> {
     const store = useChatThreadsStore.getState();
     const adopt = (id: string, onThesis: string | null) => {
+      pendingNewThreadRef.current = null; // consumed — this send owns a real thread now
       setThreadId(id);
       store.setCurrent(id);
       return { id, thesisId: onThesis };
     };
+
+    // The student asked for a NEW conversation and is only now typing into it.
+    // Always create — ensureThreadFor would hand back the thread this thesis is
+    // ALREADY in, which is the one they just chose to leave. Kept on failure so
+    // a retry after the network comes back still opens the thread they wanted.
+    const pending = pendingNewThreadRef.current;
+    if (pending) {
+      try {
+        return adopt(await store.newThread(pending.thesisId), pending.thesisId);
+      } catch {
+        return null; // offline / server down — the caller says so
+      }
+    }
 
     if (thesisId) {
       try {
@@ -1367,6 +1432,7 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
         thesisId={thesisId}
         onClose={() => setHistoryOpen(false)}
         onPick={handlePickThread}
+        onNew={handleNewThread}
       />
 
       {/* Attach a thesis to an unattached conversation. Mounted only when there
