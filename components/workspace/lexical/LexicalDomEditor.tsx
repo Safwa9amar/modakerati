@@ -42,7 +42,6 @@ import { mergeRegister } from "@lexical/utils";
 import {
   $getRoot,
   $getNodeByKey,
-  $getNearestNodeFromDOMNode,
   $addUpdateTag,
   $getSelection,
   $setSelection,
@@ -70,10 +69,8 @@ import {
   type ElementNode,
   type LexicalNode,
   type TextFormatType,
-  type LexicalEditor,
   // Aliased: this file already declares its own local `LexicalCommand` (the
   // native command envelope type below) — the alias avoids shadowing it.
-  type LexicalCommand as LxCommand,
 } from "lexical";
 import {
   $blocksToLexical,
@@ -137,12 +134,9 @@ import {
   paginate,
   numberPages,
   sectionForBlock,
-  lineHeightPx,
   chromeDrawingFractions,
   duotoneStops,
-  PX_PER_PT,
   type AnchorSectionGeometry,
-  type BlockFmt,
 } from "@/lib/page-layout";
 import type { DocBlockDTO } from "@/lib/api";
 // type-only — WorkspaceLexicalView is the native ('use dom' host) module; importing
@@ -153,12 +147,21 @@ import type { PageSetup } from "../WorkspaceLexicalView";
 // exactly ONE export and it must be the default. Every contract, helper, plugin
 // and stylesheet therefore lives beside it in editor-components/ (plain web-bundle
 // modules, free to export as they like). Gate: node scripts/verify-use-dom.mjs.
+import {
+  $anyNodeAtBlockIndex,
+  $blockIndexOfNode,
+  $nodeAtBlockIndex,
+  $rootChildBlockIndex,
+} from "./editor-components/block-index";
+import { applyBlockFormat, rebuildOriginal } from "./editor-components/block-format";
 import { INSERT_BLOCK_COMMAND } from "./editor-components/commands";
+import { lxQuietCommand, lxQuietUpdate, withScrollPinned } from "./editor-components/lexical-updates";
+import { measureBlockHeights, measureCacheClear } from "./editor-components/measure";
+import { lxGetRoot, lxMeasureAnchor } from "./editor-components/scroll-anchor";
 import { seed } from "./editor-components/seed";
 import { CSS } from "./editor-components/styles";
 import { theme } from "./editor-components/theme";
 import type {
-  BlockFmtChange,
   InsertBlockPayload,
   LexicalCommand,
   LexicalState,
@@ -176,121 +179,6 @@ const DRIVING_MS = 700;
 // The events that mean a finger or a key is on the editor itself. Captured, so a
 // plugin that stops propagation can't hide the interaction from us.
 const DRIVING_EVENTS = ["pointerdown", "touchstart", "mousedown", "keydown", "beforeinput"] as const;
-
-/**
- * Measure each block's rendered height at TRUE page geometry.
- *
- * Renders one block at a time into an offscreen host whose width is the real
- * text column (≈601.7px for A4 at 1"), so the heights returned are the heights
- * Word would produce — not the heights of the readable-size visible editor.
- *
- * Heights are cached under a content hash, so a keystroke re-measures exactly
- * one block. Never call this per keystroke regardless: the caller debounces.
- *
- * NOT exported, and it never can be: babel-preset-expo's use-dom-directive
- * plugin throws "Modules with the 'use dom' directive only support a single
- * default export" for any non-TYPE named export. tsc cannot see that — it is a
- * bundle-time failure that takes the whole editor screen down with it.
- */
-const measureCache = new Map<string, { h: number; before: number }>();
-
-// Module-private helper beside the cache, called from PaginationPlugin's
-// font-readiness effect — a measurement taken before Liberation Serif loads
-// is poisoned (it measured the fallback serif's metrics, not Word's).
-function measureCacheClear(): void {
-  measureCache.clear();
-}
-
-function blockMeasureKey(el: HTMLElement, columnPx: number): string {
-  return `${Math.round(columnPx)}|${el.className}|${el.innerHTML}`;
-}
-
-// Height of ONE line at `normal` leading in the measuring font — the base the
-// `auto` multiplier scales (Word's 1.5x means 1.5x the font's own leading,
-// which for Liberation Serif is Times New Roman's). Cached per (sizePt, rtl).
-// Measured inside the SAME offscreen host used for block measurement (not
-// document.body) so it shares the same width/dir context.
-const singleLineCache = new Map<string, number>();
-function singleLinePx(host: HTMLElement, sizePt: number, rtl: boolean): number {
-  const key = `${sizePt}|${rtl ? "r" : "l"}`;
-  const hit = singleLineCache.get(key);
-  if (hit !== undefined) return hit;
-  const probe = document.createElement("div");
-  probe.style.cssText = `font-size:${sizePt * PX_PER_PT}px;line-height:normal;`;
-  // Same tofu-safe rule as the rest of the app: Arabic NEVER gets a
-  // concrete-first font stack (per-char glyph paths break on RNSVG/WebView
-  // for some concrete serif fallback chains) — a generic sans is the only
-  // stack verified safe on-device for Arabic text.
-  probe.style.fontFamily = rtl ? "sans-serif" : '"Liberation Serif", Georgia, serif';
-  probe.textContent = rtl ? "نص" : "Hg";
-  host.appendChild(probe);
-  const h = probe.getBoundingClientRect().height;
-  probe.remove();
-  singleLineCache.set(key, h);
-  return h;
-}
-
-function measureBlockHeights(
-  sources: HTMLElement[],
-  columnPx: number,
-  rtl: boolean,
-  fmts?: (BlockFmt | null)[],
-): { h: number; before: number }[] {
-  let host = document.querySelector<HTMLDivElement>(".lx-measure");
-  if (!host) {
-    host = document.createElement("div");
-    host.className = "lx-measure";
-    document.body.appendChild(host);
-  }
-  host.style.width = `${columnPx}px`;
-  // Arabic line-breaking differs from Latin, so the host must measure in the
-  // DOCUMENT's direction — which is content-driven here, never locale-driven.
-  host.dir = rtl ? "rtl" : "ltr";
-
-  return sources.map((src, i) => {
-    const fmt = fmts?.[i] ?? null;
-    const key = `${rtl ? "r" : "l"}|${fmt ? JSON.stringify(fmt) : "-"}|${blockMeasureKey(src, columnPx)}`;
-    const hit = measureCache.get(key);
-    if (hit !== undefined) return hit;
-
-    const clone = src.cloneNode(true) as HTMLElement;
-    host.innerHTML = "";
-    host.appendChild(clone);
-
-    let result: { h: number; before: number };
-    if (fmt) {
-      // Measure at the DOCUMENT's typography, not the editor's reading style:
-      // Liberation Serif (Times New Roman's metric twin) for LTR, the same
-      // tofu-safe generic sans for RTL — never a concrete-first stack on
-      // Arabic. Margins are zeroed because before/after now come from the
-      // DTO, not getComputedStyle.
-      clone.style.fontFamily = rtl ? "sans-serif" : '"Liberation Serif", Georgia, serif';
-      clone.style.fontSize = `${fmt.sizePt * PX_PER_PT}px`;
-      clone.style.lineHeight = `${lineHeightPx(fmt, singleLinePx(host, fmt.sizePt, rtl))}px`;
-      clone.style.marginTop = "0";
-      clone.style.marginBottom = "0";
-      const h = clone.getBoundingClientRect().height + fmt.afterPt * PX_PER_PT;
-      result = { h, before: fmt.beforePt * PX_PER_PT };
-    } else {
-      // No fmt (tables, images, old caches): today's path — heights come
-      // from the clone's own computed margins, not the DTO. `h` still
-      // excludes the space-before component (marginTop), same contract as
-      // the fmt branch above and as `paginate()` requires of `heights[]` —
-      // it now travels separately as `before` so a natural-page-top break
-      // can still shed it (F3) without double-counting it mid-page.
-      const cs = window.getComputedStyle(clone);
-      const marginTop = parseFloat(cs.marginTop || "0");
-      const h = clone.getBoundingClientRect().height + parseFloat(cs.marginBottom || "0");
-      result = { h, before: marginTop };
-    }
-    host.innerHTML = "";
-
-    // Bound the cache so a long editing session cannot grow it without limit.
-    if (measureCache.size > 4000) measureCache.clear();
-    measureCache.set(key, result);
-    return result;
-  });
-}
 
 // Bridge between the native props and the Lexical editor instance: apply an
 // incoming command, and report the active formats out on every update.
@@ -745,183 +633,6 @@ function EditorBridge({
   return null;
 }
 
-// Every mutation the APP drives — a pill tap, the in-editor bubble, a plugin
-// rewrite, a preview swap, a completion ghost — goes through here rather than
-// calling editor.update directly.
-//
-// Lexical's reconciler ends each update by scrolling the collapsed caret into view
-// (LexicalSelection: `!tags.has(SKIP_SCROLL_INTO_VIEW_TAG) && isCollapsed &&
-// rootElement === activeElement`). That is a browser-shaped default this editor
-// must not have: nothing should move this WebView except our own deliberate
-// triggers — scrollToIndex, scrollToChrome, ScrollSyncPlugin's restore, and
-// withScrollPinned's pin. A student who taps Bold, or whose autocomplete ghost
-// lands, did not ask the page to move.
-//
-// The student's own TYPING is deliberately left alone: Lexical's input path keeps
-// the line being written above the on-screen keyboard (the visualViewport branch
-// in scrollIntoViewIfNeeded). That is the one autoscroll a writing app wants, and
-// silencing it would let the caret slide under the keyboard.
-//
-// `alsoSkipSelection` additionally suppresses the whole DOM-selection reconcile —
-// stronger, and needed where the update must not touch focus either (it re-focuses
-// the root, which pops the keyboard on iOS).
-function lxQuietUpdate(editor: LexicalEditor, mutator: () => void, alsoSkipSelection = false): void {
-  editor.update(mutator, {
-    tag: alsoSkipSelection ? [SKIP_SCROLL_INTO_VIEW_TAG, SKIP_DOM_SELECTION_TAG] : SKIP_SCROLL_INTO_VIEW_TAG,
-  });
-}
-
-// Dispatch a built-in Lexical command without its autoscroll. `dispatchCommand`
-// takes no update options, but a command dispatched from INSIDE an active update
-// is processed within it — so the tag added here covers the listener's own work.
-function lxQuietCommand<P>(editor: LexicalEditor, command: LxCommand<P>, payload: P): void {
-  editor.update(() => {
-    $addUpdateTag(SKIP_SCROLL_INTO_VIEW_TAG);
-    editor.dispatchCommand(command, payload);
-  });
-}
-
-// Is a finger on the screen right now? Registered once, passively, so asking is
-// free on the hot path. A scroll pin must never run against a live drag.
-let lxTouching = false;
-// Cancels the pin currently re-applying across frames, so a burst of structural
-// updates supersedes rather than stacks.
-let lxPinCancel: (() => void) | null = null;
-if (typeof window !== "undefined") {
-  const down = () => { lxTouching = true; };
-  const up = () => { lxTouching = false; };
-  window.addEventListener("touchstart", down, { passive: true, capture: true });
-  window.addEventListener("touchend", up, { passive: true, capture: true });
-  window.addEventListener("touchcancel", up, { passive: true, capture: true });
-}
-
-// Run a Lexical mutation without letting the WebView jump: capture the page scroll
-// before the update and pin it back after the DOM reconciles. A node replace (a
-// suggestion appearing) or a full reseed (approve → doc rebuild) otherwise scrolls
-// the moved caret / rebuilt content into view — the reported "editor scrolls away
-// when I hit Improve, and jumps to the bottom on Approve".
-function withScrollPinned(editor: LexicalEditor, mutator: () => void, _blurAfter = false) {
-  // The REAL fix (per Lexical docs): tag the update SKIP_DOM_SELECTION_TAG so the
-  // reconciler skips the ENTIRE DOM-selection update — which is what re-focuses the
-  // root (popping the keyboard → iOS scroll) AND scrolls the selection into view.
-  // SKIP_SCROLL_INTO_VIEW_TAG alone wasn't enough: it stopped the scroll but the
-  // re-focus still fired and iOS scrolled the focused editable into view. A light
-  // 2-frame scroll restore stays as a backstop for plain reflow.
-  //
-  // That backstop used to be a raw `window.scrollY` → `window.scrollTo` round-trip,
-  // which pinned NOTHING: both halves are unreliable inside this WebView (the same
-  // reason ScrollSyncPlugin below was rewritten to stop using them). So whenever the
-  // tag alone didn't hold — a full reseed rebuilds every node and there is no
-  // selection left to skip — the student was dropped at the top of the document.
-  // Anchor to a BLOCK instead, measured off getBoundingClientRect and put back with
-  // scrollIntoView + scrollBy. It has to be the block INDEX and not a node key: a
-  // reseed replaces every node, so the key captured beforehand resolves to nothing.
-  // THE FINGER OUTRANKS THE PIN. Re-applying an anchor while the student is
-  // scrolling is not a pin, it is a fight — and it looks like the editor shaking.
-  // A touch in progress skips the pin entirely; a touch that ARRIVES mid-pin calls
-  // off the remaining frames.
-  if (lxTouching) {
-    editor.update(mutator, { tag: SKIP_DOM_SELECTION_TAG });
-    return;
-  }
-  const anchor = lxMeasureAnchor(editor);
-  lxPinCancel?.(); // supersede an in-flight pin rather than stacking restores
-  let cancelled = false;
-  let raf1 = 0, raf2 = 0;
-  const stop = () => {
-    if (cancelled) return;
-    cancelled = true;
-    cancelAnimationFrame(raf1);
-    cancelAnimationFrame(raf2);
-    if (typeof window !== "undefined") window.removeEventListener("touchstart", stop, true);
-    if (lxPinCancel === stop) lxPinCancel = null;
-  };
-  lxPinCancel = stop;
-  if (typeof window !== "undefined") window.addEventListener("touchstart", stop, { passive: true, capture: true });
-  const restore = () => { if (!cancelled) lxApplyAnchor(editor, anchor); };
-  editor.update(mutator, {
-    tag: SKIP_DOM_SELECTION_TAG,
-    // Three passes over two frames: the DOM has reconciled by onUpdate, but a reseed
-    // of a long document is still growing its layout, and scrollIntoView can only
-    // land against the height that exists when it runs.
-    onUpdate: () => {
-      restore();
-      raf1 = requestAnimationFrame(() => {
-        restore();
-        raf2 = requestAnimationFrame(() => { restore(); stop(); });
-      });
-    },
-  });
-}
-
-function lxGetRoot(editor: LexicalEditor): HTMLElement | null {
-  // .lx-content — its children are the top-level block elements.
-  return editor.getRootElement() ?? (typeof document !== "undefined" ? (document.querySelector(".lx-content") as HTMLElement | null) : null);
-}
-
-// Binary-search the first top-level block whose bottom is below the viewport top
-// (blocks stack top→bottom, so `bottom > 0` is monotonic). getBoundingClientRect is
-// viewport-relative, so it reflects the REAL scroll even where window.scrollY is
-// unreliable inside a WebView.
-function lxFirstVisible(kids: HTMLCollection): number {
-  let lo = 0, hi = kids.length - 1, ans = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (kids[mid].getBoundingClientRect().bottom > 0) { ans = mid; hi = mid - 1; }
-    else lo = mid + 1;
-  }
-  return ans;
-}
-
-// Read the current reading position as a block anchor. Shared by the scroll-sync
-// reporter (which hands it to native to keep across a re-entry) and by
-// withScrollPinned (which hands it straight back after a mutation).
-//
-// The index is a BLOCK index — display-only nodes skipped, lists expanded — and not
-// the raw DOM child index, because chrome bands and page boundaries are top-level
-// root children that the block model excludes; a raw index would be off by their
-// count for every block below the first one. `y` is kept only as the last-resort
-// fallback for when no block can be resolved.
-function lxMeasureAnchor(editor: LexicalEditor): ScrollAnchor {
-  const y = typeof window !== "undefined" ? window.scrollY : 0;
-  const kids = lxGetRoot(editor)?.children;
-  if (!kids || !kids.length) return { y, index: -1, delta: 0 };
-  const i = lxFirstVisible(kids);
-  if (i < 0) return { y, index: -1, delta: 0 };
-  const el = kids[i] as HTMLElement;
-  const r = el.getBoundingClientRect();
-  let index = -1;
-  // editor.read (NOT getEditorState().read): $getNearestNodeFromDOMNode maps a DOM
-  // node → Lexical node via the editor's key↔DOM map, so it needs the active EDITOR
-  // bound, not just the active state (getEditorState().read binds only the state →
-  // getActiveEditor() throws "no active editor").
-  editor.read(() => {
-    let node = $getNearestNodeFromDOMNode(el);
-    // The first-visible element can be a band; anchor to the block it precedes.
-    while (node && $isDisplayOnlyNode(node)) node = node.getNextSibling();
-    if (node) index = $blockIndexOfNode(node);
-  });
-  return { y, index, delta: Math.max(0, Math.round(-r.top)) };
-}
-
-// Put a measured anchor back. scrollIntoView + scrollBy is the ONE pair proven to
-// move this WebView; window.scrollTo appears only as the fallback for when the
-// block can't be resolved, where there is nothing better to try.
-function lxApplyAnchor(editor: LexicalEditor, a: ScrollAnchor): void {
-  if (typeof window === "undefined") return;
-  let key: string | null = null;
-  if (a.index >= 0) {
-    editor.getEditorState().read(() => {
-      const node = $anyNodeAtBlockIndex(a.index);
-      key = node ? node.getKey() : null;
-    });
-  }
-  const el = key ? editor.getElementByKey(key) : null;
-  if (!el) { window.scrollTo(0, a.y); return; }
-  el.scrollIntoView({ block: "start" });
-  if (a.delta > 0) window.scrollBy(0, a.delta);
-}
-
 // Persist + restore the reading position so the user re-enters the document where
 // they left off. The Writer is destroyed on a workspace-leave (back), re-keyed on a
 // Preview round-trip, and — inside a native-stack — its WebView can reset to the top
@@ -1066,136 +777,6 @@ function ScrollSyncPlugin({
   }, [restore?.nonce]);
 
   return null;
-}
-
-// ── Block-model ⇄ Lexical index mapping ──────────────────────────────────────
-// A Lexical LIST groups N item-paragraphs into ONE root child, but the block model
-// (and $lexicalToBlocks) keeps them SEPARATE — so a node's block-model index ≠ its
-// Lexical root position once a list exists. The native tools target block-model
-// indices, so map them to the real node (a paragraph/heading, or a list item).
-function listItemsOf(list: ListNode): ListItemNode[] {
-  return list.getChildren().filter($isListItemNode) as ListItemNode[];
-}
-function $nodeAtBlockIndex(idx: number): ElementNode | null {
-  let acc = 0;
-  for (const child of $getRoot().getChildren()) {
-    if ($isDisplayOnlyNode(child)) continue; // chrome band / page boundary — not a block
-    if ($isListNode(child)) {
-      const items = listItemsOf(child);
-      if (idx < acc + items.length) return items[idx - acc];
-      acc += items.length;
-    } else {
-      if (idx === acc) return $isHeadingNode(child) || $isParagraphNode(child) ? (child as ElementNode) : null;
-      acc += 1;
-    }
-  }
-  return null;
-}
-// Like $nodeAtBlockIndex, but returns the node at `idx` REGARDLESS of kind —
-// including a structural BlockDataNode (table/image/other), which $nodeAtBlockIndex
-// deliberately skips (it only yields editable heading/paragraph/list-item nodes).
-// Used for scroll-into-view, where we just need the element to scroll to, so
-// navigating to a table or figure from the outline drawer works too.
-function $anyNodeAtBlockIndex(idx: number): LexicalNode | null {
-  let acc = 0;
-  for (const child of $getRoot().getChildren()) {
-    if ($isDisplayOnlyNode(child)) continue; // chrome band / page boundary — not a block
-    if ($isListNode(child)) {
-      const items = listItemsOf(child);
-      if (idx < acc + items.length) return items[idx - acc];
-      acc += items.length;
-    } else {
-      if (idx === acc) return child;
-      acc += 1;
-    }
-  }
-  return null;
-}
-// Block-model index (lists expanded) of a DIRECT root child — e.g. a structural
-// BlockDataNode (table/image/other) that a NodeSelection targets.
-function $rootChildBlockIndex(node: LexicalNode): number {
-  let acc = 0;
-  for (const child of $getRoot().getChildren()) {
-    if ($isDisplayOnlyNode(child)) continue; // chrome band / page boundary — not a block
-    if (child === node) return acc;
-    acc += $isListNode(child) ? listItemsOf(child).length : 1;
-  }
-  return -1;
-}
-
-// Block-model index (lists expanded) of the block CONTAINING a node — its list
-// item if it sits inside a list, else its top-level element. -1 if detached.
-function $blockIndexOfNode(node: LexicalNode): number {
-  const top = node.getKey() === "root" ? null : node.getTopLevelElement();
-  if (!top) return -1;
-  let item: LexicalNode | null = node;
-  while (item && !$isListItemNode(item)) item = item.getParent();
-  let acc = 0;
-  for (const child of $getRoot().getChildren()) {
-    if ($isDisplayOnlyNode(child)) continue; // chrome band / page boundary — not a block
-    if (child === top) {
-      if ($isListNode(top) && $isListItemNode(item)) acc += listItemsOf(top).indexOf(item);
-      return acc;
-    }
-    acc += $isListNode(child) ? listItemsOf(child).length : 1;
-  }
-  return -1;
-}
-
-function applyBlockFormat(json: string | undefined) {
-  let payload: { indices?: number[]; changes?: BlockFmtChange };
-  try { payload = JSON.parse(json || "{}"); } catch { return; }
-  const indices = payload.indices || [];
-  const ch = payload.changes || {};
-  for (const idx of indices) {
-    const base = $nodeAtBlockIndex(idx);
-    // Target paragraphs, headings, AND list items (align/direction/marks all apply
-    // to a list item; only the heading swap is paragraph/heading-only).
-    if (!base || !($isHeadingNode(base) || $isParagraphNode(base) || $isListItemNode(base))) continue;
-    let node: ElementNode = base;
-    // level → paragraph⇄heading swap, preserving children + element format/dir
-    if (ch.level !== undefined && !$isListItemNode(node)) {
-      const wantHead = ch.level >= 1;
-      const tag = ("h" + Math.min(ch.level, 6)) as HeadingTagType;
-      const isHead = $isHeadingNode(node);
-      if (wantHead !== isHead || ($isHeadingNode(node) && node.getTag() !== tag)) {
-        const el: ElementNode = wantHead ? $createHeadingNode(tag) : $createParagraphNode();
-        el.setFormat(node.getFormatType());
-        const d = node.getDirection(); if (d) el.setDirection(d);
-        el.append(...node.getChildren());
-        node.replace(el);
-        node = el;
-      }
-    }
-    if (ch.alignment !== undefined) node.setFormat(ch.alignment as ElementFormatType);
-    if (ch.direction !== undefined) node.setDirection(ch.direction);
-    // inline marks on every text child (whole-block, matching patchRuns)
-    for (const child of node.getChildren()) {
-      if (!$isTextNode(child)) continue;
-      (["bold", "italic", "underline"] as const).forEach((f) => {
-        if (ch[f] !== undefined && child.hasFormat(f) !== ch[f]) child.toggleFormat(f);
-      });
-      if (ch.color !== undefined) child.setStyle(ch.color == null ? "" : `color: #${String(ch.color).replace(/^#/, "")}`);
-      if (ch.clearFormatting) {
-        (["bold", "italic", "underline"] as const).forEach((f) => { if (child.hasFormat(f)) child.toggleFormat(f); });
-        child.setStyle("");
-      }
-    }
-  }
-}
-
-// Rebuild the original block node from a suggestion's captured type/text — used to
-// restore it when a proposal is rejected (approve routes through the sync layer,
-// which reseeds the whole doc from server truth anyway).
-function rebuildOriginal(text: string, origType: string) {
-  const el =
-    origType === "h1" || origType === "h2" || origType === "h3"
-      ? $createHeadingNode(origType as HeadingTagType)
-      : origType === "quote"
-        ? $createQuoteNode()
-        : $createParagraphNode();
-  if (text) el.append($createTextNode(text));
-  return el;
 }
 
 // Renders a pending AI proposal IN PLACE OF its block (matching the native
@@ -2696,7 +2277,6 @@ function PaginationPlugin({ setup }: { setup?: PageSetup | null }): null {
       (document as Document & { fonts: FontFaceSet }).fonts.ready.then(() => {
         if (cancelled) return;
         measureCacheClear();
-        singleLineCache.clear();
         schedule();
       });
     }
