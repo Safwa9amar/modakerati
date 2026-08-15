@@ -1,9 +1,0 @@
-{
-  "platforms": ["android", "apple"],
-  "apple": {
-    "modules": ["ModakeratiBubbleModule"]
-  },
-  "android": {
-    "modules": ["expo.modules.modakeratibubble.ModakeratiBubbleModule"]
-  }
-}
