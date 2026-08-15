@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RunningBanner } from "@/components/tasks/RunningBanner";
+import { ProposalStepper } from "@/components/workspace/ProposalStepper";
 import { useTasksStore } from "@/stores/tasks-store";
 import {
   View,
@@ -178,6 +179,13 @@ export default function ThesisWorkspaceScreen() {
   // Check once on mount, then poll ONLY while one is live — and refetch the
   // document the moment one finishes, so they see the result without pulling.
   const liveRunId = useTasksStore((s) => s.liveRunId);
+
+  // Bring any waiting proposals onto the page when the Writer opens, and again
+  // whenever a run finishes — that is exactly when new ones appear.
+  useEffect(() => {
+    if (!thesisId) return;
+    void useTasksStore.getState().hydrateProposals(thesisId);
+  }, [thesisId, liveRunId]);
   useEffect(() => {
     if (!thesisId) return;
     let cancelled = false;
@@ -873,6 +881,16 @@ export default function ThesisWorkspaceScreen() {
       {historyOpen && thesisId && (
         <HistorySheet thesisId={thesisId} onClose={() => setHistoryOpen(false)} />
       )}
+
+      {/* Counts the scheduled run's proposals down and jumps to the next.
+          Renders nothing when there are none. */}
+      <ProposalStepper
+        onJump={(index) => {
+          const doc = useThesisDocStore.getState().byId[thesisId];
+          const text = doc && doc.available ? (doc.blocks[index] as { text?: string })?.text ?? "" : "";
+          useWorkspaceStore.getState().selectBlock(index, text);
+        }}
+      />
     </SafeAreaView>
   );
 }
