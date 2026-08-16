@@ -21,7 +21,10 @@ import { userFacingError } from "@/lib/safe-error";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 
+// The dark cut's "will" is white and vanishes on a light ground; the light cut
+// is the same art with those glyphs recoloured to the light ink. See AppDrawer.
 const WORDMARK = require("../../assets/wordmark.png");
+const WORDMARK_LIGHT = require("../../assets/wordmark-light.png");
 
 export default function LoginScreen() {
   const colors = useThemeColors();
@@ -102,20 +105,14 @@ export default function LoginScreen() {
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
               {t("auth.welcomeTo")}
             </Text>
-            {/* The wordmark is emissive art — its "will" is white with a glow, so
-                it only reads on the dark ground. The light theme keeps the type. */}
-            {theme === "dark" ? (
-              <Image
-                source={WORDMARK}
-                style={styles.wordmark}
-                resizeMode="contain"
-                accessibilityLabel={t("auth.appName")}
-              />
-            ) : (
-              <Text style={[styles.title, { color: colors.textPrimary }]}>
-                {t("auth.appName")}
-              </Text>
-            )}
+            {/* The mark, under either theme — each ground gets the cut of the art
+                that reads on it. */}
+            <Image
+              source={theme === "dark" ? WORDMARK : WORDMARK_LIGHT}
+              style={styles.wordmark}
+              resizeMode="contain"
+              accessibilityLabel={t("auth.appName")}
+            />
             <Text style={[styles.tagline, { color: colors.textSecondary }]}>
               {t("auth.signInSubtitle")}
             </Text>
@@ -241,11 +238,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Inter_400Regular",
     marginBottom: 10,
-  },
-  title: {
-    fontSize: 32,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 6,
   },
   // The art carries its own glow padding, so it sits on negative margins to keep
   // the optical spacing the type had.

@@ -45,7 +45,13 @@ import { AvatarPicker } from "@/components/AvatarPicker";
 import { ThesisOutlinePanel } from "@/components/workspace/ThesisOutlinePanel";
 import { listTheses } from "@/lib/api";
 
+// Two cuts of the same art. The original's "will" is white — it disappears on
+// the light theme, which is why the drawer used to fall back to plain type there
+// and the logo looked broken on any phone not in dark mode. The light cut is the
+// same file with the white glyphs recoloured to the light theme's ink; the K
+// keeps its orange in both, so the brand is one mark under either theme.
 const WORDMARK = require("../assets/wordmark.png");
+const WORDMARK_LIGHT = require("../assets/wordmark-light.png");
 
 // -----------------------------------------------------------------------------
 // The app's single index. Every page in Kwill is a row in here — there is no
@@ -414,26 +420,17 @@ function AppIndex() {
           </View>
         ) : (
           <>
-            {/* The logo, not the word. Same rule as the login screen: the art is
-                emissive and sits on its own black ground, so it only reads on the
-                dark theme — the light theme keeps the type. The spacer after it
-                does the job the old `flex: 1` on the Text did, pushing search to
-                the far end without stretching a fixed-size image. */}
-            {theme === "dark" ? (
-              <>
-                <Image
-                  source={WORDMARK}
-                  style={styles.wordmark}
-                  resizeMode="contain"
-                  accessibilityLabel={t("auth.appName")}
-                />
-                <View style={styles.brandSpacer} />
-              </>
-            ) : (
-              <Text style={[styles.brand, { color: colors.textPrimary, textAlign: rtl.textAlign }]} numberOfLines={1}>
-                {t("auth.appName")}
-              </Text>
-            )}
+            {/* The logo, not the word — in both themes now, each with the cut of
+                the art that reads on its ground. The spacer after it does the job
+                the old `flex: 1` on the Text did, pushing search to the far end
+                without stretching a fixed-size image. */}
+            <Image
+              source={theme === "dark" ? WORDMARK : WORDMARK_LIGHT}
+              style={styles.wordmark}
+              resizeMode="contain"
+              accessibilityLabel={t("auth.appName")}
+            />
+            <View style={styles.brandSpacer} />
             <Pressable
               onPress={() => setSearching(true)}
               hitSlop={10}
@@ -751,7 +748,6 @@ const styles = StyleSheet.create({
   hidden: { display: "none" },
   panel: { flex: 1 },
   head: { alignItems: "center", gap: 8, paddingHorizontal: COLUMN, paddingBottom: 8, minHeight: 40 },
-  brand: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold" },
   // The art's own 1.5 aspect, so `contain` letterboxes nothing, sized so the
   // glyphs (which fill ~73% of the height) land a little larger than the 18pt
   // type they replace. It carries its own glow padding, hence the negative
