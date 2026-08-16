@@ -215,6 +215,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   finishRecovery: () => set({ recoveryMode: false }),
   abandonRecovery: async () => {
+    // ⚠️ NOT WHILE A LINK IS STILL BEING SPENT. The login screen calls this on
+    // mount, and on a cold start the route guard puts the student ON login for a
+    // beat before the exchange finishes — so this fired mid-flow, signed them
+    // out, and left them staring at the login form with the reset never applied.
+    // `linkSignIn` is raised before recoveryMode is, so it closes that window
+    // completely; the deep-link handler owns the outcome until it clears.
+    if (get().linkSignIn) return;
     if (!get().recoveryMode) return;
     set({ recoveryMode: false });
     // If the code was already verified there is a live session on an account
