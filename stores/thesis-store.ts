@@ -14,6 +14,15 @@ interface ThesisState {
   getCurrentThesis: () => Thesis | null;
 
   refreshThesis: (id: string) => Promise<void>;
+  /**
+   * Re-fetch the whole list from the server. The list is otherwise loaded once,
+   * at sign-in, so anything created since — the assistant's own create_thesis,
+   * another device — is missing everywhere it is read from: the drawer, the
+   * picker sheet, the chat header's title. Best-effort, like refreshThesis: a
+   * failed refresh keeps the last good list rather than blanking it out.
+   * Returns the list now in the store.
+   */
+  refreshTheses: () => Promise<Thesis[]>;
 
   loadTemplates: () => Promise<void>;
   loadNormProfiles: () => Promise<void>;
@@ -48,6 +57,18 @@ export const useThesisStore = create<ThesisState>()((set, get) => ({
       get().upsertThesis(full);
     } catch (e) {
       console.warn("refreshThesis failed", e);
+    }
+  },
+
+  refreshTheses: async () => {
+    try {
+      const { listTheses } = await import("@/lib/api");
+      const rows = await listTheses();
+      set({ theses: rows });
+      return rows;
+    } catch (e) {
+      console.warn("refreshTheses failed", e);
+      return get().theses;
     }
   },
 

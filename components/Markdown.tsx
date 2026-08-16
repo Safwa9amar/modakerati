@@ -9,6 +9,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { useMarkdown, Renderer, type useMarkdownHookOptions } from "react-native-marked";
 import { ChartSvg } from "@/components/ChartSvg";
 import { useThemeColors } from "@/hooks/useThemeColors";
@@ -494,7 +495,10 @@ function closeOpenFence(text: string): string {
  * unfinished tail after it is plain text that grows with every single token. The
  * reader sees continuous typing, with blocks snapping into shape behind it.
  */
-function useStreamedContent(content: string, streaming?: boolean): { body: string; tail: string } {
+function useStreamedContent(
+  content: string,
+  streaming?: boolean,
+): { body: string; pending: string; tail: string; lineKey: number } {
   const [settled, setSettled] = useState("");
   const lastAt = useRef(0);
 
@@ -520,11 +524,30 @@ function useStreamedContent(content: string, streaming?: boolean): { body: strin
     return () => clearTimeout(id);
   }, [content, streaming, settled]);
 
-  if (!streaming) return { body: content, tail: "" };
+  if (!streaming) return { body: content, pending: "", tail: "", lineKey: 0 };
   const safe = content.startsWith(settled) ? settled : "";
   // Leading blank lines of the tail are block separators the settled half already
   // accounted for — kept, they'd open a gap that closes again a moment later.
-  return { body: closeOpenFence(safe), tail: content.slice(safe.length).replace(/^\n+/, "") };
+  const rest = content.slice(safe.length).replace(/^\n+/, "");
+  // Split the unformatted remainder at its last newline. What comes before is
+  // FINISHED lines still waiting their turn to be parsed; what comes after is the
+  // line being typed right now.
+  //
+  // The split exists for the fade. Only the leading edge may animate: the
+  // finished lines are already on screen at full opacity, and fading them again
+  // (which is what animating the whole remainder — or the settled blocks — would
+  // do) reads as the answer flickering, not as it arriving.
+  const cut = rest.lastIndexOf("\n");
+  return {
+    body: closeOpenFence(safe),
+    pending: cut === -1 ? "" : rest.slice(0, cut + 1),
+    tail: cut === -1 ? rest : rest.slice(cut + 1),
+    // Where the current line starts in the whole answer. It changes exactly once
+    // per completed line, and — crucially — a settle only moves text from `rest`
+    // into `body` without touching it, so formatting a block never restarts the
+    // fade. This is the identity the leading edge is keyed on.
+    lineKey: content.lastIndexOf("\n") + 1,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -558,7 +581,7 @@ export function Markdown({
 }) {
   const colors = useThemeColors();
   const textColor = color ?? colors.textPrimary;
-  const { body, tail } = useStreamedContent(content, streaming);
+  const { body, pending, tail, lineKey } = useStreamedContent(content, streaming);
   // Direction follows the message's own language, not the app locale, so an
   // Arabic answer stays RTL in an English UI and vice versa.
   const dir = direction ?? getTextDirection(content);
@@ -628,29 +651,59 @@ export function Markdown({
 
   const elements = useMarkdown(body, options);
 
+  // Shared by both runs of the unformatted remainder so they set as one block.
+  const tailStyle: TextStyle = { fontSize: fs, fontFamily: "Inter_400Regular", lineHeight: lh, color: textColor };
+  // Read once for the whole remainder rather than per run: the line being typed
+  // can open with punctuation or a digit, and deciding its direction from that
+  // alone would swing it away from the direction the lines above it settled on.
+  const restDir = firstStrongDirection(pending + tail, dir);
+
   return (
     <View>
       {elements.map((el, i) => (
         <Fragment key={i}>{el}</Fragment>
       ))}
-      {/* The line still being typed: raw text, repainted on every token, so the
-          answer visibly streams while the settled blocks above it are formatted. */}
-      {tail ? (
-        <Text
-          selectable
-          style={[
-            { fontSize: fs, fontFamily: "Inter_400Regular", lineHeight: lh, color: textColor, marginVertical: 5 },
-            dirStyle(firstStrongDirection(tail, dir)),
-          ]}
-        >
-          {tail}
-        </Text>
+      {/* The part of the answer that has arrived but isn't formatted yet: raw
+          text, repainted on every token, so the answer visibly streams while the
+          settled blocks above it are parsed.
+
+          Two runs inside ONE wrapper, and the wrapper owns the margin. Given
+          their own vertical margins they would open a gap between the last
+          finished line and the one being typed — a gap that closes again the
+          moment the pair is parsed into a single paragraph. Stacked bare inside
+          the wrapper they read as consecutive lines of one block, which is what
+          they are. Direction is taken from the whole remainder, so a line does
+          not flip as its first strong character arrives. */}
+      {pending || tail ? (
+        <View style={styles.streamTail}>
+          {pending ? (
+            <Text selectable style={[tailStyle, dirStyle(restDir)]}>
+              {/* The trailing newline is the separator from the line below, which
+                  is a sibling element — printed, it would open a blank line. */}
+              {pending.replace(/\n$/, "")}
+            </Text>
+          ) : null}
+          {tail ? (
+            // The leading edge, and the only thing that animates. Remounting on
+            // `lineKey` is what makes each new line fade up as it begins instead
+            // of snapping in — and because the key only moves when a line ends,
+            // the fade starts when the line is a character or two long, never
+            // over text the reader is already looking at.
+            <Animated.View key={lineKey} entering={FadeIn.duration(260)}>
+              <Text selectable style={[tailStyle, dirStyle(restDir)]}>
+                {tail}
+              </Text>
+            </Animated.View>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // The margin lives here, not on the runs inside — see the comment at the call site.
+  streamTail: { marginVertical: 5 },
   list: { marginVertical: 2 },
   listItem: { alignItems: "flex-start", gap: 8, marginBottom: 2 },
   listBody: { flex: 1 },

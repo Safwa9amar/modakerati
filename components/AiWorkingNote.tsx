@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useChatStore } from "@/stores/chat-store";
 import { useWorkingClock } from "@/hooks/useWorkingClock";
+import { MAX_TURN_ATTEMPTS } from "@/lib/retry";
 import { SpinningAsterisk } from "@/components/ThinkingTrace";
 import { formatElapsed } from "@/lib/thinking";
 import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
@@ -52,6 +53,7 @@ export function AiWorkingNote({ active, stream, rtl = false, stoppable = true, i
   const turnStartedAt = useChatStore((s) => s.turnStartedAt);
   const lastEventAt = useChatStore((s) => s.lastEventAt);
   const toolTrace = useChatStore((s) => s.toolTrace);
+  const retryAttempt = useChatStore((s) => s.retryAttempt);
 
   // Caller-driven when `active` is given, else the chat turn in the store.
   const owned = active !== undefined;
@@ -64,8 +66,20 @@ export function AiWorkingNote({ active, stream, rtl = false, stoppable = true, i
   if (!clock) return null;
 
   const { elapsedMs: elapsed, stage } = clock;
-  const label =
-    stage === "veryLong"
+  // The turn failed for a reason that passes and the app is quietly having
+  // another go (see lib/retry.ts). Saying so is the difference between a wait
+  // that looks like progress and one that looks like the app ignoring you —
+  // and it is why the student has no reason to reach for Retry. Chat-owned
+  // surfaces only: a caller driving this from its own request (`owned`) is not
+  // the turn being counted here.
+  const retrying = !owned && retryAttempt > 1;
+  const label = retrying
+    ? t("working.retrying", {
+        attempt: retryAttempt,
+        total: MAX_TURN_ATTEMPTS,
+        defaultValue: "That didn't get through — trying again ({{attempt}} of {{total}})…",
+      })
+    : stage === "veryLong"
       ? stoppable
         ? t("working.veryLongStoppable", { defaultValue: "Still working on a long task — keep waiting, or tap Stop." })
         : t("working.veryLong", { defaultValue: "Still working on a long task — please keep waiting." })

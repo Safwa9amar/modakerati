@@ -75,17 +75,30 @@ export function useComposerSuggestions(thesisId: string | null, { enabled, selec
       return;
     }
 
+    // Nothing to ground on: a conversation with no messages yet and no selection.
+    // Clear, and show static presets (or nothing) instead.
+    //
+    // This runs BEFORE the guards below, and that ordering is the whole point.
+    // Chips belong to the conversation they were generated from, so the moment
+    // that conversation is replaced they are wrong — but a blank chat opened with
+    // ✎ has neither a thread nor a thesis, which used to trip the `(!thesisId &&
+    // !threadId)` guard below and return early WITHOUT clearing. The last thread's
+    // chips sat under the composer of an empty chat, in the last thread's
+    // language, offering to review a document this conversation has never seen.
+    if (!lastMessageId && !selectionKey) {
+      setSuggestions([]);
+      // Forget the committed context too, or coming back to the thread these
+      // chips came from finds its key unchanged, skips the fetch, and leaves the
+      // composer bare.
+      lastKeyRef.current = "";
+      return;
+    }
+
     // Only while visible, and NOT mid-generation (wait for the turn to finish so
     // its reply feeds the chips). A thesis-less conversation still gets chips —
     // grounded on the talk, with no document to retrieve from — so a thread alone
     // is enough to ask.
     if (!enabled || (!thesisId && !threadId) || isGenerating) return;
-
-    // Nothing to ground on (brand-new thesis, no selection) → show static presets.
-    if (!lastMessageId && !selectionKey) {
-      setSuggestions([]);
-      return;
-    }
 
     const key = `${threadId ?? ""}|${lastMessageId}|${selectionKey}`;
     if (key === lastKeyRef.current) return; // context unchanged since last fetch

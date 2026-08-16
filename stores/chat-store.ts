@@ -11,6 +11,7 @@ const IDLE_TURN = {
   isGenerating: false,
   generatingPhase: "idle" as const,
   generatingStep: 0,
+  retryAttempt: 0,
   streamingId: null,
   abortController: null,
   activeTurnId: null,
@@ -67,6 +68,12 @@ interface ChatState {
   isGenerating: boolean;
   generatingStep: number;
   generatingPhase: GeneratingPhase;
+  // Which try of the current turn is running, once it is past the first. 0 means
+  // "the first attempt" — i.e. nothing has failed yet. A turn that dies for a
+  // reason that passes (the provider at capacity, a dropped socket) is repeated
+  // by ai-service without asking; this is how the student is told that is what
+  // the wait is, rather than being shown an error and a button. See lib/retry.ts.
+  retryAttempt: number;
   // Wall clock of the CURRENT turn (epoch ms), and the last moment anything
   // streamed in (reasoning, answer text or a file). A long agentic turn spends
   // most of its time running tools, where neither arrives — the gap between
@@ -103,6 +110,9 @@ interface ChatState {
   getLoadingOlder: (threadId: string) => boolean;
   setLoadingOlder: (threadId: string, value: boolean) => void;
   addMessage: (threadId: string, role: "user" | "assistant", content: string, opts?: { chapterId?: string; pending?: boolean; images?: ChatImage[] }) => string;
+  /** Remove a message from the loaded window. For an assistant bubble whose
+   *  attempt is being retried — see ai-service's discardAttempt. */
+  dropMessage: (threadId: string, id: string) => void;
   /** Mark (or clear) a message as a send whose turn never completed. */
   setMessageFailed: (threadId: string, id: string, failed: boolean) => void;
   /** The most recent user message, for the failed-send retry. */
@@ -120,6 +130,8 @@ interface ChatState {
   endTurn: (turnId: string) => void;
   setGeneratingStep: (step: number) => void;
   setGeneratingPhase: (phase: GeneratingPhase) => void;
+  /** Which try of the current turn is now running (0 = the first). */
+  setRetryAttempt: (attempt: number) => void;
   setStreamingId: (id: string | null) => void;
   setAbortController: (controller: AbortController | null) => void;
   setPendingAsk: (ask: AskPayload | null) => void;
@@ -140,6 +152,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isGenerating: false,
   generatingStep: 0,
   generatingPhase: "idle",
+  retryAttempt: 0,
   turnStartedAt: null,
   lastEventAt: null,
   streamingId: null,
@@ -208,6 +221,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
     return id;
   },
+
+  // Drop a row from the loaded window. Only ever used on an assistant bubble the
+  // turn is about to replace: a retried attempt must not append its answer under
+  // the abandoned one's reasoning trace. Nothing is persisted here — the cache
+  // write happens once, at the end of the turn (persistCache).
+  dropMessage: (threadId, id) =>
+    set((s) => {
+      const list = s.messages[threadId];
+      if (!list) return s;
+      const next = list.filter((m) => m.id !== id);
+      if (next.length === list.length) return s;
+      return {
+        messages: { ...s.messages, [threadId]: next },
+        // A bubble that no longer exists must not stay the streaming target.
+        streamingId: s.streamingId === id ? null : s.streamingId,
+      };
+    }),
 
   setMessageFailed: (threadId, id, failed) =>
     set((s) => {
@@ -313,6 +343,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isGenerating: true,
       generatingPhase: "thinking",
       generatingStep: 0,
+      retryAttempt: 0, // a new turn starts on its first try, whatever the last one spent
       streamingId: null,
       turnStartedAt: Date.now(),
       lastEventAt: Date.now(),
@@ -330,6 +361,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setGeneratingStep: (step) => set({ generatingStep: step }),
   setGeneratingPhase: (phase) => set({ generatingPhase: phase }),
+  setRetryAttempt: (attempt) =>
+    set((s) => (s.retryAttempt === attempt ? s : { retryAttempt: attempt })),
   setStreamingId: (id) => set({ streamingId: id }),
   setAbortController: (controller) => set({ abortController: controller }),
   setPendingAsk: (ask) => set({ pendingAsk: ask }),

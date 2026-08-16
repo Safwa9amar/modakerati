@@ -2,11 +2,13 @@ import { useChatStore } from "@/stores/chat-store";
 import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useOutlineStore } from "@/stores/outline-store";
+import { useThesisStore } from "@/stores/thesis-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
-import { chatSend, chatSendStream, chatConfirmAction, chatCancelAction, getChatHistory, getChatHistoryPage } from "./api";
+import { chatSend, chatSendStream, chatConfirmAction, chatCancelAction, getChatHistory, getChatHistoryPage, listThreads } from "./api";
 import { getLatestMessages, getOlderMessages, upsertMessages, deletePending, deleteStalePending, getLastSyncedAt, setLastSyncedAt } from "./chat-cache";
 import { IMG_FRAME_OPEN, splitImageFrames, restageImage, toAttachment, toChatImage, type StagedImage } from "./chat-images";
 import i18n from "./i18n";
+import { backoffMs, backoffSleep, isTransientFailure, MAX_TURN_ATTEMPTS } from "./retry";
 import { userFacingError } from "./safe-error";
 import type { ChatMessage } from "@/types/chat";
 
@@ -53,6 +55,46 @@ function syncOutlineAfterTurn(thesisId: string | null, docChanged: boolean): voi
   // the unattached system prompt carries none of the doc-editing tools.
   if (!thesisId || !docChanged) return;
   void useOutlineStore.getState().sync(thesisId);
+}
+
+/**
+ * Pick up a thesis the assistant created during the turn.
+ *
+ * create_thesis runs entirely on the server: nothing in the stream announces it,
+ * so the student is congratulated on a brand-new thesis that exists in no list
+ * this app holds — not the drawer, not the picker sheet, not the header title.
+ * The server also ATTACHES the conversation it was created in to it (see the
+ * tool), and that too is invisible here: left alone, the next turn would go out
+ * as an unattached chat, which is offered no document tools at all.
+ *
+ * So once the turn is over, the conversation asks the two questions it cannot
+ * answer locally: which theses exist now, and what is this thread attached to.
+ * Both are best-effort and neither delays anything the student is looking at —
+ * a failure leaves things exactly as stale as they already were.
+ */
+async function syncThesisAfterTurn(threadId: string, thesisId: string | null): Promise<void> {
+  const theses = useThesisStore.getState();
+  // Already attached: the assistant can still have RENAMED the thesis, so the
+  // list is worth re-reading, but the attachment cannot have moved — the server
+  // only ever fills an EMPTY one, never reassigns a conversation.
+  if (thesisId) {
+    await theses.refreshTheses();
+    return;
+  }
+  try {
+    const [rows] = await Promise.all([listThreads(), theses.refreshTheses()]);
+    const row = rows.find((r) => r.id === threadId);
+    if (!row?.thesisId) return;
+    // The chat screen watches this row and adopts the attachment from it, so the
+    // composer stops offering "attach" and the next turn is scoped to the new
+    // document. Selecting it app-wide is the same move attaching by hand makes:
+    // the Writer, the outline and the drawer follow the conversation.
+    useChatThreadsStore.getState().applyThread(row);
+    useThesisStore.getState().setCurrentThesis(row.thesisId);
+  } catch {
+    // Offline, or the server is down. Nothing is lost — the attachment is
+    // recorded server-side and the next thread-list read finds it.
+  }
 }
 
 function emptyTurnNote(docChanged: boolean): string {
@@ -301,169 +343,264 @@ async function runAssistantTurn(
   if (!live()) return;
 
   // Lazily created on the first streamed chunk so the "thinking" indicator
-  // shows until the AI actually starts producing text.
+  // shows until the AI actually starts producing text. Hoisted above the attempt
+  // loop so the teardown below can stamp whichever bubble the LAST attempt was
+  // writing into; each attempt starts it over at null.
   let assistantId: string | null = null;
-  // Flips true at the first answer token → marks the end of reasoning exactly once.
-  let sawContent = false;
-  // Whether the turn produced anything the student can actually SEE: answer text,
-  // a file card, a question sheet or a confirmation. Reasoning does NOT count — a
-  // turn that only "thought" leaves a bubble holding a thinking trace and nothing
-  // else, which reads as the AI stopping mid-sentence with no way to tell whether
-  // it failed. That case is caught below and turned into a visible, retryable note.
-  let producedOutput = false;
-  // Whether this turn's tools actually mutated the .docx — decides WHICH note.
+  // Whether this turn's tools actually mutated the .docx — decides WHICH note,
+  // and, more importantly, forbids every further attempt (see mayRetry).
+  // Accumulated across attempts on purpose: an edit that landed stays landed.
   let docChanged = false;
   // Streamed text is batched through this rather than written per chunk, so the
   // JS thread stays responsive for the length of the turn (see createStreamPump).
   const pump = createStreamPump(threadId, live);
 
   try {
-    await chatSendStream(
-      threadId,
-      userMessage,
-      {
-        onDelta: (chunk) => {
-          if (!live()) return;
-          const s = useChatStore.getState();
-          if (!assistantId) {
-            assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
-            s.setStreamingId(assistantId);
-          }
-          producedOutput = true;
-          if (!sawContent) {
-            sawContent = true;
-            // First answer token → reasoning is over. Land the queued reasoning
-            // BEFORE stamping its end, so the clock covers all of it.
-            pump.flush();
-            s.markThinkingEnded(threadId, assistantId);
-            s.setGeneratingPhase("writing");
-          }
-          pump.delta(assistantId, chunk);
-        },
-        onAsk: (ask) => {
-          if (!live()) return; // a stopped turn must not pop a question sheet
-          producedOutput = true; // the sheet IS the turn's output
-          pump.flush(); // the question follows the text that leads up to it
-          useChatStore.getState().setPendingAsk(ask);
-        },
-        onConfirm: (confirm) => {
-          if (!live()) return; // ditto for the approve/decline chips
-          producedOutput = true; // the approve/decline chips ARE the turn's output
-          pump.flush();
-          useChatStore.getState().setPendingConfirm(confirm);
-        },
-        onDocChanges: (changes) => {
-          // NOT producedOutput: an edited document with no reply still needs the
-          // note below — but a doc-aware one (see emptyTurnNote). Recorded even
-          // for a stopped turn: the .docx edits already happened server-side, so
-          // the student still needs the "Undo AI changes" chip for them.
-          docChanged = true;
-          // thesisId, not threadId — see the field comment on chat-store's docChanges.
-          // Can't actually fire with no thesis attached (no doc-editing tools are
-          // offered), but guarded rather than assumed.
-          if (thesisId) useChatStore.getState().setDocChanges(thesisId, changes);
-        },
-        onThinking: (chunk) => {
-          if (!live()) return;
-          const s = useChatStore.getState();
-          // Reasoning can arrive before any answer token — make the bubble now.
-          if (!assistantId) {
-            assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
-            s.setStreamingId(assistantId);
-          }
-          // Only on a real change: this fires per chunk, and an unconditional set
-          // notifies every store subscriber for nothing.
-          if (s.generatingPhase !== "thinking") s.setGeneratingPhase("thinking");
-          pump.thinking(assistantId, chunk);
-        },
-        onFile: (file) => {
-          if (!live()) return;
-          const s = useChatStore.getState();
-          // A file (e.g. an export) can arrive before any answer text — ensure the
-          // assistant bubble exists, then attach the card to it.
-          if (!assistantId) {
-            assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
-            s.setStreamingId(assistantId);
-          }
-          producedOutput = true; // a file card alone is a valid answer (e.g. an export)
-          pump.flush(); // the card belongs under the text that announced it
-          s.addFileToMessage(threadId, assistantId, file);
-        },
-        // Developer trace only (server-side AI_SHOW_TOOLS): NOT producedOutput —
-        // running tools is not an answer to the student.
-        onTool: (tool) => {
-          if (!live()) return;
-          useChatStore.getState().pushToolTrace(tool);
-        },
-        // Fires at most once, when this thread gets its first generated title.
-        onTitle: ({ threadId: titledId, title }) => {
-          useChatThreadsStore.getState().applyTitle(titledId, title);
-        },
-      },
-      { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, attachments: opts?.images?.map(toAttachment), signal: controller.signal }
-    );
+    // The turn gets several goes at it. A failure the student did nothing to
+    // cause — the provider at capacity, a socket dropped in a lift, a proxy
+    // restarting mid-deploy — used to end here as a dead bubble with a Retry
+    // button, and what people do with that button is tap it until one lands.
+    // The app does the tapping now; the button stays for when even that fails.
+    for (let attempt = 1; ; attempt++) {
+      // Per-ATTEMPT state. It is safe to start these over precisely because an
+      // attempt is only ever replaced when it produced nothing at all.
+      let sawContent = false;
+      // Whether the attempt produced anything the student can actually SEE: answer
+      // text, a file card, a question sheet or a confirmation. Reasoning does NOT
+      // count — a turn that only "thought" leaves a bubble holding a thinking trace
+      // and nothing else, which reads as the AI stopping mid-sentence with no way
+      // to tell whether it failed. That case is retried, and finally turned into a
+      // visible, retryable note.
+      let producedOutput = false;
 
-    // Everything still queued belongs to this turn — land it before the checks
-    // below read what the turn produced.
-    pump.flush();
+      // May this attempt be replaced by another one? Four gates, in the order of
+      // how badly ignoring them would hurt:
+      //
+      //  - `live()`  — the student pressed Stop (or a newer turn took over).
+      //                Retrying would undo the Stop in the tick after it.
+      //  - `!docChanged` — the turn's tools ALREADY edited the .docx. The work
+      //                landed server-side; running it again writes it twice, and
+      //                no amount of transport failure makes that acceptable.
+      //  - `!producedOutput` — some of the answer is already on screen. A second
+      //                attempt would type a second answer under the first.
+      //  - the budget, and (for a thrown error) whether it is worth repeating at
+      //    all: a 400 or an expired session says the same thing four times.
+      const mayRetry = (error?: unknown) =>
+        live() &&
+        !docChanged &&
+        !producedOutput &&
+        attempt < MAX_TURN_ATTEMPTS &&
+        (error === undefined || isTransientFailure(error));
 
-    // The stream ended cleanly but the student got nothing — either no bubble at
-    // all, or one holding only a thinking trace. Both look identical to a hang, so
-    // say what happened; the note also gives the bubble content, which is what the
-    // chat's Regenerate affordance keys off.
-    if (!producedOutput && live()) {
-      const note = emptyTurnNote(docChanged);
-      if (assistantId) store.appendToMessage(threadId, assistantId, note);
-      else store.addMessage(threadId, "assistant", note, { pending: true });
-    }
-  } catch (error: any) {
-    // User tapped Stop (or a newer turn took over) — keep whatever streamed so
-    // far and suppress the error note; the abort is intentional, not a failure.
-    if (!live()) {
-      return;
-    }
+      // First sign of life from this attempt. A retry that lands must stop being
+      // described as one: the "trying again" line only tells the truth while the
+      // chat is silent, and a turn can fall silent again later (a long tool run)
+      // with the stale wait line still on screen.
+      const markAlive = () => {
+        const s = useChatStore.getState();
+        if (s.retryAttempt) s.setRetryAttempt(0);
+      };
 
-    // Whatever arrived before the failure is still the turn's answer — land it so
-    // the note below reads as its ending, not as a replacement for it.
-    pump.flush();
+      // Wind the abandoned attempt back so the next one starts on a clean sheet:
+      // drop its queued text, and remove the bubble it opened — otherwise the
+      // retry's answer arrives underneath a stale reasoning trace, in a bubble
+      // whose "Thought for Xs" clock belongs to a turn that never happened.
+      const discardAttempt = () => {
+        pump.cancel();
+        if (assistantId) useChatStore.getState().dropMessage(threadId, assistantId);
+        assistantId = null;
+      };
 
-    // If the streaming endpoint isn't available (e.g. an older server build),
-    // fall back to the buffered /send endpoint so the chat still works.
-    if (!assistantId && (error?.status === 404 || error?.status === 405)) {
+      // Wait out the backoff, then hand the next attempt a chat that looks like a
+      // turn still in progress — because it is one. Returns false if the student
+      // stopped while we waited.
+      const pauseThenRetry = async (): Promise<boolean> => {
+        discardAttempt();
+        await backoffSleep(backoffMs(attempt), live);
+        if (!live()) return false;
+        const s = useChatStore.getState();
+        s.setRetryAttempt(attempt + 1);
+        s.setGeneratingPhase("thinking");
+        return true;
+      };
+
       try {
-        store.setGeneratingPhase("thinking");
-        const result = await chatSend(threadId, userMessage, { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, attachments: opts?.images?.map(toAttachment) });
-        // The buffered endpoint takes no signal, so Stop can't cut it short —
-        // it can only be ignored. Drop the whole reply rather than dumping it
-        // into a chat the student already walked away from.
-        if (!live()) return;
-        const id = store.addMessage(threadId, "assistant", result.response || emptyTurnNote(!!result.docChanges), { pending: true });
-        // Mirror the streaming path: surface any file cards and open the ask sheet.
-        result.files?.forEach((f) => store.addFileToMessage(threadId, id, f));
-        if (result.ask) store.setPendingAsk(result.ask);
-        if (result.confirmAction) store.setPendingConfirm(result.confirmAction);
-        // Mark the turn as having edited the .docx, exactly as the streaming
-        // path's onDocChanges does — the outer finally reads this to decide
-        // whether the outline needs re-syncing. thesisId, not threadId — see
-        // the field comment on chat-store's docChanges.
-        if (result.docChanges) { docChanged = true; if (thesisId) store.setDocChanges(thesisId, result.docChanges); }
+        await chatSendStream(
+          threadId,
+          userMessage,
+          {
+            onDelta: (chunk) => {
+              if (!live()) return;
+              markAlive();
+              const s = useChatStore.getState();
+              if (!assistantId) {
+                assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
+                s.setStreamingId(assistantId);
+              }
+              producedOutput = true;
+              if (!sawContent) {
+                sawContent = true;
+                // First answer token → reasoning is over. Land the queued reasoning
+                // BEFORE stamping its end, so the clock covers all of it.
+                pump.flush();
+                s.markThinkingEnded(threadId, assistantId);
+                s.setGeneratingPhase("writing");
+              }
+              pump.delta(assistantId, chunk);
+            },
+            onAsk: (ask) => {
+              if (!live()) return; // a stopped turn must not pop a question sheet
+              producedOutput = true; // the sheet IS the turn's output
+              pump.flush(); // the question follows the text that leads up to it
+              useChatStore.getState().setPendingAsk(ask);
+            },
+            onConfirm: (confirm) => {
+              if (!live()) return; // ditto for the approve/decline chips
+              producedOutput = true; // the approve/decline chips ARE the turn's output
+              pump.flush();
+              useChatStore.getState().setPendingConfirm(confirm);
+            },
+            onDocChanges: (changes) => {
+              // NOT producedOutput: an edited document with no reply still needs the
+              // note below — but a doc-aware one (see emptyTurnNote). Recorded even
+              // for a stopped turn: the .docx edits already happened server-side, so
+              // the student still needs the "Undo AI changes" chip for them. It also
+              // ends the retries: work that landed must never be run a second time.
+              docChanged = true;
+              // thesisId, not threadId — see the field comment on chat-store's docChanges.
+              // Can't actually fire with no thesis attached (no doc-editing tools are
+              // offered), but guarded rather than assumed.
+              if (thesisId) useChatStore.getState().setDocChanges(thesisId, changes);
+            },
+            onThinking: (chunk) => {
+              if (!live()) return;
+              markAlive();
+              const s = useChatStore.getState();
+              // Reasoning can arrive before any answer token — make the bubble now.
+              if (!assistantId) {
+                assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
+                s.setStreamingId(assistantId);
+              }
+              // Only on a real change: this fires per chunk, and an unconditional set
+              // notifies every store subscriber for nothing.
+              if (s.generatingPhase !== "thinking") s.setGeneratingPhase("thinking");
+              pump.thinking(assistantId, chunk);
+            },
+            onFile: (file) => {
+              if (!live()) return;
+              markAlive();
+              const s = useChatStore.getState();
+              // A file (e.g. an export) can arrive before any answer text — ensure the
+              // assistant bubble exists, then attach the card to it.
+              if (!assistantId) {
+                assistantId = s.addMessage(threadId, "assistant", "", { pending: true });
+                s.setStreamingId(assistantId);
+              }
+              producedOutput = true; // a file card alone is a valid answer (e.g. an export)
+              pump.flush(); // the card belongs under the text that announced it
+              s.addFileToMessage(threadId, assistantId, file);
+            },
+            // Developer trace only (server-side AI_SHOW_TOOLS): NOT producedOutput —
+            // running tools is not an answer to the student.
+            onTool: (tool) => {
+              if (!live()) return;
+              useChatStore.getState().pushToolTrace(tool);
+            },
+            // Fires at most once, when this thread gets its first generated title.
+            onTitle: ({ threadId: titledId, title }) => {
+              useChatThreadsStore.getState().applyTitle(titledId, title);
+            },
+          },
+          { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, attachments: opts?.images?.map(toAttachment), signal: controller.signal }
+        );
+
+        // Everything still queued belongs to this attempt — land it before the
+        // checks below read what it produced.
+        pump.flush();
+
+        // The stream ended cleanly but the student got nothing — either no bubble
+        // at all, or one holding only a thinking trace. That is a turn that died
+        // wearing a success suit: it looks identical to a hang, and it is exactly
+        // as worth repeating as one that threw. So repeat it, silently, while
+        // there are attempts left.
+        if (!producedOutput) {
+          if (mayRetry()) {
+            if (await pauseThenRetry()) continue;
+            return; // stopped during the backoff
+          }
+          if (!live()) return;
+          // Out of attempts (or the .docx already changed, which forbids another
+          // run). Say what happened; the note also gives the bubble content, which
+          // is what the chat's Regenerate affordance keys off.
+          const note = emptyTurnNote(docChanged);
+          if (assistantId) store.appendToMessage(threadId, assistantId, note);
+          else store.addMessage(threadId, "assistant", note, { pending: true });
+        }
         return;
-      } catch (fallbackError: any) {
-        error = fallbackError;
+      } catch (error: any) {
+        // User tapped Stop (or a newer turn took over) — keep whatever streamed so
+        // far and suppress the error note; the abort is intentional, not a failure.
+        if (!live()) {
+          return;
+        }
+
+        // Whatever arrived before the failure is still the turn's answer — land it
+        // so the note below reads as its ending, not as a replacement for it. (A
+        // retry drops it again a moment later, along with the bubble it sits in.)
+        pump.flush();
+
+        // If the streaming endpoint isn't available (e.g. an older server build),
+        // fall back to the buffered /send endpoint so the chat still works.
+        if (!assistantId && (error?.status === 404 || error?.status === 405)) {
+          try {
+            store.setGeneratingPhase("thinking");
+            const result = await chatSend(threadId, userMessage, { chapterId: opts?.chapterId, sectionId: opts?.sectionId, selection: opts?.selection, docBlockIndex: opts?.docBlockIndex ?? null, docBlockIndices: opts?.docBlockIndices, regenerate: opts?.regenerate, attachments: opts?.images?.map(toAttachment) });
+            // The buffered endpoint takes no signal, so Stop can't cut it short —
+            // it can only be ignored. Drop the whole reply rather than dumping it
+            // into a chat the student already walked away from.
+            if (!live()) return;
+            const id = store.addMessage(threadId, "assistant", result.response || emptyTurnNote(!!result.docChanges), { pending: true });
+            // Mirror the streaming path: surface any file cards and open the ask sheet.
+            result.files?.forEach((f) => store.addFileToMessage(threadId, id, f));
+            if (result.ask) store.setPendingAsk(result.ask);
+            if (result.confirmAction) store.setPendingConfirm(result.confirmAction);
+            // Mark the turn as having edited the .docx, exactly as the streaming
+            // path's onDocChanges does — the outer finally reads this to decide
+            // whether the outline needs re-syncing. thesisId, not threadId — see
+            // the field comment on chat-store's docChanges.
+            if (result.docChanges) { docChanged = true; if (thesisId) store.setDocChanges(thesisId, result.docChanges); }
+            return;
+          } catch (fallbackError: any) {
+            error = fallbackError;
+          }
+        }
+
+        // Nothing of this attempt reached the student, and the failure is one that
+        // passes on its own — go again rather than handing over a button. This is
+        // the path that used to end every "the service is very busy right now".
+        if (mayRetry(error)) {
+          if (await pauseThenRetry()) continue;
+          return; // stopped during the backoff
+        }
+
+        // Out of road: either the attempts are spent or this failure would say the
+        // same thing however many times it were asked.
+        //
+        // Mark the QUESTION as undelivered, not just the answer: a user bubble that
+        // looks identical to a delivered one is what makes a student type the same
+        // request again — three times, in the case this was written for. The Retry
+        // on that bubble re-runs THIS row, and is now the last resort rather than
+        // the first thing anyone reaches for.
+        if (opts?.userMessageId) store.setMessageFailed(threadId, opts.userMessageId, true);
+
+        const note = userFacingError(error);
+        if (assistantId) {
+          store.appendToMessage(threadId, assistantId, `\n\n_${note}_`);
+        } else {
+          store.addMessage(threadId, "assistant", note, { pending: true });
+        }
+        return;
       }
-    }
-
-    // The turn never landed. Mark the QUESTION as undelivered, not just the
-    // answer: a user bubble that looks identical to a delivered one is what
-    // makes a student type the same request again — three times, in the case
-    // this was written for. The Retry on that bubble re-runs THIS row.
-    if (opts?.userMessageId) store.setMessageFailed(threadId, opts.userMessageId, true);
-
-    const note = userFacingError(error);
-    if (assistantId) {
-      store.appendToMessage(threadId, assistantId, `\n\n_${note}_`);
-    } else {
-      store.addMessage(threadId, "assistant", note, { pending: true });
     }
   } finally {
     // Nothing may write into the chat after the turn ends: every path above has
@@ -480,6 +617,10 @@ async function runAssistantTurn(
     // wherever the student is, not only in the workspace screen. thesisId, not
     // threadId — see the field comment on chat-store's docChanges.
     syncOutlineAfterTurn(thesisId, docChanged);
+    // …and it may have created a whole THESIS (create_thesis), which only the
+    // server knows about. Fire-and-forget for the same reason: the turn is over,
+    // and this must not hold up the chat going idle.
+    void syncThesisAfterTurn(threadId, thesisId);
     // Persist the new turn to the device so it survives restarts and shows
     // instantly next time. Server-id reconciliation happens on the next open.
     await persistCache(threadId);
@@ -622,6 +763,14 @@ async function persistCache(threadId: string): Promise<void> {
 // Approve or decline a parked destructive action. The continuation streams into
 // a fresh assistant bubble through the same handlers as a normal turn, so the
 // workspace's after-turn refresh (isGenerating true→false) fires as usual.
+//
+// Deliberately NOT auto-retried, unlike runAssistantTurn. The whole point of a
+// parked action is that it is destructive, and the server executes the STORED
+// args the moment this request lands: a failure here cannot tell "it never ran"
+// from "it ran, and then the stream died on the way back". Repeating that guess
+// three times is how a student's deleted section gets deleted twice. A failure
+// here keeps its error note and its Retry — the one place where asking a human
+// is the right answer.
 async function runActionContinuation(
   threadId: string,
   thesisId: string | null,

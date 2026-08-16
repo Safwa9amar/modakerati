@@ -36,7 +36,8 @@
     "short": "Working on it…",
     "long": "Still working — this can take a while. Please wait.",
     "veryLong": "Still working on a long task — please keep waiting.",
-    "veryLongStoppable": "Still working on a long task — keep waiting, or tap Stop."
+    "veryLongStoppable": "Still working on a long task — keep waiting, or tap Stop.",
+    "retrying": "That didn't get through — trying again ({{attempt}} of {{total}})…"
   },
   "tableAI": {
     "proposal": "AI suggestion",
@@ -658,6 +659,7 @@
     "generating": "Generating",
     "stop": "Stop generating",
     "selectThesis": "Select a thesis from Home to start chatting",
+    "more": "More",
     "viewFull": "View full",
     "viewMore": "View more",
     "showLess": "Show less",

@@ -36,7 +36,8 @@
     "short": "Traitement en cours…",
     "long": "Toujours en cours — cela peut prendre un moment. Veuillez patienter.",
     "veryLong": "Tâche longue toujours en cours — merci de patienter.",
-    "veryLongStoppable": "Tâche longue toujours en cours — patientez, ou appuyez sur Arrêter."
+    "veryLongStoppable": "Tâche longue toujours en cours — patientez, ou appuyez sur Arrêter.",
+    "retrying": "La demande n'est pas passée — nouvelle tentative ({{attempt}} sur {{total}})…"
   },
   "tableAI": {
     "proposal": "Suggestion de l'IA",
@@ -658,6 +659,7 @@
     "generating": "Generation",
     "stop": "Arreter la generation",
     "selectThesis": "Selectionnez un memoire pour commencer",
+    "more": "Plus",
     "viewFull": "Afficher en entier",
     "viewMore": "Voir plus",
     "showLess": "Voir moins",

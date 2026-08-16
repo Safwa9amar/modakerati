@@ -519,7 +519,18 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
       // Optimistic: the composer's doc affordances should appear on the tap, not
       // after a round-trip. A failure rolls it back rather than leaving the
       // student a chat that looks attached and behaves otherwise.
+      const previous = useThesisStore.getState().currentThesisId;
       setThesisId(picked);
+      // The selection follows the conversation, exactly as handlePickThread and
+      // the mid-turn adoption below do it.
+      //
+      // This line was missing, and the comment below has been claiming it was
+      // here. Everything outside this screen reads the STORE, not the local
+      // state: the answer's "Writer" chip (MessageActions), the drawer, the
+      // Writer screen itself. So attaching a thesis lit up the composer and
+      // nothing else — the one control that opens the document you just
+      // attached stayed hidden.
+      useThesisStore.getState().setCurrentThesis(picked);
       if (!threadId) {
         // A blank ＋ conversation — there is no row to PATCH yet. Record the
         // choice on the pending intent so the thread the first message creates
@@ -532,6 +543,10 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
         .then((row) => useChatThreadsStore.getState().applyThread(row))
         .catch(() => {
           setThesisId(null);
+          // Put the app-wide selection back where it was, not to null: this chat
+          // may have been opened from a thesis that is still the one open in the
+          // Writer, and a failed attach must not close a document it never touched.
+          useThesisStore.getState().setCurrentThesis(previous);
           Alert.alert(t("common.error"), t("chat.threads.attachFailed"));
         });
     },
@@ -1007,10 +1022,13 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
           <View style={styles.topActions}>
             {/* Start a fresh conversation without going through the history
                 panel first — the same intent its ＋ carries, one tap closer.
-                It keeps the thesis attached: the student is mid-document, and a
-                new chat about nothing would strand them. */}
+                Always UNATTACHED, whatever is open: ✎ is the blank page, and a
+                blank page that silently inherits the current thesis is not one.
+                The panel's ＋ is where "a new chat about THIS thesis" lives (it
+                asks), and an unattached chat carries its own offer to attach —
+                the row above the composer, one tap, no round-trip lost. */}
             <Pressable
-              onPress={() => handleNewThread(thesisId)}
+              onPress={() => handleNewThread(null)}
               hitSlop={8}
               style={{ padding: 4 }}
               accessibilityRole="button"
