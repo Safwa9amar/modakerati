@@ -115,6 +115,11 @@ interface Props {
    *  host from this — it cannot measure the content itself, since the host is what
    *  constrains it. Never called in the horizontal forms. */
   onColumnWidth?: (w: number) => void;
+  /** Column form only: which PHYSICAL side of the strip a category's options fly out on.
+   *  The host decides it from where the strip is resting — a panel always opens toward
+   *  the screen's centre, or it would be off-screen (see FloatingPill's `panelLeft`).
+   *  Defaults to the reading side of the document, the pre-drag behaviour. */
+  panelLeft?: boolean;
   /** When set (floating overlay only), the compact pill shows a leading collapse
    *  chevron that calls this. The keyboard-docked bar never passes it. */
   onCollapse?: () => void;
@@ -153,6 +158,7 @@ export function BlockContextBar({
   onAskAI,
   bottomInset,
   onColumnWidth,
+  panelLeft,
   onCollapse,
   blocks,
   chrome,
@@ -226,6 +232,10 @@ export function BlockContextBar({
   // always agree.
   const wideCat = isWidePanel(category);
   const columnPanelW = wideCat ? VERTICAL_PANEL_WIDE_W : VERTICAL_PANEL_W;
+  // Which way the options fly out. The host measures the strip against the screen and
+  // answers; without one (nobody else mounts the column form today) fall back to the
+  // document's reading side, where the strip used to be assumed to sit.
+  const flyoutLeft = panelLeft ?? !rtl;
   const columnW = !vertical
     ? 0
     : panelOpen
@@ -569,11 +579,15 @@ export function BlockContextBar({
         <View
           style={[
             styles.pillWrap,
-            // Column form: strip and fly-out panel sit SIDE BY SIDE. The pill anchors at
-            // the screen's trailing edge (FloatingPill's sideX, same `rtl` flag), so the
-            // strip must be the trailing child and the panel opens inward — row in LTR
-            // (panel, strip), row-reverse in RTL (strip, panel).
-            vertical && [styles.pillWrapV, { flexDirection: visualRow(rtl) }],
+            // Column form: strip and fly-out panel sit SIDE BY SIDE, and the panel must
+            // open toward the screen's CENTRE or it lands off the edge — so the side is
+            // the HOST's call (it knows where the strip was dragged to), not the
+            // document's direction. `expansion` is the first child, so: "row" puts it
+            // left of the strip, "row-reverse" right of it.
+            // PHYSICAL, not visualRow(): the drag host forces `direction: "ltr"` on this
+            // whole subtree (see FloatingPill's styles.host), so RN's RTL row mirroring
+            // never reaches here and there is nothing to counter-flip.
+            vertical && [styles.pillWrapV, { flexDirection: flyoutLeft ? "row" : "row-reverse" }],
           ]}
           pointerEvents="box-none"
         >

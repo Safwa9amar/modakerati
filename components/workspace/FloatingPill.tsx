@@ -310,6 +310,23 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const startX = pos?.x ?? defaultX;
   const startY = pos?.y ?? defaultY;
 
+  // ── Which side the column form's fly-out panel opens on ──
+  // Toward the screen's CENTRE, always. A panel that flies out toward the NEARER edge
+  // has nowhere to go: it lands off-screen, and the bounds clamp then shoves the strip
+  // itself into the middle of the page to make room. The side used to be fixed by the
+  // DOCUMENT's direction, so a strip dragged to the other edge — or any Arabic thesis,
+  // whose strip anchors LEFT — opened its sub-menu into the void until the student moved
+  // the bubble back.
+  // Read off the PERSISTED position, not the live drag value: the side settles when the
+  // bubble does, which is also what stops it flipping under the student's finger.
+  const panelLeft = startX + VERTICAL_PILL_W / 2 > width / 2;
+  // The fly-out's footprint on the host's LEFT side. `tx`/`pos` address the STRIP — the
+  // part the student aims at, and the part that must not move when a panel opens — so
+  // the host, which is what actually gets translated, begins `lead` px further left
+  // whenever the panel opens leftward. Zero in every other form, which leaves the bubble
+  // and row math exactly as it was.
+  const lead = columnForm && panelLeft ? Math.max(0, curW - VERTICAL_PILL_W) : 0;
+
   // Peek card content: while generating, the live/streaming message; once the
   // turn ends, the last assistant message — both read straight off the shared
   // chat thread. `!busy` (not `generatingPhase === "idle"`) decides "done" so a
@@ -379,6 +396,24 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const startTX = useSharedValue(0);
   const startTY = useSharedValue(0);
 
+  // The drag tray belongs to the COLLAPSED bubble. Once the pill is opened into its
+  // toolbar the three targets are redundant — the strip carries its own collapse and
+  // close, and its row already holds the tools and keyboard chips — so all they do is
+  // float over the page the student is trying to read.
+  //
+  // Settling them on the `expanded` edge is not belt-and-braces. `dragActive` is
+  // cleared by the pan's onFinalize, and the pan is rebuilt whenever its measurements
+  // move — opening a fly-out changes curW and lead, and a rebuild orphans the old
+  // instance's onFinalize. Left to the gesture alone the targets can outlive the drag
+  // that raised them and sit there for good.
+  useEffect(() => {
+    dragActive.value = 0;
+    overTarget.value = 0;
+    overKeyboard.value = 0;
+    overTools.value = 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
   // When the keyboard is up, float the dismiss X + keep the pill above BOTH the
   // keyboard and the docked formatting bar (~56px) that sits above it.
   const dismissBottom = keyboardHeight > 0 ? keyboardHeight + 56 : insets.bottom;
@@ -401,10 +436,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   const toolsCY = height - toolsBottom - DISMISS_SIZE / 2; // tools center Y
   const closeCY = height - closeBottom - DISMISS_SIZE / 2; // close center Y
 
-  const minX = 8;
+  // Bounds are on the HOST — its whole width has to stay on screen — but expressed in
+  // the coordinate tx carries, the STRIP's left edge, which sits `lead` px to the right
+  // of the host's whenever the fly-out opens leftward.
+  const minX = 8 + lead;
   // Guard the max bounds so a device narrower/shorter than the pill can't yield a
   // max < min (which would clamp the pill off-screen).
-  const maxX = Math.max(minX, width - curW - 8);
+  const maxX = Math.max(minX, width - (curW - lead) - 8);
   // Keep the pill clear of the header chrome at the top.
   const minY = insets.top + 100;
   const maxY = Math.max(minY, height - dismissBottom - curH - 8);
@@ -443,20 +481,11 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
   // a bubble anchored near the bottom into a tall strip would otherwise run its lower
   // chips (✦ Ask AI included) off the screen. curH is constant for the row forms, so
   // their behaviour is unchanged.
-  const prevColumnW = React.useRef<number | null>(null);
   useEffect(() => {
-    // Column form: opening/closing a fly-out panel changes the host's WIDTH, and the
-    // host is positioned by its LEFT edge — so in LTR, where the strip is the trailing
-    // child, the strip itself would slide clear across the screen. Absorb the delta
-    // into x to pin it. RTL puts the strip on the leading edge, which the left anchor
-    // already holds still.
-    if (columnForm) {
-      const prev = prevColumnW.current;
-      if (prev != null && prev !== curW && !rtl) tx.value = tx.value + (prev - curW);
-      prevColumnW.current = curW;
-    } else {
-      prevColumnW.current = null;
-    }
+    // Column form: opening a fly-out changes the HOST's width, never the strip's place —
+    // `lead` absorbs the difference in the transform below, so there is nothing to
+    // compensate for here. Only the bounds move (they now leave room for the panel), and
+    // a strip too near an edge to fit one gets nudged in by the clamp.
     const clampedX = Math.min(Math.max(tx.value, minX), maxX);
     // COLLAPSING is the case that strands the bubble mid-screen: the pill's x was
     // clamped for its wide form, and a 52px bubble at that x sits nowhere near an
@@ -467,7 +496,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     const clampedY = Math.min(Math.max(ty.value, minY), maxY);
     if (clampedY !== ty.value) ty.value = withSpring(clampedY, SPRING);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curW, curH, columnForm, expanded]);
+  }, [curW, curH, columnForm, expanded, lead]);
 
   const dismiss = () => {
     const ws = useWorkspaceStore.getState();
@@ -573,16 +602,22 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           "worklet";
           startTX.value = tx.value;
           startTY.value = ty.value;
-          dragActive.value = withTiming(1, { duration: 140 });
+          // Raise the tray only for the collapsed bubble — the opened toolbar drags
+          // to reposition itself, nothing more.
+          if (!expanded) dragActive.value = withTiming(1, { duration: 140 });
         })
         .onUpdate((e) => {
           "worklet";
           tx.value = startTX.value + e.translationX;
           ty.value = startTY.value + e.translationY;
+          // No tray while opened → nothing to hit-test, and no target may light up
+          // (or fire on release) behind a strip that isn't showing one.
+          if (expanded) return;
           // Hit test: pill center vs the C2 tray targets (right-edge column). Close is
           // the UPPER target, ⌨ the LOWER (nearest the thumb). Nearest-within-radius wins
-          // so the two hit zones never light both at once.
-          const cx = tx.value + curW / 2;
+          // so the two hit zones never light both at once. `- lead` turns tx (the strip)
+          // back into the host's left edge, which is what curW measures from.
+          const cx = tx.value - lead + curW / 2;
           const cy = ty.value + curH / 2;
           const distClose = Math.hypot(cx - trayCX, cy - closeCY);
           const distTools = Math.hypot(cx - trayCX, cy - toolsCY);
@@ -624,9 +659,17 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           // The COLLAPSED bubble additionally flies to the nearer screen edge, the
           // Messenger chat-head rule: it may be dropped anywhere, but it never rests
           // over the text. The expanded pill stays exactly where it was let go.
-          const clampedX = Math.min(Math.max(tx.value, minX), maxX);
+          // The fly-out side follows the half the STRIP lands in, so a drop that crosses
+          // the middle is clamped against the bounds of the side it is ARRIVING at —
+          // clamping against the one it left would fence a wide panel out of the far
+          // half of the screen. Mirrors the render-scope minX/maxX, one frame earlier.
+          const leadNext =
+            columnForm && tx.value + VERTICAL_PILL_W / 2 > width / 2 ? Math.max(0, curW - VERTICAL_PILL_W) : 0;
+          const loX = 8 + leadNext;
+          const hiX = Math.max(loX, width - (curW - leadNext) - 8);
+          const clampedX = Math.min(Math.max(tx.value, loX), hiX);
           const clampedY = Math.min(Math.max(ty.value, minY), maxY);
-          const restX = expanded ? clampedX : clampedX + curW / 2 < width / 2 ? minX : maxX;
+          const restX = expanded ? clampedX : clampedX + curW / 2 < width / 2 ? loX : hiX;
           tx.value = withSpring(restX, SPRING);
           ty.value = withSpring(clampedY, SPRING);
           runOnJS(persistPos)({ x: restX, y: clampedY });
@@ -641,10 +684,13 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
           overTools.value = 0;
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [width, height, insets.top, insets.bottom, curW, curH, columnForm, keyboardHeight]);
+  }, [width, height, insets.top, insets.bottom, curW, curH, columnForm, keyboardHeight, lead]);
 
+  // tx is the STRIP's left edge; the host it translates starts `lead` px earlier when a
+  // fly-out is open on that side. Nothing animates the swap — the panel's own entrance
+  // covers it, and the strip must stay exactly under the finger that opened it.
   const pillStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: tx.value }, { translateY: ty.value }],
+    transform: [{ translateX: tx.value - lead }, { translateY: ty.value }],
   }));
 
   // Spawn/re-anchor beside the selected block: when the selected INDEX changes and
@@ -675,7 +721,9 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
     const isFirst = lastAnchoredIndex.current == null;
     lastAnchoredIndex.current = soleIndex;
     if (anchorY == null) return;
-    const sideX = rtl ? minX : Math.max(minX, width - curW - 12);
+    // In strip coordinates: `curW - lead` is the strip's own width, so the trailing-edge
+    // spot doesn't shift just because a fly-out happens to be open beside it.
+    const sideX = rtl ? minX : Math.max(minX, width - (curW - lead) - 12);
     // Sit the bubble ABOVE the caret line, not centered on it. anchorY is the
     // block's TOP, so centering (anchorY - BUBBLE_SIZE/2) parks the bubble's lower
     // half over the first line — it covers the caret and the text being typed
@@ -705,37 +753,43 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
       {pillVisible && (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           {/* C2 drag tray — right-edge column: ✕ close (upper) + ⌨ keyboard toggle
-              (lower), each with a label that flies out on hover. Both revealed while
-              dragging the bubble. */}
-          <DismissTarget
-            visible={dragActive}
-            active={overTarget}
-            right={trayRight}
-            bottom={closeBottom}
-            label={t("bubble.close", { defaultValue: "Close" })}
-          />
-          <DismissTarget
-            visible={dragActive}
-            active={overTools}
-            right={trayRight}
-            bottom={toolsBottom}
-            Icon={LayoutGrid}
-            variant="neutral"
-            label={t("dockBar.tools", { defaultValue: "Document tools" })}
-          />
-          <DismissTarget
-            visible={dragActive}
-            active={overKeyboard}
-            right={trayRight}
-            bottom={kbBottom}
-            Icon={keyboardActive ? KeyboardOff : KeyboardIcon}
-            variant="neutral"
-            label={
-              keyboardActive
-                ? t("bubble.keyboardOff", { defaultValue: "Keyboard off" })
-                : t("bubble.keyboardOn", { defaultValue: "Keyboard on" })
-            }
-          />
+              (lower), each with a label that flies out on hover. Revealed while
+              dragging the COLLAPSED bubble, and unmounted outright once the pill is
+              opened: the toolbar offers all three itself, so on top of an open strip
+              they were only cover over the thesis. */}
+          {!expanded && (
+            <>
+              <DismissTarget
+                visible={dragActive}
+                active={overTarget}
+                right={trayRight}
+                bottom={closeBottom}
+                label={t("bubble.close", { defaultValue: "Close" })}
+              />
+              <DismissTarget
+                visible={dragActive}
+                active={overTools}
+                right={trayRight}
+                bottom={toolsBottom}
+                Icon={LayoutGrid}
+                variant="neutral"
+                label={t("dockBar.tools", { defaultValue: "Document tools" })}
+              />
+              <DismissTarget
+                visible={dragActive}
+                active={overKeyboard}
+                right={trayRight}
+                bottom={kbBottom}
+                Icon={keyboardActive ? KeyboardOff : KeyboardIcon}
+                variant="neutral"
+                label={
+                  keyboardActive
+                    ? t("bubble.keyboardOff", { defaultValue: "Keyboard off" })
+                    : t("bubble.keyboardOn", { defaultValue: "Keyboard on" })
+                }
+              />
+            </>
+          )}
           <GestureDetector gesture={pan}>
             <Animated.View
               layout={layoutSpring}
@@ -779,6 +833,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                   onAskAI={() => useFloatingPillStore.getState().setInputOpen(true)}
                   onCollapse={() => useFloatingPillStore.getState().setExpanded(false)}
                   onColumnWidth={setColumnW}
+                  panelLeft={panelLeft}
                   bottomInset={0}
                   blocks={blocks}
                   chrome={chromeSelection}
@@ -815,6 +870,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                 onAskAI={() => useFloatingPillStore.getState().setInputOpen(true)}
                 onCollapse={() => useFloatingPillStore.getState().setExpanded(false)}
                 onColumnWidth={setColumnW}
+                panelLeft={panelLeft}
                 bottomInset={0}
                 blocks={blocks}
               />
