@@ -236,7 +236,7 @@
   "drawer": {
     "openMenu": "فتح القائمة",
     "newThesis": "مذكرة جديدة",
-    "writer": "المحرر",
+    "writer": "كويلر",
     "ask": "اسأل",
     "tools": "الأدوات",
     "templates": "القوالب",
@@ -660,6 +660,7 @@
     "stop": "إيقاف التوليد",
     "selectThesis": "اختر مذكرة من الرئيسية لبدء المحادثة",
     "more": "المزيد",
+    "downloadFormat": "تنزيل {{format}}",
     "viewFull": "عرض كامل",
     "viewMore": "عرض المزيد",
     "showLess": "عرض أقل",

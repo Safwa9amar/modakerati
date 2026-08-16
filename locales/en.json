@@ -236,7 +236,7 @@
   "drawer": {
     "openMenu": "Open menu",
     "newThesis": "New thesis",
-    "writer": "Writer",
+    "writer": "Kwiller",
     "ask": "Ask",
     "tools": "Tools",
     "templates": "Templates",
@@ -660,6 +660,7 @@
     "stop": "Stop generating",
     "selectThesis": "Select a thesis from Home to start chatting",
     "more": "More",
+    "downloadFormat": "Download {{format}}",
     "viewFull": "View full",
     "viewMore": "View more",
     "showLess": "Show less",

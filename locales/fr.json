@@ -236,7 +236,7 @@
   "drawer": {
     "openMenu": "Ouvrir le menu",
     "newThesis": "Nouveau mémoire",
-    "writer": "Éditeur",
+    "writer": "Kwiller",
     "ask": "Demander",
     "tools": "Outils",
     "templates": "Modèles",
@@ -660,6 +660,7 @@
     "stop": "Arreter la generation",
     "selectThesis": "Selectionnez un memoire pour commencer",
     "more": "Plus",
+    "downloadFormat": "Télécharger {{format}}",
     "viewFull": "Afficher en entier",
     "viewMore": "Voir plus",
     "showLess": "Voir moins",
