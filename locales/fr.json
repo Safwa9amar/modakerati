@@ -406,7 +406,9 @@
     "signingInWithLink": "Connexion en cours…",
     "confirmingEmail": "Confirmation de votre e-mail…",
     "linkOneMoment": "Cela prend un instant.",
-    "errorEmailRateLimit": "Kwill a épuisé ses e-mails de réinitialisation pour cette heure. Réessayez plus tard."
+    "errorEmailRateLimit": "Kwill a épuisé ses e-mails de réinitialisation pour cette heure. Réessayez plus tard.",
+    "showPassword": "Afficher le mot de passe",
+    "hidePassword": "Masquer le mot de passe"
   },
   "combine": {
     "short": "Combiner\nDocs",

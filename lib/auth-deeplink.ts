@@ -40,6 +40,15 @@ export function useAuthDeepLink(enabled: boolean) {
       if (!url || consumed.current.has(url)) return;
 
       const params = readCallbackParams(url);
+      // Dev-only, and deliberately not the token values: four ordering bugs in
+      // this flow were invisible because nothing said what actually arrived.
+      // Prints in the Metro terminal.
+      if (__DEV__) {
+        console.log(
+          "[auth-link] url:", url.slice(0, 60),
+          "| keys:", Array.from(params.keys()).join(",") || "(none)",
+        );
+      }
       const code = params.get("code");
       const failure = params.get("error_description") ?? params.get("error");
       // The implicit shape: tokens delivered directly in the fragment instead of
@@ -49,7 +58,10 @@ export function useAuthDeepLink(enabled: boolean) {
       // from the 2-per-hour allowance.
       const accessToken = params.get("access_token");
       const refreshToken = params.get("refresh_token");
-      if (!code && !failure && !accessToken) return; // an ordinary deep link — a notification route, say
+      if (!code && !failure && !accessToken) {
+        if (__DEV__) console.log("[auth-link] ignored — no code, no token, no error");
+        return; // an ordinary deep link — a notification route, say
+      }
 
       // Implicit links say what they are (`type=recovery`), so unlike the PKCE
       // path they need no remembered flag — which is what makes an
@@ -89,6 +101,7 @@ export function useAuthDeepLink(enabled: boolean) {
       // over Linking, so ITS `?code=` reaches this listener too, and racing
       // google-auth for the same single-use code would break sign-in.
       const flow = await readPendingAuthLink();
+      if (__DEV__) console.log("[auth-link] pkce branch, pending flag:", flow ?? "(none)");
       if (!flow || !active) return;
 
       consumed.current.add(url);

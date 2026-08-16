@@ -406,7 +406,9 @@
     "signingInWithLink": "جارٍ تسجيل دخولك…",
     "confirmingEmail": "جارٍ تأكيد بريدك الإلكتروني…",
     "linkOneMoment": "يستغرق هذا لحظة.",
-    "errorEmailRateLimit": "استُنفدت رسائل إعادة التعيين لهذه الساعة. حاول لاحقاً."
+    "errorEmailRateLimit": "استُنفدت رسائل إعادة التعيين لهذه الساعة. حاول لاحقاً.",
+    "showPassword": "إظهار كلمة المرور",
+    "hidePassword": "إخفاء كلمة المرور"
   },
   "combine": {
     "short": "دمج\nملفات",

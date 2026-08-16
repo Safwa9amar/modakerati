@@ -406,7 +406,9 @@
     "signingInWithLink": "Signing you in…",
     "confirmingEmail": "Confirming your email…",
     "linkOneMoment": "This takes a moment.",
-    "errorEmailRateLimit": "Kwill has used up its reset emails for this hour. Try again later."
+    "errorEmailRateLimit": "Kwill has used up its reset emails for this hour. Try again later.",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
   },
   "combine": {
     "short": "Combine\nDocs",
