@@ -247,6 +247,10 @@
     "currentThesis": "المذكرة الحالية",
     "contents": "المحتويات",
     "recent": "الأخيرة",
+    "myTheses": "مذكراتي",
+    "freeChats": "محادثات حرة",
+    "showAll": "عرض الكل ({{count}})",
+    "showLess": "عرض أقل",
     "noTheses": "لا توجد مذكرات بعد",
     "searchTheses": "ابحث في المذكرات",
     "account": "الحساب"

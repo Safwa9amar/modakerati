@@ -66,12 +66,10 @@ interface Props {
   isLiveTurn?: boolean;
   isLastAssistant?: boolean;
   isUnanswered?: boolean;
-  isSpeaking?: boolean;
   onExpand?: (content: string) => void;
   onPreviewFile?: (file: FilePayload) => void;
   onRegenerate?: () => void;
   onRetryMessage?: (id: string) => void;
-  onSpeak?: (id: string, text: string) => void;
   onViewImage?: (image: ChatImage) => void;
   onBlockPress?: (link: BlockLink, label: string) => void;
 }
@@ -83,12 +81,10 @@ export const MessageBubble = memo(function MessageBubble({
   isLiveTurn,
   isLastAssistant,
   isUnanswered,
-  isSpeaking,
   onExpand,
   onPreviewFile,
   onRegenerate,
   onRetryMessage,
-  onSpeak,
   onViewImage,
   onBlockPress,
 }: Props) {
@@ -127,10 +123,6 @@ export const MessageBubble = memo(function MessageBubble({
   // answer), so both routes to a dead end offer the same way out.
   const sendFailed = isUser && !!item.failed;
   const canRetryOwn = isUser && (sendFailed || !!isUnanswered);
-  // Read-aloud is offered on every finished assistant answer, not just the last
-  // one — the reason to tap it is usually a long reply further up. Dev-only
-  // while the neural voice is still being evaluated on real devices.
-  const canSpeak = __DEV__ && !isUser && !isStreaming && hasContent && !!onSpeak;
   // The reasoning is still streaming (no answer text yet) → the "Thinking" toggle
   // shows live bouncing dots so it reads as active, replacing the separate typing
   // indicator. Once the answer starts (or the turn ends) the dots stop and it
@@ -241,9 +233,6 @@ export const MessageBubble = memo(function MessageBubble({
           expanded={expanded}
           onToggleExpand={() => setExpanded((e) => !e)}
           onViewFull={() => onExpand?.(item.content)}
-          canSpeak={canSpeak}
-          isSpeaking={isSpeaking}
-          onSpeak={() => onSpeak?.(item.id, bodyText)}
           canRegenerate={canRegenerate}
           onRegenerate={onRegenerate}
         />

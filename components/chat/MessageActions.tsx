@@ -1,38 +1,49 @@
-import { useEffect, useRef, useState } from "react";
-import { View, Pressable, Share, StyleSheet } from "react-native";
-import * as Clipboard from "expo-clipboard";
+import { View, Text, Pressable, Share, StyleSheet } from "react-native";
+import { useRouter, usePathname } from "expo-router";
 import { useTranslation } from "react-i18next";
 import {
-  Check,
   ChevronDown,
   ChevronUp,
-  Copy,
+  FileText,
+  Library,
+  ListChecks,
   Maximize2,
   RotateCcw,
   Share2,
-  Square,
-  Volume2,
+  type LucideIcon,
 } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
+import { useThesisStore } from "@/stores/thesis-store";
 import { visualRow } from "@/lib/rtl-layout";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The row of affordances under a finished assistant answer.
+// The row under a finished assistant answer.
 //
-// ICONS ONLY, on the page itself — no labels, no framing box, no separator. The
-// previous version was a bordered strip of icon+text pairs inside the bubble,
-// and at three or four actions it took more vertical space than a short answer
-// did. What the reader wants from an answer is the answer; these are the quiet
-// second row, the same way every assistant app does it.
+// TWO JOBS, in this order, kept apart by a hairline:
 //
-// Every icon here does something REAL. There is no thumbs-up/down pair, because
-// nothing server-side records one yet and a button that swallows the tap is
-// worse than no button.
+//   1. WHERE TO GO — the Writer, the Library, the student's Tasks. Labelled
+//      chips, first in the row, because they are why the row is worth its space:
+//      these are the app's three destinations and the conversation is its front
+//      door. They used to live in the drawer, which put every trip to the
+//      document behind a swipe.
+//   2. WHAT TO DO WITH THIS ANSWER — share, expand, regenerate. Bare glyphs,
+//      after the rule, in the quiet way every assistant app draws them.
+//
+// The chips are labelled and the glyphs are not, deliberately: an unlabelled
+// document icon sitting next to Share reads as one more thing to do to the text
+// rather than a place to go.
+//
+// Copy and read-aloud were here and are gone — the row could not hold eight
+// controls on a phone, and between them and the three destinations the
+// destinations are what a student reaches for. Sharing still hands over the
+// text, which is what copying was mostly used for.
+//
+// Every control does something REAL. Writer and Tasks are simply ABSENT when
+// there is no thesis to open, rather than present and dead.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// How long the copy button stays a ✓ before returning to the copy glyph.
-const COPIED_MS = 1600;
 const ICON = 17;
+const CHIP_ICON = 13;
 
 /** One borderless icon button. Generous hit slop — the glyphs are small. */
 function ActionIcon({
@@ -51,8 +62,42 @@ function ActionIcon({
   );
 }
 
+/**
+ * One destination. A STATIC style array — never `style={({pressed}) => …}`,
+ * which under the New Architecture can silently apply nothing and leave the chip
+ * as a borderless glyph stacked on its own label.
+ */
+function DestinationChip({
+  label,
+  icon: Icon,
+  onPress,
+  rtl,
+  colors,
+}: {
+  label: string;
+  icon: LucideIcon;
+  onPress: () => void;
+  rtl: boolean;
+  colors: ReturnType<typeof useThemeColors>;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[styles.chip, { borderColor: colors.borderDefault, flexDirection: visualRow(rtl) }]}
+    >
+      <Icon size={CHIP_ICON} color={colors.brandPrimary} strokeWidth={2} />
+      <Text style={[styles.chipLabel, { color: colors.textPrimary }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 interface Props {
-  /** The answer's text — what copy and share hand over. */
+  /** The answer's text — what share hands over. */
   text: string;
   /** Direction of THIS message, so the row reads the way the answer does. */
   rtl?: boolean;
@@ -61,9 +106,6 @@ interface Props {
   expanded?: boolean;
   onToggleExpand?: () => void;
   onViewFull?: () => void;
-  canSpeak?: boolean;
-  isSpeaking?: boolean;
-  onSpeak?: () => void;
   canRegenerate?: boolean;
   onRegenerate?: () => void;
 }
@@ -75,35 +117,21 @@ export function MessageActions({
   expanded,
   onToggleExpand,
   onViewFull,
-  canSpeak,
-  isSpeaking,
-  onSpeak,
   canRegenerate,
   onRegenerate,
 }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const [copied, setCopied] = useState(false);
-  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // The ✓ is on a timer, and a message can leave the list (thread switch,
-  // regenerate) before it fires — clear it or the setState lands on a gone row.
-  useEffect(() => {
-    return () => {
-      if (resetTimer.current) clearTimeout(resetTimer.current);
-    };
-  }, []);
-
-  async function handleCopy() {
-    try {
-      await Clipboard.setStringAsync(text);
-    } catch {
-      return; // nothing was copied — don't claim otherwise
-    }
-    setCopied(true);
-    if (resetTimer.current) clearTimeout(resetTimer.current);
-    resetTimer.current = setTimeout(() => setCopied(false), COPIED_MS);
-  }
+  const router = useRouter();
+  const pathname = usePathname();
+  // The thesis the CONVERSATION is about: the selection follows the thread in
+  // both directions (see handlePickThread in app/(app)/chat.tsx), so reading it
+  // from the store here is the same document the answer above was written for.
+  const thesisId = useThesisStore((s) => s.currentThesisId);
+  // This row is also rendered by the floating chat overlay, which can sit ON TOP
+  // of the Writer. Offering "Writer" there would push a second copy of the screen
+  // the student is already looking at.
+  const onWriter = pathname.includes("thesis-workspace");
 
   async function handleShare() {
     try {
@@ -119,33 +147,50 @@ export function MessageActions({
 
   return (
     <View style={[styles.row, { flexDirection: visualRow(!!rtl) }]}>
-      <ActionIcon
-        label={copied ? t("chat.copied", { defaultValue: "Copied" }) : t("chat.copy", { defaultValue: "Copy" })}
-        onPress={handleCopy}
-      >
-        {copied ? (
-          <Check size={ICON} color={colors.semanticSuccess} strokeWidth={2.2} />
-        ) : (
-          <Copy size={ICON} color={ink} strokeWidth={1.9} />
+      {/* The three destinations are ONE cluster, tighter inside than the row's
+          own gap. Spaced like the glyphs they'd read as three unrelated buttons
+          that happen to be adjacent; pulled together they read as the set they
+          are — and the whole row then fits a phone on one line. */}
+      <View style={[styles.cluster, { flexDirection: visualRow(!!rtl) }]}>
+        {!!thesisId && !onWriter && (
+          <DestinationChip
+            label={t("drawer.writer")}
+            icon={FileText}
+            rtl={!!rtl}
+            colors={colors}
+            onPress={() =>
+              router.push({ pathname: "/(app)/thesis-workspace", params: { thesisId } } as any)
+            }
+          />
         )}
-      </ActionIcon>
+
+        <DestinationChip
+          label={t("drawer.library")}
+          icon={Library}
+          rtl={!!rtl}
+          colors={colors}
+          onPress={() => router.push("/(app)/library" as any)}
+        />
+
+        {!!thesisId && (
+          <DestinationChip
+            label={t("tasks.title")}
+            icon={ListChecks}
+            rtl={!!rtl}
+            colors={colors}
+            onPress={() => router.push({ pathname: "/(app)/tasks", params: { thesisId } } as any)}
+          />
+        )}
+      </View>
+
+      {/* The hairline is what makes the two halves legible as two halves: go
+          somewhere, or act on this answer. Always drawn, because the Library is
+          always reachable — the other two come and go with the thesis. */}
+      <View style={[styles.rule, { backgroundColor: colors.borderSubtle }]} />
 
       <ActionIcon label={t("chat.share", { defaultValue: "Share" })} onPress={handleShare}>
         <Share2 size={ICON} color={ink} strokeWidth={1.9} />
       </ActionIcon>
-
-      {canSpeak && (
-        <ActionIcon
-          label={isSpeaking ? t("chat.stopAudio", { defaultValue: "Stop" }) : t("chat.listen", { defaultValue: "Listen" })}
-          onPress={() => onSpeak?.()}
-        >
-          {isSpeaking ? (
-            <Square size={ICON - 3} color={ink} strokeWidth={2} fill={ink} />
-          ) : (
-            <Volume2 size={ICON} color={ink} strokeWidth={1.9} />
-          )}
-        </ActionIcon>
-      )}
 
       {canExpand && (
         <>
@@ -175,7 +220,25 @@ export function MessageActions({
 }
 
 const styles = StyleSheet.create({
-  // Wide gaps: these are separate taps, not a toolbar, and the icons carry no
-  // labels to keep them apart.
-  row: { alignItems: "center", columnGap: 22, marginTop: 10, paddingVertical: 2 },
+  // The row WRAPS rather than clipping or scrolling: three labelled chips plus
+  // the glyphs outrun a narrow phone, and with the chips first it is the glyphs
+  // that fall to the second line — the right way round. rowGap keeps that second
+  // line off the one above it.
+  row: {
+    alignItems: "center",
+    flexWrap: "wrap",
+    columnGap: 14,
+    rowGap: 10,
+    marginTop: 10,
+    paddingVertical: 2,
+  },
+  // The chips sit half a row-gap apart. It wraps too, so the cluster degrades on
+  // a very narrow phone instead of pushing the row sideways.
+  cluster: { alignItems: "center", flexWrap: "wrap", columnGap: 7, rowGap: 8 },
+  // Vertical hairline between the two halves. Negative margins against the row's
+  // columnGap pull it closer to both sides than two taps ever are, so it reads as
+  // a divider rather than as another control.
+  rule: { width: StyleSheet.hairlineWidth, height: ICON, marginHorizontal: -4 },
+  chip: { alignItems: "center", gap: 5, borderWidth: 1, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
+  chipLabel: { fontSize: 11.5, fontFamily: "Inter_600SemiBold" },
 });

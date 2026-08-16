@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   Pressable,
   ScrollView,
@@ -16,19 +17,17 @@ import {
   Search,
   X,
   PenLine,
-  FileText,
   Sparkles,
   LayoutGrid,
   FolderUp,
   Combine,
-  Download,
-  Library,
-  History,
   Newspaper,
   List,
   ChevronRight,
   ChevronLeft,
-  ListChecks,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
   type LucideIcon,
 } from "lucide-react-native";
 
@@ -36,13 +35,17 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useThesisStore } from "@/stores/thesis-store";
+import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { useProfileStore } from "@/stores/profile-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useChatHead } from "@/stores/chat-head-store";
 import { useImportStore } from "@/stores/import-store";
 import { useCombineStore } from "@/stores/combine-store";
 import { AvatarPicker } from "@/components/AvatarPicker";
 import { ThesisOutlinePanel } from "@/components/workspace/ThesisOutlinePanel";
 import { listTheses } from "@/lib/api";
+
+const WORDMARK = require("../assets/wordmark.png");
 
 // -----------------------------------------------------------------------------
 // The app's single index. Every page in Kwill is a row in here — there is no
@@ -88,6 +91,8 @@ function AppIndex() {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const rtl = useRTL();
+  // A primitive, not a derived object — see the Zustand selector trap.
+  const theme = useSettingsStore((s) => s.theme);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
@@ -100,22 +105,37 @@ function AppIndex() {
   const theses = useThesisStore((s) => s.theses);
   const currentThesisId = useThesisStore((s) => s.currentThesisId);
   const profile = useProfileStore((s) => s.profile);
+  // Conversations attached to no thesis at all — the plain-assistant chats. They
+  // used to surface only inside the history panel, mixed in with every thesis's
+  // threads; they are a list of their own and belong in the app's index next to
+  // the documents, not buried in a panel scoped to one of them.
+  const threads = useChatThreadsStore((s) => s.threads);
 
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  // Each list shows a preview until asked for the rest. Reset on close so the
+  // next open starts short again — an expanded list left open pushes the account
+  // foot off the bottom of a small phone.
+  const [allTheses, setAllTheses] = useState(false);
+  const [allChats, setAllChats] = useState(false);
 
-  // Refresh the list each time the drawer is opened — it is now the only place
+  // Refresh both lists each time the drawer is opened — it is now the only place
   // theses are listed, so a stale list here is a stale list everywhere. Painting
   // from the store first means the rows are never blank while this runs.
   useEffect(() => {
     if (!open) {
       setSearching(false);
       setQuery("");
+      setAllTheses(false);
+      setAllChats(false);
       return;
     }
     let alive = true;
     setLoading(true);
+    // The thread list is best-effort and owns its own loading flag; only the
+    // theses gate the spinner, because only they can leave the drawer empty.
+    void useChatThreadsStore.getState().load();
     listTheses()
       .then((rows) => {
         if (alive) useThesisStore.getState().setTheses(rows);
@@ -208,22 +228,11 @@ function AppIndex() {
       accent: true,
       onPress: () => go(() => router.push("/(app)/start-thesis" as any)),
     },
-    {
-      key: "writer",
-      icon: FileText,
-      label: t("drawer.writer"),
-      onPress: () =>
-        go(() => {
-          if (currentThesis) {
-            router.replace({
-              pathname: "/(app)/thesis-workspace",
-              params: { thesisId: currentThesis.id },
-            } as any);
-          } else {
-            router.push("/(app)/start-thesis" as any);
-          }
-        }),
-    },
+    // Writer, Library and Tasks used to sit here. They now ride under every
+    // assistant answer (components/chat/MessageActions) — the conversation is the
+    // app's front door, and putting its three exits a drawer away meant every
+    // trip to the document cost a swipe and a tap. They are NOT duplicated here:
+    // one home per destination, or the drawer becomes a second front door again.
     {
       key: "ask",
       icon: Sparkles,
@@ -273,28 +282,6 @@ function AppIndex() {
     //       } as any);
     //     }),
     // },
-    {
-      key: "tasks",
-      icon: ListChecks,
-      label: t("tasks.title"),
-      // Tasks act ON a thesis, so this must not open an empty screen. Same
-      // guard the export entry above uses.
-      onPress: () =>
-        go(() => {
-          if (currentThesis) {
-            router.push({
-              pathname: "/(app)/tasks",
-              params: { thesisId: currentThesis.id },
-            } as any);
-          }
-        }),
-    },
-    {
-      key: "library",
-      icon: Library,
-      label: t("drawer.library"),
-      onPress: () => go(() => router.push("/(app)/library" as any)),
-    },
     {
       key: "news",
       icon: Newspaper,
@@ -354,6 +341,35 @@ function AppIndex() {
     return [...rows].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
   }, [theses, query]);
 
+  // Never re-sorted: the server already returned the threads in display order
+  // (pinned first, then most recent), the same contract lib/thread-groups.ts
+  // relies on.
+  const freeChats = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const rows = threads.filter((th) => !th.thesisId);
+    if (!q) return rows;
+    return rows.filter((th) => (th.title ?? "").toLowerCase().includes(q));
+  }, [threads, query]);
+
+  // Searching shows every match — a hit hidden behind "Show all" reads as the
+  // search having missed it.
+  const hasQuery = query.trim().length > 0;
+  const shownTheses = allTheses || hasQuery ? recent : recent.slice(0, PREVIEW_ROWS);
+  const shownChats = allChats || hasQuery ? freeChats : freeChats.slice(0, PREVIEW_ROWS);
+
+  // Open a conversation that has no document behind it. The thesis selection is
+  // NOT cleared here — the chat screen does it, from the thread row itself, the
+  // same way picking one in the history panel does (see handlePickThread).
+  const openFreeChat = useCallback(
+    (threadId: string) => {
+      go(() => {
+        useChatThreadsStore.getState().requestOpenThread(threadId);
+        router.dismissTo("/(app)/chat" as any);
+      });
+    },
+    [go, router],
+  );
+
   const displayName =
     profile?.fullName?.trim() || profile?.email?.split("@")[0] || t("profile.notSet");
 
@@ -398,9 +414,26 @@ function AppIndex() {
           </View>
         ) : (
           <>
-            <Text style={[styles.brand, { color: colors.textPrimary, textAlign: rtl.textAlign }]} numberOfLines={1}>
-              {t("auth.appName")}
-            </Text>
+            {/* The logo, not the word. Same rule as the login screen: the art is
+                emissive and sits on its own black ground, so it only reads on the
+                dark theme — the light theme keeps the type. The spacer after it
+                does the job the old `flex: 1` on the Text did, pushing search to
+                the far end without stretching a fixed-size image. */}
+            {theme === "dark" ? (
+              <>
+                <Image
+                  source={WORDMARK}
+                  style={styles.wordmark}
+                  resizeMode="contain"
+                  accessibilityLabel={t("auth.appName")}
+                />
+                <View style={styles.brandSpacer} />
+              </>
+            ) : (
+              <Text style={[styles.brand, { color: colors.textPrimary, textAlign: rtl.textAlign }]} numberOfLines={1}>
+                {t("auth.appName")}
+              </Text>
+            )}
             <Pressable
               onPress={() => setSearching(true)}
               hitSlop={10}
@@ -463,7 +496,7 @@ function AppIndex() {
 
         <View style={[styles.recentHead, { flexDirection: rtl.flexDirection }]}>
           <Text style={[styles.bandLabel, { color: colors.textSecondary, flex: 1, textAlign: rtl.textAlign }]}>
-            {t("drawer.recent")}
+            {t("drawer.myTheses")}
           </Text>
           {loading && <ActivityIndicator size="small" color={colors.textSecondary} />}
         </View>
@@ -473,18 +506,26 @@ function AppIndex() {
               {t("drawer.noTheses")}
             </Text>
           ) : (
-            recent.map((th) => {
+            shownTheses.map((th) => {
               const isCurrent = th.id === currentThesisId;
               return (
                 <Pressable
                   key={th.id}
+                  // A thesis opens its CONVERSATION, not the editor. The chat is
+                  // the app's front door and the Writer is one chip away from it
+                  // (see MessageActions), so landing in the document skipped past
+                  // everything the student was more likely to want first.
+                  //
+                  // The selection is set BEFORE navigating: the chat screen stays
+                  // mounted between visits and reads the thesis out of this store,
+                  // so writing it after the route change would leave it resolving
+                  // the previous thesis's thread. dismissTo, not replace, for the
+                  // reason spelled out on the Ask row above.
                   onPress={() =>
-                    go(() =>
-                      router.replace({
-                        pathname: "/(app)/thesis-workspace",
-                        params: { thesisId: th.id },
-                      } as any),
-                    )
+                    go(() => {
+                      useThesisStore.getState().setCurrentThesis(th.id);
+                      router.dismissTo("/(app)/chat" as any);
+                    })
                   }
                   onLongPress={() => openThesisMenu(th.id, th.title)}
                   // Plain, like every other row: the brand dot at the end is what
@@ -510,7 +551,63 @@ function AppIndex() {
               );
             })
           )}
+          <MoreRow
+            hidden={hasQuery || recent.length <= PREVIEW_ROWS}
+            expanded={allTheses}
+            total={recent.length}
+            onPress={() => setAllTheses((v) => !v)}
+            rtl={rtl}
+            colors={colors}
+            t={t}
+          />
         </View>
+
+        {/* Conversations with no document behind them. Rendered only when there
+            are some — an empty band would be a heading explaining an absence. */}
+        {freeChats.length > 0 && (
+          <>
+            <View style={[styles.recentHead, { flexDirection: rtl.flexDirection }]}>
+              <Text style={[styles.bandLabel, { color: colors.textSecondary, flex: 1, textAlign: rtl.textAlign }]}>
+                {t("drawer.freeChats")}
+              </Text>
+            </View>
+            <View style={styles.recentList}>
+              {shownChats.map((th) => (
+                <Pressable
+                  key={th.id}
+                  onPress={() => openFreeChat(th.id)}
+                  style={[styles.row, { flexDirection: rtl.flexDirection }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={th.title?.trim() || t("chat.threads.untitled")}
+                >
+                  <MessageSquare size={16} color={colors.textSecondary} />
+                  <Text
+                    style={[
+                      styles.rowLabel,
+                      {
+                        color: colors.textSecondary,
+                        textAlign: rtl.textAlign,
+                        fontFamily: "Inter_400Regular",
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {th.title?.trim() || t("chat.threads.untitled")}
+                  </Text>
+                </Pressable>
+              ))}
+              <MoreRow
+                hidden={hasQuery || freeChats.length <= PREVIEW_ROWS}
+                expanded={allChats}
+                total={freeChats.length}
+                onPress={() => setAllChats((v) => !v)}
+                rtl={rtl}
+                colors={colors}
+                t={t}
+              />
+            </View>
+          </>
+        )}
       </ScrollView>
 
       {/* Account sits at the foot, never in the list. */}
@@ -536,6 +633,51 @@ function AppIndex() {
         </Text>
       </Pressable>
     </View>
+  );
+}
+
+/**
+ * The "Show all (12) / Show less" toggle at the foot of a preview list.
+ *
+ * Renders as null rather than being conditionally mounted by the caller so the
+ * two lists read the same at their call sites. `hidden` covers both reasons
+ * there is nothing to reveal: a list already short enough, and a search — where
+ * a match held back behind a button reads as the search having missed it.
+ */
+function MoreRow({
+  hidden,
+  expanded,
+  total,
+  onPress,
+  rtl,
+  colors,
+  t,
+}: {
+  hidden: boolean;
+  expanded: boolean;
+  total: number;
+  onPress: () => void;
+  rtl: ReturnType<typeof useRTL>;
+  colors: ReturnType<typeof useThemeColors>;
+  t: ReturnType<typeof useTranslation>["t"];
+}) {
+  if (hidden) return null;
+  const Chevron = expanded ? ChevronUp : ChevronDown;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.row, { flexDirection: rtl.flexDirection }]}
+      accessibilityRole="button"
+    >
+      {/* Sits in the icon column so its label lines up with the rows above it. */}
+      <Chevron size={16} color={colors.textSecondary} />
+      <Text
+        style={[styles.moreLabel, { color: colors.textSecondary, textAlign: rtl.textAlign }]}
+        numberOfLines={1}
+      >
+        {expanded ? t("drawer.showLess") : t("drawer.showAll", { count: total })}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -596,6 +738,12 @@ const GUTTER = 8;
 const ROW_PAD = 10;
 const COLUMN = GUTTER + ROW_PAD;
 
+// How many rows a list shows before "Show all". Four is what fits under both
+// bands, plus the tool rows and the account foot, on the shortest phone we
+// support — the whole body scrolls, but a drawer that opens already needing a
+// scroll to reach anything is a drawer that failed as an index.
+const PREVIEW_ROWS = 4;
+
 const styles = StyleSheet.create({
   host: { flex: 1 },
   // Both views stay mounted so switching preserves scroll + collapse state.
@@ -604,6 +752,13 @@ const styles = StyleSheet.create({
   panel: { flex: 1 },
   head: { alignItems: "center", gap: 8, paddingHorizontal: COLUMN, paddingBottom: 8, minHeight: 40 },
   brand: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold" },
+  // The art's own 1.5 aspect, so `contain` letterboxes nothing, sized so the
+  // glyphs (which fill ~73% of the height) land a little larger than the 18pt
+  // type they replace. It carries its own glow padding, hence the negative
+  // margins — they claw back the empty ground so the optical spacing matches
+  // what the text had and the 40pt head row doesn't grow.
+  wordmark: { width: 62, height: 41, marginVertical: -5, marginStart: -4 },
+  brandSpacer: { flex: 1 },
   iconBtn: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
   searchBox: {
     flex: 1,
@@ -635,6 +790,9 @@ const styles = StyleSheet.create({
   // Same shape as every other row — it only stands clear of the list below it.
   rowAccent: { marginBottom: 10 },
   rowLabel: { flex: 1, fontSize: 14 },
+  // A shade smaller than a real row: it is a control over the list, not an
+  // entry in it.
+  moreLabel: { flex: 1, fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
   dot: { width: 6, height: 6, borderRadius: 3 },
   body: { flex: 1 },
   // flexGrow, not flex: the body has to fill the panel when the bands are short

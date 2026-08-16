@@ -247,6 +247,10 @@
     "currentThesis": "Mémoire en cours",
     "contents": "Sommaire",
     "recent": "Récents",
+    "myTheses": "Mes mémoires",
+    "freeChats": "Discussions libres",
+    "showAll": "Tout afficher ({{count}})",
+    "showLess": "Afficher moins",
     "noTheses": "Aucun mémoire",
     "searchTheses": "Rechercher un mémoire",
     "account": "Compte"

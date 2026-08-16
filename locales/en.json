@@ -247,6 +247,10 @@
     "currentThesis": "Current thesis",
     "contents": "Contents",
     "recent": "Recent",
+    "myTheses": "My theses",
+    "freeChats": "Free chats",
+    "showAll": "Show all ({{count}})",
+    "showLess": "Show less",
     "noTheses": "No theses yet",
     "searchTheses": "Search theses",
     "account": "Account"

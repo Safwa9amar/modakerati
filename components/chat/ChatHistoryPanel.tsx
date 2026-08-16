@@ -69,7 +69,11 @@ export function ChatHistoryPanel({
   onNew,
 }: {
   visible: boolean;
-  /** Used only to offer "about this thesis" as one reading of ＋. */
+  /**
+   * The thesis the chat behind this panel is about. It SCOPES the list (see the
+   * note on `scoped` in the body) and offers "about this thesis" as one reading
+   * of ＋.
+   */
   thesisId: string | null;
   onClose: () => void;
   onPick: (threadId: string) => void;
@@ -164,13 +168,42 @@ function PanelBody({
 
   const thesisTitles = useMemo(() => new Map(theses.map((th) => [th.id, th.title])), [theses]);
 
-  const sections = useMemo(
-    () => groupThreads(threads).map((s) => ({ key: s.key, data: s.threads })),
-    [threads],
+  // ── Scope ────────────────────────────────────────────────────────────────
+  // The history button belongs to a conversation about a document, so it opens
+  // THAT document's conversations — not the five other theses' as well, which is
+  // what turned this panel into a wall of "Untitled conversation" rows the
+  // student had to read thesis headings to navigate.
+  //
+  // Unattached threads are out too. They are the plain-assistant chats — they
+  // belong to no thesis by definition, so listing them under a thesis's history
+  // was the same mixing, one bucket smaller. They now have their own band in the
+  // drawer (see the free-chat list in components/AppDrawer), which is a better
+  // home than a panel scoped to a document they have nothing to do with.
+  //
+  // Filtered HERE rather than by scoping the fetch, so the panel and the drawer
+  // share the one thread list already in memory instead of each holding a
+  // differently-scoped copy of it.
+  const inScope = useCallback((id: string | null) => !thesisId || id === thesisId, [thesisId]);
+
+  const scoped = useMemo(() => threads.filter((th) => inScope(th.thesisId)), [threads, inScope]);
+  // Search hits an endpoint with no thesis filter, so its results are narrowed
+  // the same way — otherwise typing a word would silently escape the scope the
+  // list above is held to.
+  const scopedResults = useMemo(
+    () => results.filter((r) => inScope(r.thread.thesisId)),
+    [results, inScope],
   );
 
-  const showSkeleton = loading && threads.length === 0 && !hasQuery;
-  const showEmpty = hasQuery ? results.length === 0 : !loading && sections.length === 0;
+  const scopeTitle = thesisId ? (thesisTitles.get(thesisId) ?? "") : "";
+  const scopeDir = firstStrongDirection(scopeTitle, ambientDir);
+
+  const sections = useMemo(
+    () => groupThreads(scoped).map((s) => ({ key: s.key, data: s.threads })),
+    [scoped],
+  );
+
+  const showSkeleton = loading && scoped.length === 0 && !hasQuery;
+  const showEmpty = hasQuery ? scopedResults.length === 0 : !loading && sections.length === 0;
 
   const openMenu = useCallback((thread: ChatThread) => setMenuThread(thread), []);
   const closeMenu = useCallback(() => setMenuThread(null), []);
@@ -276,6 +309,20 @@ function PanelBody({
         </Pressable>
       </View>
 
+      {/* What the list is scoped to. Without it a panel showing three rows where
+          there used to be twenty reads as data loss rather than as a filter. */}
+      {!!scopeTitle && (
+        <View style={[styles.scope, { flexDirection: rtl.flexDirection, backgroundColor: colors.brandPrimary + "1A" }]}>
+          <FileText size={13} color={colors.brandPrimary} strokeWidth={2} />
+          <Text
+            numberOfLines={1}
+            style={[styles.scopeLabel, { color: colors.brandPrimary }, dirStyle(scopeDir)]}
+          >
+            {isolateBidi(scopeTitle, scopeDir)}
+          </Text>
+        </View>
+      )}
+
       <View
         style={[
           styles.searchBox,
@@ -320,7 +367,7 @@ function PanelBody({
         </View>
       ) : hasQuery ? (
         <FlatList
-          data={results}
+          data={scopedResults}
           keyExtractor={(r) => r.messageId}
           contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
@@ -577,6 +624,19 @@ const styles = StyleSheet.create({
   },
   title: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold" },
   closeBtn: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+
+  scope: {
+    alignItems: "center",
+    gap: 7,
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    marginHorizontal: 20,
+    marginBottom: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 9,
+  },
+  scopeLabel: { flexShrink: 1, fontSize: 11.5, fontFamily: "Inter_600SemiBold" },
 
   searchBox: {
     alignItems: "center",

@@ -201,9 +201,13 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   // AI-generated quick-action chips from the recent conversation + RAG. Only the
   // visible instance fetches, and not while an ask sheet is open. No block
   // selection in plain chat, so it grounds on the conversation alone.
-  // Read-aloud for a tapped assistant answer. One at a time, owned here so
-  // starting a second message cuts the first off (see useSpeakMessage).
-  const { speakingId, toggle: toggleSpeak, stop: stopSpeaking } = useSpeakMessage(i18n.language);
+  // Read-aloud. Nothing STARTS it any more — the speaker button came off the
+  // answer's action row along with copy, to make room for the three destinations
+  // that replaced them (see components/chat/MessageActions). Only the stop
+  // remains, wired into every place that takes the floor from a conversation
+  // (thread switch, regenerate, retry), so re-adding the button is a one-line
+  // change rather than a re-audit of where speech has to be cut off.
+  const { stop: stopSpeaking } = useSpeakMessage(i18n.language);
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<RNTextInput>(null);
   // True while the list is within NEAR_BOTTOM of the end. Gates auto-scroll so
@@ -391,6 +395,77 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     [stopSpeaking]
   );
 
+  // Which thesis this screen is currently SHOWING, as far as the outside world
+  // is concerned. The effect below is the only writer.
+  const shownThesisRef = useRef(initialThesisId);
+
+  // A thesis switched from OUTSIDE this screen — the drawer's thesis list now
+  // routes into the chat rather than the Writer, and this screen is the bottom of
+  // the stack, so it is already mounted and `dismissTo` pops back down to it
+  // rather than building a new one.
+  //
+  // Without this the opening resolve above would never run again (loadedRef is a
+  // one-shot, deliberately) and `thesisId` is seeded from the prop only on the
+  // first render — so the header would show the newly chosen thesis while the
+  // transcript underneath it stayed the PREVIOUS thesis's conversation, and the
+  // next question would be sent to that thread. Right title, wrong document.
+  useEffect(() => {
+    if (initialThesisId === shownThesisRef.current) return;
+    shownThesisRef.current = initialThesisId;
+    // Changes that originated HERE — picking a thread, attaching a thesis, the
+    // assistant creating one mid-turn — already moved this screen and then wrote
+    // the selection outwards; the prop is only echoing back. Those must not
+    // re-resolve, or picking a thread would immediately be overridden by
+    // ensureThreadFor answering with a different one.
+    if (initialThesisId === thesisId) return;
+
+    stopSpeaking();
+    isNearBottomRef.current = true;
+    userHasScrolledRef.current = false;
+    setShowScrollDown(false);
+    // An untyped ＋ belongs to the conversation being left behind.
+    pendingNewThreadRef.current = null;
+    setThesisId(initialThesisId);
+    setThreadId(null);
+
+    if (!initialThesisId) {
+      // Deselected rather than switched — a blank chat, nothing to fetch.
+      setResolving(false);
+      setLoadingHistory(false);
+      return;
+    }
+
+    // Same question the opening resolve asks, and the same rule about the
+    // skeleton: wait behind it, because a thesis being reopened almost always has
+    // a conversation on the server to pull down.
+    setResolving(true);
+    let alive = true;
+    void useChatThreadsStore
+      .getState()
+      .ensureThreadFor(initialThesisId)
+      .then((id) => {
+        // Two switches in quick succession: the first must never land on top of
+        // the second's conversation.
+        if (!alive) return;
+        setLoadingHistory(threadHasHistory(id));
+        setThreadId(id);
+        useChatThreadsStore.getState().setCurrent(id);
+        setResolving(false);
+      })
+      .catch(() => {
+        if (!alive) return;
+        // Offline, or a thesis this account can't open. Leave them in an empty
+        // conversation rather than an eternal skeleton — same reasoning as the
+        // opening resolve's catch.
+        setResolving(false);
+        setLoadingHistory(false);
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialThesisId]);
+
   // ＋ from the history panel. Nothing is created here and nothing is created
   // server-side: the screen simply empties out into a blank conversation the
   // student can type into, and handleSend makes the thread real on the first
@@ -420,6 +495,22 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     [stopSpeaking]
   );
 
+  // A conversation the DRAWER asked for — its free-chat band opens a thread
+  // directly, and nothing about that thread's thesis need have changed (a free
+  // chat has none, and neither may the one on screen), so the thesis-switch
+  // effect above cannot see it. An explicit intent is the only honest signal.
+  //
+  // Gated on `active`: several chat screens can be mounted at once (the stack's
+  // own, the floating overlay), they all watch this one store field, and exactly
+  // one of them has the floor. Whoever consumes it clears it, so the others find
+  // nothing left to do.
+  const pendingOpenThreadId = useChatThreadsStore((s) => s.pendingOpenThreadId);
+  useEffect(() => {
+    if (!pendingOpenThreadId || !active) return;
+    useChatThreadsStore.getState().consumeOpenThread();
+    handlePickThread(pendingOpenThreadId);
+  }, [pendingOpenThreadId, active, handlePickThread]);
+
   // Attach a thesis to this conversation. The server records WHEN, and tells the
   // model on the next turn that the earlier exchanges happened without document
   // access — so it can't describe them as though it had been reading along.
@@ -446,6 +537,31 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
     },
     [threadId, t]
   );
+
+  // A thesis can be born mid-conversation: the assistant creates one
+  // (create_thesis) and the server attaches THIS conversation to it. Nothing in
+  // the stream says so — lib/ai-service.ts re-reads the thread row once the turn
+  // ends — so without adopting it here the screen goes on believing it has no
+  // document: the composer keeps offering "attach", the header stays untitled,
+  // and the next turn is sent unattached, which is offered no document tools.
+  //
+  // Only ever FILLS an empty attachment. A conversation already about a thesis
+  // is never moved by a background refresh; switching is the student's to do.
+  const attachedThesisId = useChatThreadsStore((s) =>
+    threadId ? s.threads.find((th) => th.id === threadId)?.thesisId ?? null : null
+  );
+  useEffect(() => {
+    if (thesisId || !attachedThesisId) return;
+    setThesisId(attachedThesisId);
+    // The selection follows the conversation, the same way handlePickThread and
+    // handleAttachThesis move it — the Writer and the drawer come along.
+    useThesisStore.getState().setCurrentThesis(attachedThesisId);
+    // The picker may be open on top of this — it is mounted only while nothing
+    // is attached, so it is about to unmount. Clear the store flag with it, or
+    // the name stays "open" with no sheet behind it and the next opening is a
+    // no-op (same reason the pick handler closes it explicitly).
+    useBottomSheet.getState().closeSheet("thesis-attach");
+  }, [attachedThesisId, thesisId]);
 
   // Bridge the model's pending question (data, in the chat store) to the global
   // sheet store so the "ask" sheet's open state lives alongside every other sheet.
@@ -954,12 +1070,10 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
                   isLiveTurn={item.id === liveTurnId}
                   isLastAssistant={index === messages.length - 1 && item.role === "assistant" && messages.length > 1}
                   isUnanswered={index === messages.length - 1 && item.role === "user" && !isGenerating}
-                  isSpeaking={item.id === speakingId}
                   onExpand={setViewerContent}
                   onPreviewFile={handleDownloadFile}
                   onRegenerate={handleRegenerate}
                   onRetryMessage={handleRetryMessage}
-                  onSpeak={toggleSpeak}
                   onViewImage={setViewerImage}
                   onBlockPress={openThesisBlock}
                 />

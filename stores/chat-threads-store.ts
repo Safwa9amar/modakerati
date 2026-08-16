@@ -26,6 +26,17 @@ const EMPTY_RESULTS: ThreadSearchResult[] = [];
 interface ChatThreadsState {
   threads: ChatThread[];
   currentThreadId: string | null;
+  /**
+   * A conversation something OUTSIDE the chat screen wants it to open — the
+   * drawer's free-chat list. The screen consumes it and clears it.
+   *
+   * Setting `currentThreadId` alone is not enough: the chat screen holds the
+   * thread it is showing in its own state and only re-resolves when the selected
+   * THESIS changes, so switching between two conversations that share a thesis
+   * (or share none at all) would move nothing. This is an explicit intent rather
+   * than a piece of state to diff against.
+   */
+  pendingOpenThreadId: string | null;
   loading: boolean;
   query: string;
   results: ThreadSearchResult[];
@@ -36,6 +47,11 @@ interface ChatThreadsState {
    *  outline-store.sync). */
   load: (thesisId?: string) => Promise<void>;
   setCurrent: (id: string | null) => void;
+  /** Ask the chat screen to open this conversation (see pendingOpenThreadId). */
+  requestOpenThread: (id: string) => void;
+  /** The chat screen acknowledging the request above — always call it, or the
+   *  same conversation is re-opened on the screen's every subsequent render. */
+  consumeOpenThread: () => void;
   /** Optimistically create a thread (shown first, matching the server's own
    *  ranking for a brand-new empty thread), reconciled with the real row.
    *  Returns the new thread's id. */
@@ -63,6 +79,7 @@ interface ChatThreadsState {
 export const useChatThreadsStore = create<ChatThreadsState>((set, get) => ({
   threads: [],
   currentThreadId: null,
+  pendingOpenThreadId: null,
   loading: false,
   query: "",
   results: EMPTY_RESULTS,
@@ -82,6 +99,10 @@ export const useChatThreadsStore = create<ChatThreadsState>((set, get) => ({
   },
 
   setCurrent: (id) => set({ currentThreadId: id }),
+
+  requestOpenThread: (id) => set({ pendingOpenThreadId: id }),
+
+  consumeOpenThread: () => set({ pendingOpenThreadId: null }),
 
   newThread: async (thesisId) => {
     const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;

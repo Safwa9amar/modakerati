@@ -20,10 +20,10 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useFocusEffect, Redirect } from "expo-router";
+import { useLocalSearchParams, useFocusEffect, useRouter, Redirect } from "expo-router";
 import * as Device from "expo-device";
 import { useTranslation } from "react-i18next";
-import { Undo2, Redo2 } from "lucide-react-native";
+import { Undo2, Redo2, X } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -36,7 +36,6 @@ import { useNavDrawerStore } from "@/stores/nav-drawer-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useFloatingPillStore } from "@/stores/floating-pill-store";
 import { useLexicalEditorStore } from "@/stores/lexical-editor-store";
-import { DrawerMenuButton } from "@/components/DrawerMenuButton";
 import { useSettingsStore } from "@/stores/settings-store";
 import { WordDocxView, type DocTapBlock } from "@/components/workspace/WordDocxView";
 import { OnlyOfficeView } from "@/components/workspace/OnlyOfficeView";
@@ -205,6 +204,22 @@ export default function ThesisWorkspaceScreen() {
       clearInterval(id);
     };
   }, [thesisId]);
+
+  // The Writer is opened FROM the conversation now — the chip under an assistant
+  // answer, and the drawer's thesis list — and it slides up out of it (see
+  // FROM_CHAT in app/(app)/_layout.tsx). So the leading control is a CLOSE, not a
+  // back arrow: it puts the document down and returns to where it was picked up.
+  //
+  // `canGoBack` is the honest test. Land here from a deep link, or from a screen
+  // that replaced itself into the Writer (import, combine), and there is nothing
+  // below to pop — the chat is where "closed" means, so go there directly rather
+  // than leaving a dead button.
+  const router = useRouter();
+  const closeWorkspace = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(app)/chat" as any);
+  }, [router]);
+
 
   // Screen top-bar collapse (#6): a manual toggle from the ✦ dock hides the top bar
   // (back / title / undo-redo / ⋯) to give the writer more vertical space. Animate
@@ -588,8 +603,6 @@ export default function ThesisWorkspaceScreen() {
     return () => clearTimeout(id);
   }, [isLiveDoc, previewMode, isGenerating, pendingOps, docVersionKey, ensurePdfForVersion]);
 
-  const title = thesis?.title ?? "";
-
   // No thesis asked for at all. There is nothing to write in, so send the
   // student to chat — which works perfectly well without a document and offers
   // to attach or start one.
@@ -607,14 +620,11 @@ export default function ThesisWorkspaceScreen() {
         edges={[]}
       >
         <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
-          <DrawerMenuButton />
-          <Text
-            style={[styles.topTitle, { color: colors.textPrimary }]}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
-          <View style={styles.expandBtn} />
+          {/* The same close pill the loaded header has, in the same place, so
+              nothing moves the moment the document arrives. The history pill is
+              absent because there is no document to have a history yet. */}
+          <ClosePill onPress={closeWorkspace} colors={colors} label={t("common.close", { defaultValue: "Close" })} />
+          <View style={styles.topSpacer} />
         </View>
         <DocSkeleton />
       </SafeAreaView>
@@ -641,21 +651,55 @@ export default function ThesisWorkspaceScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.container}>
-      {/* Top bar — collapsible (#6). The static spacer keeps the safe area (dark
-          background behind the notch); the bar row below collapses on the ✦ dock's
-          top-bar toggle so the writer gets more vertical space. */}
-      <View style={{ paddingTop: insets.top }}>
-        <Animated.View style={headerCollapseStyle} onLayout={(e) => measureHeaderBar(e.nativeEvent.layout.height)}>
-        <View style={styles.topBar}>
-          <DrawerMenuButton />
-          <Text style={[styles.topTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-            {title}
-          </Text>
+      {/* The status-bar strip, and ONLY the status-bar strip, keeps a fill. It is
+          painted in the theme's own colour so the OS clock and icons — which
+          ThemeProvider styles from the theme, light text on dark and dark on
+          light — stay legible over it. The paper below it is white in both
+          themes, so letting the document run all the way up would leave the clock
+          white-on-white every night. */}
+      <View style={{ height: insets.top, backgroundColor: colors.bgSurface }} />
+
+      {/* Everything else floats. The bar has no fill of its own: the two pills sit
+          straight on the page and the document scrolls behind them, which is the
+          whole point of a screen whose subject is the document. `box-none` on the
+          host and the row so only the pills themselves take a touch — the paper
+          between and around them stays tappable and scrollable.
+
+          Still the collapsible bar from #6: the ✦ dock's manual toggle and the
+          scroll-driven auto-hide both fade it out. Being out of the flow now, that
+          fade no longer moves the page a pixel. */}
+      <View style={[styles.headerHost, { top: insets.top }]} pointerEvents="box-none">
+        <Animated.View
+          style={headerCollapseStyle}
+          onLayout={(e) => measureHeaderBar(e.nativeEvent.layout.height)}
+          pointerEvents="box-none"
+        >
+        {/* TWO PILLS over the page, and nothing else.
+
+            The thesis title is gone from here: this screen shows one document and
+            only ever shows that one, so naming it at the top of every page spent
+            the widest line on the page restating what the page already is. The
+            title still names the conversation this was opened from, which is
+            where a student actually needs to be told which thesis they are in.
+
+            What is left is grouped by what it does. Leaving is one round button
+            at the leading edge; the two history controls are one pill at the
+            trailing edge, together because undo and redo are a pair and reading
+            them as two loose glyphs is what made the old bar look like a toolbar
+            with a hole in the middle. */}
+        <View style={styles.topBar} pointerEvents="box-none">
+          <ClosePill onPress={closeWorkspace} colors={colors} label={t("common.close", { defaultValue: "Close" })} />
+          <View style={styles.topSpacer} pointerEvents="none" />
           {/* Undo / redo: server-side history restores. Disabled while queue ops are
               pending (positional indices would replay against the restored doc) or
               while an AI turn is running. */}
           {liveDoc && (
-            <>
+            <View
+              style={[
+                styles.pill,
+                { backgroundColor: colors.bgPrimary, borderColor: colors.borderDefault },
+              ]}
+            >
               <Pressable
                 onPress={() => void runHistory("undo")}
                 onLongPress={() => {
@@ -663,45 +707,49 @@ export default function ThesisWorkspaceScreen() {
                 }}
                 delayLongPress={400}
                 disabled={!undoReady}
-                hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={t("workspace.undo", { defaultValue: "Undo" })}
-                style={styles.expandBtn}
+                style={styles.pillBtn}
               >
                 <Undo2 size={20} color={undoReady ? colors.textPrimary : colors.textPlaceholder} />
               </Pressable>
               <Pressable
                 onPress={() => void runHistory("redo")}
                 disabled={!redoReady}
-                hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={t("workspace.redo", { defaultValue: "Redo" })}
-                style={styles.expandBtn}
+                style={styles.pillBtn}
               >
                 <Redo2 size={20} color={redoReady ? colors.textPrimary : colors.textPlaceholder} />
               </Pressable>
-            </>
+            </View>
           )}
           {/* Read-only preview (Word / PDF), live docs only — editing is the Writer.
               Switched off for now; see PREVIEW_ENABLED atop this file. */}
           {PREVIEW_ENABLED && liveDoc && <PreviewButton />}
         </View>
         </Animated.View>
+
+        {/* Top-pinned document search (find/replace + semantic). Inside the
+            floating host so it lands BELOW the pills rather than behind them, but
+            OUTSIDE the collapsing wrapper above — it must never fade with the bar
+            (searchOpen also pins the bar shown). It draws its own fill, unlike
+            everything else up here, because a find field over running text is
+            unreadable. Renders nothing at all while search is closed. */}
+        {liveDoc && <SearchPanel thesisId={thesisId} blocks={liveDoc.blocks} />}
       </View>
 
-      {/* A scheduled run is editing this thesis right now. Not a lock — the run
-          interleaves exactly like an ordinary AI turn — but the student must
-          know it is happening. */}
-      {liveRunId ? <RunningBanner /> : null}
+      {/* The scheduled-run banner used to sit here — a "Working…" strip under the
+          header while a run edits this thesis. It is off the Writer now: this
+          screen is the page and nothing else, and a status bar pinned across the
+          top of it was the last thing between the pills and the paper. The run is
+          still visible where it is actionable — Tasks, and the ✦ dock's working
+          note — and it never blocked editing here anyway.
+
+          To put it back: `{liveRunId ? <RunningBanner /> : null}`. */}
 
       {/* In-preview toolbar (Word/PDF/close). Renders nothing while writing. */}
       {PREVIEW_ENABLED && liveDoc && <PreviewBar />}
-
-      {/* Top-pinned document search (find/replace + semantic). Sits between the
-          header and the doc area so it survives keyboard dismissal. Mounted OUTSIDE
-          the auto-hiding header wrapper (it must never collapse with the header;
-          searchOpen also pins the header shown above). */}
-      {liveDoc && <SearchPanel thesisId={thesisId} blocks={liveDoc.blocks} />}
 
       {/* White base so the composer's reserved bottom clearance (and the small top
           gap above the paper) render as paper, not the dark app background. */}
@@ -905,27 +953,69 @@ export default function ThesisWorkspaceScreen() {
   );
 }
 
+/**
+ * The leading control: put this document down and go back to where it was picked
+ * up. Round rather than the trailing pill's stadium, so the two never read as one
+ * split control — they do different things and sit at opposite ends.
+ */
+function ClosePill({
+  onPress,
+  colors,
+  label,
+}: {
+  onPress: () => void;
+  colors: ReturnType<typeof useThemeColors>;
+  label: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[
+        styles.pill,
+        styles.pillRound,
+        { backgroundColor: colors.bgPrimary, borderColor: colors.borderDefault },
+      ]}
+    >
+      <X size={20} color={colors.textPrimary} strokeWidth={2} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  // Out of the flow entirely, so the page runs under it and the bar's collapse
+  // costs the document no reflow. `elevation` as well as `zIndex`: on Android
+  // touch dispatch follows elevation, so a zIndex-only bar paints above the page
+  // and still loses the tap to it (same reason PushDrawer's edge strip has both).
+  headerHost: { position: "absolute", left: 0, right: 0, zIndex: 20, elevation: 20 },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 8,
   },
-  topTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    textAlign: "center",
-  },
-  expandBtn: {
-    width: 40,
+  // The two pills are pushed to opposite ends by this rather than by
+  // space-between, so a third control (the preview button) can still join the
+  // trailing end without the leading one drifting inwards.
+  topSpacer: { flex: 1 },
+  // Lifted off the page: bgPrimary is LIGHTER than the header's own bgSurface in
+  // the light theme and darker in the dark one, so the hairline is what makes it
+  // read as a control in both — never the fill alone.
+  pill: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    height: 38,
+    borderRadius: 19,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 4,
   },
-  expandIcon: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
+  pillRound: { width: 38, justifyContent: "center", paddingHorizontal: 0 },
+  // 34 wide inside a 38 pill: the touch target fills the pill's height, so no
+  // hitSlop is needed and two adjacent taps can't miss between them.
+  pillBtn: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   // Full-width, centered overlay host for the milestone toast (top offset applied
   // inline from the safe-area inset). box-none so only the pill itself is a target.
   milestoneHost: { position: "absolute", left: 0, right: 0, alignItems: "center", zIndex: 100 },
