@@ -21,6 +21,7 @@ import { useProfileStore } from "@/stores/profile-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { listTheses } from "@/lib/api";
 import { registerForPushNotificationsAsync, addNotificationListeners } from "@/lib/push-notifications";
+import { useAuthDeepLink } from "@/lib/auth-deeplink";
 import { applyDeviceRTLOnFirstLaunch, getStoredLanguage, restartApp } from "@/lib/i18n";
 import i18n from "@/lib/i18n";
 import "../global.css";
@@ -36,10 +37,11 @@ const HOME_HREF = "/(app)/chat";
 function useProtectedRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const recoveryMode = useAuthStore((s) => s.recoveryMode);
   const hasCompletedOnboarding = useSettingsStore((s) => s.hasCompletedOnboarding);
   const segments = useSegments();
   const router = useRouter();
-  
+
   useEffect(() => {
     if (isLoading) return;
 
@@ -64,12 +66,18 @@ function useProtectedRoute() {
       } else if (!isAuthenticated) {
         if (!inAuthGroup) router.replace("/(auth)/login" as any);
       } else if (inAuthGroup) {
-        router.replace(HOME_HREF as any);
+        // ...unless a password reset is mid-flight. Verifying the emailed code
+        // signs the student in — that session is what authorises the password
+        // change — so an authenticated user inside (auth) is EXPECTED here, and
+        // ejecting them would skip the screen that actually sets the password.
+        // The flag is cleared by finishRecovery() on the confirmation screen,
+        // and this effect re-runs on it to perform the redirect then.
+        if (!recoveryMode) router.replace(HOME_HREF as any);
       }
     }, Platform.OS === "android" ? 100 : 0);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated, isLoading, hasCompletedOnboarding, segments]);
+  }, [isAuthenticated, isLoading, recoveryMode, hasCompletedOnboarding, segments]);
 }
 
 export default function RootLayout() {
@@ -161,6 +169,13 @@ export default function RootLayout() {
   }, [isAuthenticated]);
 
   useProtectedRoute();
+
+  // A password-reset or confirmation link coming back into the app. Gated on the
+  // same condition as the render below, because it navigates: the router does
+  // not exist while this returns null, and a `replace()` issued into that gap is
+  // silently dropped — which would strand the student on the chat with an
+  // unchanged password.
+  useAuthDeepLink(appReady && fontsLoaded);
 
   if (!appReady || !fontsLoaded) return null;
 

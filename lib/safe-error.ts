@@ -38,8 +38,35 @@ const INFRA_RE =
  * passed through — those are written for the student and carry no addresses.
  * Everything else collapses to one of two written sentences.
  */
+/** Read a thrown value's message, whatever shape it arrived in. */
+export function errorText(e: unknown): string {
+  return (e instanceof Error ? e.message : typeof e === "string" ? e : "")?.trim() ?? "";
+}
+
+/**
+ * True when the request never reached the server.
+ *
+ * Worth distinguishing from every other failure, because it is the only one
+ * where RETRYING THE SAME THING is the right advice — and where a screen must
+ * not conclude that whatever it was carrying has gone bad. A password-reset link
+ * whose exchange dies on a lost connection is still a perfectly good link.
+ */
+export function isConnectionError(e: unknown): boolean {
+  const raw = errorText(e);
+  return raw ? CONNECTION_RE.test(raw) : false;
+}
+
+/**
+ * True when the message shows ANY sign of infrastructure — a host, an IP, a
+ * Java/OkHttp class name — and so must be replaced wholesale rather than shown.
+ */
+export function looksLikeInfrastructure(e: unknown): boolean {
+  const raw = errorText(e);
+  return raw ? INFRA_RE.test(raw) : false;
+}
+
 export function userFacingError(e: unknown): string {
-  const raw = (e instanceof Error ? e.message : typeof e === "string" ? e : "")?.trim() ?? "";
+  const raw = errorText(e);
 
   const offline = i18n.t("chat.errorOffline", {
     defaultValue: "I couldn't reach the server. Check your connection and try again.",

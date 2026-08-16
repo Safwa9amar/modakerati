@@ -17,7 +17,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { isAppleSignInAvailable } from "@/lib/apple-auth";
-import { userFacingError } from "@/lib/safe-error";
+import { authErrorMessage } from "@/lib/auth-errors";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 
@@ -34,6 +34,17 @@ export default function LoginScreen() {
   const signInWithEmail = useAuthStore((s) => s.signInWithEmail);
   const signInWithGoogle = useAuthStore((s) => s.signInWithGoogle);
   const signInWithApple = useAuthStore((s) => s.signInWithApple);
+  const abandonRecovery = useAuthStore((s) => s.abandonRecovery);
+
+  // Reaching login means the password reset was walked out of — by the back
+  // arrow, the hardware back, or "back to sign in". If the code had already been
+  // verified there is a live session on an account whose password never changed,
+  // and it would sit here suppressing the route guard forever. This is the one
+  // place every abandoned path converges, so it is where the session is dropped.
+  // No-ops unless a recovery is actually in flight.
+  useEffect(() => {
+    abandonRecovery();
+  }, []);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -64,7 +75,7 @@ export default function LoginScreen() {
     setLoading(true);
     const { error: err } = await signInWithEmail(email, password);
     setLoading(false);
-    if (err) setError(userFacingError(err));
+    if (err) setError(authErrorMessage(err));
   };
 
   const handleGoogle = async () => {
@@ -75,7 +86,7 @@ export default function LoginScreen() {
     // Backing out of the Google sheet is a normal thing to do — say nothing.
     // On success there is nothing to do either: the new session moves the app
     // to the chat through useProtectedRoute, and this screen unmounts.
-    if (!cancelled && err) setError(userFacingError(err));
+    if (!cancelled && err) setError(authErrorMessage(err));
   };
 
   const handleApple = async () => {
@@ -84,7 +95,7 @@ export default function LoginScreen() {
     const { error: err, cancelled } = await signInWithApple();
     setAppleLoading(false);
     // Dismissing the Apple sheet is normal — say nothing.
-    if (!cancelled && err) setError(userFacingError(err));
+    if (!cancelled && err) setError(authErrorMessage(err));
   };
 
   return (

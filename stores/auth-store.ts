@@ -7,11 +7,36 @@ import type { GoogleSignInResult } from "@/lib/google-auth";
 import type { AppleSignInResult } from "@/lib/apple-auth";
 import type { Session, User } from "@supabase/supabase-js";
 
+import { authCallbackUrl, markPendingAuthLink } from "@/lib/auth-link";
+import { retryingOnLostConnection } from "@/lib/auth-retry";
+import type { PendingAuthFlow } from "@/lib/auth-link";
+
+export interface SignUpResult {
+  error: string | null;
+  /** Supabase returned a user but no session — the address must be confirmed first. */
+  needsVerification: boolean;
+  /**
+   * The address already has an account. Supabase does NOT error on this (it
+   * would let anyone enumerate registered emails); it returns a user with an
+   * empty `identities` array instead. That is the only signal there is.
+   */
+  alreadyRegistered: boolean;
+}
+
 interface AuthState {
   session: Session | null;
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /**
+   * A password reset is in flight. Spending the emailed link SIGNS THE STUDENT
+   * IN — that session is how Supabase authorises the password change that
+   * follows — so without this flag `useProtectedRoute` would see
+   * `isAuthenticated` flip and throw them into the app one screen BEFORE they
+   * set the new password, with the old one still on the account. It is read by
+   * the route guard in app/_layout.tsx and by nothing else.
+   */
+  recoveryMode: boolean;
   setSession: (session: Session | null) => void;
   signInWithEmail: (email: string, password: string) => Promise<{ error: string | null }>;
   signUpWithEmail: (
@@ -19,11 +44,26 @@ interface AuthState {
     password: string,
     fullName: string,
     university?: { id: string; name: string } | null
-  ) => Promise<{ error: string | null }>;
+  ) => Promise<SignUpResult>;
   signInWithGoogle: () => Promise<GoogleSignInResult>;
   signInWithApple: () => Promise<AppleSignInResult>;
   signOut: () => Promise<void>;
   initialize: () => Promise<void>;
+  /** Step 1 of recovery: mail a link back into the app. */
+  requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
+  /** Mail another one. Supabase rate-limits this to roughly one a minute. */
+  resendAuthEmail: (email: string, flow: PendingAuthFlow) => Promise<{ error: string | null }>;
+  /**
+   * Step 2 happens outside this store: the link re-enters the app and
+   * lib/auth-deeplink.ts trades its code for a session, raising the guard first.
+   */
+  beginRecovery: () => void;
+  /** Step 3: write the new password onto the session the link opened. */
+  updatePassword: (password: string) => Promise<{ error: string | null }>;
+  /** Step 4: the password is changed — release the guard and let them into the app. */
+  finishRecovery: () => void;
+  /** Backing out mid-flow: drop the half-authorised session instead of stranding it. */
+  abandonRecovery: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -31,9 +71,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoading: true,
   isAuthenticated: false,
+  recoveryMode: false,
   setSession: (session) => set({ session, user: session?.user ?? null, isAuthenticated: !!session, isLoading: false }),
   signInWithEmail: async (email, password) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    // Retried: a dropped connection here used to read as a refused password.
+    const { error } = await retryingOnLostConnection(() =>
+      supabase.auth.signInWithPassword({ email, password }),
+    );
     return { error: error?.message ?? null };
   },
   // The university rides along in user_metadata because at signup there is no
@@ -42,17 +86,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   // If that migration has not been applied the extra keys are simply ignored and
   // start-thesis asks for the institution inline instead; nothing breaks.
   signUpWithEmail: async (email, password, fullName, university) => {
-    const { error } = await supabase.auth.signUp({
-      email,
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
       password,
       options: {
+        // Same link mechanism as recovery, for the same reason — so a confirmed
+        // address lands back INSIDE the app rather than on a web page.
+        emailRedirectTo: authCallbackUrl(),
         data: {
           full_name: fullName,
           ...(university ? { university: university.name, university_id: university.id } : {}),
         },
       },
     });
-    return { error: error?.message ?? null };
+    if (error) return { error: error.message, needsVerification: false, alreadyRegistered: false };
+    // Three outcomes, and the caller has to tell them apart because each sends
+    // the student somewhere different. Confirmations OFF → a session comes back
+    // and they are already in. Confirmations ON → a user with no session, so the
+    // check-email screen is next. Address already taken → a decoy user whose
+    // `identities` list is empty and whose email never receives anything.
+    const alreadyRegistered = !data.session && (data.user?.identities?.length ?? 0) === 0;
+    const needsVerification = !alreadyRegistered && !data.session && !!data.user;
+    // Only when a confirmation mail actually went out. Marking it otherwise
+    // would leave a flag that makes the next Google callback look like ours.
+    if (needsVerification) await markPendingAuthLink("signup");
+    return { error: null, needsVerification, alreadyRegistered };
   },
   // No `set` here on the way out: the session is written by
   // exchangeCodeForSession inside the browser flow, and onAuthStateChange (wired
@@ -63,11 +121,70 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     await supabase.auth.signOut();
     useProfileStore.getState().reset();
-    set({ session: null, user: null, isAuthenticated: false });
+    set({ session: null, user: null, isAuthenticated: false, recoveryMode: false });
   },
   initialize: async () => {
     const { data: { session } } = await supabase.auth.getSession();
     get().setSession(session);
     supabase.auth.onAuthStateChange((_event, session) => { get().setSession(session); });
+  },
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Password recovery: mail a link → the link re-opens the app → set the new
+  // password in the app → done.
+  //
+  // Link-based rather than a typed code, because a code has to be written into
+  // the email template and Supabase locks template editing behind custom SMTP.
+  // The stock template already sends a link, so this works on the free built-in
+  // mailer with no project configuration at all — the redirect target
+  // (`kwill://`) is already allow-listed, or Google sign-in would not work.
+  //
+  // The password itself is changed IN THE APP, never in a browser: the link
+  // carries a one-shot PKCE code, and the app is what spends it.
+  // ───────────────────────────────────────────────────────────────────────────
+  requestPasswordReset: async (email) => {
+    // Recorded before the mail is sent, and durably: the student will leave for
+    // a mail app and may not come back for an hour, long after this process is
+    // gone. Without it the returning link cannot be told apart from a Google
+    // callback — under PKCE both arrive as a bare `?code=`.
+    await markPendingAuthLink("recovery");
+    set({ recoveryMode: true });
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: authCallbackUrl(),
+    });
+    return { error: error?.message ?? null };
+  },
+  resendAuthEmail: async (email, flow) => {
+    const address = email.trim();
+    await markPendingAuthLink(flow);
+    const { error } =
+      flow === "signup"
+        ? await supabase.auth.resend({
+            type: "signup",
+            email: address,
+            options: { emailRedirectTo: authCallbackUrl() },
+          })
+        : await supabase.auth.resetPasswordForEmail(address, {
+            redirectTo: authCallbackUrl(),
+          });
+    return { error: error?.message ?? null };
+  },
+  beginRecovery: () => set({ recoveryMode: true }),
+  updatePassword: async (password) => {
+    // Retried: setting the same password twice is the same outcome, and losing
+    // this call strands the student on a spent link with the old password.
+    const { error } = await retryingOnLostConnection(() =>
+      supabase.auth.updateUser({ password }),
+    );
+    return { error: error?.message ?? null };
+  },
+  finishRecovery: () => set({ recoveryMode: false }),
+  abandonRecovery: async () => {
+    if (!get().recoveryMode) return;
+    set({ recoveryMode: false });
+    // If the code was already verified there is a live session on an account
+    // whose password never changed. Leaving it signed in would turn "I gave up
+    // halfway" into a silent login, so it goes.
+    if (get().session) await get().signOut();
   },
 }));

@@ -6,7 +6,11 @@ export default function AuthLayout() {
     <Stack.Screen name="login" />
     <Stack.Screen name="signup" />
     <Stack.Screen name="forgot-password" />
-    <Stack.Screen name="otp" />
+    {/* One waiting room, both emails that come back as a link — `flow` says which. */}
+    <Stack.Screen name="check-email" />
     <Stack.Screen name="reset-password" />
+    {/* Gesture off: this is the end of recovery and there is nothing valid
+        behind it — see the screen's own note. */}
+    <Stack.Screen name="password-changed" options={{ gestureEnabled: false }} />
   </Stack>;
 }

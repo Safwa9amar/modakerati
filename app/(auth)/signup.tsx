@@ -16,7 +16,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useAuthStore } from "@/stores/auth-store";
 import { BackButton } from "@/components/BackButton";
-import { userFacingError } from "@/lib/safe-error";
+import { authErrorMessage } from "@/lib/auth-errors";
 import { Button } from "@/components/ui/Button";
 import { TextInput } from "@/components/ui/TextInput";
 
@@ -38,23 +38,43 @@ export default function SignupScreen() {
 
   const handleSignUp = async () => {
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(t("auth.passwordsDontMatch"));
       return;
     }
     setError(null);
     setLoading(true);
-    const { error: err } = await signUpWithEmail(
+    const { error: err, needsVerification, alreadyRegistered } = await signUpWithEmail(
       email,
       password,
       fullName,
       universityId ? { id: universityId, name: university } : null
     );
     setLoading(false);
+
     if (err) {
-      setError(userFacingError(err));
-    } else {
-      router.replace("/(auth)/login" as any);
+      setError(authErrorMessage(err));
+      return;
     }
+    if (alreadyRegistered) {
+      // Supabase does not error on this — it returns a decoy user so nobody can
+      // use signup to discover which addresses are registered. Saying so here is
+      // safe: whoever typed the address also typed a password for it, and the
+      // alternative is a student waiting forever for a mail Supabase never sent.
+      setError(t("auth.errorAlreadyRegistered"));
+      return;
+    }
+    if (needsVerification) {
+      // Confirmations are ON for this project, so there is no session yet and
+      // signing in would fail with "email not confirmed" — which is exactly what
+      // this screen used to send them into by bouncing to login.
+      router.replace({
+        pathname: "/(auth)/check-email",
+        params: { email: email.trim(), flow: "signup" },
+      } as any);
+      return;
+    }
+    // Confirmations OFF: signUp already returned a session, so the route guard
+    // is on its way to the app. Nothing to navigate to.
   };
 
   return (

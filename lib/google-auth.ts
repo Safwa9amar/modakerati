@@ -1,5 +1,5 @@
-import * as Linking from "expo-linking";
 import { supabase } from "./supabase";
+import { authCallbackUrl, readCallbackParams } from "./auth-link";
 
 /**
  * "Continue with Google", as a browser OAuth round trip:
@@ -53,22 +53,6 @@ export type GoogleSignInResult = {
   cancelled: boolean;
 };
 
-/**
- * Where Supabase sends the browser once Google is done.
- *
- * Deliberately the ROOT route, not a dedicated `/auth/callback` screen. On
- * Android `openAuthSessionAsync` is a polyfill over a `Linking` listener, so the
- * callback URL is delivered to every listener — expo-router's included, which
- * navigates to whatever path it names. A path with no route would strand the
- * user on "Unmatched Route": `useProtectedRoute` only redirects people who are
- * inside (auth) or (app), and has no branch for a signed-in user sitting
- * outside both. "/" always resolves, and app/index.tsx forwards to the chat as
- * soon as the session lands.
- */
-function callbackUrl() {
-  return Linking.createURL("/");
-}
-
 export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   const WebBrowser = loadWebBrowser();
   if (!WebBrowser) {
@@ -78,7 +62,7 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
     };
   }
 
-  const redirectTo = callbackUrl();
+  const redirectTo = authCallbackUrl();
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
@@ -126,28 +110,4 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   // onAuthStateChange, which auth-store forwards to setSession, which flips
   // isAuthenticated and lets useProtectedRoute move the app to the chat.
   return { error: null, cancelled: false };
-}
-
-/**
- * Read the callback's parameters out of BOTH the query string and the fragment.
- *
- * PKCE puts `code` in the query, but Supabase can report a failure in the
- * fragment instead, and a fragment is invisible to `new URL(...).searchParams`.
- * Parsing by hand also sidesteps custom-scheme URLs, which the URL polyfill
- * treats as opaque.
- */
-function readCallbackParams(url: string): URLSearchParams {
-  const merged = new URLSearchParams();
-  const [beforeHash = "", afterHash = ""] = url.split("#");
-  const queryIndex = beforeHash.indexOf("?");
-  const query = queryIndex === -1 ? "" : beforeHash.slice(queryIndex + 1);
-
-  for (const part of [query, afterHash]) {
-    if (!part) continue;
-    // The query wins on a collision — it is the half PKCE actually writes.
-    new URLSearchParams(part).forEach((value, key) => {
-      if (!merged.has(key)) merged.set(key, value);
-    });
-  }
-  return merged;
 }
