@@ -36,22 +36,35 @@ export default function ResetPasswordScreen() {
   const updatePassword = useAuthStore((s) => s.updatePassword);
   const abandonRecovery = useAuthStore((s) => s.abandonRecovery);
   const hasSession = useAuthStore((s) => s.isAuthenticated);
+  // Primitives only — see the Zustand rule in CLAUDE.md.
+  const recoveryMode = useAuthStore((s) => s.recoveryMode);
+  const linkSignIn = useAuthStore((s) => s.linkSignIn);
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The verified code IS the authorisation — `updateUser` writes to whoever the
+  // The spent link IS the authorisation — `updateUser` writes to whoever the
   // session belongs to, and with no session there is nobody to write to. Landing
   // here without one means the flow was entered sideways (a stale deep link, a
-  // reload); send them back to the start rather than let them type a password
-  // into a form that will fail.
+  // reload), so it goes back to the start.
+  //
+  // ⚠️ BUT NOT WHILE THE FLOW IS STILL ARRIVING. `recoveryMode` is raised before
+  // the token is exchanged — it has to be, or the route guard ejects the student
+  // mid-flight — and app/index.tsx forwards here as soon as it sees that flag.
+  // So this screen legitimately mounts a beat BEFORE the session exists, and a
+  // bare `!hasSession` check fired in that gap: the form appeared and instantly
+  // bounced to forgot-password, with no way to type a password.
+  //
+  // Waiting is safe because every failure path clears the flag — the deep-link
+  // handler calls abandonRecovery() when an exchange fails, which lands us here
+  // with recoveryMode false and no session, and this then does its job.
   useEffect(() => {
-    if (!hasSession && !loading) {
+    if (!hasSession && !recoveryMode && !linkSignIn && !loading) {
       router.replace("/(auth)/forgot-password" as any);
     }
-  }, [hasSession, loading]);
+  }, [hasSession, recoveryMode, linkSignIn, loading]);
 
   const strength = getPasswordStrength(newPassword);
   const strengthLabel = [

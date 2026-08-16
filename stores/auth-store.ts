@@ -110,7 +110,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         },
       },
     });
-    if (error) return { error: error.message, needsVerification: false, alreadyRegistered: false };
+    if (error) {
+      // Supabase was willing but rationed — 2 messages an hour, project-wide.
+      // GoTrue inserts the user BEFORE it tries to send, so the account exists
+      // and is merely unconfirmed; our server can mail it a magic link, which
+      // stamps email_confirmed_at on the way in. Same outcome, our own mailbox.
+      if (isMailQuotaFailure(error.message) && (await sendAuthLinkViaServer(email, "signup"))) {
+        await markPendingAuthLink("signup");
+        return { error: null, needsVerification: true, alreadyRegistered: false };
+      }
+      return { error: error.message, needsVerification: false, alreadyRegistered: false };
+    }
     // Three outcomes, and the caller has to tell them apart because each sends
     // the student somewhere different. Confirmations OFF → a session comes back
     // and they are already in. Confirmations ON → a user with no session, so the

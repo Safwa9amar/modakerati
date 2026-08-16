@@ -9,6 +9,7 @@
 // costs nothing from that allowance, and mails it from our own domain. Supabase's
 // configuration is untouched, which is the point: this is a fallback, not a
 // replacement.
+import i18n from "./i18n";
 import { authCallbackUrl } from "./auth-link";
 import type { PendingAuthFlow } from "./auth-link";
 
@@ -31,7 +32,15 @@ export async function sendAuthLinkViaServer(
       headers: { "Content-Type": "application/json" },
       // No auth header, and none is possible: whoever is asking has no session.
       // The route is rate-limited server-side for exactly that reason.
-      body: JSON.stringify({ email: email.trim(), flow, redirectTo: authCallbackUrl() }),
+      // The UI language rides along so the mail arrives in ONE language. The
+      // trilingual version Gmail received was filed as spam and rendered its
+      // Arabic as .notdef boxes; the server cannot guess, but the app knows.
+      body: JSON.stringify({
+        email: email.trim(),
+        flow,
+        lang: i18n.language,
+        redirectTo: authCallbackUrl(),
+      }),
     });
     if (!res.ok) return false;
     const body = (await res.json().catch(() => null)) as { ok?: boolean } | null;
