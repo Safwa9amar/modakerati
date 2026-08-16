@@ -110,19 +110,35 @@ export function buildBands(
   // and a half of blank paper, which reads as a bug rather than as Word.
   const renderedColumnPx = editor.getRootElement()?.clientWidth ?? columnPx;
   const displayScale = columnPx > 0 ? renderedColumnPx / columnPx : 1;
-  const remainderDisplay = (k: number) =>
-    Math.min(240, Math.round(((remainder[k] ?? 0) * displayScale) / 4) * 4);
-  // A page whose picture Word centres ON THE PAGE (set_image_layout with
-  // vertical:"center") does not lay that picture out in the flow at all, so
-  // the flow's own answer — hard against the top, all the leftover room
-  // below — is the one thing it certainly is not. Split that room in two and
-  // put half of it above: the SAME total blank the page already showed, just
-  // distributed the way Word distributes it. The 240px cap above is left
-  // exactly as it is; halving a capped remainder still reads as centred, and
-  // uncapping it here would bring back the screen and a half of blank paper
-  // that cap exists to prevent.
+  // A section Word centres VERTICALLY (`w:vAlign="center"`) — every chapter
+  // divider is one. Its page is mostly blank BY DESIGN, so the 240px cap below
+  // must not apply to it: capping shrinks the room the title is centred inside
+  // and pulls it back toward the top of the page, which is the very thing this
+  // is here to fix.
+  const vCentredPage = (k: number) => !!sections[sectionForBlock(sections, starts[k])]?.verticalCenter;
+  const remainderDisplay = (k: number) => {
+    const px = Math.round(((remainder[k] ?? 0) * displayScale) / 4) * 4;
+    return vCentredPage(k) ? px : Math.min(240, px);
+  };
+  // Two kinds of page put their leftover room in the MIDDLE rather than all at
+  // the foot, and the flow's own answer — content hard against the top — is the
+  // one thing neither of them is:
+  //
+  // - A whole section Word centres vertically (`w:vAlign="center"`). Every
+  //   divider page add_divider_pages builds is one, and Word paints its label,
+  //   rule and title in the true middle of the sheet.
+  // - A single picture Word centres ON THE PAGE (set_image_layout with
+  //   vertical:"center"), which Word does not lay out in the flow at all.
+  //
+  // Either way: split the page's leftover room in two and put half above. For a
+  // picture that is the SAME total blank the page already showed, just
+  // distributed the way Word distributes it (its 240px cap stands — halving a
+  // capped remainder still reads as centred, and uncapping would bring back the
+  // screen and a half of blank paper the cap exists to prevent). A vertically
+  // centred section shows its room in full — see remainderDisplay.
   const pageCentered = new Set(setup.pageCentered ?? []);
   const centredPage = (k: number) => {
+    if (vCentredPage(k)) return true;
     if (pageCentered.size === 0) return false;
     const end = k + 1 < starts.length ? starts[k + 1] : rows.length;
     for (let b = starts[k]; b < end; b++) if (pageCentered.has(b)) return true;

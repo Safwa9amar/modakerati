@@ -153,6 +153,10 @@ export type PageSetup = {
     /** Why the page is unnumbered, so the gutter can NAME it correctly.
      *  null when the page is numbered normally. */
     unnumberedKind: "divider" | "ornament" | null;
+    /** Word centres this section's content in the MIDDLE of the page
+     *  (`w:vAlign="center"` in its sectPr) instead of stacking it from the top.
+     *  A chapter divider is exactly this — see buildPageSetup. */
+    verticalCenter: boolean;
     textColumnPx: number;
     contentHeightPx: number;
     startsOnNewPage: boolean;
@@ -244,6 +248,16 @@ function buildPageSetup(
         // design — the paper shows nothing and the gutter names them instead.
         unnumbered: !!s.dividerPage || !!s.pageOrnament,
         unnumberedKind: s.dividerPage ? "divider" : s.pageOrnament ? "ornament" : null,
+        // A divider's own section always carries `w:vAlign="center"` — the
+        // server sets it on every one it builds (`setSectionVerticalAlign` in
+        // the server's mcp/divider-pages.ts), and that is the requirement that
+        // named the feature: the title sits in the true middle of the page.
+        // The DTO carries no vAlign of its own, so the divider flag stands in
+        // for it. Deliberately NOT extended to an ornamented front-matter page:
+        // add_page_ornament centres one only when the student asks
+        // (`verticalCenter`, default off), and assuming it would move a
+        // dedication the student left at the top of the page.
+        verticalCenter: !!s.dividerPage,
         pageNumberStart: s.footer?.pageNumbers?.startAt ?? null,
         pageNumberFormat: s.footer?.pageNumbers?.format ?? "decimal",
         textColumnPx: g.textColumnPx,

@@ -258,8 +258,9 @@ export type PageBreakData = {
    *  content like a card. 0 renders nothing. */
   remainderPx: number;
   /** Room to leave at the TOP of the page BEGINNING after this band. Non-zero
-   *  only for a page holding a picture Word centres on the page: half its
-   *  leftover room goes above the picture and half below, which is what
+   *  only for a page Word centres vertically — a divider page (its section
+   *  carries `w:vAlign="center"`), or one holding a picture centred on the page:
+   *  half the leftover room goes above the content and half below, which is what
    *  vertical centring looks like on paper. 0 renders nothing. */
   leadPx: number;
   rtl: boolean;
