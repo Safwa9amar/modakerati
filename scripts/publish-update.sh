@@ -60,19 +60,22 @@ echo "  (installed builds on a different runtime version will NOT see this updat
 ENVIRONMENT="${3:-production}"
 echo "▸ EAS environment: $ENVIRONMENT (server-side vars only — the bundle's values are the ones above)"
 
-# ANDROID ONLY, deliberately. `eas update` defaults to --platform all, and "all"
-# means every platform the app config allows — which, with no `platforms` key in
-# app.json, includes WEB. The web export dies on expo-sqlite: its web build
-# imports ./wa-sqlite/wa-sqlite.wasm, that file is not in the published package,
-# and Metro fails the whole export over it. Nothing ships to a browser here, so
-# there is no reason to bundle one.
+# ONE PLATFORM AT A TIME, deliberately. `eas update` takes all|android|ios and
+# nothing else — there is no comma list — and "all" means every platform the app
+# config allows, which with no `platforms` key in app.json includes WEB. The web
+# export dies on expo-sqlite: its web build imports ./wa-sqlite/wa-sqlite.wasm,
+# that file is not in the published package, and Metro fails the whole export
+# over it. Nothing ships to a browser here, so there is no reason to bundle one.
 #
 # The obvious fix — pinning `platforms` in app.json — is the WRONG one: app.json
 # is a fingerprint input, so it would move the runtime version and cut every
 # installed binary off from this and every future update. Keep it out here.
 #
-# Android is also the only platform with a release binary in the wild
-# (scripts/build-apk.sh → Gradle APK). Add ios when there is an iOS build to
-# update.
-$EAS update --channel "$CHANNEL" --message "$MESSAGE" \
-  --platform android --environment "$ENVIRONMENT" --non-interactive
+# So: two invocations, which land as two update groups on the same channel. A
+# binary is only ever offered the one matching its own platform, so this is the
+# same thing "all" would do, minus the web export that cannot build.
+for PLATFORM in android ios; do
+  echo "▸ publishing $PLATFORM…"
+  $EAS update --channel "$CHANNEL" --message "$MESSAGE" \
+    --platform "$PLATFORM" --environment "$ENVIRONMENT" --non-interactive
+done

@@ -402,7 +402,11 @@
     "forgotPasswordDescLink": "Enter the email you signed up with and we'll send you a link to reset your password.",
     "errorOffline": "I couldn't reach the server. Check your connection and try again.",
     "errorGeneric": "Something went wrong. Please try again.",
-    "linkOfflineRetry": "The connection dropped before we could finish. Your link is still valid — open it again once you're back online."
+    "linkOfflineRetry": "The connection dropped before we could finish. Your link is still valid — open it again once you're back online.",
+    "signingInWithLink": "Signing you in…",
+    "confirmingEmail": "Confirming your email…",
+    "linkOneMoment": "This takes a moment.",
+    "errorEmailRateLimit": "Kwill has used up its reset emails for this hour. Try again later."
   },
   "combine": {
     "short": "Combine\nDocs",

@@ -9,6 +9,7 @@ import type { Session, User } from "@supabase/supabase-js";
 
 import { authCallbackUrl, markPendingAuthLink } from "@/lib/auth-link";
 import { retryingOnLostConnection } from "@/lib/auth-retry";
+import { sendAuthLinkViaServer, isMailQuotaFailure } from "@/lib/auth-fallback";
 import type { PendingAuthFlow } from "@/lib/auth-link";
 
 export interface SignUpResult {
@@ -37,6 +38,14 @@ interface AuthState {
    * the route guard in app/_layout.tsx and by nothing else.
    */
   recoveryMode: boolean;
+  /**
+   * A link is being spent right now — the network round trip between tapping the
+   * email and landing on a screen. Non-null drives the full-screen overlay in
+   * app/_layout.tsx: without it the app sits on whatever screen it cold-started
+   * to, for a second or more, looking like the link did nothing.
+   */
+  linkSignIn: PendingAuthFlow | null;
+  setLinkSignIn: (flow: PendingAuthFlow | null) => void;
   setSession: (session: Session | null) => void;
   signInWithEmail: (email: string, password: string) => Promise<{ error: string | null }>;
   signUpWithEmail: (
@@ -72,6 +81,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: true,
   isAuthenticated: false,
   recoveryMode: false,
+  linkSignIn: null,
+  setLinkSignIn: (flow) => set({ linkSignIn: flow }),
   setSession: (session) => set({ session, user: session?.user ?? null, isAuthenticated: !!session, isLoading: false }),
   signInWithEmail: async (email, password) => {
     // Retried: a dropped connection here used to read as a refused password.
@@ -152,7 +163,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: authCallbackUrl(),
     });
-    return { error: error?.message ?? null };
+    if (!error) return { error: null };
+    // Supabase was willing but rationed — 2 messages an hour, project-wide, and
+    // not raisable from here. Our own server can mint the same link without
+    // spending that allowance and mail it itself. Only for the quota failure: a
+    // malformed address must not be retried down a second road.
+    if (isMailQuotaFailure(error.message) && (await sendAuthLinkViaServer(email, "recovery"))) {
+      return { error: null };
+    }
+    return { error: error.message };
   },
   resendAuthEmail: async (email, flow) => {
     const address = email.trim();
@@ -167,7 +186,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         : await supabase.auth.resetPasswordForEmail(address, {
             redirectTo: authCallbackUrl(),
           });
-    return { error: error?.message ?? null };
+    if (!error) return { error: null };
+    // Same fallback on the resend button, which is where a rationed student
+    // lands most often — they are already staring at "check your email".
+    if (isMailQuotaFailure(error.message) && (await sendAuthLinkViaServer(address, flow))) {
+      return { error: null };
+    }
+    return { error: error.message };
   },
   beginRecovery: () => set({ recoveryMode: true }),
   updatePassword: async (password) => {

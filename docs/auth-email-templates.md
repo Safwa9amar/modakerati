@@ -52,19 +52,60 @@ complete. `check-email.tsx` says this outright (`auth.openOnThisDevice`), and a
 failed exchange routes back to forgot-password with `auth.linkExpired` rather
 than dying silently. This is the one real cost of links over codes.
 
-## What SMTP is still for
+## The fallback: our server sends the mail
 
-Nothing in the flow — only two things, both real but neither blocking:
+Supabase's built-in mailer caps a project at **2 auth emails an hour**, and the
+limit is greyed out in the dashboard — unraisable without custom SMTP *on the
+Supabase side*. A student mid-reset does not care whose quota ran out; they
+simply never receive anything.
 
-- **The sender name.** Mail currently arrives from "Supabase Auth". Only custom
-  SMTP can change it to "Kwill".
-- **Volume.** The built-in mailer is capped around 2 messages an hour. Fine for
-  testing, not for launch.
+So the app asks Supabase first, and when it is refused **for quota only**, calls
+our own server instead:
 
-Prepared for when you do it, in `~/modakerati-server`:
-`supabase/templates/recovery.html` + `confirmation.html` (trilingual fr/ar/en,
-link-based, branded) and an `[auth.email.smtp]` block in `supabase/config.toml`
-pointing at Resend with `env()` references for the key and sender address.
+```
+resetPasswordForEmail() → "email rate limit exceeded"
+  → POST /auth/recovery-link   (~/modakerati-server/src/routes/auth-recovery.ts)
+      → supabaseAdmin.generateLink()   ← mints the link, sends nothing
+      → nodemailer over our SMTP       ← our domain, sender reads "Kwill"
+```
+
+`generateLink` costs **nothing** from the 2/hour allowance because it does not
+send. Same link, same `kwill:///` redirect, same in-app password screen — only
+the carrier differs. Supabase's own configuration is left exactly as it is.
+
+Registration is covered too, with one difference worth knowing: signup uses a
+**magic link**, not a `type=signup` link. `generateLink({type:"signup"})` creates
+the user and so demands the password, which the app must not send our server
+merely to re-mail a confirmation. Verifying a magic link stamps
+`email_confirmed_at` anyway, so the account ends up confirmed either way.
+
+### Guards, because the route has no session
+
+Mounted outside `/api/*` (a locked-out student has nothing to present), so the
+protection lives in the handler:
+
+- **Rate limit** — 3/hour per address, 60/hour overall. Without it, an
+  unauthenticated endpoint that mails arbitrary addresses is an open relay
+  wearing our domain, and our sending reputation pays.
+- **Redirect allow-list** — `kwill://` and `exp://` only. Otherwise it would mint
+  links handing a session to any site an attacker names.
+- **No enumeration** — an unknown address gets the identical `{ok:true}`.
+
+### It is inert until SMTP exists
+
+With no `SMTP_*` variables the route answers `503 mailer_unconfigured` and the
+app keeps Supabase's message rather than claiming a mail was sent. Fill them in
+`~/modakerati-server/.env` (placeholders are already there) and on the host — see
+*Outbound mail* in `DEPLOY_OCTENIUM.md`. cPanel on greenpedal.net can issue them
+directly, which avoids Resend and domain verification entirely.
+
+## What Supabase-side SMTP would still buy
+
+Nothing the flow needs, now that the fallback exists — only the sender name on
+the mails Supabase itself sends (the first two an hour), and the ability to edit
+its templates. `supabase/templates/*.html` and the `[auth.email.smtp]` block in
+`supabase/config.toml` are staged for that day; read the `config push` warning
+below first.
 
 ## ⚠️ `supabase config push` is not a patch
 

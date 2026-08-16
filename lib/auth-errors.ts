@@ -48,6 +48,15 @@ const RULES: Array<[RegExp, string, string]> = [
     "auth.errorSamePassword",
     "Choose a password you haven't used before.",
   ],
+  // The project's HOURLY email allowance, which is a different limit from the
+  // per-minute throttle below and needs different advice: "wait a minute" is
+  // simply false when the window is an hour, and a student who believes it just
+  // taps again. Checked first — both messages carry the phrase "rate limit".
+  [
+    /email rate limit|over_email_send_rate_limit/i,
+    "auth.errorEmailRateLimit",
+    "Kwill has used up its reset emails for this hour. Try again later.",
+  ],
   // GoTrue's own throttle reads "For security purposes, you can only request
   // this after N seconds" — the resend cooldown on screen normally prevents it,
   // but not across a reinstall or a second device.

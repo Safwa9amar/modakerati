@@ -22,6 +22,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { listTheses } from "@/lib/api";
 import { registerForPushNotificationsAsync, addNotificationListeners } from "@/lib/push-notifications";
 import { useAuthDeepLink } from "@/lib/auth-deeplink";
+import { AuthLinkOverlay } from "@/components/AuthLinkOverlay";
 import { applyDeviceRTLOnFirstLaunch, getStoredLanguage, restartApp } from "@/lib/i18n";
 import i18n from "@/lib/i18n";
 import "../global.css";
@@ -209,6 +210,9 @@ export default function RootLayout() {
                 <Stack.Screen name="(auth)" />
                 <Stack.Screen name="(app)" />
               </Stack>
+              {/* Last child, so it paints over the stack: the seconds between
+                  tapping an emailed link and arriving somewhere. */}
+              <AuthLinkOverlay />
               {/* Floating chat-head disabled for now — re-add <ChatHead /> here
                   (and its import) to restore the draggable bubble. */}
             </BottomSheetModalProvider>

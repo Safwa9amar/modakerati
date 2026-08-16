@@ -42,7 +42,47 @@ export function useAuthDeepLink(enabled: boolean) {
       const params = readCallbackParams(url);
       const code = params.get("code");
       const failure = params.get("error_description") ?? params.get("error");
-      if (!code && !failure) return; // an ordinary deep link — a notification route, say
+      // The implicit shape: tokens delivered directly in the fragment instead of
+      // a code to exchange. GoTrue answers this way whenever the request that
+      // produced the link carried no PKCE challenge — which is every link made
+      // with the admin API, the only way to get one without spending an email
+      // from the 2-per-hour allowance.
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+      if (!code && !failure && !accessToken) return; // an ordinary deep link — a notification route, say
+
+      // Implicit links say what they are (`type=recovery`), so unlike the PKCE
+      // path they need no remembered flag — which is what makes an
+      // admin-generated link usable on a device that never asked for one.
+      if (accessToken && refreshToken) {
+        consumed.current.add(url);
+        const isRecovery = params.get("type") === "recovery";
+        useAuthStore.getState().setLinkSignIn(isRecovery ? "recovery" : "signup");
+        try {
+        // Before setSession, for the same reason as the PKCE branch below.
+        if (isRecovery) useAuthStore.getState().beginRecovery();
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (!active) return;
+        await clearPendingAuthLink();
+        if (sessionError) {
+          if (isRecovery) await useAuthStore.getState().abandonRecovery();
+          if (isConnectionError(sessionError.message)) consumed.current.delete(url);
+          router.replace({
+            pathname: "/(auth)/forgot-password",
+            params: { linkError: "1" },
+          } as any);
+          return;
+        }
+        if (isRecovery) router.replace("/(auth)/reset-password" as any);
+        } finally {
+          // Every branch above returns; the overlay must come down on all of them.
+          useAuthStore.getState().setLinkSignIn(null);
+        }
+        return;
+      }
 
       // The flag is what makes this ours. Without it a Google sign-in callback
       // would be swallowed here: on Android openAuthSessionAsync is a polyfill
@@ -70,6 +110,7 @@ export function useAuthDeepLink(enabled: boolean) {
       // sees an authenticated student inside (auth) and throws them into the
       // app, skipping the screen that sets the password.
       if (flow === "recovery") useAuthStore.getState().beginRecovery();
+      useAuthStore.getState().setLinkSignIn(flow);
 
       // Retried: the code is not spent unless the exchange SUCCEEDS, so a lost
       // connection costs nothing and a second attempt usually lands.
@@ -87,6 +128,7 @@ export function useAuthDeepLink(enabled: boolean) {
         // them out of the very thing it recommends. The PKCE code is not spent
         // until an exchange SUCCEEDS, so this link is still good — keep the
         // pending flag and forget the url, and simply opening it again works.
+        useAuthStore.getState().setLinkSignIn(null);
         if (isConnectionError(error.message)) {
           consumed.current.delete(url);
           router.replace({
@@ -108,6 +150,7 @@ export function useAuthDeepLink(enabled: boolean) {
       }
 
       await clearPendingAuthLink();
+      useAuthStore.getState().setLinkSignIn(null);
       if (flow === "recovery") {
         router.replace("/(auth)/reset-password" as any);
       }

@@ -402,7 +402,11 @@
     "forgotPasswordDescLink": "Saisissez l'e-mail de votre compte : nous vous enverrons un lien pour réinitialiser votre mot de passe.",
     "errorOffline": "Impossible de joindre le serveur. Vérifiez votre connexion et réessayez.",
     "errorGeneric": "Une erreur est survenue. Réessayez.",
-    "linkOfflineRetry": "La connexion a été perdue avant la fin. Votre lien reste valable — ouvrez-le à nouveau une fois reconnecté."
+    "linkOfflineRetry": "La connexion a été perdue avant la fin. Votre lien reste valable — ouvrez-le à nouveau une fois reconnecté.",
+    "signingInWithLink": "Connexion en cours…",
+    "confirmingEmail": "Confirmation de votre e-mail…",
+    "linkOneMoment": "Cela prend un instant.",
+    "errorEmailRateLimit": "Kwill a épuisé ses e-mails de réinitialisation pour cette heure. Réessayez plus tard."
   },
   "combine": {
     "short": "Combiner\nDocs",
