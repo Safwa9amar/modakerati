@@ -33,6 +33,15 @@ function safeFilename(name: string, format: string): string {
 }
 
 /**
+ * The parts of an export this actually reads.
+ *
+ * A FilePayload off a chat file card satisfies it, and so does a fresh
+ * /api/export response — which carries no `size` and no `pages`, and should not
+ * have to invent them to be downloadable.
+ */
+export type DownloadableExport = Pick<FilePayload, "url" | "filename" | "format" | "title">;
+
+/**
  * Download an exported artifact and hand it to the OS — Save to Files, open in
  * Word, share to anything.
  *
@@ -45,7 +54,7 @@ function safeFilename(name: string, format: string): string {
  * is an expired link: these are signed for one hour, so a card from an older
  * conversation will refuse.
  */
-export async function downloadExport(file: FilePayload): Promise<void> {
+export async function downloadExport(file: DownloadableExport): Promise<void> {
   const dir = new Directory(Paths.cache, EXPORT_DIR);
   if (!dir.exists) dir.create({ intermediates: true });
 

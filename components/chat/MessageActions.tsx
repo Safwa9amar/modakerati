@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   View,
   Text,
   Modal,
@@ -14,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
   ChevronUp,
+  Download,
   FileText,
   Library,
   ListChecks,
@@ -27,6 +30,8 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useChatThreadsStore } from "@/stores/chat-threads-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { useZoomOriginStore } from "@/stores/zoom-origin-store";
+import { exportThesis } from "@/lib/api";
+import { downloadExport } from "@/lib/download-export";
 import { visualRow } from "@/lib/rtl-layout";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,6 +169,14 @@ export function MessageActions({
   });
   const selectedThesisId = useThesisStore((s) => s.currentThesisId);
   const thesisId = threadThesisId ?? selectedThesisId;
+  // Names the downloaded file. The server sends a filename of its own, but the
+  // student's title is the one they will recognise in their Downloads folder —
+  // safeFilename strips the bidi marks an Arabic title arrives with.
+  const title = useThesisStore((s) => s.theses.find((th) => th.id === thesisId)?.title);
+  // A .docx render is a server round-trip of a few seconds, and the popup has
+  // already closed by then — so the spinner replaces the glyph that was tapped,
+  // which is where the student is still looking.
+  const [exporting, setExporting] = useState(false);
   // This row is also rendered by the floating chat overlay, which can sit ON TOP
   // of the Writer. Offering "Writer" there would push a second copy of the screen
   // the student is already looking at.
@@ -172,6 +185,34 @@ export function MessageActions({
   // open state — one value rather than a boolean plus a rect that could disagree.
   const moreRef = useRef<View>(null);
   const [anchor, setAnchor] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  /**
+   * Export the thesis as it stands and hand the file to the OS.
+   *
+   * A fresh export on every tap, deliberately. The .docx is rendered from the
+   * document's current state, and the reason this lives under an answer is that
+   * the answer has very likely just changed it — reusing an earlier URL would
+   * save a few seconds and hand back the thesis from before the edit. (The
+   * server's links are signed for an hour anyway, so an old one would refuse.)
+   *
+   * Until now the only way to get the file was to ASK for it and tap the card
+   * that came back. That works, but it makes downloading your own thesis a thing
+   * you have to know the phrasing for.
+   */
+  async function handleDownload() {
+    if (!thesisId || exporting) return;
+    setExporting(true);
+    try {
+      const built = await exportThesis(thesisId);
+      await downloadExport({ url: built.url, filename: built.filename, format: built.format, title });
+    } catch {
+      // Either the render failed or the share sheet is unavailable. Both leave
+      // the student with no file, which is the only part they can act on.
+      Alert.alert(t("common.error"), t("preview.downloadFailed"));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function handleShare() {
     try {
@@ -268,9 +309,19 @@ export function MessageActions({
         }}
         hitSlop={10}
         accessibilityRole="button"
-        accessibilityLabel={t("chat.more", { defaultValue: "More" })}
+        accessibilityLabel={
+          exporting
+            ? t("preview.download", { defaultValue: "Download" })
+            : t("chat.more", { defaultValue: "More" })
+        }
       >
-        <MoreHorizontal size={ICON + 2} color={ink} strokeWidth={1.9} />
+        {/* Sized to the glyph it stands in for, so the row does not reflow while
+            the export renders. */}
+        {exporting ? (
+          <ActivityIndicator size="small" color={ink} style={{ width: ICON + 2, height: ICON + 2 }} />
+        ) : (
+          <MoreHorizontal size={ICON + 2} color={ink} strokeWidth={1.9} />
+        )}
       </Pressable>
 
       <MorePopup
@@ -295,8 +346,22 @@ export function MessageActions({
                 },
               ]
             : []),
+          // These need a document to act on, so they arrive with the thesis and
+          // leave with it — the same rule the Kwiller and Library chips follow.
           ...(thesisId
             ? [
+                // One row per format rather than a single "Download" that asks a
+                // second question. Two of the three are not built yet and say so:
+                // the export engine renders .docx, and PDF and LaTeX are named
+                // here so the student can see they are coming instead of hunting
+                // for a setting that does not exist.
+                ...DOWNLOAD_FORMATS.map((f) => ({
+                  key: `download-${f.format}`,
+                  label: t("chat.downloadFormat", { format: f.label, defaultValue: `Download ${f.label}` }),
+                  icon: Download,
+                  disabled: !f.ready,
+                  onPress: () => void handleDownload(),
+                })),
                 {
                   key: "tasks",
                   label: t("tasks.title"),
@@ -323,12 +388,32 @@ interface PopupItem {
   label: string;
   icon: LucideIcon;
   onPress: (e: GestureResponderEvent) => void;
+  /** Shown, dimmed, with a "soon" badge, and inert. A format the export engine
+   *  cannot produce yet is worth NAMING — it tells the student the shape of what
+   *  is coming and stops them hunting for it — but it must not look tappable. */
+  disabled?: boolean;
 }
+
+// What the student can take the thesis away as.
+//
+// `ready` is the honest state of the EXPORT ENGINE, not a feature flag: only the
+// .docx renderer exists (POST /api/export). A PDF is produced elsewhere for the
+// page view (OnlyOffice) but is not wired to a download, and LaTeX has a format
+// argument on the endpoint and nothing behind it — so both are named and
+// disabled rather than offered and then failing in the student's hands.
+const DOWNLOAD_FORMATS: { format: "docx" | "pdf" | "latex"; label: string; ready: boolean }[] = [
+  { format: "docx", label: "Word (.docx)", ready: true },
+  { format: "pdf", label: "PDF", ready: false },
+  { format: "latex", label: "LaTeX", ready: false },
+];
 
 // Popup geometry. ROW_H has to match the row's real height or the flip-above
 // calculation lands the card in the wrong place — it is the one number here that
 // is a measurement rather than a taste.
-const POPUP_W = 196;
+//
+// Widened for the download rows: "Télécharger Word (.docx)" beside a soon badge
+// does not fit the old 196, and the label truncates rather than wrapping.
+const POPUP_W = 244;
 const POPUP_ROW_H = 44;
 const POPUP_PAD = 6;
 const POPUP_GAP = 6;
@@ -357,6 +442,7 @@ function MorePopup({
   rtl: boolean;
   colors: ReturnType<typeof useThemeColors>;
 }) {
+  const { t } = useTranslation();
   const { width: screenW, height: screenH } = useWindowDimensions();
   if (!anchor) return null;
 
@@ -395,18 +481,25 @@ function MorePopup({
             return (
               <Pressable
                 key={it.key}
+                disabled={it.disabled}
                 onPress={(e) => {
                   onClose();
                   it.onPress(e);
                 }}
                 accessibilityRole="button"
+                accessibilityState={{ disabled: !!it.disabled }}
                 accessibilityLabel={it.label}
-                style={[styles.popupRow, { flexDirection: visualRow(rtl) }]}
+                style={[styles.popupRow, { flexDirection: visualRow(rtl) }, it.disabled && styles.popupRowSoon]}
               >
                 <Icon size={17} color={colors.textSecondary} strokeWidth={2} />
                 <Text style={[styles.popupLabel, { color: colors.textPrimary }]} numberOfLines={1}>
                   {it.label}
                 </Text>
+                {it.disabled && (
+                  <View style={[styles.popupSoon, { backgroundColor: colors.semanticWarning }]}>
+                    <Text style={styles.popupSoonText}>{t("ribbon.soon", { defaultValue: "soon" })}</Text>
+                  </View>
+                )}
               </Pressable>
             );
           })}
@@ -457,5 +550,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
   },
   popupRow: { alignItems: "center", gap: 12, height: POPUP_ROW_H, paddingHorizontal: 14 },
+  // Dimmed as a whole, badge included: a full-strength "soon" pill on a faded row
+  // reads as the one live thing in it.
+  popupRowSoon: { opacity: 0.45 },
   popupLabel: { flex: 1, fontSize: 14.5, fontFamily: "Inter_500Medium" },
+  // Matches the ribbon's soon badge — same idea, same shape, so a format that is
+  // not ready looks the same wherever the student meets it.
+  popupSoon: { paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 6 },
+  popupSoonText: { fontSize: 8.5, fontFamily: "Inter_700Bold", color: "#1a1300", letterSpacing: 0.3 },
 });
