@@ -26,7 +26,7 @@ import {
 } from "lexical";
 
 import type { DocBlockDTO } from "@/lib/api";
-import { $lexicalToBlocks } from "../../../blockLexical";
+import { $lexicalToBlocks, $patchBlockData } from "../../../blockLexical";
 import { applyBlockFormat } from "../../block-format";
 import { INSERT_BLOCK_COMMAND } from "../../commands";
 import { lxQuietCommand, lxQuietUpdate } from "../../lexical-updates";
@@ -42,7 +42,7 @@ export function applyLexicalCommand(
   // without moving the caret). The lab's selection commands still focus. Undo/
   // redo also skip focus: tapped from the dock with the keyboard closed, they
   // must not pop it (Lexical's history doesn't need a live selection).
-  if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list" && command.type !== "undo" && command.type !== "redo" && command.type !== "insert" && command.type !== "blur") editor.focus();
+  if (command.type !== "blockFormat" && command.type !== "serialize" && command.type !== "list" && command.type !== "undo" && command.type !== "redo" && command.type !== "insert" && command.type !== "blur" && command.type !== "patchBlocks") editor.focus();
   switch (command.type) {
     case "bold":
     case "italic":
@@ -111,6 +111,18 @@ export function applyLexicalCommand(
         $patchStyleText(sel, { color: "" });
         (["bold", "italic", "underline"] as const).forEach((f) => { if (sel.hasFormat(f)) sel.formatText(f); });
       });
+      break;
+    case "patchBlocks":
+      // value = JSON DocBlockDTO[]. Restyle the named structural blocks (table /
+      // chart / figure) IN PLACE — the reseed-free path for an external edit that
+      // changed nothing but those blocks. Only those decorators re-render: no
+      // rebuild, no repagination from scratch, no history clear, no scroll jump.
+      // Quiet + selection-skipping, so the tapped table stays selected under the
+      // bubble toolbar the student is still holding open.
+      if (command.value) {
+        const patch = JSON.parse(command.value) as DocBlockDTO[];
+        lxQuietUpdate(editor, () => { $patchBlockData(patch); }, true);
+      }
       break;
     case "serialize":
       if (onBlocks) editor.getEditorState().read(() => onBlocks($lexicalToBlocks()));

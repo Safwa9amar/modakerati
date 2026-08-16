@@ -60,6 +60,48 @@ function stripMedia(blocks: DocBlockDTO[]): DocBlockDTO[] {
   });
 }
 
+// How many blocks may be swapped in place before a full reseed is the cheaper,
+// safer answer. A restyle from the bubble tools touches one block; the AI's table
+// tools a handful. Beyond that the document really did change shape.
+const MAX_INPLACE_PATCH = 12;
+
+/**
+ * Which blocks a doc change can be applied to IN PLACE — the reseed-free path.
+ *
+ * A reseed rebuilds EVERY node in the WebView (plus a repagination from scratch and
+ * a history clear). On a real thesis that is seconds, and a table restyle used to
+ * pay it TWICE: once for the optimistic patch, once for the server echo. Yet all
+ * that actually changed was one table's fills. Structural blocks (table / chart /
+ * figure / textbox) are opaque decorator nodes whose entire state is their DTO, so
+ * swapping the DTO repaints exactly that block — see $patchBlockData.
+ *
+ * Returns the blocks to swap ([] = the docs are equivalent, do nothing), or null
+ * when the change needs a real reseed:
+ *  - the block COUNT or the index/kind at any position moved (structure changed);
+ *  - a PARAGRAPH changed — it lives in a real editable Lexical node, not a
+ *    decorator, and its text/runs/level are the editor's own state;
+ *  - more than MAX_INPLACE_PATCH blocks differ.
+ * Most positions settle on the reference check: applyOpToDoc shallow-copies, so an
+ * optimistic patch shares every untouched block object. A server echo is all fresh
+ * objects and pays one structural compare per block — still far below the rebuild
+ * it replaces.
+ */
+function inPlacePatch(prev: DocBlockDTO[], next: DocBlockDTO[]): DocBlockDTO[] | null {
+  if (prev.length !== next.length) return null;
+  const out: DocBlockDTO[] = [];
+  for (let i = 0; i < prev.length; i++) {
+    const a = prev[i];
+    const b = next[i];
+    if (a === b) continue;
+    if (a.index !== b.index || a.kind !== b.kind) return null;
+    if (JSON.stringify(a) === JSON.stringify(b)) continue;
+    if (a.kind === "paragraph") return null;
+    if (out.length >= MAX_INPLACE_PATCH) return null;
+    out.push(b);
+  }
+  return out;
+}
+
 // Build the display-only chrome bands (section header / footer / section-break) that
 // $blocksToLexical interleaves into the editor tree by BLOCK INDEX. One "section"
 // marker before each section after the first, a "top" band for a section header, and
@@ -832,12 +874,30 @@ export function WorkspaceLexicalView({
     }
     if (doc?.available) {
       const latest = stripMedia(doc.blocks);
+      // Restyle-only change (a table's fills/borders, a re-rendered chart, a swapped
+      // figure)? Swap those blocks' DTOs in the live tree instead of rebuilding it.
+      // This is the whole difference between a tap that lands now and one the
+      // student waits seconds for — and the tapped block keeps its selection, so the
+      // bubble toolbar they are still holding open doesn't close under them.
+      //
+      // Requires the chrome to be unchanged too: the bands are interleaved into the
+      // tree at seed time, so a section edit has to go the long way round.
+      const prev = syncedDocRef.current;
+      const sameSections =
+        !!prev?.available && JSON.stringify(prev.sections) === JSON.stringify(doc.sections);
+      const patch = forced || !sameSections ? null : inPlacePatch(baselineRef.current, latest);
+      if (patch) {
+        baselineRef.current = latest;
+        syncedDocRef.current = doc;
+        if (patch.length > 0) send("patchBlocks", JSON.stringify(patch));
+        return;
+      }
       baselineRef.current = latest;
       syncedDocRef.current = doc;
       // in-place, no remount — rebuild the chrome bands from this same reseeded doc.
       setReseed({ blocks: latest, chrome: useWorkspaceStore.getState().showChrome ? buildChrome(doc.sections, latest, rtl, t, !!pageSetup) : [], nonce: ++reseedNonce.current });
     }
-  }, [doc, active, rtl, t, pageSetup]);
+  }, [doc, active, rtl, t, pageSetup, send]);
 
   // Auto-sync (no manual Save): the Writer ALWAYS saves to the server shortly
   // after the user pauses. (Debounced, because Lexical edits — unlike the durable

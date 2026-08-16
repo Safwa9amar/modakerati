@@ -1354,6 +1354,14 @@ export class BlockDataNode extends DecoratorNode<React.ReactNode> {
   getBlock(): DocBlockDTO {
     return this.getLatest().__block;
   }
+  // Swap the DTO this node renders WITHOUT rebuilding the tree. A table recolour /
+  // border change / chart re-render arrives as a whole new document, and reseeding
+  // from it rebuilds every node in the WebView — seconds on a real thesis, twice per
+  // tap (optimistic patch, then the server echo). The block is opaque to editing, so
+  // its DTO is the node's entire state: replacing it re-decorates THIS node only.
+  setBlock(block: DocBlockDTO): void {
+    this.getWritable().__block = block;
+  }
   createDOM(): HTMLElement {
     const el = document.createElement("div");
     // A page-ornament frame is page decoration Word paints BEHIND the page, so it
@@ -1456,6 +1464,31 @@ export function $createBlockDataNode(block: DocBlockDTO): BlockDataNode {
 }
 export function $isBlockDataNode(node: LexicalNode | null | undefined): node is BlockDataNode {
   return node instanceof BlockDataNode;
+}
+
+/**
+ * Swap the DTOs of the structural blocks named in `blocks`, in place — the cheap
+ * alternative to a full reseed when an external edit only restyled a table, chart or
+ * figure. Matched by the block's OWN index (BlockDataNode carries it), so a list run
+ * collapsing several blocks into one node can't put the walk off by N.
+ *
+ * Returns how many landed: the caller falls back to a reseed if that isn't all of
+ * them (the document moved under us and only the server echo knows the truth).
+ * Call inside an editor.update().
+ */
+export function $patchBlockData(blocks: DocBlockDTO[]): number {
+  const byIndex = new Map(blocks.map((b) => [b.index, b]));
+  let applied = 0;
+  for (const child of $getRoot().getChildren()) {
+    if (!$isBlockDataNode(child)) continue;
+    const next = byIndex.get(child.getBlock().index);
+    // Kind is part of the node's identity here — a table that came back an image
+    // means the document restructured, so leave it for the reseed to rebuild.
+    if (!next || next.kind !== child.getBlock().kind) continue;
+    child.setBlock(next);
+    applied++;
+  }
+  return applied;
 }
 
 // ── Display-only chrome band (section header/footer/section-break) ───────────
