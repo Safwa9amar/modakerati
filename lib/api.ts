@@ -699,6 +699,11 @@ export async function chatSendStream(
     // so a regenerate re-answers the question WITH its pictures and never
     // re-uploads them.
     attachments: options?.attachments,
+    // The student's clock. The server has no timezone signal of its own, so
+    // without this "schedule it for tonight" is unresolvable there — and a
+    // server-local guess would be the wrong hour in every deployment. Minutes
+    // EAST of UTC, so Algiers is +60.
+    tzOffsetMinutes: -new Date().getTimezoneOffset(),
   };
   return postChatStream("/api/chat/stream", body, handlers, options?.signal);
 }
