@@ -7,7 +7,7 @@ import { GraduationCap } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useBottomInset } from "@/hooks/useBottomInset";
 import { useSettingsStore } from "@/stores/settings-store";
-import { restartApp, setLanguageWithRTL } from "@/lib/i18n";
+import { getDeviceLanguage, restartApp, setLanguageWithRTL } from "@/lib/i18n";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 
@@ -26,7 +26,11 @@ export default function LanguageScreen() {
   const { t } = useTranslation();
   const completeOnboarding = useSettingsStore((s) => s.completeOnboarding);
   const setLanguage = useSettingsStore((s) => s.setLanguage);
-  const [selected, setSelected] = useState<Language>("en");
+  // Preselected from the phone, not hardcoded — the screen is already being read
+  // in that language by this point, so anything else would ask a student on an
+  // Arabic device to opt back INTO Arabic, and silently switch them to English
+  // if they just tapped Continue.
+  const [selected, setSelected] = useState<Language>(() => getDeviceLanguage());
   const [busy, setBusy] = useState(false);
 
   const handleContinue = async () => {

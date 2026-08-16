@@ -21,7 +21,7 @@ import { useProfileStore } from "@/stores/profile-store";
 import { useThesisStore } from "@/stores/thesis-store";
 import { listTheses } from "@/lib/api";
 import { registerForPushNotificationsAsync, addNotificationListeners } from "@/lib/push-notifications";
-import { getStoredLanguage } from "@/lib/i18n";
+import { applyDeviceRTLOnFirstLaunch, getStoredLanguage, restartApp } from "@/lib/i18n";
 import i18n from "@/lib/i18n";
 import "../global.css";
 
@@ -86,8 +86,29 @@ export default function RootLayout() {
       const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
       await AsyncStorage.removeItem("modakerati-thesis");
 
+      // The student's chosen language, or the device's on a fresh install.
       const lang = await getStoredLanguage();
       await i18n.changeLanguage(lang);
+      // The settings store is the other reader of this (the Settings radio, and
+      // the language AI completions are written in). It holds its own persisted
+      // copy, so line it up with i18next — the text on screen is the truth.
+      // Deferred until `persist` has rehydrated: writing before that lands, then
+      // gets replaced by whatever was on disk a tick later.
+      const syncSettingsLanguage = () => {
+        if (useSettingsStore.getState().language !== lang) {
+          useSettingsStore.getState().setLanguage(lang);
+        }
+      };
+      if (useSettingsStore.persist.hasHydrated()) syncSettingsLanguage();
+      else useSettingsStore.persist.onFinishHydration(syncSettingsLanguage);
+      // Arabic must be laid out right-to-left, and RN only mirrors at startup.
+      // Still behind the splash screen here, so the reboot is invisible — and it
+      // happens at most once per install (see applyDeviceRTLOnFirstLaunch).
+      if (await applyDeviceRTLOnFirstLaunch(lang)) {
+        // Nothing below runs once the reload lands. Give it a moment to, then
+        // launch anyway — a mirrored-wrong first session beats a stuck splash.
+        if (await restartApp(0)) await new Promise((r) => setTimeout(r, 2000));
+      }
       await initialize();
       setAppReady(true);
     }

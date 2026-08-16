@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { ThemeName } from "@/constants/colors";
+import { getDeviceLanguage } from "@/lib/i18n";
 
 type Language = "ar" | "en" | "fr";
 
@@ -36,7 +37,11 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       theme: "dark",
-      language: "fr",
+      // Only ever the value of a FRESH install — persist rehydrates over it for
+      // anyone who has been here before. Reading the device rather than hardcoding
+      // "fr" is what makes an Arabic phone open in Arabic before the student has
+      // chosen anything; the language screen preselects the same value.
+      language: getDeviceLanguage(),
       hasCompletedOnboarding: false,
       autocompleteEnabled: true,
       toolbarOrientation: "vertical",
