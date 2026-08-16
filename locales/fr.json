@@ -1340,5 +1340,11 @@
     "hideOriginal": "Masquer le texte original",
     "done": "Terminé",
     "cancel": "Annuler"
+  },
+  "errors": {
+    "crashTitle": "Une erreur est survenue",
+    "crashBody": "Votre mémoire est en sécurité : il est enregistré sur nos serveurs, pas dans cet écran. Réessayez, et dites-le nous si cela persiste.",
+    "crashRetry": "Réessayer",
+    "crashTest": "Faire planter l'app (test)"
   }
 }

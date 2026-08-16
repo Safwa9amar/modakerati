@@ -47,6 +47,12 @@ interface SettingRow {
 }
 
 export default function SettingsScreen() {
+  // Dev-only crash switch — see the "Crash the app (test)" row below. Throwing
+  // during RENDER is the only thing an error boundary catches, so the tap sets
+  // state and the next render is what raises.
+  const [crash, setCrash] = useState(false);
+  if (crash) throw new Error("Deliberate crash from Settings → Developer (error-boundary test)");
+
   const { t } = useTranslation();
   const colors = useThemeColors();
   // This screen had NO direction handling at all — it leaned entirely on RN's
@@ -212,6 +218,17 @@ export default function SettingsScreen() {
           {
             title: "Developer",
             rows: [
+              {
+                // Proves the root error boundary actually catches. Throwing from
+                // an onPress would NOT work — React only catches errors raised
+                // during RENDER — so this flips state and the throw happens on
+                // the next render, which is the real failure shape.
+                icon: AlertTriangle,
+                iconColor: colors.semanticError,
+                label: t("errors.crashTest", { defaultValue: "Crash the app (test)" }),
+                type: "chevron" as const,
+                onPress: () => setCrash(true),
+              },
               {
                 icon: FlaskConical,
                 iconColor: colors.brandPrimary,

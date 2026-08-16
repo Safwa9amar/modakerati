@@ -23,6 +23,7 @@ import { listTheses } from "@/lib/api";
 import { registerForPushNotificationsAsync, addNotificationListeners } from "@/lib/push-notifications";
 import { useAuthDeepLink } from "@/lib/auth-deeplink";
 import { AuthLinkOverlay } from "@/components/AuthLinkOverlay";
+import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import { applyDeviceRTLOnFirstLaunch, getStoredLanguage, restartApp } from "@/lib/i18n";
 import i18n from "@/lib/i18n";
 import "../global.css";
@@ -184,6 +185,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <ThemeProvider>
+          {/* Inside ThemeProvider so the fallback can read the theme, outside
+              everything that can throw. A render error below this point used to
+              unmount the whole app and leave a white screen. */}
+          <RootErrorBoundary>
           {/* Root-level push drawer: opening the Thesis Structure outline slides
               the whole app left (header, document, tab bar) and reveals it on the
               right. Wraps everything so the push moves the entire tree as one. */}
@@ -222,6 +227,7 @@ export default function RootLayout() {
             </HeaderFooterSheet>
             </BottomInsertDrawer>
           </PushDrawer>
+          </RootErrorBoundary>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

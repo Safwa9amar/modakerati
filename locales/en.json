@@ -1340,5 +1340,11 @@
     "hideOriginal": "Hide original text",
     "done": "Done",
     "cancel": "Cancel"
+  },
+  "errors": {
+    "crashTitle": "Something went wrong",
+    "crashBody": "Your thesis is safe — it is saved on our servers, not in this screen. Try again, and tell us if it keeps happening.",
+    "crashRetry": "Try again",
+    "crashTest": "Crash the app (test)"
   }
 }
