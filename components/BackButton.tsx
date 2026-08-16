@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { ArrowLeft, ArrowRight } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
+import { useZoomCollapse } from "@/components/ZoomFromOrigin";
 
 export function BackButton() {
   const router = useRouter();
@@ -21,9 +22,17 @@ export function BackButton() {
   // the arrow reads as broken. Fall back to the app's root, which resolves to the
   // writer (or its empty state). Back therefore always means "out of here", never
   // "nothing happens".
+  // On a screen that grew out of the chip which opened it, leaving collapses back
+  // into that chip before the pop — otherwise the navigator cuts it away at full
+  // size and the arrival and the exit tell two different stories. `collapse` runs
+  // its callback straight through on every other screen, so this is the same
+  // `goBack` it always was there.
+  const { collapse, active: zooming } = useZoomCollapse();
   const goBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/" as any);
+    collapse(() => {
+      if (router.canGoBack()) router.back();
+      else router.replace("/" as any);
+    });
   };
 
   // Android hardware back has to agree with the arrow. Without this, a screen
@@ -33,12 +42,20 @@ export function BackButton() {
   // underneath register the same no-op handler, so nothing double-pops).
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      // A zooming screen has to OWN its pop — letting the default one through
+      // would tear the screen away at full size while the collapse was still
+      // playing. Everywhere else the original rule stands untouched.
+      if (zooming) {
+        goBack();
+        return true;
+      }
       if (router.canGoBack()) return false;
       router.replace("/" as any);
       return true;
     });
     return () => sub.remove();
-  }, [router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, zooming]);
 
   return (
     <TouchableOpacity onPress={goBack} style={styles.button} hitSlop={8} accessibilityRole="button">

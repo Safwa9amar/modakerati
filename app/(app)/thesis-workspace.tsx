@@ -47,6 +47,7 @@ import { BlockComposer, BLOCK_COMPOSER_MIN_INSET } from "@/components/workspace/
 import { FloatingPill } from "@/components/workspace/FloatingPill";
 import { PreviewButton, PreviewBar } from "@/components/workspace/WorkspacePreview";
 import { SearchPanel } from "@/components/workspace/SearchPanel";
+import { ZoomFromOrigin, useZoomCollapse } from "@/components/ZoomFromOrigin";
 import { countWords } from "@/lib/word-count";
 import { MilestoneToast } from "@/components/workspace/MilestoneToast";
 import { OutlineReorderable } from "@/components/workspace/OutlineReorderable";
@@ -215,10 +216,17 @@ export default function ThesisWorkspaceScreen() {
   // below to pop — the chat is where "closed" means, so go there directly rather
   // than leaving a dead button.
   const router = useRouter();
+  // Collapse back into the chip that opened this, THEN pop. On a Writer reached
+  // from anywhere else (a thesis card, an import that replaced itself into it)
+  // there is nothing registered and the callback runs straight through, so this
+  // is a plain close there.
+  const { collapse } = useZoomCollapse();
   const closeWorkspace = useCallback(() => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(app)/chat" as any);
-  }, [router]);
+    collapse(() => {
+      if (router.canGoBack()) router.back();
+      else router.replace("/(app)/chat" as any);
+    });
+  }, [collapse, router]);
 
 
   // Screen top-bar collapse (#6): a manual toggle from the ✦ dock hides the top bar
@@ -615,6 +623,7 @@ export default function ThesisWorkspaceScreen() {
   // Loading: no thesis yet (refreshThesis still in flight).
   if (!thesis) {
     return (
+      <ZoomFromOrigin backdropColor={colors.bgSurface}>
       <SafeAreaView
         style={[styles.container, { backgroundColor: colors.bgSurface }]}
         edges={[]}
@@ -628,10 +637,16 @@ export default function ThesisWorkspaceScreen() {
         </View>
         <DocSkeleton />
       </SafeAreaView>
+      </ZoomFromOrigin>
     );
   }
 
   return (
+    // The screen grows out of the chip that opened it and collapses back into it
+    // on close (see components/ZoomFromOrigin). bgSurface, not the paper's white:
+    // what fills the frame around the growing content should be the app's ground,
+    // so the page reads as arriving ON something rather than unfolding out of it.
+    <ZoomFromOrigin backdropColor={colors.bgSurface}>
     <SafeAreaView
       style={[styles.container, { backgroundColor: colors.bgSurface }]}
       edges={[]}
@@ -950,6 +965,7 @@ export default function ThesisWorkspaceScreen() {
         }}
       />
     </SafeAreaView>
+    </ZoomFromOrigin>
   );
 }
 

@@ -6,19 +6,24 @@ import { Stack } from "expo-router";
 // workspace (stack root, nothing to pop) and nowhere else. Going back is the back
 // arrow's job now, and every screen the drawer opens has one.
 // The three destinations that hang off an assistant answer (see
-// components/chat/MessageActions). They RISE out of the conversation instead of
-// cutting to it, so the chat reads as the place they were opened from and the
-// back arrow reads as the way back down to it.
+// components/chat/MessageActions). They GROW OUT OF THE CHIP that opened them
+// and collapse back into it on close, so the chat reads as the place they came
+// from rather than as somewhere the navigator moved on from.
 //
-// `slide_from_bottom`, NOT `presentation: "modal"`. The drawer is not part of
-// this navigator — `PushDrawer` WRAPS it (see app/_layout.tsx), sliding the
-// whole stack aside as one piece, with the panel as a sibling behind. A native
-// modal is presented above that entire arrangement, so a modal screen's
-// hamburger opens the drawer BEHIND the sheet, and so does the hamburger on
-// anything pushed onward from it — the Writer opened from the Library, or from
-// a task run. Sliding up gets the same "came up from the chat" reading with the
-// screens still inside the stack the drawer knows about.
-const FROM_CHAT = { animation: "slide_from_bottom" } as const;
+// The native transition is switched OFF here on purpose. That movement is not a
+// stack animation — it is anchored to a point the navigator knows nothing about
+// — so it is done by `components/ZoomFromOrigin`, which each of these three
+// screens wraps its content in. Leaving a native animation on would run a slide
+// underneath the zoom and the two would fight.
+//
+// `animation: "none"`, NOT `presentation: "modal"`, for the separate reason that
+// the drawer is not part of this navigator: `PushDrawer` WRAPS it (see
+// app/_layout.tsx), sliding the whole stack aside as one piece with the panel as
+// a sibling behind. A native modal is presented above that entire arrangement,
+// so a modal screen's hamburger — and the hamburger on anything pushed onward
+// from it, the Writer opened from the Library or from a task run — would open
+// the drawer BEHIND the sheet.
+const FROM_CHAT = { animation: "none" } as const;
 
 export default function AppLayout() {
   return <Stack screenOptions={{ headerShown: false, animation: "none", gestureEnabled: false }}>
@@ -38,7 +43,7 @@ export default function AppLayout() {
     <Stack.Screen name="template-preview" />
     <Stack.Screen name="thesis-plan" />
     <Stack.Screen name="thesis-detail" />
-    <Stack.Screen name="thesis-workspace" options={FROM_CHAT} />
+    <Stack.Screen name="thesis-workspace"  options={FROM_CHAT} />
     <Stack.Screen name="block-editor" />
     <Stack.Screen name="lexical-lab" />
     <Stack.Screen name="lexical-roundtrip" />

@@ -12,6 +12,7 @@ import { useThesisStore } from "@/stores/thesis-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { useSourceStore } from "@/stores/source-store";
 import { BackButton } from "@/components/BackButton";
+import { ZoomFromOrigin } from "@/components/ZoomFromOrigin";
 import { LibraryGridSkeleton } from "@/components/skeletons/LibraryGridSkeleton";
 import { thesisBlockImageUrl, type DocBlockDTO } from "@/lib/api";
 import { isFigureBlock } from "@/lib/doc-ornament";
@@ -151,6 +152,9 @@ export default function LibraryScreen() {
   ];
 
   return (
+    // Grows out of the chip that opened it, and collapses back into it — the
+    // BackButton drives the reverse (see components/ZoomFromOrigin).
+    <ZoomFromOrigin backdropColor={colors.bgPrimary}>
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
       <View style={[styles.topBar, { flexDirection: rtl.flexDirection }]}>
         <BackButton />
@@ -246,6 +250,7 @@ export default function LibraryScreen() {
         )}
       </View>
     </SafeAreaView>
+    </ZoomFromOrigin>
   );
 }
 

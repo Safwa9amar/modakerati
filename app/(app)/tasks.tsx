@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { BackButton } from "@/components/BackButton";
+import { ZoomFromOrigin } from "@/components/ZoomFromOrigin";
 import { TasksSkeleton } from "@/components/skeletons/TasksSkeleton";
 import { TaskRow } from "@/components/tasks/TaskRow";
 import { JobPickerSheet } from "@/components/tasks/JobPickerSheet";
@@ -53,6 +54,9 @@ export default function TasksScreen() {
   const attention = needsYou(runs);
 
   return (
+    // Grows out of the chip that opened it, and collapses back into it — the
+    // BackButton drives the reverse (see components/ZoomFromOrigin).
+    <ZoomFromOrigin backdropColor={colors.bgPrimary}>
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bgPrimary }]} edges={["top"]}>
       <View style={[styles.header, { flexDirection }]}>
         <BackButton />
@@ -159,6 +163,7 @@ export default function TasksScreen() {
       <JobPickerSheet jobs={jobs} onPick={(input) => void add(input)} />
       <ScheduleSheet onSchedule={(iso) => void schedule(iso)} onRunNow={() => void start()} />
     </SafeAreaView>
+    </ZoomFromOrigin>
   );
 }
 

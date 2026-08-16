@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { FileText } from "lucide-react-native";
@@ -18,8 +19,8 @@ interface Props {
  *
  * Deliberately a plain list and nothing more — attaching is a one-tap decision,
  * and the student already knows which thesis they mean. The content only mounts
- * while the sheet is open (the wrapper unmounts it), so it always reflects the
- * current list without needing its own refresh.
+ * while the sheet is open (the wrapper unmounts it), so a refresh on mount is
+ * exactly one per opening — see AttachContent for why it needs one.
  */
 export function ThesisAttachSheet({ onPick }: Props) {
   return (
@@ -33,6 +34,16 @@ function AttachContent({ onPick }: Props) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const theses = useThesisStore((s) => s.theses);
+
+  // The store's list is fetched once, at sign-in. A thesis created since — most
+  // often by the assistant, in the very conversation this sheet was opened from
+  // — would be missing from the one screen whose entire job is choosing one, and
+  // the student would be asked to pick between everything EXCEPT the thesis they
+  // just made. Whatever is already in the store renders immediately; the fetch
+  // fills in the rest, and a failure leaves the old list in place.
+  useEffect(() => {
+    void useThesisStore.getState().refreshTheses();
+  }, []);
 
   const choose = (id: string) => {
     onPick(id);

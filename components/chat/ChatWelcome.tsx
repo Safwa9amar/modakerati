@@ -5,9 +5,15 @@ import { Sparkles } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 
-// The welcome artwork. Swap this one line for the robot illustration once it is
-// saved to assets/ — everything below is sized off the image's own aspect ratio,
-// so a different picture needs no other change.
+// The welcome artwork. Everything below is sized off the image's own aspect
+// ratio, so a different picture needs no other change.
+//
+// This was briefly an animated GIF. It went back to a still because GIF carries
+// only 1-bit alpha: every soft edge pixel is forced fully on or fully off, and
+// since the animation was generated against black, the ones it kept were a dark
+// navy that read as a speckled fringe around the robot on the light theme. A
+// PNG has real 8-bit alpha and no such edge. Anything animated here wants a
+// format that can hold partial transparency — Lottie or Rive, not GIF.
 const WELCOME_ART = require("../../assets/welcome-chat-avatar.png");
 
 /**
@@ -29,7 +35,13 @@ export function ChatWelcome() {
     <View style={styles.wrap}>
       {/* Copy sits ABOVE the art: the student reads what this can do for them
           first, and the illustration is the warm full stop, not the headline. */}
-      <Image source={WELCOME_ART} style={styles.art} resizeMode="contain" accessibilityRole="image" />
+      <Image
+        source={WELCOME_ART}
+        style={styles.art}
+        resizeMode="contain"
+        accessibilityRole="image"
+        accessibilityLabel={t("chat.welcome.body")}
+      />
 
       <Text style={[styles.body, { color: colors.textSecondary }]}>
         {t("chat.welcome.body")}
