@@ -37,7 +37,8 @@ function mapServerMessages(rows: any[], threadId: string): ChatMessage[] {
 // `docChanged` keeps it honest: when the turn's tools already edited the .docx,
 // it must not say nothing happened, or the student re-runs an edit that landed.
 /**
- * Re-sync the Thesis Structure outline after a turn that touched the .docx.
+ * Re-read what the turn changed — the DOCUMENT and the Thesis Structure outline —
+ * after a turn that touched the .docx.
  *
  * The outline lives in its OWN cached store, so an AI turn that adds headings —
  * a table of contents promoting plain titles, set_heading, a new chapter — left
@@ -46,14 +47,24 @@ function mapServerMessages(rows: any[], threadId: string): ChatMessage[] {
  * student reading the drawer from the chat screen saw "2 sections, 0 chapters"
  * next to an assistant claiming it had just built the whole hierarchy.
  *
- * Here it is tied to the TURN instead of to a screen, so it holds wherever the
- * student happens to be. Fire-and-forget: a failed refresh keeps the last good
- * copy (see outline-store.sync) and must never delay ending the turn.
+ * The DOCUMENT had the same hole, and it was the more visible one. Nothing on the
+ * chat screen re-read it, so the cached DTO stayed at its pre-turn state; opening
+ * the Writer seeds Lexical from exactly that cache (see WorkspaceLexicalView's
+ * enter-path), so the student was shown the OLD document by an assistant that had
+ * just finished rewriting it. The only thing that eventually refreshed it was the
+ * workspace's 20-second scheduled-run poll — which is why closing and reopening the
+ * Writer a few times "fixed" it.
+ *
+ * Here both are tied to the TURN instead of to a screen, so they hold wherever the
+ * student happens to be. Fire-and-forget: a failed refresh keeps the last good copy
+ * and must never delay ending the turn. `revalidate` no-ops while local edits are
+ * still queued (the flush is the authoritative reconcile there).
  */
-function syncOutlineAfterTurn(thesisId: string | null, docChanged: boolean): void {
+function syncDocumentAfterTurn(thesisId: string | null, docChanged: boolean): void {
   // No thesis attached → nothing to sync, and nothing CAN have changed anyway:
   // the unattached system prompt carries none of the doc-editing tools.
   if (!thesisId || !docChanged) return;
+  void useThesisDocStore.getState().revalidate(thesisId);
   void useOutlineStore.getState().sync(thesisId);
 }
 
@@ -616,7 +627,7 @@ async function runAssistantTurn(
     // The turn's tools may have added or promoted headings — refresh the outline
     // wherever the student is, not only in the workspace screen. thesisId, not
     // threadId — see the field comment on chat-store's docChanges.
-    syncOutlineAfterTurn(thesisId, docChanged);
+    syncDocumentAfterTurn(thesisId, docChanged);
     // …and it may have created a whole THESIS (create_thesis), which only the
     // server knows about. Fire-and-forget for the same reason: the turn is over,
     // and this must not hold up the chat going idle.
@@ -778,7 +789,7 @@ async function runActionContinuation(
   call: typeof chatConfirmAction,
 ): Promise<void> {
   // thesisId, not threadId — see the field comment on chat-store's docChanges.
-  // syncOutlineAfterTurn and docChanges both need the real thesis id.
+  // syncDocumentAfterTurn and docChanges both need the real thesis id.
   const store = useChatStore.getState();
   store.setPendingConfirm(null);
   const controller = new AbortController();
@@ -854,7 +865,7 @@ async function runActionContinuation(
     // An approved destructive action (deleting a hand-typed table of contents,
     // say) runs in THIS continuation, not the original turn — so the outline has
     // to be re-synced here too.
-    syncOutlineAfterTurn(thesisId, docChanged);
+    syncDocumentAfterTurn(thesisId, docChanged);
     await persistCache(threadId);
   }
 }
