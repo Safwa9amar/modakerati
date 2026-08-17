@@ -344,6 +344,7 @@
     "welcomeTo": "Bienvenue sur",
     "appName": "Kwill",
     "signInSubtitle": "Connectez-vous pour continuer votre mémoire",
+    "appTagline": "Votre compagnon de mémoire propulsé par l'IA",
     "email": "E-mail",
     "password": "Mot de passe",
     "confirmPassword": "Confirmer le mot de passe",
@@ -495,6 +496,10 @@
   "onboarding": {
     "slide1Title": "Discutez avec l'IA pour\nconstruire votre mémoire",
     "slide1Desc": "Expliquez chaque chapitre et section à l'IA.\nElle génère un contenu académique structuré\nadapté au format de votre université.",
+    "slide2Title": "Rédigez dans un vrai\ndocument Word",
+    "slide2Desc": "Votre mémoire est un fichier .docx vivant.\nTitres, tableaux, figures et citations\nrestent mis en forme pendant que vous écrivez.",
+    "slide3Title": "Exportez et\nrendez votre mémoire",
+    "slide3Desc": "Téléchargez un fichier Word finalisé qui s'ouvre\npartout, avec le sommaire, les numéros\nde page et la mise en page déjà corrects.",
     "chooseLanguage": "Choisissez votre langue"
   },
   "payment": {

@@ -1,15 +1,19 @@
 import { useState } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet, Pressable, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { GraduationCap } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useBottomInset } from "@/hooks/useBottomInset";
 import { useSettingsStore } from "@/stores/settings-store";
 import { getDeviceLanguage, restartApp, setLanguageWithRTL } from "@/lib/i18n";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+
+// The dark cut's "will" is white and vanishes on a light ground; the light cut
+// is the same art with those glyphs recoloured to the light ink. See login.
+const WORDMARK = require("../../assets/wordmark.png");
+const WORDMARK_LIGHT = require("../../assets/wordmark-light.png");
 
 type Language = "en" | "fr" | "ar";
 
@@ -21,6 +25,7 @@ const languages: { code: Language; native: string; subtitle: string }[] = [
 
 export default function LanguageScreen() {
   const colors = useThemeColors();
+  const theme = useSettingsStore((s) => s.theme);
   const bottomInset = useBottomInset(32);
   const router = useRouter();
   const { t } = useTranslation();
@@ -57,14 +62,16 @@ export default function LanguageScreen() {
     >
       <View style={styles.content}>
         <View style={styles.header}>
-          <View style={[styles.logo, { backgroundColor: colors.brandPrimary }]}>
-            <GraduationCap size={40} color={colors.brandOnPrimary} strokeWidth={1.5} />
-          </View>
-          <Text style={[styles.appName, { color: colors.textPrimary }]}>
-            Kwill
-          </Text>
+          {/* The mark, under either theme — each ground gets the cut of the art
+              that reads on it. It carries the name, so no separate title. */}
+          <Image
+            source={theme === "dark" ? WORDMARK : WORDMARK_LIGHT}
+            style={styles.wordmark}
+            resizeMode="contain"
+            accessibilityLabel={t("auth.appName")}
+          />
           <Text style={[styles.tagline, { color: colors.textSecondary }]}>
-            {t("auth.appTagline", { defaultValue: "Your AI-powered thesis companion" })}
+            {t("auth.appTagline")}
           </Text>
         </View>
 
@@ -138,18 +145,13 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1, paddingHorizontal: 24, paddingTop: 40 },
   header: { alignItems: "center", marginBottom: 40 },
-  logo: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
-  appName: {
-    fontSize: 32,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 8,
+  // The art carries its own glow padding, so it sits on negative vertical
+  // margins to keep the optical spacing the icon-and-title stack had.
+  wordmark: {
+    width: 260,
+    height: 173, // the art's own 1.5 aspect, so `contain` letterboxes nothing
+    marginTop: -18,
+    marginBottom: -14,
   },
   tagline: {
     fontSize: 14,

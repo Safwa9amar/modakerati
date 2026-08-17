@@ -344,6 +344,7 @@
     "welcomeTo": "Welcome to",
     "appName": "Kwill",
     "signInSubtitle": "Sign in to continue building your thesis",
+    "appTagline": "Your AI-powered thesis companion",
     "email": "Email",
     "password": "Password",
     "confirmPassword": "Confirm Password",
@@ -495,6 +496,10 @@
   "onboarding": {
     "slide1Title": "Chat with AI to\nBuild Your Thesis",
     "slide1Desc": "Tell AI about each chapter and section.\nIt generates structured, academic content\ntailored to your university's format.",
+    "slide2Title": "Write in a Real\nWord Document",
+    "slide2Desc": "Your thesis is a live .docx file.\nHeadings, tables, figures and citations\nstay formatted while you write.",
+    "slide3Title": "Export and\nHand It In",
+    "slide3Desc": "Download a finished Word file that opens\nanywhere, with the table of contents,\npage numbers and layout already right.",
     "chooseLanguage": "Choose your language"
   },
   "payment": {
