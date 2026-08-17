@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { fetchQuota, fetchPlanCatalogue } from "@/lib/api";
-import type { QuotaState, PlanCatalogue, QuotaDenyReason } from "@/types/billing";
+import type { QuotaState, PlanCatalogue, QuotaDenyReason, ThesisAllowance } from "@/types/billing";
 
 // The message counter and the paywall it raises.
 //
@@ -11,6 +11,16 @@ import type { QuotaState, PlanCatalogue, QuotaDenyReason } from "@/types/billing
 
 interface BillingState {
   quota: QuotaState | null;
+  /**
+   * How many theses the plan allows, and how many are already held. A free
+   * student may hold ONE.
+   *
+   * Its own field rather than a member of `quota`: every chat turn echoes a fresh
+   * QuotaState back through `applyQuota`, and that payload is the message ledger
+   * only — a thesis count living inside it would be blanked by the first message
+   * the student sent.
+   */
+  thesisAllowance: ThesisAllowance | null;
   catalogue: PlanCatalogue | null;
   loading: boolean;
   /**
@@ -57,6 +67,19 @@ interface BillingState {
    * turn is refunded there, which `applyQuota` then reflects.
    */
   spendOne: () => void;
+  /**
+   * A thesis was just created — count it, without a round trip.
+   *
+   * So the next tap on "new thesis" is refused by the screen rather than by the
+   * server: the four creation flows all land somewhere else afterwards (the
+   * writer, the analysis screen), and none of them refreshes the counter.
+   */
+  noteThesisCreated: () => void;
+  /**
+   * The server refused a creation with the counts it refused on. Trusted over
+   * whatever was cached — the cache is why the student got that far.
+   */
+  applyThesisLimit: (limit: { plan?: string; limit?: number | null; used?: number }) => void;
 }
 
 /** The band `useQuotaLow` warns inside — see the selector for why a threshold. */
@@ -77,6 +100,7 @@ const keepsDismissal = (dismissed: boolean, quota: QuotaState | null | undefined
 
 export const useBillingStore = create<BillingState>((set, get) => ({
   quota: null,
+  thesisAllowance: null,
   catalogue: null,
   loading: false,
   catalogueFailed: false,
@@ -86,8 +110,15 @@ export const useBillingStore = create<BillingState>((set, get) => ({
   refreshQuota: async () => {
     set({ loading: true });
     try {
-      const quota = await fetchQuota();
-      set({ quota, lowDismissed: keepsDismissal(get().lowDismissed, quota) });
+      const { theses, ...quota } = await fetchQuota();
+      set({
+        quota,
+        lowDismissed: keepsDismissal(get().lowDismissed, quota),
+        // A server that predates the thesis limit sends nothing here. Keep the
+        // last-known allowance rather than replacing it with null, which the
+        // screens read as "unknown" and would silently stop enforcing.
+        ...(theses ? { thesisAllowance: theses } : null),
+      });
     } catch {
       // A counter that can't be read is not worth an error screen — the send
       // path still gets the authoritative answer from the server.
@@ -149,6 +180,37 @@ export const useBillingStore = create<BillingState>((set, get) => ({
       },
     });
   },
+
+  noteThesisCreated: () => {
+    const a = get().thesisAllowance;
+    if (!a) return;
+    const used = a.used + 1;
+    set({
+      thesisAllowance: {
+        ...a,
+        used,
+        remaining: a.limit === null ? null : Math.max(0, a.limit - used),
+        canCreate: a.limit === null || used < a.limit,
+      },
+    });
+  },
+
+  applyThesisLimit: ({ plan, limit, used }) => {
+    const a = get().thesisAllowance;
+    const nextLimit = limit !== undefined ? limit : (a?.limit ?? null);
+    const nextUsed = used ?? a?.used ?? 0;
+    set({
+      thesisAllowance: {
+        plan: (plan as ThesisAllowance["plan"]) ?? a?.plan ?? "free",
+        limit: nextLimit,
+        used: nextUsed,
+        remaining: nextLimit === null ? null : Math.max(0, nextLimit - nextUsed),
+        // The server just said no. Never re-derive that from the counts — a
+        // disagreement between them is exactly the bug this line prevents.
+        canCreate: false,
+      },
+    });
+  },
 }));
 
 // ── primitive selectors ──────────────────────────────────────────────────────
@@ -161,6 +223,21 @@ export const useQuotaIncluded = () => useBillingStore((s) => s.quota?.included ?
 export const useQuotaPlan = () => useBillingStore((s) => s.quota?.plan ?? "free");
 export const useQuotaIsTrial = () => useBillingStore((s) => s.quota?.isTrial ?? false);
 export const useQuotaBlocked = () => useBillingStore((s) => s.blockedReason);
+
+/**
+ * Whether another thesis may be created. TRUE while unknown — the server is the
+ * authority on this and refuses at all four creation doors, so an unread counter
+ * must never be the thing that stops a student who is entitled.
+ */
+export const useCanCreateThesis = () => useBillingStore((s) => s.thesisAllowance?.canCreate ?? true);
+/** Theses the plan allows. -1 = unknown, 0 = unlimited (nothing to say). */
+export const useThesisLimit = () =>
+  useBillingStore((s) => {
+    const a = s.thesisAllowance;
+    if (!a) return -1;
+    return a.limit ?? 0;
+  });
+export const useThesesUsed = () => useBillingStore((s) => s.thesisAllowance?.used ?? -1);
 export const usePaymentsEnabled = () => useBillingStore((s) => s.catalogue?.paymentsEnabled ?? false);
 
 /**

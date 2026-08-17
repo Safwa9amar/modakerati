@@ -2,6 +2,9 @@ import { create } from "zustand";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { classifyCombineParts, combineThesis, type PartRole, type ClassifyFailure } from "@/lib/api";
+import { useBillingStore } from "@/stores/billing-store";
+import { rememberThesisLimit, thesisLimitBody } from "@/lib/thesis-limit";
+import { isThesisLimitError } from "@/types/billing";
 import type { Thesis } from "@/types/thesis";
 import type { AnalysisReport } from "@/lib/api";
 
@@ -260,6 +263,14 @@ export const useCombineStore = create<CombineState>((set, get) => ({
       await runClassify(set, raw);
       return "ok";
     } catch (err) {
+      // Classify persists nothing, but it is refused by the same thesis ceiling
+      // as the combine it feeds — there is no point classifying eight chapters
+      // into a thesis that cannot be created.
+      if (isThesisLimitError(err)) {
+        rememberThesisLimit(err);
+        set({ status: "error", errorMessage: thesisLimitBody(err) });
+        return "error";
+      }
       const message = err instanceof Error ? err.message : "Classification failed";
       set({ status: "error", errorMessage: message });
       return "error";
@@ -308,8 +319,15 @@ export const useCombineStore = create<CombineState>((set, get) => ({
           })),
       }, { onUploadProgress: (uploadProgress) => set({ uploadProgress }) });
       set({ status: "done", thesis, analysisReport });
+      // A combine IS a new thesis — count it against the plan's ceiling.
+      useBillingStore.getState().noteThesisCreated();
       return "ok";
     } catch (err) {
+      if (isThesisLimitError(err)) {
+        rememberThesisLimit(err);
+        set({ status: "error", errorMessage: thesisLimitBody(err) });
+        return "error";
+      }
       const message = err instanceof Error ? err.message : "Combine failed";
       set({ status: "error", errorMessage: message });
       return "error";

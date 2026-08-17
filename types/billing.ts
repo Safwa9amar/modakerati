@@ -42,6 +42,29 @@ export interface QuotaState {
   monthly?: { cap: number; used: number; remaining: number; resetsAt: string };
 }
 
+/**
+ * How many theses this account may hold, and whether there is room for one more.
+ *
+ * A free student may hold ONE. Deliberately NOT folded into `QuotaState`: that
+ * shape is echoed back by every chat turn (`applyQuota`), and it carries only the
+ * message ledger — a thesis field living inside it would be wiped clean the first
+ * time the student sent a message.
+ */
+export interface ThesisAllowance {
+  plan: PlanCode;
+  /** null = unlimited (the 3- and 6-month plans). */
+  limit: number | null;
+  used: number;
+  remaining: number | null;
+  canCreate: boolean;
+}
+
+/** GET /api/payment/quota — the message counter plus the thesis allowance. */
+export interface QuotaResponse extends QuotaState {
+  /** Absent on a server that predates the thesis limit. */
+  theses?: ThesisAllowance;
+}
+
 export interface SubscriptionState {
   plan: PlanCode;
   status: string;
@@ -72,4 +95,23 @@ export interface QuotaError extends Error {
 
 export function isQuotaError(e: unknown): e is QuotaError {
   return !!e && typeof e === "object" && (e as { code?: string }).code === "quota_exhausted";
+}
+
+/**
+ * A thesis refused because the plan is already holding as many as it allows.
+ *
+ * Also a 402, and it comes from all four creation doors — the wizard, a .docx
+ * import, a combine, and the assistant's own create_thesis — so every one of them
+ * can be answered with the same wording.
+ */
+export interface ThesisLimitError extends Error {
+  status: 402;
+  code: "thesis_limit";
+  plan?: PlanCode;
+  limit?: number | null;
+  used?: number;
+}
+
+export function isThesisLimitError(e: unknown): e is ThesisLimitError {
+  return !!e && typeof e === "object" && (e as { code?: string }).code === "thesis_limit";
 }

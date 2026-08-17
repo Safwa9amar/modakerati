@@ -606,6 +606,12 @@
     "quotaLow": "{{count}} messages left",
     "viewPlans": "View plans"
   },
+  "thesisLimit": {
+    "titleOne": "Your free plan holds one thesis",
+    "title": "Your plan holds {{count}} theses",
+    "bodyOne": "You already have one. Carry on writing it, delete it if you would rather start a different one, or move to a plan that holds several.",
+    "body": "You have {{used}} of {{limit}}. Delete one to start another, or move to a plan that holds more."
+  },
   "profile": {
     "profile": "Profile",
     "proPlan": "Pro Plan",

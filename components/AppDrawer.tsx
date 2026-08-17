@@ -45,6 +45,7 @@ import { useCombineStore } from "@/stores/combine-store";
 import { AvatarPicker } from "@/components/AvatarPicker";
 import { ThesisOutlinePanel } from "@/components/workspace/ThesisOutlinePanel";
 import { listTheses } from "@/lib/api";
+import { guardThesisLimit } from "@/lib/thesis-limit";
 
 // Two cuts of the same art. The original's "will" is white — it disappears on
 // the light theme, which is why the drawer used to fall back to plain type there
@@ -176,6 +177,10 @@ function AppIndex() {
 
   const handleImport = useCallback(async () => {
     closeDrawer();
+    // An import IS a new thesis, so the plan's ceiling applies. Asked before the
+    // picker: refusing after the student has chosen a file and waited out the
+    // upload would be the same wall arrived at expensively.
+    if (!(await guardThesisLimit())) return;
     const store = useImportStore.getState();
     store.reset();
     // Reading a thesis to base64 and analysing it server-side takes tens of
@@ -202,6 +207,8 @@ function AppIndex() {
 
   const handleCombine = useCallback(async () => {
     closeDrawer();
+    // A combine also ends in a new thesis — see handleImport.
+    if (!(await guardThesisLimit())) return;
     const store = useCombineStore.getState();
     store.reset();
     // Reading a handful of chapter .docx files and classifying them takes tens of

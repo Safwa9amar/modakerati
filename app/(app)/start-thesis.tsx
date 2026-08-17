@@ -7,7 +7,9 @@ import { FileText, ChevronRight, GraduationCap, Sparkles } from "lucide-react-na
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useProfileStore } from "@/stores/profile-store";
 import { useThesisWizard } from "@/stores/thesis-wizard-store";
+import { useBillingStore, useCanCreateThesis } from "@/stores/billing-store";
 import { UniversityPicker } from "@/components/UniversityPicker";
+import { ThesisLimitCard } from "@/components/ThesisLimitCard";
 import { BackButton } from "@/components/BackButton";
 import { StartingPointSkeleton } from "@/components/skeletons/StartingPointSkeleton";
 import { getStartingPoints } from "@/lib/api";
@@ -31,6 +33,31 @@ export default function StartThesisScreen() {
   const { t, i18n } = useTranslation();
 
   const profile = useProfileStore((s) => s.profile);
+
+  // A free plan holds ONE thesis. The server refuses every creation door, but this
+  // is where the student arrives BEFORE choosing anything — so the answer is given
+  // here, in place of the choices, rather than at the end of a wizard they have
+  // already answered five questions in. Re-read on mount: a thesis may have been
+  // created or deleted since the counter was last loaded, and this is the one
+  // screen where a stale answer costs real work.
+  const canCreate = useCanCreateThesis();
+  // Gated on the read, not just on its result: the allowance defaults to "allowed"
+  // while unknown (the server is the authority and an unread counter must never
+  // block someone entitled), so rendering before it lands would flash the choices
+  // and then pull them away.
+  const [checkingLimit, setCheckingLimit] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    useBillingStore
+      .getState()
+      .refreshQuota()
+      .finally(() => {
+        if (alive) setCheckingLimit(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const [points, setPoints] = useState<StartingPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,7 +130,17 @@ export default function StartThesisScreen() {
         <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>{t("startingPoint.title")}</Text>
       </View>
 
-      {needsUniversity ? (
+      {/* The allowance is settled before anything else is drawn, and it outranks
+          the university prompt: with no room for another thesis there is nothing
+          on this screen to choose, so it shows the reason and the ways forward
+          rather than a picker that leads to a refusal. */}
+      {checkingLimit ? (
+        <StartingPointSkeleton />
+      ) : !canCreate ? (
+        <View style={styles.scroll}>
+          <ThesisLimitCard />
+        </View>
+      ) : needsUniversity ? (
         <View style={styles.pickerWrap}>
           <Text style={[styles.askTitle, { color: colors.textPrimary }]}>{t("startingPoint.browseUniversities")}</Text>
           <Text style={[styles.askHint, { color: colors.textSecondary }]}>

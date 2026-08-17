@@ -2,6 +2,9 @@ import { create } from "zustand";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { importThesis, applyThesisSuggestions } from "@/lib/api";
+import { useBillingStore } from "@/stores/billing-store";
+import { rememberThesisLimit, thesisLimitBody } from "@/lib/thesis-limit";
+import { isThesisLimitError } from "@/types/billing";
 import type { Thesis } from "@/types/thesis";
 import type { AnalysisReport } from "@/lib/api";
 
@@ -125,8 +128,19 @@ export const useImportStore = create<ImportState>((set, get) => ({
         acceptedIds: allIds,
         rejectedIds: [],
       });
+      // An import IS a new thesis — count it against the plan's ceiling, or the
+      // next one is refused by the server rather than by the screen.
+      useBillingStore.getState().noteThesisCreated();
       return "ok";
     } catch (err) {
+      // The plan's thesis ceiling. AppDrawer asks before the picker opens, so
+      // getting here means the count moved underneath this upload — show the same
+      // wording rather than the server's fallback sentence.
+      if (isThesisLimitError(err)) {
+        rememberThesisLimit(err);
+        set({ status: "error", errorMessage: thesisLimitBody(err) });
+        return "error";
+      }
       const message = err instanceof Error ? err.message : "Import failed";
       set({ status: "error", errorMessage: message });
       return "error";

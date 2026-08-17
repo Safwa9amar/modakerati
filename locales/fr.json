@@ -606,6 +606,12 @@
     "quotaLow": "{{count}} messages restants",
     "viewPlans": "Voir les forfaits"
   },
+  "thesisLimit": {
+    "titleOne": "Votre forfait gratuit permet un seul mémoire",
+    "title": "Votre forfait permet {{count}} mémoires",
+    "bodyOne": "Vous en avez déjà un. Continuez à le rédiger, supprimez-le si vous préférez en commencer un autre, ou passez à un forfait qui en permet plusieurs.",
+    "body": "Vous en avez {{used}} sur {{limit}}. Supprimez-en un pour en commencer un autre, ou passez à un forfait qui en permet davantage."
+  },
   "profile": {
     "profile": "Profil",
     "proPlan": "Forfait Pro",

@@ -14,7 +14,7 @@ import type {
   ParagraphMutationResult,
 } from "@/types/document";
 import type { Thesis, Template, NormProfile, University, StartingPoint } from "@/types/thesis";
-import type { QuotaState, PlanCatalogue, SubscriptionState, PlanCode } from "@/types/billing";
+import type { QuotaResponse, PlanCatalogue, SubscriptionState, PlanCode } from "@/types/billing";
 import type { ThesisSource } from "@/types/source";
 import { byokHeaders, whenByokHydrated, useByokStore, isByokErrorCode } from "@/stores/byok-store";
 
@@ -60,11 +60,25 @@ async function raiseApiError(response: Response): Promise<never> {
  * streaming path; this keeps the two paths telling the same story.
  */
 function decorateApiError(err: Error, status: number, body: any): Error {
-  const e = err as Error & { status?: number; code?: string; reason?: string; quota?: unknown };
+  const e = err as Error & {
+    status?: number;
+    code?: string;
+    reason?: string;
+    quota?: unknown;
+    plan?: string;
+    limit?: number | null;
+    used?: number;
+  };
   e.status = status;
   if (body?.code) e.code = body.code;
   if (body?.reason) e.reason = body.reason;
   if (body?.quota) e.quota = body.quota;
+  // The thesis limit (402 + code:"thesis_limit") carries its counts here rather
+  // than inside `quota`: it is not the message ledger, and the screen that shows
+  // it needs to say "1 of 1" without a second round trip.
+  if (body?.plan) e.plan = body.plan;
+  if (body?.limit !== undefined) e.limit = body.limit;
+  if (body?.used !== undefined) e.used = body.used;
   return e;
 }
 
@@ -2283,9 +2297,14 @@ export async function deleteDocument(id: string): Promise<void> {
 // screen can only ever quote a number the server would actually honour — a
 // hardcoded price that drifts is a student charged one amount and shown another.
 
-/** What the student has left. Cheap; safe to call on focus. */
-export async function fetchQuota(): Promise<QuotaState> {
-  return apiGet<QuotaState>("/api/payment/quota");
+/**
+ * What the student has left: the message counter AND the thesis allowance.
+ *
+ * Cheap; safe to call on focus. `theses` is absent on a server that predates the
+ * thesis limit — the store keeps its last-known value rather than inventing one.
+ */
+export async function fetchQuota(): Promise<QuotaResponse> {
+  return apiGet<QuotaResponse>("/api/payment/quota");
 }
 
 /** The plans on offer, plus whether payments are configured at all. */

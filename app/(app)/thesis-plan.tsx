@@ -20,7 +20,10 @@ import {
   useThesisWizard,
   type WizardPlanSection,
 } from "@/stores/thesis-wizard-store";
+import { useBillingStore } from "@/stores/billing-store";
 import { generateThesisPlan, streamThesisPlan, createThesis, getThesis } from "@/lib/api";
+import { isThesisLimitError } from "@/types/billing";
+import { rememberThesisLimit, showThesisLimitAlert } from "@/lib/thesis-limit";
 import { userFacingError } from "@/lib/safe-error";
 import { BackButton } from "@/components/BackButton";
 import { Card } from "@/components/ui/Card";
@@ -218,12 +221,24 @@ export default function ThesisPlanScreen() {
       const full = await getThesis(created.id);
       useThesisStore.getState().upsertThesis(full);
       useThesisStore.getState().setCurrentThesis(full.id);
+      // Count it locally so the next tap on "new thesis" is answered by the
+      // starting-point screen instead of by a 402 at the end of another wizard.
+      useBillingStore.getState().noteThesisCreated();
       useThesisWizard.getState().reset();
       router.replace({
         pathname: "/(app)/thesis-workspace",
         params: { thesisId: full.id },
       });
     } catch (e) {
+      // The plan's thesis ceiling. The starting-point screen normally catches
+      // this before a single question is answered; reaching it here means the
+      // count moved underneath the student (another device, another tab), so it
+      // gets the same wording rather than "Error: <arabic sentence>".
+      if (isThesisLimitError(e)) {
+        rememberThesisLimit(e);
+        showThesisLimitAlert(e);
+        return;
+      }
       Alert.alert(
         t("common.error", { defaultValue: "Error" }),
         userFacingError(e)
