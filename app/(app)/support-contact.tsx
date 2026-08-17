@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
-import { useBottomInset } from "@/hooks/useBottomInset";
+import { useBottomInset, useKeyboardLift } from "@/hooks/useBottomInset";
 import {
   createSupportConversation,
   listSupportConversations,
@@ -48,6 +48,11 @@ export default function SupportContactScreen() {
   const colors = useThemeColors();
   const { flexDirection, textAlign, isRTL } = useRTL();
   const bottomInset = useBottomInset(24);
+  // Android is edge-to-edge, so the window is never resized for the IME and the
+  // KeyboardAvoidingView below is inert there. The scroll content pads itself by
+  // the keyboard's height instead, which keeps the message box and the Send
+  // button reachable. iOS returns 0 and lets the KAV do it.
+  const keyboardLift = useKeyboardLift();
   const router = useRouter();
 
   // Selecting a primitive, never an object literal — see stores/ conventions.
@@ -132,7 +137,7 @@ export default function SupportContactScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
       >
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomInset + keyboardLift }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >

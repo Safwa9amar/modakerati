@@ -14,6 +14,15 @@ import type { SupportMessage } from "./api";
 // Writes still go through the server (POST /api/support/...). The client never
 // gains one: there are no INSERT/UPDATE policies at all.
 
+// supabase-js caches channels BY NAME: `supabase.channel("x")` twice hands back
+// the same object, and the second caller's `.on()` then lands after the first
+// caller's `.subscribe()` — which throws "cannot add postgres_changes callbacks
+// after subscribe()". Two screens legitimately watch the same data at once (the
+// hub stays mounted underneath the contact list), so every subscriber gets its
+// own channel name.
+let channelSeq = 0;
+const uniqueChannel = (prefix: string) => `${prefix}:${++channelSeq}`;
+
 type MessageRow = {
   id: string;
   conversation_id: string;
@@ -45,23 +54,31 @@ export function watchConversation(
   conversationId: string,
   onMessage: (message: SupportMessage) => void
 ): () => void {
-  const channel = supabase
-    .channel(`support:conversation:${conversationId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "support_messages",
-        filter: `conversation_id=eq.${conversationId}`,
-      },
-      (payload) => onMessage(toMessage(payload.new as MessageRow))
-    )
-    .subscribe();
+  // Never let a socket problem take the screen down with it. Losing the live
+  // feed costs the student a pull-to-refresh; an exception thrown out of the
+  // effect costs them the whole help screen, which is the one place they went
+  // to BECAUSE something was already wrong.
+  try {
+    const channel = supabase
+      .channel(uniqueChannel(`support:conversation:${conversationId}`))
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "support_messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => onMessage(toMessage(payload.new as MessageRow))
+      )
+      .subscribe();
 
-  return () => {
-    supabase.removeChannel(channel);
-  };
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  } catch {
+    return () => {};
+  }
 }
 
 /**
@@ -70,21 +87,25 @@ export function watchConversation(
  * `onChange` is a cue to refetch rather than a payload to trust.
  */
 export function watchMyConversations(onChange: () => void): () => void {
-  const channel = supabase
-    .channel("support:mine")
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "support_messages" },
-      () => onChange()
-    )
-    .on(
-      "postgres_changes",
-      { event: "UPDATE", schema: "public", table: "support_conversations" },
-      () => onChange()
-    )
-    .subscribe();
+  try {
+    const channel = supabase
+      .channel(uniqueChannel("support:mine"))
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "support_messages" },
+        () => onChange()
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "support_conversations" },
+        () => onChange()
+      )
+      .subscribe();
 
-  return () => {
-    supabase.removeChannel(channel);
-  };
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  } catch {
+    return () => {};
+  }
 }

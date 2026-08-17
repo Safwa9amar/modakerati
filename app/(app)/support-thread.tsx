@@ -17,7 +17,7 @@ import { Send } from "lucide-react-native";
 import { BackButton } from "@/components/BackButton";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
-import { useBottomInset } from "@/hooks/useBottomInset";
+import { useBottomInset, useKeyboardLift } from "@/hooks/useBottomInset";
 import {
   getSupportConversation,
   replyToSupportConversation,
@@ -39,6 +39,11 @@ export default function SupportThreadScreen() {
   const colors = useThemeColors();
   const { flexDirection, textAlign } = useRTL();
   const bottomInset = useBottomInset(12);
+  // Android draws edge-to-edge, which makes windowSoftInputMode inert — the
+  // window is never resized for the IME, so a docked composer sits behind the
+  // keys unless it lifts by the measured height itself. iOS returns 0 and lets
+  // the KeyboardAvoidingView below do it; the two must never both be on.
+  const keyboardLift = useKeyboardLift();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [thread, setThread] = useState<SupportConversationDetail | null>(null);
@@ -169,10 +174,19 @@ export default function SupportThreadScreen() {
           </ScrollView>
         )}
 
+        {/* The composer sits ON the system navigation bar: `bottomInset` keeps it
+            clear of whichever navigation the phone uses, and `keyboardLift`
+            replaces that with the keyboard's height while typing. On iOS the
+            lift is 0 and the KeyboardAvoidingView above does the work — the two
+            must never both be on or they double-count. */}
         <View
           style={[
             styles.composer,
-            { borderTopColor: colors.borderSubtle, paddingBottom: bottomInset, flexDirection },
+            {
+              borderTopColor: colors.borderSubtle,
+              paddingBottom: bottomInset + keyboardLift,
+              flexDirection,
+            },
           ]}
         >
           <TextInput
