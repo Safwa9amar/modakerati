@@ -22,6 +22,8 @@ import { resolveBlockIndex, type BlockLink } from "@/lib/block-links";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { ComposerQuickActions } from "@/components/workspace/ComposerQuickActions";
+import { QuotaNotice } from "@/components/chat/QuotaNotice";
+import { useBillingStore } from "@/stores/billing-store";
 import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { useSpeakMessage } from "@/hooks/useSpeakMessage";
 import { TypingIndicator } from "@/components/TypingIndicator";
@@ -288,6 +290,15 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
   // does NOT touch loadedRef, so this effect can never fire again for it — the
   // effect below (keyed on threadId) is what does the actual message load for
   // BOTH paths, so it isn't repeated here.
+  // The message counter, re-read whenever the student comes back to the chat.
+  // On focus rather than on mount: they may have just paid on the plans screen,
+  // and a stale "0 left" banner over the composer would still be blocking them.
+  useFocusEffect(
+    useCallback(() => {
+      void useBillingStore.getState().refreshQuota();
+    }, []),
+  );
+
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
@@ -1422,6 +1433,14 @@ export function ThesisChat({ thesisId: initialThesisId, thesisTitle, variant = "
         onClose={() => setPendingAsk(null)}
       />
 
+      {/* Out of messages (or nearly). Sits above the input, where the answer
+          would have gone, rather than interrupting with a modal. */}
+      {active && (
+        <View style={[styles.quotaOverlay, { paddingBottom: confirmInset + keyboardLift }]}>
+          <QuotaNotice />
+        </View>
+      )}
+
       {/* Gated destructive AI action → Approve/Cancel card pinned above the input.
           The doc isn't visible on this screen, so there's no "undo AI changes" chip here. */}
       {active && pendingConfirm && (
@@ -1533,6 +1552,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  // Same anchoring as confirmOverlay, but no background or top border of its
+  // own: QuotaNotice is a self-contained card and a second surface behind it
+  // reads as two stacked panels.
+  quotaOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingTop: 14,
   },
   suggestionsRow: { marginBottom: 10, marginHorizontal: 2 },
   attachRow: {

@@ -10,6 +10,8 @@ import { IMG_FRAME_OPEN, splitImageFrames, restageImage, toAttachment, toChatIma
 import i18n from "./i18n";
 import { backoffMs, backoffSleep, isTransientFailure, MAX_TURN_ATTEMPTS } from "./retry";
 import { userFacingError } from "./safe-error";
+import { useBillingStore } from "@/stores/billing-store";
+import { isQuotaError } from "@/types/billing";
 import type { ChatMessage } from "@/types/chat";
 
 // The first view shows only the most recent few messages; scrolling to the top
@@ -331,6 +333,12 @@ async function runAssistantTurn(
   const turnId = store.beginTurn();
   store.setAbortController(controller);
 
+  // Move the counter now rather than when the turn returns: a message that
+  // visibly costs nothing until a minute later reads as free. The server stays
+  // the authority — it refunds a turn that fails, and the reconcile in the
+  // `finally` below replaces this guess with the real figure either way.
+  useBillingStore.getState().spendOne();
+
   // False once the user hits Stop or a newer turn takes over. Every write below
   // is gated on it: the request may keep unwinding for a while (an abort the
   // transport is slow to honour, or never honours), and a stopped turn that
@@ -586,6 +594,18 @@ async function runAssistantTurn(
           }
         }
 
+        // Out of messages. Handled before every other exit because none of them
+        // fit: retrying cannot help, and the ordinary dead-end below would leave
+        // an assistant bubble explaining the problem in a chat the student then
+        // has to scroll past, with a Retry button that can only fail again.
+        // Instead the question stays marked undelivered — so Retry works the
+        // moment they have credit — and the paywall comes up over the chat.
+        if (isQuotaError(error)) {
+          if (opts?.userMessageId) store.setMessageFailed(threadId, opts.userMessageId, true);
+          useBillingStore.getState().setBlocked(error.reason ?? "period-exhausted", error.quota);
+          return;
+        }
+
         // Nothing of this attempt reached the student, and the failure is one that
         // passes on its own — go again rather than handing over a button. This is
         // the path that used to end every "the service is very busy right now".
@@ -632,6 +652,11 @@ async function runAssistantTurn(
     // server knows about. Fire-and-forget for the same reason: the turn is over,
     // and this must not hold up the chat going idle.
     void syncThesisAfterTurn(threadId, thesisId);
+    // Replace the optimistic decrement above with the server's real figure. It
+    // matters in both directions: a turn that failed was REFUNDED server-side,
+    // so the message the student was provisionally charged has to come back.
+    // Fire-and-forget — the turn is over and the counter is not worth a wait.
+    void useBillingStore.getState().refreshQuota();
     // Persist the new turn to the device so it survives restarts and shows
     // instantly next time. Server-id reconciliation happens on the next open.
     await persistCache(threadId);

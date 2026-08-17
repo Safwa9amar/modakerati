@@ -14,6 +14,7 @@ import type {
   ParagraphMutationResult,
 } from "@/types/document";
 import type { Thesis, Template, NormProfile, University, StartingPoint } from "@/types/thesis";
+import type { QuotaState, PlanCatalogue, SubscriptionState, PlanCode } from "@/types/billing";
 import type { ThesisSource } from "@/types/source";
 import { byokHeaders, whenByokHydrated, useByokStore, isByokErrorCode } from "@/stores/byok-store";
 
@@ -46,7 +47,25 @@ async function raiseApiError(response: Response): Promise<never> {
   if (body?.byok && isByokErrorCode(body.error)) {
     useByokStore.getState().setLastError(body.error);
   }
-  throw new Error(body?.error || `API Error: ${response.status}`);
+  throw decorateApiError(new Error(body?.error || `API Error: ${response.status}`), response.status, body);
+}
+
+/**
+ * Carry the machine-readable part of an error body onto the thrown Error.
+ *
+ * Callers have always caught a plain Error and shown its message, which is fine
+ * for "something went wrong" but wrong for a refusal the student can act on: a
+ * spent message allowance needs the paywall and the remaining counts, not a
+ * sentence in a dead chat bubble. `status` was already being attached on the
+ * streaming path; this keeps the two paths telling the same story.
+ */
+function decorateApiError(err: Error, status: number, body: any): Error {
+  const e = err as Error & { status?: number; code?: string; reason?: string; quota?: unknown };
+  e.status = status;
+  if (body?.code) e.code = body.code;
+  if (body?.reason) e.reason = body.reason;
+  if (body?.quota) e.quota = body.quota;
+  return e;
 }
 
 /**
@@ -501,9 +520,14 @@ async function postChatStream(
     if (body?.byok && isByokErrorCode(body.error)) {
       useByokStore.getState().setLastError(body.error);
     }
-    const err = new Error(body?.error || `API Error: ${response.status}`) as Error & { status?: number };
-    err.status = response.status;
-    throw err;
+    // A spent message allowance also arrives here as JSON rather than a stream
+    // (402 + code:"quota_exhausted"); decorateApiError carries the counts up so
+    // the chat can raise the paywall instead of a bubble with a dead Retry.
+    throw decorateApiError(
+      new Error(body?.error || `API Error: ${response.status}`),
+      response.status,
+      body,
+    );
   }
 
   const reader = response.body.getReader();
@@ -951,9 +975,14 @@ export async function streamThesisPlan(
     if (body?.byok && isByokErrorCode(body.error)) {
       useByokStore.getState().setLastError(body.error);
     }
-    const err = new Error(body?.error || `API Error: ${response.status}`) as Error & { status?: number };
-    err.status = response.status;
-    throw err;
+    // A spent message allowance also arrives here as JSON rather than a stream
+    // (402 + code:"quota_exhausted"); decorateApiError carries the counts up so
+    // the chat can raise the paywall instead of a bubble with a dead Retry.
+    throw decorateApiError(
+      new Error(body?.error || `API Error: ${response.status}`),
+      response.status,
+      body,
+    );
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -2245,4 +2274,43 @@ export async function deleteDocumentParagraph(
 
 export async function deleteDocument(id: string): Promise<void> {
   return apiDelete(`/api/documents/${id}`);
+}
+
+// ── Billing ──────────────────────────────────────────────────────────────────
+// The message counter, the plan catalogue, and the Chargily checkout.
+//
+// Prices are NEVER hardcoded here. The catalogue comes from the server so the
+// screen can only ever quote a number the server would actually honour — a
+// hardcoded price that drifts is a student charged one amount and shown another.
+
+/** What the student has left. Cheap; safe to call on focus. */
+export async function fetchQuota(): Promise<QuotaState> {
+  return apiGet<QuotaState>("/api/payment/quota");
+}
+
+/** The plans on offer, plus whether payments are configured at all. */
+export async function fetchPlanCatalogue(): Promise<PlanCatalogue> {
+  return apiGet<PlanCatalogue>("/api/payment/plans");
+}
+
+export async function fetchSubscription(): Promise<SubscriptionState> {
+  return apiGet<SubscriptionState>("/api/payment/subscription");
+}
+
+/**
+ * Open a Chargily checkout and get the hosted page's URL.
+ *
+ * The app never sees card details — Chargily's page collects them. `locale` is
+ * passed so the payment page comes up in the language the student is using.
+ */
+export async function startCheckout(
+  input: { plan: PlanCode } | { kind: "topup" },
+  locale: string
+): Promise<{ checkoutUrl: string; checkoutId: string; amountDzd: number; mode: "test" | "live" }> {
+  return apiPost("/api/payment/checkout", { ...input, locale });
+}
+
+/** Ends the plan at the END of the paid term, not immediately. */
+export async function cancelSubscription(): Promise<{ canceled: boolean; activeUntil: string }> {
+  return apiPost("/api/payment/cancel", {});
 }
