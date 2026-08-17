@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
@@ -27,6 +27,7 @@ import {
   type SupportConversationSummary,
   type SupportStatus,
 } from "@/lib/api";
+import { watchMyConversations } from "@/lib/support-realtime";
 import { useThesisStore } from "@/stores/thesis-store";
 
 const MAX = 5000;
@@ -68,6 +69,10 @@ export default function SupportContactScreen() {
   }, []);
 
   useFocusEffect(load);
+
+  // A reply to any of the student's threads refreshes the list and its unread
+  // dots without them having to leave and come back.
+  useEffect(() => watchMyConversations(load), [load]);
 
   const submit = async () => {
     const body = message.trim();

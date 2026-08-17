@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -18,6 +18,7 @@ import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { useBottomInset } from "@/hooks/useBottomInset";
 import { listSupportConversations } from "@/lib/api";
+import { watchMyConversations } from "@/lib/support-realtime";
 
 type Row = {
   key: string;
@@ -47,22 +48,24 @@ export default function SupportScreen() {
 
   const [unread, setUnread] = useState(0);
 
-  // Refetched on focus so the badge is right when the student comes back from a
-  // thread they just read. A failure here is silent: an unread count is not
-  // worth an error banner on a help screen.
-  useFocusEffect(
-    useCallback(() => {
-      let alive = true;
-      listSupportConversations()
-        .then((rows) => {
-          if (alive) setUnread(rows.reduce((n, c) => n + (c.unread || 0), 0));
-        })
-        .catch(() => {});
-      return () => {
-        alive = false;
-      };
-    }, [])
-  );
+  // A failure here is silent: an unread count is not worth an error banner on a
+  // help screen.
+  const refreshUnread = useCallback(() => {
+    let alive = true;
+    listSupportConversations()
+      .then((rows) => {
+        if (alive) setUnread(rows.reduce((n, c) => n + (c.unread || 0), 0));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Right when the student comes back from a thread they just read...
+  useFocusEffect(refreshUnread);
+  // ...and live, so a reply raises the badge while they are sitting on this screen.
+  useEffect(() => watchMyConversations(refreshUnread), [refreshUnread]);
 
   const rows: Row[] = [
     {

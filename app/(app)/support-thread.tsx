@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
@@ -22,7 +22,9 @@ import {
   getSupportConversation,
   replyToSupportConversation,
   type SupportConversationDetail,
+  type SupportMessage,
 } from "@/lib/api";
+import { watchConversation } from "@/lib/support-realtime";
 
 /**
  * One support conversation: the messages, and a box to add to it.
@@ -44,8 +46,7 @@ export default function SupportThreadScreen() {
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Refetched on focus rather than polled: a support reply arrives in minutes or
-  // hours, not seconds, and a poll on a help screen is battery spent for nothing.
+  // Fetched on focus for the thread as it stands...
   useFocusEffect(
     useCallback(() => {
       if (!id) return;
@@ -59,6 +60,22 @@ export default function SupportThreadScreen() {
     }, [id])
   );
 
+  // ...and kept live after that, so a staff reply lands while the student is
+  // looking at the screen rather than on their next visit.
+  //
+  // Appended by id, never blindly: this fires for the student's own messages
+  // too, which is exactly what makes the optimistic append in `send` safe — one
+  // of the two arrives second and is dropped here.
+  useEffect(() => {
+    if (!id) return;
+    return watchConversation(id, (incoming) => {
+      setThread((cur) => {
+        if (!cur || cur.messages.some((m) => m.id === incoming.id)) return cur;
+        return { ...cur, messages: [...cur.messages, incoming] };
+      });
+    });
+  }, [id]);
+
   const send = async () => {
     const body = reply.trim();
     if (!body || sending || !id) return;
@@ -66,9 +83,13 @@ export default function SupportThreadScreen() {
     try {
       const created = await replyToSupportConversation(id, body);
       setReply("");
-      setThread((cur) =>
-        cur ? { ...cur, status: "open", messages: [...cur.messages, created] } : cur
-      );
+      // The realtime channel will deliver this same row; whichever arrives
+      // second is dropped by the id check there and here.
+      setThread((cur) => {
+        if (!cur) return cur;
+        if (cur.messages.some((m: SupportMessage) => m.id === created.id)) return cur;
+        return { ...cur, status: "open", messages: [...cur.messages, created] };
+      });
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     } catch {
       // Keep what they typed so a failed send is retryable, not lost.
