@@ -31,6 +31,7 @@ import { pasteImageFromClipboard } from "@/lib/paste-image";
 import { useEditorScrollStore, type ScrollAnchor } from "@/stores/editor-scroll-store";
 import { hLight, hMedium, hSelection } from "@/lib/haptics";
 import { geometryFromSection, chromeGeometryFromSection, type AnchorSectionGeometry, type PageSectionInput , type BlockFmt, type ChromePageGeometry } from "@/lib/page-layout";
+import { sectionAt, sectionPrints } from "@/lib/section-chrome";
 
 // PHASE 1 of the in-workspace Lexical editor: a real editing surface (Lexical in an
 // Expo DOM component) over the live thesis, saving through the batch /ops endpoint
@@ -133,12 +134,12 @@ function buildChrome(
       out.push({ kind: "section", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: "",
         label: t("workspace.hf.newSectionHere", { defaultValue: "New section" }), rtl });
     }
-    if (s.header) {
-      out.push({ kind: "top", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: s.header.text,
+    if (sectionPrints(s, "top")) {
+      out.push({ kind: "top", sectionIndex: si, startBlockIndex: s.startBlockIndex, text: s.header!.text,
         label: t("workspace.hf.topOfPage", { defaultValue: "Top of every page" }), rtl,
-        segments: s.header.segments, border: s.header.border });
+        segments: s.header!.segments, border: s.header!.border });
     }
-    if (s.footer) {
+    if (sectionPrints(s, "bottom") && s.footer) {
       const bottomText = s.footer.text || t("workspace.hf.pageNumberValue", { defaultValue: "page number" });
       out.push({ kind: "bottom", sectionIndex: si, startBlockIndex: Math.max(s.startBlockIndex, nextStart - 1),
         text: bottomText, label: t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" }), rtl });
@@ -947,13 +948,7 @@ export function WorkspaceLexicalView({
       // state. The band's index is a block INSIDE its section (a footer band anchors
       // to the section's LAST block), so find the containing section by range.
       const curDoc = useThesisDocStore.getState().byId[thesisId];
-      const secs = curDoc?.available ? curDoc.sections ?? [] : [];
-      let sec: (typeof secs)[number] | null = null;
-      for (let i = 0; i < secs.length; i++) {
-        const start = secs[i].startBlockIndex;
-        const end = secs[i + 1]?.startBlockIndex ?? Number.POSITIVE_INFINITY;
-        if (s.index >= start && s.index < end) { sec = secs[i]; break; }
-      }
+      const sec = sectionAt(curDoc?.available ? curDoc.sections : undefined, s.index);
       const text =
         kind === "top" ? sec?.header?.text ?? s.text : kind === "bottom" ? sec?.footer?.text ?? "" : s.text;
       const pageNumbers = kind === "bottom" ? !!sec?.footer?.pageNumbers : undefined;
@@ -964,10 +959,11 @@ export function WorkspaceLexicalView({
       // Top band: the header's positioned segments so Edit-text shows the parts apart.
       const segments = kind === "top" ? sec?.header?.segments : undefined;
       // Section band only: does this section already show a header / footer band?
-      // Mirrors buildChrome's `if (s.header)` / `if (s.footer)` so "Add" appears only
-      // when a part is genuinely missing (an inherited header counts as present).
-      const hasHeader = kind === "section" ? !!sec?.header : undefined;
-      const hasFooter = kind === "section" ? !!sec?.footer : undefined;
+      // The same rule the bands themselves draw by, so "Add" appears exactly when
+      // nothing is printed on that edge — an inherited header counts as present, an
+      // emptied one (a removal) does not.
+      const hasHeader = kind === "section" ? sectionPrints(sec, "top") : undefined;
+      const hasFooter = kind === "section" ? sectionPrints(sec, "bottom") : undefined;
       // A running header / footer band opens the BOTTOM SHEET, not the floating bubble:
       // its whole toolset is the ✦ flow (instruction, compiled preview, template cards),
       // which never fitted in a pill hovering over the page. The bubble still owns the
@@ -975,6 +971,22 @@ export function WorkspaceLexicalView({
       if (kind === "top" || kind === "bottom") {
         ws.setChromeSelection(null);
         ws.clearSelection();
+        // The tap may have landed on a page's BARE margin — in the page view every
+        // page edge is tappable, including the ones with nothing printed on them
+        // (that is the only way in for a section that has no header/footer at all).
+        // There is no band to edit in that case, so offer to CREATE that one part
+        // instead: openAdd scoped to the side that was touched, whose row lands
+        // straight back in this editor once the part exists. An emptied part counts
+        // as nothing to edit — see sectionPrints.
+        if (!sectionPrints(sec, kind)) {
+          useHfSheetStore.getState().openAdd({
+            thesisId,
+            index: s.index,
+            hasHeader: kind !== "top",
+            hasFooter: kind !== "bottom",
+          });
+          return;
+        }
         useHfSheetStore.getState().openBand({
           thesisId,
           index: s.index,

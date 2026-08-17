@@ -156,6 +156,12 @@ export function buildBands(
   const footerFor = (page: (typeof numbering)[number]) => {
     const sec = sections[page.sectionIndex];
     if (!sec?.footer || page.unnumbered) return null;
+    // A footer with no text and no page number prints NOTHING, so the paper must
+    // show nothing — an empty band strip would be the app inventing a line Word
+    // won't draw. This is the shape "remove the footer" leaves behind: the part
+    // stays (dropping the reference would make the section inherit the previous
+    // section's footer, which is the opposite of removing it) and it is bare.
+    if (!sec.footer.text.trim() && !sec.footer.hasPageNumbers) return null;
     return {
       text: sec.footer.text,
       pageText: sec.footer.hasPageNumbers ? page.text : null,
@@ -198,10 +204,35 @@ export function buildBands(
       ? setup.gutterDividerLabel
       : setup.gutterOrnamentLabel;
   };
-  // Where a gutter tap goes. Nothing to offer on a page that is unnumbered
-  // by design — there is no page number to ask for.
-  const gutterTargetFor = (page: (typeof numbering)[number]) => {
-    if (page.unnumbered) return null;
+  // Does the page beginning after this gutter open a new Word section? Then the
+  // gutter IS the section marker (the continuous view's `§ New section` band has
+  // no counterpart here — see PageBreakBand) and a tap opens the section bubble.
+  // Compared against the PREVIOUS page's section rather than against
+  // startBlockIndex, so a continuous break that lands mid-page still gets its one
+  // marker, on the first page that shows the new section's chrome. Never section
+  // 0: there is no previous section to link it to.
+  const sectionTargetFor = (page: (typeof numbering)[number], prev: (typeof numbering)[number]) => {
+    if (page.sectionIndex === 0 || page.sectionIndex === prev.sectionIndex) return null;
+    const sec = sections[page.sectionIndex];
+    if (!sec) return null;
+    // SectionTools matches this against sections[].startBlockIndex to place the
+    // section, so it must be the section's own start, not a block inside it.
+    return { sectionIndex: page.sectionIndex, startBlockIndex: sec.startBlockIndex };
+  };
+  // Where a tap on a page's blank TOP / BOTTOM margin goes — set whether or not
+  // the section actually has a header or footer there. A section with NEITHER
+  // used to render nothing tappable at all on those edges, which left the
+  // student no way into the header/footer sheet for that page; the margin strip
+  // is that way in now (see PageBreakBand's zones), the way Word gives it to a
+  // double-click. Set even on an unnumbered page, whose footer the paper never
+  // prints: a divider with no page number is still a section whose footer can be
+  // asked for.
+  const topTargetFor = (page: (typeof numbering)[number]) => {
+    const sec = sections[page.sectionIndex];
+    if (!sec) return null;
+    return { sectionIndex: page.sectionIndex, startBlockIndex: sec.startBlockIndex, text: sec.header?.text ?? "" };
+  };
+  const bottomTargetFor = (page: (typeof numbering)[number]) => {
     const sec = sections[page.sectionIndex];
     if (!sec) return null;
     return { sectionIndex: page.sectionIndex, startBlockIndex: sec.startBlockIndex, text: sec.footer?.text ?? "" };
@@ -217,7 +248,9 @@ export function buildBands(
       footer: footerFor(numbering[p - 1]),
       header: headerFor(numbering[p]),
       gutterLabel: gutterFor(numbering[p]),
-      gutterTarget: gutterTargetFor(numbering[p - 1]),
+      sectionTarget: sectionTargetFor(numbering[p], numbering[p - 1]),
+      topTarget: topTargetFor(numbering[p]),
+      bottomTarget: bottomTargetFor(numbering[p - 1]),
       remainderPx: tailDisplay(p - 1),
       leadPx: leadDisplay(p),
       rtl: setup.rtl,
@@ -235,15 +268,23 @@ export function buildBands(
   // there is no boundary above page 1 to carry it.
   // …and the leading band is also the only place page ONE's top padding can
   // go, so a first page that centres a picture needs one even with no header.
+  // The tap targets keep both edge bands alive even when there is no chrome to
+  // draw: page one's top margin and the last page's bottom margin are the only
+  // places those two pages can be reached from, and a band that isn't there
+  // can't be tapped.
   const firstLead = leadDisplay(0);
-  const leading: PageBreakData | null = firstHeader || firstLead > 0
+  const firstTop = topTargetFor(first);
+  const lastBottom = bottomTargetFor(last);
+  const leading: PageBreakData | null = firstHeader || firstLead > 0 || firstTop
     ? { variant: "leading", endingPage: 0, footer: null, header: firstHeader,
-        gutterLabel: "", gutterTarget: null, remainderPx: 0, leadPx: firstLead, rtl: setup.rtl,
+        gutterLabel: "", sectionTarget: null, topTarget: firstTop, bottomTarget: null,
+        remainderPx: 0, leadPx: firstLead, rtl: setup.rtl,
         artwork: firstArtwork }
     : null;
-  const trailing: PageBreakData | null = lastFooter
+  const trailing: PageBreakData | null = lastFooter || lastBottom
     ? { variant: "trailing", endingPage: last.number ?? 0, footer: lastFooter, header: null,
-        gutterLabel: "", gutterTarget: null, remainderPx: tailDisplay(numbering.length - 1), leadPx: 0, rtl: setup.rtl }
+        gutterLabel: "", sectionTarget: null, topTarget: null, bottomTarget: lastBottom,
+        remainderPx: tailDisplay(numbering.length - 1), leadPx: 0, rtl: setup.rtl }
     : null;
 
   // The serialized band list the caller compares against what is already in the

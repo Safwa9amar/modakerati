@@ -20,7 +20,7 @@ import {
 } from "lexical";
 
 import type { DocBlockDTO } from "@/lib/api";
-import { $blocksToLexical, $isChromeNode, type ChromeData, type ChromeKind } from "../../../blockLexical";
+import { $blocksToLexical, $isChromeNode, $isPageBreakNode, type ChromeData, type ChromeKind } from "../../../blockLexical";
 import { $anyNodeAtBlockIndex } from "../../block-index";
 import { lxQuietUpdate, withScrollPinned } from "../../lexical-updates";
 import type { LexicalCommand, LexicalState } from "../../types";
@@ -93,20 +93,39 @@ export function EditorBridge({
   useEffect(() => {
     if (!scrollToChrome) return;
     const findBand = () => {
-      let key: string | null = null;
+      // Every candidate for this (kind, section), not the first: in the PAGE VIEW a
+      // section's header is drawn on every one of its pages, so the pair identifies
+      // a whole run of bands. Continuous view yields at most one ChromeNode.
+      const keys: string[] = [];
       editor.getEditorState().read(() => {
         for (const child of $getRoot().getChildren()) {
-          if (!$isChromeNode(child)) continue;
-          const d = child.getData();
-          if (d.kind === scrollToChrome.kind && d.startBlockIndex === scrollToChrome.index) {
-            key = child.getKey();
-            break;
+          if ($isChromeNode(child)) {
+            const d = child.getData();
+            if (d.kind === scrollToChrome.kind && d.startBlockIndex === scrollToChrome.index) keys.push(child.getKey());
+          } else if ($isPageBreakNode(child)) {
+            // Same resolution read-state uses for a tap, so the band that REPORTED
+            // this sheet is guaranteed to be among the candidates — including one
+            // whose edge is a bare margin with nothing printed on it.
+            const d = child.getData();
+            const part =
+              scrollToChrome.kind === "top" ? (d.header ?? d.topTarget)
+                : scrollToChrome.kind === "bottom" ? (d.footer ?? d.bottomTarget)
+                  : d.sectionTarget;
+            if (part && part.startBlockIndex === scrollToChrome.index) keys.push(child.getKey());
           }
         }
       });
-      if (!key) return false;
-      const el = editor.getElementByKey(key);
-      if (!el) return false;
+      const els = keys.map((k) => editor.getElementByKey(k)).filter((e): e is HTMLElement => !!e);
+      if (!els.length) return false;
+      // The one nearest the middle of the viewport. The student tapped a band that
+      // was ON SCREEN, and the sheet's rise is a native transform that doesn't
+      // scroll this document — so "still on screen" identifies it, while any other
+      // pick (the first, the section's own) would throw the reader to the top of
+      // the chapter. Pages are the better part of a screen tall, so the nearest
+      // candidate is the tapped one.
+      const aim = window.innerHeight / 2;
+      const dist = (e: HTMLElement) => Math.abs(e.getBoundingClientRect().top - aim);
+      const el = els.reduce((best, e) => (dist(e) < dist(best) ? e : best), els[0]);
       // scrollIntoView + scrollBy, NOT scrollTo — the same pair ScrollSyncPlugin's
       // restore uses, because `window.scrollTo` is unreliable inside this WebView.
       // "start" alone parks the band hard against the top edge, half under the status
@@ -117,10 +136,16 @@ export function EditorBridge({
       return true;
     };
     if (findBand()) return;
-    // A band CREATED from the sheet ("add header") isn't in the tree until the echoed
-    // document reseeds the editor — retry once that has had a chance to land.
-    const timer = setTimeout(findBand, 400);
-    return () => clearTimeout(timer);
+    // A band CREATED from the sheet ("add header") isn't in the tree yet: the echoed
+    // document has to reseed the editor, and in the PAGE VIEW pagination then has to
+    // re-measure on its own idle timer before any band exists at all. So keep looking
+    // for a couple of seconds rather than once — a single 400ms try lands squarely in
+    // the gap and the student is left editing a header they still cannot see.
+    let tries = 0;
+    const timer = setInterval(() => {
+      if (findBand() || ++tries >= 6) clearInterval(timer);
+    }, 350);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollToChrome?.nonce]);
 

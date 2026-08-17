@@ -248,10 +248,25 @@ export type PageBreakData = {
   /** Names the page beginning after the gutter — "p. 14", or for an unnumbered
    *  page its NAME ("divider page"). Never a number on an unnumbered page. */
   gutterLabel: string;
-  /** Where a gutter tap goes when the ending page has NO footer: the section's
-   *  footer, so the sheet opens and the student can ask for page numbers. null
-   *  when the page is deliberately unnumbered — there is nothing to offer. */
-  gutterTarget: { sectionIndex: number; startBlockIndex: number; text: string } | null;
+  /** Set when the page BEGINNING after this gutter is the first page of a new Word
+   *  section — the page view's own section marker. A tap opens the section bubble
+   *  (link / unlink to previous, start on a new page, add a missing part), which
+   *  the continuous view reaches through its `§ New section` band; the page view
+   *  drops that band deliberately (the boundary is already visible as a page
+   *  break) and would otherwise have no way in at all. `startBlockIndex` must be
+   *  the section's OWN start — SectionTools finds its position by matching it. */
+  sectionTarget: { sectionIndex: number; startBlockIndex: number } | null;
+  /** Where a tap on the blank TOP margin of the page beginning after this band
+   *  goes — its section, whether or not that section has a header. This is the
+   *  only way into the header sheet for a page that carries no header to tap
+   *  (Word's double-click-the-margin), so it is set on every page whose section
+   *  resolves; null only on the trailing band, which opens no page. */
+  topTarget: { sectionIndex: number; startBlockIndex: number; text: string } | null;
+  /** Same for the blank BOTTOM margin of the page ENDING at this band. Set even on
+   *  a deliberately unnumbered page, whose footer the paper never prints: "this
+   *  divider needs a footer after all" is the student's call to make. null on the
+   *  leading band (no page ends there). */
+  bottomTarget: { sectionIndex: number; startBlockIndex: number; text: string } | null;
   /** Unused space left at the bottom of the ENDING page, already scaled to
    *  display px and capped. A short page — a divider, or one a heading was
    *  pushed off — should show the room Word leaves on it rather than hugging its
@@ -1563,8 +1578,13 @@ function ChromeBand({ data, onPick }: { data: ChromeData; onPick: () => void }):
  *  order, top to bottom on the paper. `noFocus` is duplicated from ChromeBand
  *  rather than shared because ChromeBand closes over its own props. */
 function PageBreakBand({
-  data, onPickHeader, onPickFooter,
-}: { data: PageBreakData; onPickHeader: () => void; onPickFooter: () => void }): React.ReactElement {
+  data, onPickHeader, onPickFooter, onPickSection,
+}: {
+  data: PageBreakData;
+  onPickHeader: () => void;
+  onPickFooter: () => void;
+  onPickSection: () => void;
+}): React.ReactElement {
   const noFocus = (e: { preventDefault: () => void }) => {
     e.preventDefault();
     if (typeof window !== "undefined") {
@@ -1581,6 +1601,22 @@ function PageBreakBand({
   const artRef = React.useRef<HTMLDivElement | null>(null);
   const { extent: pageExtent, bandWidth } = usePageExtent(artRef, artwork.length > 0);
 
+  // Is there a real header / footer row to draw here? A header that is only
+  // artwork, or one whose text is empty, draws nothing — and neither did anything
+  // else, which is what left those page edges unreachable.
+  const showFooterRow = !!data.footer;
+  const showHeaderRow = !!data.header && !!(headerText || ruleColor);
+  /** The blank top / bottom margin of a page with no chrome on that edge, as a
+   *  tap target for the header/footer sheet. It prints nothing, so it DRAWS
+   *  nothing: only the page-edge shadow the missing header/footer would have
+   *  cast, plus a whisper of grey while the finger is down so the tap is felt. */
+  const marginZone = (side: "top" | "bottom") =>
+    React.createElement("div", {
+      className: `lx-pb-zone lx-pb-zone-${side === "top" ? "t" : "b"}`,
+      onMouseDown: noFocus,
+      onClick: side === "top" ? onPickHeader : onPickFooter,
+    });
+
   return React.createElement(
     "div",
     { className: "lx-pagebreak", dir: data.rtl ? "rtl" : "ltr" },
@@ -1593,35 +1629,46 @@ function PageBreakBand({
           style: { height: `${data.remainderPx}px`, pointerEvents: "none", userSelect: "none" } as React.CSSProperties,
         })
       : null,
-    data.footer
+    showFooterRow
       ? React.createElement(
           "div",
           { className: "lx-pb-footer", onMouseDown: noFocus, onClick: onPickFooter },
           React.createElement("span", { className: "lx-pb-footer-txt" }, footerLine || " "),
         )
-      : null,
+      // No footer on the page that ends here — leave its bottom margin as bare
+      // paper, but tappable, so "put page numbers on this page" is still one tap
+      // away. Never on the leading band: no page ends above the first one.
+      : data.variant !== "leading" && data.bottomTarget
+        ? marginZone("bottom")
+        : null,
     // The gutter is APP CHROME, not paper: its label can never be mistaken for
     // something that will print, which is why an unnumbered page's name lives
     // here. Only a real boundary has one — the edge variants open or close the
     // document rather than separating two pages.
+    //
+    // It is also the page view's SECTION MARKER. Where a new Word section begins,
+    // the § names it and a tap opens the section bubble — link/unlink to the
+    // previous section, start on a new page. The continuous view has a band for
+    // that; here the section break IS this page break, so the boundary itself
+    // carries it rather than a second marker drawn beside it.
     data.variant === "boundary"
       ? React.createElement(
           "div",
           {
-            className: "lx-pb-gutter",
-            // Only tappable when there is no footer to tap instead — then it is
-            // the way in to "add page numbers here".
-            ...(data.footer || !data.gutterTarget
-              ? {}
-              : { onMouseDown: noFocus, onClick: onPickFooter, style: { cursor: "pointer" } }),
+            className: data.sectionTarget ? "lx-pb-gutter lx-pb-gutter-sec" : "lx-pb-gutter",
+            ...(data.sectionTarget ? { onMouseDown: noFocus, onClick: onPickSection } : {}),
           },
-          React.createElement("span", { className: "lx-pb-gutter-lbl" }, data.gutterLabel),
+          React.createElement(
+            "span",
+            { className: "lx-pb-gutter-lbl" },
+            data.sectionTarget ? `§ ${data.gutterLabel}` : data.gutterLabel,
+          ),
         )
       : null,
     // Top of the page starting after the gutter. A header that is ONLY artwork
     // (a decorative cover frame) has no text row to draw — rendering one would
     // put an empty grey strip on the paper.
-    data.header && (headerText || ruleColor)
+    showHeaderRow && data.header
       ? React.createElement(
           "div",
           { className: "lx-pb-header", onMouseDown: noFocus, onClick: onPickHeader },
@@ -1636,7 +1683,14 @@ function PageBreakBand({
             ? React.createElement("div", { className: "lx-chrome-hdr-rule", style: { background: ruleColor } })
             : null,
         )
-      : null,
+      // Nothing printed at the top of the page beginning here — same bare-but-
+      // tappable margin. Skipped when the page carries ARTWORK: the frame is
+      // positioned from this band's bottom edge, so growing the band by a zone
+      // would push a cover frame down the page. Such a page HAS a header (an
+      // artwork-only one), so nothing is lost by not offering the zone.
+      : data.variant !== "trailing" && data.topTarget && !artwork.length
+        ? marginZone("top")
+        : null,
     // Artwork for the page BEGINNING here. Absolutely positioned from the band's
     // bottom edge — which is exactly that page's content-box origin, the frame
     // placeChromeDrawing measured against. It sits BEFORE the page's blocks in
@@ -1756,6 +1810,10 @@ export function $isChromeNode(node: LexicalNode | null | undefined): node is Chr
 // ── Display-only page-boundary node (footer + gutter + header, one node) ─────
 type SerializedPageBreakNode = SerializedLexicalNode & { data: PageBreakData };
 
+/** Which of the band's three targets a tap landed on. Reported to native as
+ *  "chrome:<pick>", the same blockType a continuous-view chrome band reports. */
+export type PageBandPick = "top" | "bottom" | "section";
+
 export class PageBreakNode extends DecoratorNode<React.ReactNode> {
   __data: PageBreakData;
 
@@ -1782,22 +1840,23 @@ export class PageBreakNode extends DecoratorNode<React.ReactNode> {
 
   isInline(): false { return false; }
 
-  /** Which half of the band was last tapped. onState reads this to decide
-   *  whether to report the header or the footer — the node is ONE selectable
-   *  node but carries TWO targets, which is the only way it differs from
+  /** Which part of the band was last tapped. onState reads this to decide whether
+   *  to report the header, the footer or the section — the node is ONE selectable
+   *  node but carries THREE targets, which is the only way it differs from
    *  ChromeNode. This is the reason a display-only node has mutable state at
    *  all: without it there would be no way to tell, after selection lands on
-   *  the node, which half of the band the tap was actually on. */
-  __pick: "top" | "bottom" = "bottom";
-  setPick(side: "top" | "bottom"): void { this.getWritable().__pick = side; }
-  getPick(): "top" | "bottom" { return this.getLatest().__pick; }
+   *  the node, which part of the band the tap was actually on. */
+  __pick: PageBandPick = "bottom";
+  setPick(side: PageBandPick): void { this.getWritable().__pick = side; }
+  getPick(): PageBandPick { return this.getLatest().__pick; }
 
   decorate(editor: LexicalEditor): React.ReactNode {
     const key = this.getKey();
     // Mirrors ChromeNode.decorate exactly: record the side, then put a
     // NodeSelection on ourselves. onState turns that into "chrome:top" /
-    // "chrome:bottom", so the whole native chrome path is reused unchanged.
-    const pick = (side: "top" | "bottom") => () =>
+    // "chrome:bottom" / "chrome:section", so the whole native chrome path is
+    // reused unchanged.
+    const pick = (side: PageBandPick) => () =>
       editor.update(
         () => {
           const self = $getNodeByKey(key);
@@ -1812,6 +1871,7 @@ export class PageBreakNode extends DecoratorNode<React.ReactNode> {
       data: this.__data,
       onPickHeader: pick("top"),
       onPickFooter: pick("bottom"),
+      onPickSection: pick("section"),
     });
   }
 

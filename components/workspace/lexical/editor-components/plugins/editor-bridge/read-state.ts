@@ -66,17 +66,30 @@ export function $readSelectionState(): { key: string | null; payload: LexicalSta
       // panel and the template picker all work with no native change.
       const d = pb.getData();
       const side = pb.getPick();
-      // A gutter tap on a footerless page falls back to gutterTarget, so
-      // the footer sheet still opens and can offer page numbers.
-      const part = side === "top" ? d.header : (d.footer ?? d.gutterTarget);
+      // A tap on a bare margin — no header / no footer printed on that edge at
+      // all — falls back to the zone's own target, which is set whether or not
+      // the section has that part. Without it a page with neither reports
+      // nothing and the sheet never opens, which is exactly what left those
+      // edges dead. A gutter tap carries the SECTION instead, and reports as
+      // "chrome:section" — the page view's stand-in for the continuous view's
+      // `§ New section` band.
+      // The band edge (header / footer), which carries the text that grounds the
+      // sheet's AI ask. null for a gutter tap — a section report has no band text;
+      // its bubble is all section state, which native reads from doc.sections.
+      const edge =
+        side === "top" ? (d.header ?? d.topTarget)
+          : side === "bottom" ? (d.footer ?? d.bottomTarget)
+            : null;
+      const part = side === "section" ? d.sectionTarget : edge;
       if (part) {
         key = pb.getKey();
+        const text = edge?.text ?? "";
         payload = {
           bold: false, italic: false, underline: false,
-          blockType: "chrome:" + side,   // "chrome:top" | "chrome:bottom"
+          blockType: "chrome:" + side,   // "chrome:top" | "chrome:bottom" | "chrome:section"
           isRTL: d.rtl, alignment: null,
-          index: part.startBlockIndex, text: part.text,
-          blocks: [{ index: part.startBlockIndex, text: part.text }],
+          index: part.startBlockIndex, text,
+          blocks: [{ index: part.startBlockIndex, text }],
           y: -1,
         };
       }

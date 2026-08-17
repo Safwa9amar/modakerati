@@ -23,13 +23,14 @@ import Animated, {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown, ChevronUp, LayoutTemplate, PanelBottom, PanelTop, Send, Sparkles, X } from "lucide-react-native";
+import { Check, ChevronDown, ChevronUp, LayoutTemplate, PanelBottom, PanelTop, Send, Sparkles, Trash2, X } from "lucide-react-native";
 import { useThemeColors } from "@/hooks/useThemeColors";
 import { useRTL } from "@/hooks/useRTL";
 import { useHfSheetStore, type HfRegion } from "@/stores/hf-sheet-store";
 import { useSuggestionStore } from "@/stores/suggestion-store";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
 import { chromeOp, listHfTemplates, type HfPreviewLine, type HfPreviewSeg, type HfTemplateSummary } from "@/lib/api";
+import { sectionAt, sectionPrints } from "@/lib/section-chrome";
 import { estimateTokenCount } from "@/lib/thinking";
 import { visualRow, visualTextAlign, visualTextAlignEnd } from "@/lib/rtl-layout";
 
@@ -170,6 +171,17 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
   const [expandedTplId, setExpandedTplId] = useState<string | null>(null);
   const [tokenValues, setTokenValues] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  // The section this sheet is acting on, for the one question the store can't answer:
+  // is there anything on that edge to REMOVE? (A stable store ref, not a fresh object
+  // literal — see the zustand selector trap.)
+  const docEntry = useThesisDocStore((s) => (thesisId ? s.byId[thesisId] : undefined));
+  const section = useMemo(
+    () => sectionAt(docEntry?.available ? docEntry.sections : undefined, index),
+    [docEntry, index],
+  );
+  const hasSomethingToRemove = sectionPrints(section, region === "footer" ? "bottom" : "top");
 
   // A fresh band means a fresh draft — the instruction, the fill values and which
   // template row is open all belong to the band being edited.
@@ -178,10 +190,22 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
     setTokenValues({});
   }, [region, index]);
 
-  const zoneLabel =
+  const topLabel = t("workspace.hf.topOfPage", { defaultValue: "Top of every page" });
+  const bottomLabel = t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" });
+  const zoneLabel = region === "footer" ? bottomLabel : topLabel;
+  // ADD mode offering ONE side — a tap on a page's bare top / bottom margin — names
+  // that side, so the sheet says what the student actually touched. Only the section
+  // bubble's "+", which can offer both, stays generic.
+  const removeLabel =
     region === "footer"
-      ? t("workspace.hf.bottomOfPage", { defaultValue: "Bottom of every page" })
-      : t("workspace.hf.topOfPage", { defaultValue: "Top of every page" });
+      ? t("workspace.hf.removeFooter", { defaultValue: "Remove footer" })
+      : t("workspace.hf.removeHeader", { defaultValue: "Remove header" });
+  const addTitle =
+    canAddHeader && !canAddFooter
+      ? topLabel
+      : canAddFooter && !canAddHeader
+        ? bottomLabel
+        : t("workspace.hf.addHeaderFooter", { defaultValue: "Add header / footer" });
 
   const sug = chromeSug && chromeSug.index === index ? chromeSug : null;
   const busy = sug?.status === "loading";
@@ -220,6 +244,47 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
         setCreating(false);
       }
     })();
+  };
+
+  // ── Remove this band, with no AI in the way ──
+  // An empty part, NOT a dropped reference: Word reads a section with no
+  // header/footer reference as "same as the previous section", so removing the
+  // reference would replace this header with the one before it instead of clearing
+  // it. An empty part prints nothing, which is what the student asked for — and it
+  // is what Word's own Remove Header leaves behind. `sectionPrints` then reads the
+  // section as bare again, so the page shows nothing and the sheet offers "add".
+  const removePart = () => {
+    if (!thesisId || !region || removing) return;
+    const run = () => {
+      setRemoving(true);
+      void (async () => {
+        try {
+          const res = await chromeOp(
+            thesisId,
+            region === "header"
+              ? { op: "setHeaderText", index, text: "" }
+              : { op: "setFooter", index, text: "", pageNumbers: false },
+          );
+          if (res.document) useThesisDocStore.getState().setDoc(thesisId, res.document);
+          useHfSheetStore.getState().setPreview(null);
+          useHfSheetStore.getState().close();
+        } catch {
+          Alert.alert(errorMsg);
+        } finally {
+          setRemoving(false);
+        }
+      })();
+    };
+    Alert.alert(
+      removeLabel,
+      t("workspace.hf.removeConfirm", {
+        defaultValue: "It will disappear from every page in this part of the document.",
+      }),
+      [
+        { text: t("common.cancel", { defaultValue: "Cancel" }), style: "cancel" },
+        { text: t("common.delete", { defaultValue: "Delete" }), style: "destructive", onPress: run },
+      ],
+    );
   };
 
   const submit = () => {
@@ -401,11 +466,7 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
     <GestureDetector gesture={dragPan}>
       <View style={styles.grabZone}>
         <View style={[styles.grab, { backgroundColor: colors.borderDefault }]} />
-        <Text style={[styles.title, { color: colors.textPrimary }]}>
-          {region
-            ? zoneLabel
-            : t("workspace.hf.addHeaderFooter", { defaultValue: "Add header / footer" })}
-        </Text>
+        <Text style={[styles.title, { color: colors.textPrimary }]}>{region ? zoneLabel : addTitle}</Text>
       </View>
     </GestureDetector>
   );
@@ -503,6 +564,27 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
             </Pressable>
           </View>
         )}
+
+        {/* Remove — the plain, no-AI way out. Hidden while a proposal is on screen (it
+            would sit beside Approve / Dismiss and read as a third verdict on it), and on
+            an edge that prints nothing already. Confirmed by an alert: it is one tap
+            from the input, and it touches every page of the section. */}
+        {!ready && !busy && hasSomethingToRemove ? (
+          <Pressable
+            onPress={removePart}
+            disabled={removing}
+            accessibilityRole="button"
+            accessibilityLabel={removeLabel}
+            style={[styles.removeRow, { flexDirection: rowDir, borderColor: colors.borderDefault, opacity: removing ? 0.6 : 1 }]}
+          >
+            {removing ? (
+              <ActivityIndicator size="small" color={colors.semanticError} />
+            ) : (
+              <Trash2 size={16} color={colors.semanticError} strokeWidth={2.2} />
+            )}
+            <Text style={[styles.removeLabel, { color: colors.semanticError, textAlign }]}>{removeLabel}</Text>
+          </Pressable>
+        ) : null}
 
         {/* Templates — a full list here rather than a collapsed row: this is a sheet,
             there is room, and picking a ready-made header is the fastest path for most
@@ -632,6 +714,12 @@ const styles = StyleSheet.create({
 
   input: { flex: 1, height: 44, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 },
   sendBtn: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+
+  removeRow: {
+    alignItems: "center", justifyContent: "center", gap: 8,
+    paddingVertical: 10, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth,
+  },
+  removeLabel: { fontSize: 13.5, fontFamily: "Inter_600SemiBold" },
 
   previewCard: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 7 },
   headerRule: { height: 1.5, backgroundColor: "#9A5A31", opacity: 0.5, borderRadius: 2, marginTop: 3 },

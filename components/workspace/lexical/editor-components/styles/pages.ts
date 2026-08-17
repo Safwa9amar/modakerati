@@ -23,9 +23,25 @@ export const CSS_PAGES = `
 .lx-pb-gutter { height: 17px; background: #dcdde3; display: flex; align-items: center;
   justify-content: center; }
 .lx-pb-gutter-lbl { font-size: 9.5px; font-weight: 700; color: #979daa; letter-spacing: .04em; }
+/* This boundary is also where a new Word section begins — the page view's section
+   marker. Tappable (it opens the section bubble), and a shade darker so the § reads
+   as something you can touch rather than another page label. */
+.lx-pb-gutter-sec { background: #cfd1da; cursor: pointer; }
+.lx-pb-gutter-sec .lx-pb-gutter-lbl { color: #6f7486; }
+.lx-pb-gutter-sec:active { background: #c3c6d2; }
 .lx-pb-header { padding: 13px 18px 5px; cursor: pointer;
   box-shadow: 0 -6px 8px -8px rgba(0,0,0,.35); }
 .lx-pb-header-row { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; }
+
+/* The blank top / bottom margin of a page that has no header / footer to show:
+   bare paper, but the way IN to the header/footer sheet for that page — the same
+   place Word takes a double-click. It prints nothing, so it draws nothing except
+   the page-edge shadow its missing sibling would have cast; :active is the only
+   affordance, and it is there so a tap on empty paper still feels answered. */
+.lx-pb-zone { height: 30px; cursor: pointer; }
+.lx-pb-zone-b { box-shadow: 0 6px 8px -8px rgba(0,0,0,.35); }
+.lx-pb-zone-t { box-shadow: 0 -6px 8px -8px rgba(0,0,0,.35); }
+.lx-pb-zone:active { background: rgba(60,64,90,.055); }
 
 /* Page artwork (a decorative header frame). Zero-height and non-clipping, so its
    children hang DOWN over the page that begins after this band; the band's own
