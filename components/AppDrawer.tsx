@@ -21,6 +21,7 @@ import {
   LayoutGrid,
   FolderUp,
   Combine,
+  LifeBuoy,
   Newspaper,
   List,
   ChevronRight,
@@ -293,6 +294,12 @@ function AppIndex() {
       icon: Newspaper,
       label: t("drawer.news"),
       onPress: () => go(() => router.push("/(app)/news" as any)),
+    },
+    {
+      key: "support",
+      icon: LifeBuoy,
+      label: t("drawer.support"),
+      onPress: () => go(() => router.push("/(app)/support" as any)),
     },
   ];
 

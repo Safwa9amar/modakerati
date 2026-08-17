@@ -60,6 +60,12 @@ export default function AppLayout() {
     {/* Former tab screens — every page is a push from the drawer now. */}
     <Stack.Screen name="chat" />
     <Stack.Screen name="chat-guide" />
+    {/* Support Center — hub, the two guides, FAQ and the ticket screens. */}
+    <Stack.Screen name="support" />
+    <Stack.Screen name="support-guide" />
+    <Stack.Screen name="support-faq" />
+    <Stack.Screen name="support-contact" />
+    <Stack.Screen name="support-thread" />
     <Stack.Screen name="notifications" />
     <Stack.Screen name="account" />
     <Stack.Screen name="library" options={FROM_CHAT} />

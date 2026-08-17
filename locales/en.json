@@ -245,6 +245,7 @@
     "library": "Library",
     "history": "History",
     "news": "News",
+    "support": "Help & support",
     "currentThesis": "Current thesis",
     "contents": "Contents",
     "recent": "Recent",
@@ -492,6 +493,44 @@
     "allCategories": "All",
     "empty": "No news yet",
     "notFound": "Article not found"
+  },
+  "support": {
+    "title": "Help & support",
+    "lead": "Guides written from what students actually asked — and a way to reach us when they don't cover it.",
+    "guide": {
+      "title": "Writing guide",
+      "subtitle": "The right order, and how to ask"
+    },
+    "capabilities": {
+      "subtitle": "Everything it can do to your document"
+    },
+    "faq": {
+      "title": "Common questions",
+      "subtitle": "Asked by other students"
+    },
+    "contact": {
+      "title": "Contact us",
+      "subtitle": "Report a problem, get an answer",
+      "yourMessages": "Your messages",
+      "newMessage": "New message",
+      "howCanWeHelp": "How can we help?",
+      "hint": "Describe what you were doing, what you expected, and what happened instead. The more precise, the faster the answer.",
+      "placeholder": "Write your message…",
+      "send": "Send",
+      "failed": "Couldn't send that. Check your connection and try again.",
+      "privacy": "Your message reaches the Kwill team with your name and email. We never read your thesis unless you ask us to."
+    },
+    "status": {
+      "open": "Open",
+      "answered": "Answered",
+      "resolved": "Resolved"
+    },
+    "thread": {
+      "team": "Kwill team",
+      "you": "You",
+      "resolvedNote": "Marked resolved. Reply below to reopen it.",
+      "replyPlaceholder": "Write a reply…"
+    }
   },
   "onboarding": {
     "slide1Title": "Chat with AI to\nBuild Your Thesis",

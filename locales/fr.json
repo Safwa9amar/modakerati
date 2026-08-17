@@ -245,6 +245,7 @@
     "library": "Bibliothèque",
     "history": "Historique",
     "news": "Actualités",
+    "support": "Aide et support",
     "currentThesis": "Mémoire en cours",
     "contents": "Sommaire",
     "recent": "Récents",
@@ -492,6 +493,44 @@
     "allCategories": "Tout",
     "empty": "Aucune actualité pour l'instant",
     "notFound": "Article introuvable"
+  },
+  "support": {
+    "title": "Aide et support",
+    "lead": "Des guides écrits à partir de ce que les étudiants ont réellement demandé — et un moyen de nous joindre quand ils ne suffisent pas.",
+    "guide": {
+      "title": "Guide de rédaction",
+      "subtitle": "Le bon ordre, et comment demander"
+    },
+    "capabilities": {
+      "subtitle": "Tout ce qu'il peut faire dans votre document"
+    },
+    "faq": {
+      "title": "Questions fréquentes",
+      "subtitle": "Posées par d'autres étudiants"
+    },
+    "contact": {
+      "title": "Nous contacter",
+      "subtitle": "Signaler un problème, obtenir une réponse",
+      "yourMessages": "Vos messages",
+      "newMessage": "Nouveau message",
+      "howCanWeHelp": "Comment pouvons-nous aider ?",
+      "hint": "Décrivez ce que vous faisiez, ce que vous attendiez, et ce qui s'est passé à la place. Plus c'est précis, plus la réponse est rapide.",
+      "placeholder": "Écrivez votre message…",
+      "send": "Envoyer",
+      "failed": "Envoi impossible. Vérifiez votre connexion et réessayez.",
+      "privacy": "Votre message parvient à l'équipe Kwill avec votre nom et votre e-mail. Nous ne lisons jamais votre mémoire sans que vous le demandiez."
+    },
+    "status": {
+      "open": "Ouvert",
+      "answered": "Répondu",
+      "resolved": "Résolu"
+    },
+    "thread": {
+      "team": "Équipe Kwill",
+      "you": "Vous",
+      "resolvedNote": "Conversation résolue. Répondez ci-dessous pour la rouvrir.",
+      "replyPlaceholder": "Écrivez une réponse…"
+    }
   },
   "onboarding": {
     "slide1Title": "Discutez avec l'IA pour\nconstruire votre mémoire",

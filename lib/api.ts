@@ -2314,3 +2314,70 @@ export async function startCheckout(
 export async function cancelSubscription(): Promise<{ canceled: boolean; activeUntil: string }> {
   return apiPost("/api/payment/cancel", {});
 }
+
+// ============================================================
+// Support API (server router mounted at /api/support)
+// ============================================================
+
+export type SupportStatus = "open" | "pending" | "resolved";
+
+export type SupportMessage = {
+  id: string;
+  sender: "student" | "staff";
+  authorName: string;
+  body: string;
+  createdAt: string;
+};
+
+export type SupportConversation = {
+  id: string;
+  subject: string;
+  status: SupportStatus;
+  topic: string | null;
+  language: string;
+  thesisId: string | null;
+  /** Unread staff replies waiting for the student. */
+  unread: number;
+  lastMessageAt: string;
+  createdAt: string;
+};
+
+export type SupportConversationSummary = SupportConversation & {
+  lastMessage: string;
+  lastSender: "student" | "staff";
+};
+
+export type SupportConversationDetail = SupportConversation & {
+  messages: SupportMessage[];
+};
+
+/** The student's own support threads, most recent activity first. */
+export async function listSupportConversations() {
+  return apiGet<SupportConversationSummary[]>("/api/support/conversations");
+}
+
+/** One thread with its messages. Fetching it clears the student's unread badge. */
+export async function getSupportConversation(id: string) {
+  return apiGet<SupportConversationDetail>(`/api/support/conversations/${id}`);
+}
+
+/**
+ * File a new support ticket. Only `message` is required — the rest is context
+ * that helps whoever answers (which thesis, which app build, which topic).
+ */
+export async function createSupportConversation(input: {
+  message: string;
+  subject?: string;
+  topic?: string;
+  language?: string;
+  thesisId?: string | null;
+  appVersion?: string;
+  platform?: string;
+}) {
+  return apiPost<SupportConversation>("/api/support/conversations", input);
+}
+
+/** Add to an existing thread. A student reply reopens a resolved ticket. */
+export async function replyToSupportConversation(id: string, message: string) {
+  return apiPost<SupportMessage>(`/api/support/conversations/${id}/messages`, { message });
+}
