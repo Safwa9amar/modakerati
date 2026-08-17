@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { proposeCompletionStream, type CompletionContext } from "@/lib/thesis-suggest";
 import { useThesisDocStore } from "@/stores/thesis-doc-store";
+import { autocompleteAllowed } from "@/lib/autocomplete-policy";
 import { useSettingsStore } from "@/stores/settings-store";
 import type { DocBlockDTO } from "@/lib/api";
 
@@ -60,7 +61,15 @@ export const useCompletionStore = create<CompletionState>((set, get) => ({
   controller: null,
 
   request: async (thesisId, index, text) => {
-    const enabled = useSettingsStore.getState().autocompleteEnabled;
+    // Two gates, and the plan one is not about cost per call — a completion is
+    // 0.0043 DZD, which is nothing. It is about the trigger: autocomplete fires
+    // on EVERY typing pause without the student ever asking for it, and the
+    // free tier's whole monthly AI budget is about 14 DZD. An unattended feature
+    // is the wrong thing to leave running inside a budget that small.
+    //
+    // Off by DEFAULT, not disabled: a free user who deliberately switches it on
+    // in Settings keeps it. The plan only decides what an UNTOUCHED setting means.
+    const enabled = autocompleteAllowed();
     console.log(`[autocomplete] request FIRED index=${index} textLen=${text?.length ?? 0} enabled=${enabled}`);
     if (!enabled) { console.log("[autocomplete] skipped — setting is OFF"); return; }
     get().controller?.abort();

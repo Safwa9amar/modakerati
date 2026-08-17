@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useAutocompleteAllowed } from "@/lib/autocomplete-policy";
 import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, useWindowDimensions, Keyboard, BackHandler } from "react-native";
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedReaction, withSpring, runOnJS, interpolate } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -150,7 +151,7 @@ function InsertPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gest
   const open = useInsertMenuStore((s) => s.open);
   const query = useInsertMenuStore((s) => s.query);
   const recents = useInsertMenuStore((s) => s.recents);
-  const aiEnabled = useSettingsStore((s) => s.autocompleteEnabled);
+  const aiEnabled = useAutocompleteAllowed();
   const thesisId = useThesisStore((s) => s.currentThesisId);
   const [tab, setTab] = useState<TabKey>("all");
   // The real Word styles defined in THIS thesis (word/styles.xml), fetched lazily.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAutocompleteAllowed } from "@/lib/autocomplete-policy";
 import { useTranslation } from "react-i18next";
 import { View, Text, StyleSheet, AppState, ActivityIndicator, Dimensions, Keyboard, I18nManager } from "react-native";
 import { useFocusEffect } from "expo-router";
@@ -549,7 +550,7 @@ export function WorkspaceLexicalView({
   const range = useSuggestionStore((s) => s.range);
   // Inline AI autocomplete (ghost text): primitive selectors (no fresh-object loop —
   // see the zustand Object.is trap), derive the editor's `completion` prop in useMemo.
-  const completionEnabled = useSettingsStore((s) => s.autocompleteEnabled);
+  const completionEnabled = useAutocompleteAllowed();
   const compIndex = useCompletionStore((s) => s.index);
   const compText = useCompletionStore((s) => s.text);
   const compStatus = useCompletionStore((s) => s.status);

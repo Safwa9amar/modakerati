@@ -16,6 +16,14 @@ interface SettingsState {
   // student types (see stores/completion-store). FALSE fully disables the feature —
   // no completion fetches, no ghost. Read by WorkspaceLexicalView (completionEnabled).
   autocompleteEnabled: boolean;
+  // Whether the student has ever touched the toggle above.
+  //
+  // Until they do, the DEFAULT is decided by their plan rather than by this
+  // flag — autocomplete fires on every typing pause without being asked for,
+  // and the free tier's whole monthly AI budget is about 14 DZD, so leaving an
+  // unattended feature running inside it is the wrong default. See
+  // lib/autocomplete-policy.ts. Once touched, their choice always wins.
+  autocompleteTouched: boolean;
   // How the floating block toolbar (the ✦ bubble's expanded tool pill) lays its
   // chips out: "vertical" (default — a narrow side column that leaves the text
   // line unobstructed) or "horizontal" (a wide pill under the block). Read by
@@ -44,6 +52,7 @@ export const useSettingsStore = create<SettingsState>()(
       language: getDeviceLanguage(),
       hasCompletedOnboarding: false,
       autocompleteEnabled: true,
+      autocompleteTouched: false,
       toolbarOrientation: "vertical",
       lastThesisId: null,
       setTheme: (theme) => set({ theme }),
@@ -51,7 +60,9 @@ export const useSettingsStore = create<SettingsState>()(
       completeOnboarding: () => set({ hasCompletedOnboarding: true }),
       setAutocompleteEnabled: (v) => {
         console.log(`[autocomplete] setting toggled ${v ? "ON" : "OFF"}`);
-        set({ autocompleteEnabled: v });
+        // Touching it takes the decision away from the plan default, in both
+        // directions — a free user who wants ghost text keeps it.
+        set({ autocompleteEnabled: v, autocompleteTouched: true });
       },
       setToolbarOrientation: (v) => set({ toolbarOrientation: v }),
       setLastThesisId: (id) => set({ lastThesisId: id }),
@@ -71,7 +82,10 @@ export const useSettingsStore = create<SettingsState>()(
       // every existing install rather than only fresh ones — v5 wrote "horizontal"
       // to everyone, so honouring the stored value would leave the new default
       // reaching nobody. Anyone who prefers the wide pill re-picks it in Settings.
-      version: 7,
+      // v8: autocompleteTouched introduced. Existing installs are marked TOUCHED
+      // — they have been living with autocomplete on, and silently switching it
+      // off under them on upgrade would read as the feature breaking.
+      version: 8,
       migrate: (persisted, version) => {
         const s = (persisted ?? {}) as Partial<SettingsState>;
         const next = { ...s } as Partial<SettingsState>;
@@ -79,6 +93,7 @@ export const useSettingsStore = create<SettingsState>()(
         if (version < 5) next.toolbarOrientation = s.toolbarOrientation ?? "vertical";
         if (version < 6) next.lastThesisId = s.lastThesisId ?? null;
         if (version < 7) next.toolbarOrientation = "vertical";
+        if (version < 8) next.autocompleteTouched = true;
         return next as SettingsState;
       },
     }
