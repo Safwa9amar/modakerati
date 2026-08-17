@@ -20,20 +20,14 @@ export default function PaymentFailedScreen() {
         <Text style={[styles.title, { color: colors.textPrimary }]}>{t("payment.paymentFailed")}</Text>
         <Text style={[styles.description, { color: colors.textSecondary }]}>{t("payment.failedDescription")}</Text>
 
-        <View style={[styles.errorBadge, { backgroundColor: colors.semanticError + "15" }]}>
-          <Text style={[styles.errorCode, { color: colors.semanticError }]}>ERR_PAYMENT_DECLINED</Text>
-        </View>
+        {/* No invented error code: the gateway does not tell us why a card was
+            declined, and "ERR_PAYMENT_DECLINED" printed regardless is a made-up
+            fact a student will quote back to their bank. */}
 
         <Button
           title={t("payment.tryAgain")}
-          onPress={() => router.back()}
+          onPress={() => router.replace("/(app)/subscription" as any)}
           style={styles.primaryBtn}
-        />
-        <Button
-          title={t("payment.useDifferentMethod")}
-          onPress={() => router.replace("/(app)/payment-checkout")}
-          variant="secondary"
-          style={styles.secondaryBtn}
         />
       </View>
     </SafeAreaView>

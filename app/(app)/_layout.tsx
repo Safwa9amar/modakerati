@@ -33,7 +33,8 @@ export default function AppLayout() {
     <Stack.Screen name="privacy-policy" />
     <Stack.Screen name="edit-profile" />
     <Stack.Screen name="subscription" />
-    <Stack.Screen name="payment-checkout" />
+    {/* No in-app checkout screen: card details are collected by Chargily's own
+        hosted page, opened from `subscription`. The app never touches a PAN. */}
     <Stack.Screen name="payment-success" />
     <Stack.Screen name="payment-failed" />
     <Stack.Screen name="start-thesis" />
