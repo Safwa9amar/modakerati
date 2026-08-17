@@ -33,9 +33,12 @@ function previewText(t: TFunction, c: ConfirmPayload): string {
 }
 
 /**
- * A destructive AI action awaiting the student's approval. Approve executes the
+ * A destructive action awaiting the student's approval. Approve executes the
  * server-stored args (never a chat message); Cancel discards the action. Shown
  * in the composer sheet in place of the input, like ComposerAsk.
+ *
+ * Worded throughout as KWILL doing the thing, never as "the AI" wanting to: the
+ * student asked Kwill, and Kwill is what answers for the change afterwards.
  */
 export function ComposerConfirm({ confirm, onApprove, onCancel, rtl }: Props) {
   const { t } = useTranslation();
@@ -44,8 +47,12 @@ export function ComposerConfirm({ confirm, onApprove, onCancel, rtl }: Props) {
     <View style={styles.container}>
       <View style={[styles.titleRow, rtl && { flexDirection: "row-reverse" }]}>
         <TriangleAlert size={16} color={colors.semanticError} />
+        {/* Kwill's own voice, not "the AI wants to…". The student asked Kwill for
+            something; a third party asking permission to touch their thesis is
+            both stranger and less accountable than the product saying what it is
+            about to do. Same reason the assistant never narrates its tools. */}
         <Text style={[styles.title, { color: colors.textPrimary }]}>
-          {t("confirmAction.title", { defaultValue: "The AI wants to make a critical change" })}
+          {t("confirmAction.title", { defaultValue: "Kwill is about to make a big change to your thesis" })}
         </Text>
       </View>
       <Text style={[styles.preview, { color: colors.textSecondary, textAlign: visualTextAlign(rtl) }]}>

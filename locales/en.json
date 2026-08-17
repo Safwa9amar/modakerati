@@ -1323,7 +1323,7 @@
     }
   },
   "confirmAction": {
-    "title": "The AI wants to make a critical change",
+    "title": "Kwill is about to make a big change to your thesis",
     "deleteBlock": "Remove this from your thesis: «{{snippet}}»",
     "replaceText": "Replace {{count}} occurrence(s) of «{{find}}» with «{{replace}}»",
     "overwriteHeader": "Overwrite the page header with «{{next}}»",

@@ -1323,7 +1323,7 @@
     }
   },
   "confirmAction": {
-    "title": "يريد الذكاء الاصطناعي إجراء تعديل حساس",
+    "title": "يوشك Kwill على إجراء تعديل مهم في مذكرتك",
     "deleteBlock": "حذف هذا من مذكرتك: «{{snippet}}»",
     "replaceText": "استبدال {{count}} من تكرارات «{{find}}» بـ «{{replace}}»",
     "overwriteHeader": "استبدال رأس الصفحة بـ «{{next}}»",

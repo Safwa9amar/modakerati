@@ -1323,7 +1323,7 @@
     }
   },
   "confirmAction": {
-    "title": "L'IA souhaite effectuer une modification critique",
+    "title": "Kwill va apporter une modification importante à votre mémoire",
     "deleteBlock": "Retirer ceci de votre mémoire : « {{snippet}} »",
     "replaceText": "Remplacer {{count}} occurrence(s) de « {{find}} » par « {{replace}} »",
     "overwriteHeader": "Remplacer l'en-tête de page par « {{next}} »",
