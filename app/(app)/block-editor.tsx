@@ -218,7 +218,7 @@ export default function BlockEditorScreen() {
                   multiline
                   maxLength={2000}
                   placeholder={t("blockEditor.aiPlaceholder", {
-                    defaultValue: "Ask the AI to edit this paragraph…",
+                    defaultValue: "Ask Kwill to edit this paragraph…",
                   })}
                   placeholderTextColor={colors.textPlaceholder}
                 />

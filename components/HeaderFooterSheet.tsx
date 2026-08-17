@@ -548,7 +548,7 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
             <TextInput
               value={aiText}
               onChangeText={setAiText}
-              placeholder={errored ? t("suggestion.noneRetry", { defaultValue: "No suggestion — try again" }) : t("workspace.hf.aiPlaceholder", { defaultValue: "Ask AI to change this…" })}
+              placeholder={errored ? t("suggestion.noneRetry", { defaultValue: "No suggestion — try again" }) : t("workspace.hf.aiPlaceholder", { defaultValue: "Ask Kwill to change this…" })}
               placeholderTextColor={colors.textPlaceholder}
               returnKeyType="send"
               onSubmitEditing={submit}
@@ -557,7 +557,7 @@ function HfPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Gesture.
             <Pressable
               onPress={submit}
               accessibilityRole="button"
-              accessibilityLabel={t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" })}
+              accessibilityLabel={t("workspace.hf.aiEdit", { defaultValue: "Ask Kwill to change" })}
               style={[styles.sendBtn, { backgroundColor: colors.brandPrimary }]}
             >
               <Send size={18} color={colors.brandOnPrimary} strokeWidth={2.2} style={appRtl ? { transform: [{ scaleX: -1 }] } : undefined} />

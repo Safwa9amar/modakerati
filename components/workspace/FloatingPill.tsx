@@ -902,7 +902,7 @@ export function FloatingPill({ thesisId, blocks, rtl }: Props) {
                       : !awaitingReply && isEmptyPara
                         ? t("insert.addBlock", { defaultValue: "Add a block" })
                         : count === 0
-                          ? t("blockBar.askAi", { defaultValue: "Ask AI" })
+                          ? t("blockBar.askAi", { defaultValue: "Ask Kwill" })
                           : t("blockBar.formattingTools", { defaultValue: "Formatting tools" })
                 }
                 onPress={

@@ -22,7 +22,7 @@ export function HeaderFooterTools() {
       {chip({
         keyProp: "hf-ai",
         Icon: Sparkles,
-        accessibilityLabel: t("workspace.hf.aiEdit", { defaultValue: "Ask AI to change" }),
+        accessibilityLabel: t("workspace.hf.aiEdit", { defaultValue: "Ask Kwill to change" }),
         enterIndex: 0,
         onPress: () => {
           if (!chrome || (chrome.kind !== "top" && chrome.kind !== "bottom")) return;

@@ -365,7 +365,7 @@ function EquationPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ge
             the student still reads it and decides. */}
         <View style={{ gap: 7 }}>
           <Text style={[styles.fieldLabel, { color: colors.textSecondary, textAlign }]}>
-            {t("workspace.equation.ask", { defaultValue: "Ask AI" })}
+            {t("workspace.equation.ask", { defaultValue: "Ask Kwill" })}
           </Text>
           <View style={[{ flexDirection: rowDir }, styles.askRow]}>
             <TextInput
@@ -394,7 +394,7 @@ function EquationPanel({ dragPan, bottomInset }: { dragPan: ReturnType<typeof Ge
                 { backgroundColor: colors.brandPrimary, opacity: !ask.trim() || asking ? 0.5 : 1 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel={t("workspace.equation.ask", { defaultValue: "Ask AI" })}
+              accessibilityLabel={t("workspace.equation.ask", { defaultValue: "Ask Kwill" })}
             >
               {asking ? (
                 <ActivityIndicator size="small" color={colors.brandOnPrimary} />

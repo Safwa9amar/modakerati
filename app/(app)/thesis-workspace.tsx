@@ -909,7 +909,7 @@ export default function ThesisWorkspaceScreen() {
             </Text>
             <Text style={styles.emptyHint}>
               {t("workspace.emptyHint", {
-                defaultValue: "Ask the AI in the composer to draft your first section ✨",
+                defaultValue: "Ask Kwill in the composer to draft your first section ✨",
               })}
             </Text>
           </View>

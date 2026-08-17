@@ -567,7 +567,7 @@ export function WorkspaceComposerSheet({
           >
             <Undo2 size={15} color={colors.brandPrimary} strokeWidth={2} />
             <Text style={[styles.bulkText, { color: colors.brandPrimary }]} numberOfLines={1}>
-              {t("workspace.undoAiChanges", { defaultValue: "Undo AI changes" })}
+              {t("workspace.undoAiChanges", { defaultValue: "Undo Kwill's changes" })}
             </Text>
           </Pressable>
         )}
@@ -636,7 +636,7 @@ export function WorkspaceComposerSheet({
                   onFocus={markInputFocused}
                   onBlur={markInputBlurred}
                   isGenerating={isGenerating}
-                  placeholder={t("workspace.askPlaceholder", { defaultValue: "Ask the AI to write or edit…" })}
+                  placeholder={t("workspace.askPlaceholder", { defaultValue: "Ask Kwill to write or edit…" })}
                   sendLabel={t("chat.send", { defaultValue: "Send" })}
                   stopLabel={t("chat.stop", { defaultValue: "Stop" })}
                   micLabel={t("composer.micLabel", { defaultValue: "Voice input" })}

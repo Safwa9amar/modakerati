@@ -423,7 +423,7 @@ export function BlockContextBar({
       disabled={askDisabled}
       accessibilityRole="button"
       accessibilityState={{ disabled: askDisabled }}
-      accessibilityLabel={t("blockBar.askAi", { defaultValue: "Ask AI" })}
+      accessibilityLabel={t("blockBar.askAi", { defaultValue: "Ask Kwill" })}
       style={[styles.askBtn, { backgroundColor: colors.brandPrimary }, askDisabled && toolStyles.chipDim]}
     >
       {askDisabled ? null : <AskAIGlow trigger={selectedIndices.join(",")} color={colors.brandPrimary} />}
