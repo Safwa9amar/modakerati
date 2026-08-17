@@ -11,8 +11,10 @@ import { visualRow, visualTextAlign } from "@/lib/rtl-layout";
 //   BLOCKED — the server refused the turn. The question stays in the chat marked
 //             undelivered (so Retry works once there is credit); this explains
 //             why and offers the only thing that can fix it.
-//   LOW     — still sendable, but nearly out. Dismissible, and never shown twice
-//             in a row for the same count.
+//   LOW     — still sendable, but nearly out. Dismissible: closing it sets
+//             `lowDismissed` in the store, because that is what `useQuotaLow`
+//             reads. It stays closed until the count climbs back out of the low
+//             band (a top-up, a renewal), when there is something new to say.
 //
 // Why here rather than an Alert: a modal interrupts, and the student is mid
 // thought. This sits where the answer would have appeared.
@@ -26,6 +28,7 @@ export function QuotaNotice() {
   const available = useQuotaAvailable();
   const low = useQuotaLow();
   const setBlocked = useBillingStore((s) => s.setBlocked);
+  const dismissLow = useBillingStore((s) => s.dismissLow);
 
   // -1 means the counter has never loaded — say nothing rather than guess.
   if (!blocked && (!low || available < 0)) return null;
@@ -68,6 +71,9 @@ export function QuotaNotice() {
 
       <Pressable
         onPress={() => {
+          // Clears the block so the card doesn't sit over the paywall it just
+          // opened; the counter is re-read when the student comes back, and the
+          // send path re-blocks if they still have nothing.
           setBlocked(null);
           router.push("/(app)/subscription" as any);
         }}
@@ -78,9 +84,17 @@ export function QuotaNotice() {
       </Pressable>
 
       {/* Only the warning is dismissible. Hiding the blocked card would leave a
-          composer that silently refuses every send with nothing to explain it. */}
+          composer that silently refuses every send with nothing to explain it.
+          ⚠️ dismissLow, NOT setBlocked: in this state there is no block to clear
+          — `useQuotaLow` decides whether this card exists, so the × has to
+          answer THAT or it does nothing at all (which is how it shipped). */}
       {!isBlocked && (
-        <Pressable onPress={() => setBlocked(null)} hitSlop={10}>
+        <Pressable
+          onPress={dismissLow}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={t("common.close", { defaultValue: "Close" })}
+        >
           <X size={16} color={colors.textSecondary} />
         </Pressable>
       )}

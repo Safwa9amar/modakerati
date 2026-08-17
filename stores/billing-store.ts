@@ -27,6 +27,19 @@ interface BillingState {
    * raise the paywall instead of leaving a dead bubble; clearing it dismisses.
    */
   blockedReason: QuotaDenyReason | null;
+  /**
+   * The student closed the "nearly out" warning.
+   *
+   * It needs its own flag: that warning is shown from the DERIVED `useQuotaLow`
+   * (a threshold on `available`), so there was nothing for its × to clear — it
+   * called `setBlocked(null)`, which is already null whenever the warning is the
+   * thing on screen, and the card could not be dismissed at all.
+   *
+   * Retired the moment the count climbs back out of the low band (a top-up, a
+   * renewal, a new month), so the next run-down warns again. Session-scoped —
+   * being genuinely blocked raises its own card, which is never dismissible.
+   */
+  lowDismissed: boolean;
 
   refreshQuota: () => Promise<void>;
   refreshCatalogue: () => Promise<void>;
@@ -35,6 +48,8 @@ interface BillingState {
   /** Apply a quota snapshot the server sent back on a turn — no round-trip. */
   applyQuota: (quota: QuotaState | null | undefined) => void;
   setBlocked: (reason: QuotaDenyReason | null, quota?: QuotaState | null) => void;
+  /** Close the "nearly out" warning. Not the blocked card — that one stays. */
+  dismissLow: () => void;
   /**
    * Optimistically spend one message so the counter moves the instant the
    * student sends, instead of a beat later when the turn returns. The server
@@ -44,17 +59,35 @@ interface BillingState {
   spendOne: () => void;
 }
 
+/** The band `useQuotaLow` warns inside — see the selector for why a threshold. */
+const LOW_AT = 3;
+
+/**
+ * Does a dismissal of the "nearly out" warning still hold, given a fresh count?
+ *
+ * Only while the count is still inside the low band. A count that has climbed
+ * back out means the student topped up or a new month started, so the next time
+ * they run low the warning has something new to say and must be shown again.
+ */
+const keepsDismissal = (dismissed: boolean, quota: QuotaState | null | undefined): boolean => {
+  if (!dismissed) return false;
+  const a = quota?.available;
+  return a !== undefined && a >= 0 && a <= LOW_AT;
+};
+
 export const useBillingStore = create<BillingState>((set, get) => ({
   quota: null,
   catalogue: null,
   loading: false,
   catalogueFailed: false,
   blockedReason: null,
+  lowDismissed: false,
 
   refreshQuota: async () => {
     set({ loading: true });
     try {
-      set({ quota: await fetchQuota() });
+      const quota = await fetchQuota();
+      set({ quota, lowDismissed: keepsDismissal(get().lowDismissed, quota) });
     } catch {
       // A counter that can't be read is not worth an error screen — the send
       // path still gets the authoritative answer from the server.
@@ -82,12 +115,22 @@ export const useBillingStore = create<BillingState>((set, get) => ({
   applyQuota: (quota) => {
     if (!quota) return;
     // A fresh reading always clears the block: the student may have just paid.
-    set({ quota, blockedReason: quota.available > 0 ? null : get().blockedReason });
+    set({
+      quota,
+      blockedReason: quota.available > 0 ? null : get().blockedReason,
+      lowDismissed: keepsDismissal(get().lowDismissed, quota),
+    });
   },
 
   setBlocked: (reason, quota) => {
-    set(quota ? { blockedReason: reason, quota } : { blockedReason: reason });
+    set(
+      quota
+        ? { blockedReason: reason, quota, lowDismissed: keepsDismissal(get().lowDismissed, quota) }
+        : { blockedReason: reason },
+    );
   },
+
+  dismissLow: () => set({ lowDismissed: true }),
 
   spendOne: () => {
     const q = get().quota;
@@ -126,9 +169,14 @@ export const usePaymentsEnabled = () => useBillingStore((s) => s.catalogue?.paym
  * Deliberately a threshold rather than a percentage: on the free plan 20% of 5
  * is 1, which is too late to be a warning, and on a 1,800-message pooled plan
  * 20% is 360, which is noise.
+ *
+ * Closing the warning has to be answered HERE, not just in the card: this is
+ * what decides whether it is on screen, so a card that only cleared its own
+ * state stayed exactly where it was.
  */
 export const useQuotaLow = () =>
   useBillingStore((s) => {
     const a = s.quota?.available;
-    return a !== undefined && a >= 0 && a <= 3;
+    if (a === undefined || a < 0 || a > LOW_AT) return false;
+    return !s.lowDismissed;
   });
